@@ -1,0 +1,431 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cassandra: Self-Speculative Decoding at Edge</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600;700&family=Source+Serif+4:ital,wght@0,400;0,700;0,900;1,400&display=swap');
+
+  :root {
+    --accent: #D97706;
+    --accent-light: #FEF3C7;
+    --accent-dark: #92400E;
+    --bg: #FAFAF9;
+    --surface: #FFFFFF;
+    --text: #1C1917;
+    --muted: #78716C;
+    --border: #E7E5E4;
+    --radius: 6px;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'Source Serif 4', Georgia, serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrapper {
+    width: min(95vw, 1100px);
+    margin: 0 auto;
+    padding: 0 1.5rem;
+  }
+
+  /* ── Nav ── */
+  nav {
+    padding: 1.25rem 0;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.82rem;
+  }
+  nav a {
+    color: var(--muted);
+    text-decoration: none;
+    border-bottom: 1px solid var(--border);
+    transition: color .15s, border-color .15s;
+  }
+  nav a:hover { color: var(--accent); border-color: var(--accent); }
+
+  /* ── Hero ── */
+  .hero {
+    border-top: 3px solid var(--accent);
+    padding: 2.5rem 0 2rem;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 2rem;
+  }
+  .hero-title-block { grid-column: 1 / -1; }
+  .hero-title-block h1 {
+    font-family: 'IBM Plex Mono', monospace;
+    font-weight: 700;
+    font-size: clamp(1.5rem, 3.2vw, 2.2rem);
+    line-height: 1.25;
+    letter-spacing: -0.02em;
+  }
+  .hero-title-block h1 a {
+    color: var(--text);
+    text-decoration: none;
+    transition: color .15s;
+  }
+  .hero-title-block h1 a:hover { color: var(--accent); }
+  .hero-meta {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.78rem;
+    color: var(--muted);
+    margin-top: 0.6rem;
+  }
+  .hero-meta span { margin-right: 1.2rem; }
+
+  /* Asset cards */
+  .asset {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1.4rem 1.5rem;
+    position: relative;
+  }
+  .asset-label {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.65rem;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 0.5rem;
+  }
+  .asset-metric .asset-value {
+    font-family: 'IBM Plex Mono', monospace;
+    font-weight: 700;
+    font-size: clamp(2.4rem, 5vw, 3.6rem);
+    line-height: 1;
+    color: var(--accent);
+  }
+  .asset-metric .asset-unit {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.9rem;
+    color: var(--muted);
+    margin-top: 0.3rem;
+  }
+  .asset-finding p {
+    font-size: 1.05rem;
+    font-style: italic;
+    line-height: 1.55;
+  }
+  .asset-why {
+    border-left: 3px solid var(--accent);
+    padding-left: 1rem;
+  }
+  .asset-why p {
+    font-size: 1rem;
+    font-weight: 700;
+    line-height: 1.5;
+  }
+  .asset-edge {
+    background: var(--accent-light);
+    border-color: var(--accent);
+  }
+  .asset-edge p {
+    font-size: 0.95rem;
+    line-height: 1.5;
+  }
+
+  /* ── Body Grid ── */
+  .body-grid {
+    padding: 2rem 0 3rem;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1.5rem;
+  }
+
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1.6rem 1.5rem;
+  }
+  .panel h2 {
+    font-family: 'IBM Plex Mono', monospace;
+    font-weight: 700;
+    font-size: 0.85rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--accent-dark);
+    margin-bottom: 1rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 2px solid var(--accent);
+  }
+  .panel.full { grid-column: 1 / -1; }
+
+  .panel h3 {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: var(--accent);
+    margin: 1rem 0 0.4rem;
+  }
+  .panel h3:first-of-type { margin-top: 0; }
+
+  .panel p, .panel li {
+    font-size: 0.92rem;
+    line-height: 1.6;
+    color: #44403C;
+  }
+  .panel ul { padding-left: 1.1rem; }
+  .panel li { margin-bottom: 0.35rem; }
+
+  /* Methodology flow */
+  .flow-steps {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 0.75rem;
+    margin: 0.8rem 0;
+  }
+  .flow-step {
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 0.9rem;
+    position: relative;
+    counter-increment: step;
+  }
+  .flow-step::before {
+    content: counter(step);
+    font-family: 'IBM Plex Mono', monospace;
+    font-weight: 700;
+    font-size: 1.4rem;
+    color: var(--accent);
+    display: block;
+    margin-bottom: 0.3rem;
+  }
+  .flow-step strong {
+    display: block;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.78rem;
+    font-weight: 600;
+    margin-bottom: 0.25rem;
+  }
+  .flow-step span {
+    font-size: 0.82rem;
+    color: var(--muted);
+    line-height: 1.45;
+  }
+
+  /* Results grid */
+  .result-rows { list-style: none; padding: 0; }
+  .result-rows li {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    padding: 0.55rem 0;
+    border-bottom: 1px solid var(--border);
+    font-size: 0.9rem;
+  }
+  .result-rows li:last-child { border-bottom: none; }
+  .result-rows .r-label { color: #44403C; flex: 1; }
+  .result-rows .r-value {
+    font-family: 'IBM Plex Mono', monospace;
+    font-weight: 600;
+    color: var(--accent-dark);
+    font-size: 0.88rem;
+    white-space: nowrap;
+    margin-left: 1rem;
+  }
+
+  /* Strengths / Limitations */
+  .panel.strengths { border-top: 3px solid var(--accent); }
+  .panel.limitations { border-top: 3px solid var(--muted); }
+  .panel.strengths h2 { color: var(--accent-dark); border-bottom-color: var(--accent); }
+  .panel.limitations h2 { color: var(--muted); border-bottom-color: var(--muted); }
+
+  /* Questions */
+  .questions-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.75rem;
+    list-style: none;
+    padding: 0;
+    counter-reset: q;
+  }
+  .questions-grid li {
+    counter-increment: q;
+    font-size: 0.9rem;
+    line-height: 1.55;
+    padding: 0.8rem 0.9rem 0.8rem 2.4rem;
+    background: var(--bg);
+    border-radius: var(--radius);
+    position: relative;
+  }
+  .questions-grid li::before {
+    content: 'Q' counter(q);
+    font-family: 'IBM Plex Mono', monospace;
+    font-weight: 700;
+    font-size: 0.72rem;
+    color: var(--accent);
+    position: absolute;
+    left: 0.7rem;
+    top: 0.85rem;
+  }
+
+  /* ── Footer ── */
+  footer {
+    padding: 1.5rem 0 3rem;
+    border-top: 1px solid var(--border);
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.78rem;
+    color: var(--muted);
+    display: flex;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+  footer a {
+    color: var(--accent-dark);
+    text-decoration: none;
+    border-bottom: 1px solid var(--border);
+  }
+  footer a:hover { border-color: var(--accent); }
+
+  /* ── Responsive ── */
+  @media (max-width: 720px) {
+    .hero { grid-template-columns: 1fr; gap: 1.2rem; padding: 1.5rem 0 1.2rem; }
+    .body-grid { grid-template-columns: 1fr; gap: 1.2rem; }
+    .panel.full { grid-column: 1; }
+    .flow-steps { grid-template-columns: 1fr; }
+    .questions-grid { grid-template-columns: 1fr; }
+    .hero-title-block h1 { font-size: 1.35rem; }
+    .asset-metric .asset-value { font-size: 2.2rem; }
+    footer { flex-direction: column; }
+  }
+</style>
+</head>
+<body>
+<div class="wrapper">
+
+  <nav><a href="./index.html">&larr; Today's digest</a></nav>
+
+  <!-- ── Hero ── -->
+  <section class="hero">
+    <div class="hero-title-block">
+      <h1><a href="https://arxiv.org/abs/2605.26558">Cassandra: Enabling Reasoning LLMs at Edge via Self-Speculative Decoding</a></h1>
+      <div class="hero-meta">
+        <span>2605.26558</span>
+        <span>2026-05-26</span>
+        <span>Choi, Kim, Son, Kim &middot; KAIST</span>
+      </div>
+    </div>
+
+    <div class="asset asset-finding">
+      <div class="asset-label">Key Finding</div>
+      <p>Cassandra achieves up to 2.41x lossless speedup for edge LLM inference via training-free self-speculative decoding with fine-grained data selection.</p>
+    </div>
+
+    <div class="asset asset-metric">
+      <div class="asset-label">Key Metric</div>
+      <div class="asset-value">2.41x</div>
+      <div class="asset-unit">speedup over BF16 baseline</div>
+    </div>
+
+    <div class="asset asset-why">
+      <div class="asset-label">Why This Matters</div>
+      <p>Training-free lossless acceleration makes reasoning LLMs deployable on consumer edge devices without vendor cooperation or retraining.</p>
+    </div>
+
+    <div class="asset asset-edge">
+      <div class="asset-label">Critical Edge</div>
+      <p>Only validated through simulation, not real hardware. Requires vendor-proprietary hardware modifications (encoder/decoder modules, page table bits, L2 cache integration).</p>
+    </div>
+  </section>
+
+  <!-- ── Body ── -->
+  <div class="body-grid">
+
+    <!-- Methodology -->
+    <section class="panel full">
+      <h2>Methodology</h2>
+      <p>Cassandra constructs a draft model as a <strong>strict bit-level subset</strong> of the target model, eliminating separate draft-model memory overhead. Three transforms are applied sequentially to weights and KV cache:</p>
+      <div class="flow-steps">
+        <div class="flow-step">
+          <strong>Exponent Compression</strong>
+          <span>Cassandra-1: lossless unary coding (~2.85 bits/elem). Cassandra-2: shared-exponent MX format, higher compression, minor accuracy tradeoff.</span>
+        </div>
+        <div class="flow-step">
+          <strong>Unstructured Pruning</strong>
+          <span>Wanda activation-aware pruning for weights (128 calibration samples). Magnitude-based per-token pruning for KV cache.</span>
+        </div>
+        <div class="flow-step">
+          <strong>Mantissa Truncation</strong>
+          <span>Truncates low-order bits. Draft parameters are a subset of target bits, so zero memory overhead for the draft model.</span>
+        </div>
+      </div>
+      <h3>Runtime Speculative Decoding</h3>
+      <p>During draft inference, only speculation data is loaded (reduced bandwidth). During verification, both speculation + verification data reconstruct full-precision target model for rejection sampling.</p>
+      <h3>Hardware Module</h3>
+      <p>Lightweight encoder-decoder between L2 cache and interconnect (GPU) or in DMA controller (NPU). Parallel unary decoder processes 8-bit chunks with cross-chunk state propagation. Superblock memory management handles variable-length encoded data. <strong>~2% area overhead</strong> on a 64 TFLOPS NPU at 28nm.</p>
+      <h3>Calibration</h3>
+      <p>Grid search over pruning ratios (30-60%) and truncation bits (0-5) on 8 samples takes ~5 min on an A100. Default (40% pruning, 4-bit truncation) transfers well across models.</p>
+    </section>
+
+    <!-- Results -->
+    <section class="panel full">
+      <h2>Results &amp; Highlights</h2>
+      <ul class="result-rows">
+        <li><span class="r-label">Speedup across 3 platforms (RTX 4090, Jetson Orin, 64T NPU)</span><span class="r-value">1.78x &ndash; 2.41x</span></li>
+        <li><span class="r-label">Acceptance rate (Cassandra-1, &gamma;=5)</span><span class="r-value">0.74 &ndash; 0.91</span></li>
+        <li><span class="r-label">Cassandra-1 accuracy vs BF16</span><span class="r-value">Identical (lossless)</span></li>
+        <li><span class="r-label">Token output vs Eagle-3 (same memory budget, RTX 4090)</span><span class="r-value">1.81x more</span></li>
+        <li><span class="r-label">Token output vs Draft&amp;Verify (same memory budget)</span><span class="r-value">11.59x more</span></li>
+        <li><span class="r-label">Hardware area overhead (64T NPU, 28nm)</span><span class="r-value">~2% (1.76 mm&sup2;)</span></li>
+        <li><span class="r-label">Hardware power overhead</span><span class="r-value">~1.7%</span></li>
+        <li><span class="r-label">Calibration time</span><span class="r-value">~5 min (vs 96-192 GPU-hrs for Eagle-3)</span></li>
+      </ul>
+      <p style="margin-top:0.8rem; font-size:0.88rem; color:var(--muted);">Evaluated on LiveCodeBench, GPQA-Diamond, LongBench-QMSum, Math-500 with DeepSeek-R1-Distill-Llama3-8B, Qwen3-8B-Thinking, Qwen3-4B-Thinking-2507.</p>
+    </section>
+
+    <!-- Strengths -->
+    <section class="panel strengths">
+      <h2>Strengths</h2>
+      <ul>
+        <li>Completely training-free; calibration takes ~5 min with 128 samples on a single A100.</li>
+        <li>Zero additional memory &mdash; draft model is a strict subset of target model data.</li>
+        <li>Cassandra-1 is truly lossless, critical for reasoning tasks where lossy compression causes severe degradation.</li>
+        <li>Concrete hardware synthesis results at 28nm with integration guidelines for both GPU and NPU.</li>
+        <li>Consistent performance across benchmarks, unlike task-specific methods.</li>
+      </ul>
+    </section>
+
+    <!-- Limitations -->
+    <section class="panel limitations">
+      <h2>Limitations</h2>
+      <ul>
+        <li>Only validated through cycle-accurate simulation (Accel-Sim, Scale-Sim), not real hardware.</li>
+        <li>Requires hardware modifications that depend on GPU/NPU vendor adoption.</li>
+        <li>Demonstrated on 4B-8B models only; scaling to 70B+ or &lt;3B not evaluated.</li>
+        <li>Acceptance rate 0.74-0.91 limits speedup ceiling vs training-based methods like Eagle-3.</li>
+        <li>Cassandra-2's advantage over simple INT8 quantization is less clear-cut given quantization's broader ecosystem support.</li>
+      </ul>
+    </section>
+
+    <!-- Questions -->
+    <section class="panel full">
+      <h2>Questions for Further Exploration</h2>
+      <ol class="questions-grid">
+        <li>How does Cassandra perform when combined with INT8/FP8 quantization on the target model?</li>
+        <li>What is the sensitivity to pruning ratio and truncation bit-width beyond Llama3/Qwen3 (e.g., Gemma, Mistral)?</li>
+        <li>Can unary coding exponent compression extend to FP8 or other reduced-precision formats?</li>
+        <li>How does acceptance rate degrade with increasing draft length (&gamma; &gt; 5)?</li>
+        <li>What is the end-to-end latency impact of online KV cache format conversion for very long sequences?</li>
+      </ol>
+    </section>
+
+  </div>
+
+  <footer>
+    <span>arxiv:2605.26558 &middot; speculative-decoding &middot; edge-inference &middot; hw-sw-codesign</span>
+    <a href="2605.26558.html">Full summary (.md)</a>
+  </footer>
+
+</div>
+</body>
+</html>

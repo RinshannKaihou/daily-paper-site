@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sub-Token Routing in LoRA for Adaptation and Query-Aware KV Compression</title>
+<style>
+:root { --paper:#fafafa; --ink:#1a1a1a; --muted:#555; --accent:#1a5276; --line:#ddd; --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif; --serif:Georgia,"Noto Serif SC",serif; }
+body { font-family:var(--serif); background:var(--paper); color:var(--ink); line-height:1.6; margin:0; padding:0; }
+.container { max-width:min(95vw, 760px); margin:0 auto; padding:28px 20px 60px; }
+.topnav { position:fixed; top:12px; left:14px; z-index:50; font-family:var(--sans); font-size:.75rem; background:var(--paper); border:1px solid var(--line); padding:5px 10px; border-radius:999px; }
+.topnav a { color:var(--muted); text-decoration:none; font-weight:600; }
+.topnav a:hover { color:var(--accent); }
+h1 { font-size:1.6rem; margin:2.2rem 0 1rem; border-bottom:2px solid var(--accent); padding-bottom:.3rem; }
+h2 { font-size:1.3rem; margin:1.8rem 0 .8rem; color:var(--accent); }
+h3 { font-size:1.1rem; margin:1.4rem 0 .6rem; }
+p { margin:.8rem 0; }
+.authors { font-style:italic; color:var(--muted); margin-top:-.4rem; }
+.meta { font-family:var(--sans); font-size:.82rem; color:var(--muted); margin:.2rem 0; }
+a { color:var(--accent); text-decoration:none; }
+a:hover { text-decoration:underline; }
+blockquote { border-left:3px solid var(--accent); margin:1rem 0; padding:.2rem 0 .2rem 1rem; color:var(--muted); font-style:italic; }
+code { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; background:#f0f0f0; padding:2px 5px; border-radius:3px; font-size:.9em; }
+pre { background:#f5f5f5; padding:14px; overflow-x:auto; border-radius:4px; border:1px solid var(--line); }
+pre code { background:transparent; padding:0; }
+ul,ol { margin:.6rem 0; padding-left:1.5rem; }
+li { margin:.25rem 0; }
+table { border-collapse:collapse; width:100%; margin:1rem 0; font-family:var(--sans); font-size:.9rem; }
+th,td { border:1px solid var(--line); padding:6px 10px; text-align:left; }
+th { background:#f0f0f0; }
+hr { border:none; border-top:1px solid var(--line); margin:1.5rem 0; }
+.note { font-family:var(--sans); font-size:.78rem; color:var(--muted); border-top:1px solid var(--line); margin-top:2rem; padding-top:1rem; }
+@media (max-width: 600px) { .container { padding:22px 14px 40px; } h1 { font-size:1.35rem; } }
+</style>
+</head>
+<body>
+<div class="topnav"><a href="./index.html">← Today's digest</a></div>
+<div class="container">
+<h1>Sub-Token Routing in LoRA for Adaptation and Query-Aware KV Compression</h1>
+<p class="authors">Wei Jiang, Wei Wang</p>
+<p class="meta">arXiv: 2604.21335v1</p>
+<p class="meta">Date: 2026-04-23</p>
+<p class="meta"><a href="https://arxiv.org/abs/2604.21335">https://arxiv.org/abs/2604.21335</a></p>
+<blockquote><strong>一句话总结：</strong> 通过在LoRA子空间和KV缓存值组上引入稀疏路由机制，在保持99%基线精度的前提下，将KV缓存压缩至37.5%。</blockquote>
+<blockquote><strong>TL;DR:</strong> Sub-token routing partitions LoRA weight updates and KV cache value vectors into subspaces/groups with learned sparse selection, achieving 37.5% total KV retention with 99.1–99.8% MMLU accuracy on Qwen2.5-7B to 72B.</blockquote>
+<h2>核心贡献</h2>
+<ul>
+<li>提出"路由子空间LoRA"（Routed Subspace LoRA），将LoRA增量权重分解为S个子空间，通过稀疏top-K路由对不同输入动态激活不同子空间，兼顾适配灵活性和参数效率</li>
+<li>提出"值组路由"（Value-Group Routing），将注意力头的value向量分成S组，仅保留重要性最高的top-K组，实现KV缓存的token级别精细压缩</li>
+<li>设计查询感知预测器（两层MLP，92万–210万参数），在不显著增加额外开销的情况下，利用查询向量动态选择保留的KV组</li>
+<li>实验证明在MMLU等基准上，Sub-token方法在75% KV预算时优于LoRA（100% KV）和MoE-LoRA（100% KV），充分说明压缩与适配可以协同提升</li>
+</ul>
+<h2>Key Contributions</h2>
+<ul>
+<li><strong>Routed Subspace LoRA</strong>: Decomposes the LoRA weight update ΔW(x) = Σ rₛ(x) ΔW^(s) across S subspaces with sparse top-K routing gates, enabling input-dependent adaptation beyond standard LoRA</li>
+<li><strong>Value-Group Routing</strong>: Partitions the value vector v ∈ ℝ^(d_head) into S equal groups, retaining only top-K groups per token based on learned importance scores — a fine-grained KV compression not tied to full-head or full-token eviction</li>
+<li><strong>Query-Aware Predictor</strong>: A two-layer MLP (d_model → 256 → S) that conditions KV group selection on the current query, enabling dynamic rather than query-independent compression</li>
+<li><strong>Joint Adaptation + Compression</strong>: Shows that fine-tuning and KV compression can be co-optimized, with compressed models at 75% KV outperforming full-KV LoRA on perplexity metrics</li>
+</ul>
+<h2>Methodology</h2>
+<p><strong>Routed Subspace LoRA</strong> treats the LoRA weight update as a mixture: ΔW(x) = Σₛ rₛ(x) · ΔW^(s), where each subspace ΔW^(s) = Bₛ Aₛ is a rank-r LoRA matrix, and rₛ(x) is a sparse routing coefficient computed via a routing network. Top-K sparsity is enforced over S subspaces. This is analogous to MoE-LoRA but operates at a sub-token (per-input-vector) granularity.</p>
+<p><strong>Value-Group Routing</strong> divides the value vector for each token position into S contiguous groups of size d_head/S. An importance score is computed per group (via either a static or query-conditioned predictor), and only the top-K groups are retained in the KV cache. During attention computation, unretained groups are zeroed or dropped.</p>
+<p><strong>Query-Aware vs. Query-Independent</strong>: The query-independent variant uses average pooled key features to score groups (no query dependence, lower overhead). The query-aware variant uses a small MLP conditioned on the current query vector, allowing per-query adaptation of what to retain.</p>
+<p><strong>Expected Attention (EA) integration</strong>: The authors combine their method with Expected Attention, a prior technique that uses attention score statistics to guide KV eviction. Sub-token routing and EA are shown to be complementary — combining both yields lower total KV budgets than either alone.</p>
+<p><strong>Evaluation setup</strong>: Qwen2.5-7B, 14B, 32B, 72B and Mistral-7B; tasks include perplexity (language modeling), MMLU (5-shot), and long-context retrieval benchmarks.</p>
+<h2>Results & Highlights</h2>
+<ul>
+<li><strong>Table 1 (perplexity)</strong>: Sub-token routing at 75% KV budget achieves lower perplexity than both standard LoRA at 100% KV and MoE-LoRA at 100% KV — demonstrating that targeted compression can actually improve over uncompressed fine-tuning</li>
+<li><strong>Table 2 (MMLU at ρ=0.50, 62.5% total KV)</strong>: Retains 98.5–99.8% of full-model MMLU baseline across all tested model sizes</li>
+<li><strong>EA + Sub-token combined</strong>: Reaches 37.5% total KV at 99.1% MMLU accuracy retention on 7B; 99.6–99.8% on 14B–72B — a dramatic compression ratio with minimal quality loss</li>
+<li><strong>Scaling behavior</strong>: Larger models (14B–72B) show better compression tolerance, consistent with the general finding that larger models are more redundant in KV usage</li>
+<li><strong>Query-aware predictor overhead</strong>: ~920K–2.1M additional parameters; the authors report negligible latency impact in practice</li>
+</ul>
+<h2>Authors & Credibility</h2>
+<p>Wei Jiang and Wei Wang are affiliated with Futurewei Technologies (the R&D arm of Huawei) in San Jose. The paper does not appear in a named venue (workshop or conference), which somewhat limits peer-review credibility. Futurewei has published prior work on efficient LLM inference and LoRA variants. The evaluation is reasonably broad (5 model sizes, multiple benchmarks), though independent replication has not been verified.</p>
+<h2>Critical Assessment</h2>
+<p><strong>Novelty</strong>: Moderate. Sub-token routing builds naturally on MoE-LoRA and prior value-group compression work. The specific combination of value-group routing with query-aware prediction at the LoRA fine-tuning stage is novel, but each component individually is incremental.</p>
+<p><strong>Rigor</strong>: Acceptable. The perplexity and MMLU results are presented with multiple model sizes, which adds credibility. However, the paper lacks ablation studies isolating the contribution of query-aware vs. query-independent routing, which would clarify whether the MLP predictor is doing meaningful work or the simpler static version suffices.</p>
+<p><strong>Reproducibility</strong>: Concerning. No code is released (as of the arxiv submission). The routing network architecture details are somewhat sparse — the exact scoring function, top-K selection mechanism, and gradient flow through sparse selection are not fully specified.</p>
+<p><strong>Significance</strong>: Meaningful for practitioners needing memory-efficient LoRA fine-tuning on consumer hardware. The finding that compression and adaptation synergize is counterintuitive and could be broadly useful.</p>
+<p><strong>Red flags</strong>:</p>
+<ul>
+<li>Results only reported on Qwen2.5 family and Mistral; no GPT or Llama baselines. It's unclear how much of the result is model-architecture-specific.</li>
+<li>MMLU % retention framing can obscure absolute accuracy drops; a model retaining "98.5%" could still lose 1.5pp absolute on a high-stakes task.</li>
+<li>The claim that 37.5% KV retention "near-perfectly preserves capability" deserves more scrutiny on tasks beyond MMLU (e.g., coding, math reasoning).</li>
+</ul>
+<h2>Strengths</h2>
+<ul>
+<li>Addresses a practical need: joint fine-tuning and inference optimization in a single pass</li>
+<li>Solid multi-scale evaluation across 5 model sizes spanning 7B–72B</li>
+<li>Clean integration with Expected Attention showing multiplicative compression gains</li>
+<li>Value-group routing is an elegant intra-head compression idea distinct from full-token eviction</li>
+</ul>
+<h2>Limitations</h2>
+<ul>
+<li>No code release hinders reproducibility</li>
+<li>Limited to attention value compression; key cache is not compressed</li>
+<li>Query-aware predictor adds parameters that may complicate deployment</li>
+<li>Evaluation tasks skew toward knowledge recall (MMLU) rather than generation quality or long-context reasoning</li>
+<li>Training details for the routing predictor (data, schedule) are underspecified</li>
+</ul>
+<h2>相关性</h2>
+<p>该工作与LLM推理效率和KV缓存压缩密切相关，尤其对关注推理评估和系统部署的读者有参考价值。路由LoRA的训练稳定性（sparse gating梯度问题）也值得进一步关注。</p>
+<h2>Questions for Further Exploration</h2>
+<ol>
+<li>Does value-group routing degrade on long-context tasks (e.g., retrieval from 128K+ contexts) where attention patterns are more uniform?</li>
+<li>How sensitive is the query-aware MLP predictor to distribution shift — i.e., does it transfer across domains after training on a specific fine-tuning corpus?</li>
+<li>Could the sub-token routing mechanism be extended to key vectors as well, and what would be the theoretical impact on attention approximation error?</li>
+<li>What is the memory overhead of storing S subspace weight matrices during fine-tuning vs. a standard LoRA at equivalent rank?</li>
+<li>How does the method interact with speculative decoding or other inference-time acceleration techniques?</li>
+</ol>
+<p class="note">Generated from Markdown summary. Full paper: <a href="https://arxiv.org/abs/2604.21335v1">arXiv:2604.21335v1</a></p>
+</div>
+</body>
+</html>

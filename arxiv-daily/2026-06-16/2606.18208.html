@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Looped World Models</title>
+<style>
+:root { --paper:#fafafa; --ink:#1a1a1a; --muted:#555; --accent:#1a5276; --line:#ddd; --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif; --serif:Georgia,"Noto Serif SC",serif; }
+body { font-family:var(--serif); background:var(--paper); color:var(--ink); line-height:1.6; margin:0; padding:0; }
+.container { max-width:min(95vw, 760px); margin:0 auto; padding:28px 20px 60px; }
+.topnav { position:fixed; top:12px; left:14px; z-index:50; font-family:var(--sans); font-size:.75rem; background:var(--paper); border:1px solid var(--line); padding:5px 10px; border-radius:999px; }
+.topnav a { color:var(--muted); text-decoration:none; font-weight:600; }
+.topnav a:hover { color:var(--accent); }
+h1 { font-size:1.6rem; margin:2.2rem 0 1rem; border-bottom:2px solid var(--accent); padding-bottom:.3rem; }
+h2 { font-size:1.3rem; margin:1.8rem 0 .8rem; color:var(--accent); }
+h3 { font-size:1.1rem; margin:1.4rem 0 .6rem; }
+p { margin:.8rem 0; }
+.authors { font-style:italic; color:var(--muted); margin-top:-.4rem; }
+.meta { font-family:var(--sans); font-size:.82rem; color:var(--muted); margin:.2rem 0; }
+a { color:var(--accent); text-decoration:none; }
+a:hover { text-decoration:underline; }
+blockquote { border-left:3px solid var(--accent); margin:1rem 0; padding:.2rem 0 .2rem 1rem; color:var(--muted); font-style:italic; }
+code { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; background:#f0f0f0; padding:2px 5px; border-radius:3px; font-size:.9em; }
+pre { background:#f5f5f5; padding:14px; overflow-x:auto; border-radius:4px; border:1px solid var(--line); }
+pre code { background:transparent; padding:0; }
+ul,ol { margin:.6rem 0; padding-left:1.5rem; }
+li { margin:.25rem 0; }
+table { border-collapse:collapse; width:100%; margin:1rem 0; font-family:var(--sans); font-size:.9rem; }
+th,td { border:1px solid var(--line); padding:6px 10px; text-align:left; }
+th { background:#f0f0f0; }
+hr { border:none; border-top:1px solid var(--line); margin:1.5rem 0; }
+.note { font-family:var(--sans); font-size:.78rem; color:var(--muted); border-top:1px solid var(--line); margin-top:2rem; padding-top:1rem; }
+@media (max-width: 600px) { .container { padding:22px 14px 40px; } h1 { font-size:1.35rem; } }
+</style>
+</head>
+<body>
+<div class="topnav"><a href="./index.html">← Today's digest</a></div>
+<div class="container">
+<h1>Looped World Models</h1>
+<p class="meta">arXiv: 2606.18208</p>
+<p class="meta">Date: 2026-06-16</p>
+<p class="meta"><a href="https://arxiv.org/abs/2606.18208">https://arxiv.org/abs/2606.18208</a></p>
+<blockquote><strong>一句话总结：</strong> 提出 Looped World Models (LoopWM)，首次将参数共享的循环 Transformer 架构用于世界建模；通过谱约束状态保留矩阵保证长 rollout 稳定性，并引入"延迟解码（Deferred Decoding）"只对潜在轨迹做端点解码。在 ScienceWorld / AlfWorld 文本任务上以约 1B 参数超越 Claude Opus 4.6 / Gemini 3 Flash 等闭源大模型（按作者口径达 100× 参数效率），并把"迭代潜在深度"立为正交于模型规模与数据的第三条可扩展轴。</blockquote>
+<blockquote><strong>TL;DR:</strong> LoopWM is the first application of looped transformer architectures to world modeling. A parameter-shared recurrent block (prelude / recurrent / coda) refines a latent state for <em>T</em> iterations per transition, with a spectrally-contractive state-retention matrix <code>Ā = exp(Δ·diag(−exp(a)))</code> that guarantees bounded residual dynamics by construction. The paper introduces <strong>Deferred Decoding</strong> — running <em>K</em> action steps in latent space and decoding only at step <em>K</em> — together with an entropy-regularised adaptive-early-exit gate. On text-based ScienceWorld/AlfWorld, the ~1B LoopWM beats Claude Opus 4.6 Max and Gemini 3 Flash on most metrics (EM 68.4% vs 47.2% on ScienceWorld), which the authors frame as ~100× parameter efficiency. Iterative latent depth is proposed as a new, orthogonal scaling axis.</blockquote>
+<h2>核心贡献</h2>
+<ul>
+<li>提出 <strong>Looped World Models (LoopWM)</strong>，首次把循环 Transformer 架构应用到世界建模。</li>
+<li>设计 <strong>Prelude–Recurrent–Coda</strong> 结构的循环动力学核心，其中循环块 R 的参数在所有 <em>T</em> 次迭代间共享。</li>
+<li>通过 <strong>谱约束状态保留矩阵</strong> <code>Ā = exp(Δ·diag(−exp(a)))</code>，从构造上保证所有特征值 ∈ (0,1)，从而对任意 rollout 长度有界。</li>
+<li>引入 <strong>Deferred Decoding</strong>：在 <em>K</em> 步动作条件 rollout 过程中完全跳过中间解码，只在末端做一次观察/奖励/续延预测。</li>
+<li>引入 <strong>熵正则化自适应早退</strong>机制（sigmoid 门 + binary entropy 惩罚），按 transition 难度自适应分配迭代次数。</li>
+<li>把 <strong>迭代潜在深度（iterative latent depth）</strong> 立为与模型规模、数据规模正交的第三条可扩展轴。</li>
+<li>在 ScienceWorld（30 类任务平均）与 AlfWorld 上以约 1B 参数超越 Claude Opus 4.6 Max / Gemini 3 Flash Preview 等闭源 LLM。</li>
+</ul>
+<h2>Key Contributions</h2>
+<ul>
+<li><strong>First looped architecture for world modeling.</strong> Adapts the Universal-Transformer / Parcae family of weight-shared recurrent transformers from language modelling to latent-dynamics world modelling.</li>
+<li><strong>Prelude–Recurrent–Coda dynamics core.</strong> A small prelude encoder produces the conditioning signal <code>e = LN(P([h_{k-1}; e_k; u_k]))</code>; a parameter-shared recurrent block refines the hidden state for <em>T</em> iterations; a non-shared coda projects the terminal state to the next-step embedding.</li>
+<li><strong>Spectral stability by construction.</strong> <code>Ā = exp(Δ·A)</code> with <code>A = diag(−exp(a))</code> guarantees <code>ρ(Ā) < 1</code>, so latent updates stay bounded for arbitrarily long rollouts — no gradient clipping or post-hoc normalisation needed.</li>
+<li><strong>Deferred Decoding (LoopWM-DD).</strong> The model ingests <em>K</em> ground-truth (or planned) actions and rolls out in latent space without invoking the decoder; observation/reward/continuation are produced only at step <em>K</em>. This decouples latent "thinking" from observation grounding.</li>
+<li><strong>Adaptive early exit.</strong> A single-layer sigmoid gate <code>g^{(t)} = σ(w_gᵀ h^{(t)} + b_g)</code> lets the inner loop halt per-step; entropy regularisation prevents collapse to trivial exits.</li>
+<li><strong>Variable-depth training.</strong> Loop depth is sampled per-sequence from <code>Poisson(µ_rec)</code> with truncated backprop at <code>⌈µ_rec / 2⌉</code> steps, and a curriculum progressively increases the deferral horizon <em>K</em>.</li>
+<li><strong>Cross-timestep state propagation.</strong> The terminal hidden state <code>h^{(T)}</code> of step <em>k</em> seeds <code>h^{(0)}</code> of step <em>k+1</em>, creating a nested inner-loop (refinement) / outer-loop (time) structure.</li>
+</ul>
+<h2>Methodology</h2>
+<p><strong>Architecture (4 modules).</strong> Per environment step <em>k</em>, an observation encoder <code>E_φ</code> maps <code>o_k</code> to <code>e_k</code>, an action embedder <code>A_ψ</code> maps <code>a_k</code> to <code>u_k</code>, the looped dynamics core produces <code>h_k = L_θ(h_{k-1}, e_k, u_k)</code>, and lightweight MLPs <code>D_ξ</code> decode <code>(ô_{k+1}, r̂_k, ĉ_k)</code>.</p>
+<p><strong>Recurrent block update rule.</strong></p>
+<pre><code>h^{(t+1)} = Ā h^{(t)} + B̄ e + R̄(h^{(t)}, e)</code></pre>
+<p>with <code>Ā</code> (state retention), <code>B̄</code> (input injection), and <code>R̄</code> (transformer non-linearities). The block is unrolled for <em>T</em> iterations with shared parameters.</p>
+<p><strong>Spectral stability.</strong> <code>A = diag(−exp(a))</code> and <code>Ā = exp(Δ · A)</code> ensure all eigenvalues of <code>Ā</code> lie in (0, 1) by construction; the contractive linear component prevents latent explosion across arbitrarily long rollouts.</p>
+<p><strong>Training.</strong></p>
+<ul>
+<li>Loop depth per micro-batch sequence is sampled from <code>Poisson(µ_rec)</code> (variance-reducing compared to per-batch sampling).</li>
+<li>Truncated BPTT at <code>⌈µ_rec / 2⌉</code> steps controls memory.</li>
+<li>Loss combines observation / reward / continuation terms plus an entropy regulariser on the exit gate.</li>
+<li>For deferred decoding, a terminal prediction loss <code>L_terminal</code> is augmented with a frozen-encoder latent-consistency loss <code>L_consist</code> and a soft spectral-contraction budget over <em>K</em> steps.</li>
+<li>A curriculum ramps the deferral horizon <code>K(step) = min(K_max, 1 + ⌊step/Δ⌋)</code> so training starts with <code>K=1</code> (standard per-step decoding).</li>
+</ul>
+<p><strong>Inference modes.</strong></p>
+<ul>
+<li><strong>Planning mode:</strong> decode-free rollout of candidate action sequences from CEM / MPPI; only terminal <code>h_K</code> is evaluated.</li>
+<li><strong>Monitoring mode:</strong> the lightweight projection <code>g_ω(h_k)</code> produces state summaries without invoking the full decoder.</li>
+</ul>
+<h2>Results & Highlights</h2>
+<p><strong>ScienceWorld (text-based, 30 task types; metric = EM after 5 consecutive actions).</strong></p>
+<p>| Model | EM | Token F1 | BLEU-4 | Entity |</p>
+<p>|---|---|---|---|---|</p>
+<p>| <strong>LoopWM (Ours, ~1B)</strong> | <strong>68.4%</strong> | <strong>85.3%</strong> | <strong>80.7%</strong> | <strong>83.9%</strong> |</p>
+<p>| Claude Opus 4.6 Max | 47.2% | 72.8% | 64.4% | 72.3% |</p>
+<p>| Gemini 3 Flash Preview | 30.8% | 68.9% | 51.1% | 73.8% |</p>
+<p>| Qwen 3.5 Flash | 10.0% | 46.9% | 26.7% | 63.0% |</p>
+<ul>
+<li><strong>+21.2% absolute EM</strong> over Claude Opus 4.6 Max.</li>
+<li><strong>Lifespan task: 0% → 100% EM</strong> (most striking single-task result).</li>
+<li>Authors claim this is <strong>>100× parameter efficiency</strong> relative to the closed-source Claude Opus 4.6 Max.</li>
+</ul>
+<p><strong>AlfWorld (text-based household tasks).</strong></p>
+<p>| Model | EM | Token F1 | BLEU-4 | Entity |</p>
+<p>|---|---|---|---|---|</p>
+<p>| <strong>LoopWM (Ours, ~1B)</strong> | 51.6% | 80.4% | <strong>71.6%</strong> | 81.1% |</p>
+<p>| Claude Opus 4.6 Max | <strong>53.0%</strong> | 72.6% | 66.8% | 77.0% |</p>
+<p>| Gemini 3 Flash Preview | 50.0% | <strong>83.5%</strong> | 71.0% | <strong>90.2%</strong> |</p>
+<p>| Qwen 3.5 Flash | 26.0% | 67.3% | 47.7% | 88.4% |</p>
+<ul>
+<li>LoopWM <strong>ranks 1st on BLEU</strong>, <strong>2nd on EM / Token F1</strong>, behind Gemini 3 Flash on F1 / Entity. Closer competition than ScienceWorld.</li>
+</ul>
+<p><strong>Deferred decoding effect.</strong> Per-task analysis (Tables 5–12) shows LoopWM-DD improvements over Gemini 3 Flash Preview grow with rollout depth (Step 1 → Step 5); for example, Boil EM improves from +100% at step 1 to <strong>+701% at step 4</strong>, and Chemistry EM at step 1 is already <strong>+267%</strong>.</p>
+<p><strong>Stability claim.</strong> The paper argues that the spectral-norm bound on <code>Ā</code> provides <em>provable</em> rollout stability — but the empirical evidence is indirect (loss-reducibility on continuous visual environments is mentioned but not shown).</p>
+<h2>Authors & Credibility</h2>
+<ul>
+<li><strong>31 authors</strong>, headed by Hongyuan Adam Lu and Z. L. Victor Wei ("Leading Contributors"); the remaining 29 are "Core Contributors". Only the latter two names have direct attribution; the rest are bundled.</li>
+<li><strong>Publisher: FaceMind Research Asia</strong> — an unfamiliar organisation; the paper does not state institutional affiliations, funding sources, or contact information. This is unusual for a 31-author technical contribution and is a meaningful credibility signal (negative).</li>
+<li><strong>Wai Lam</strong> (last author) is a well-known NLP/IR academic (The Chinese University of Hong Kong); his presence lends some academic credibility.</li>
+<li>The paper does not list author affiliations in the body or header, and the publisher name appears only on running headers — no author ORCID, no institutional footnote, no acknowledgements.</li>
+</ul>
+<h2>Critical Assessment</h2>
+<ul>
+<li>⚠️ <strong>Apples-to-oranges comparison.</strong> The headline "100× parameter efficiency" compares a ~1B LoopWM against <strong>closed-source LLM APIs</strong> (Claude Opus 4.6 Max, Gemini 3 Flash, Qwen 3.5 Flash) used as zero-shot world simulators on text-based tasks. The closed models are <em>not trained for world modelling at all</em> — they are general-purpose chat LLMs being asked to predict the next state in a text environment. A more honest baseline set would include DreamerV3, IRIS, ∆-IRIS, DIAMOND, EMERALD, or at minimum fine-tuned smaller LMs. The current baselines are essentially "the worst possible lower bound for a world model."</li>
+<li>⚠️ <strong>Wrong benchmark family.</strong> ScienceWorld and AlfWorld are <strong>text-based, LLM-agent benchmarks</strong>, not classical world-modeling benchmarks (Atari 100k, DMControl, Crafter, Procgen, etc.). The "world model" here is being evaluated on <em>next-token prediction of text observations</em>, not on visual rollouts, prediction-SSIM, or downstream RL returns. This is not the regime where DreamerV3 / IRIS / Sora operate, so the claimed efficiency is not directly comparable to the world-modeling literature.</li>
+<li>⚠️ <strong>Selective disclosure.</strong> The "Broader Impacts" section explicitly admits: <em>"the current manuscript is intentionally selective in disclosure scope... the main limitation at this stage is therefore not a lack of empirical support, but that the manuscript does not yet fully expose the breadth of validation already completed."</em> This is a significant red flag — the paper is publishing a partial empirical story while acknowledging withheld results.</li>
+<li>⚠️ <strong>Stability claims are mostly theoretical.</strong> The spectral-norm bound is mathematically clean, but the only empirical stability evidence is the ScienceWorld/AlfWorld rollouts (up to 5 steps) and a hand-wave that "loss is consistently reducible" on continuous visual environments (no numbers shown). Long-horizon (>1000 step) rollout quality — the central motivation — is <em>not</em> measured.</li>
+<li>⚠️ <strong>Lifespan 0% → 100% is suspicious.</strong> A 100% EM on a single task is a strong result, but without per-seed variance, train/test splits, and prompt formatting details, this looks like a single number that may be cherry-picked. The 5-step rollout setup is also favourable because the gold trajectory is short.</li>
+<li>⚠️ <strong>No proper ablation of architectural pieces.</strong> Tables compare LoopWM-DD to LLM baselines, not to (a) LoopWM without deferred decoding, (b) LoopWM without spectral stability, (c) LoopWM without adaptive exit, (d) a non-looped strong baseline of the same size. So the <em>individual</em> contribution of each ingredient (looping, spectral stability, deferred decoding, adaptive exit) is not isolated.</li>
+<li>⚠️ <strong>Step-1-to-Step-5 "scaling" is not a scaling law.</strong> The "iterative latent depth as a scaling axis" claim is supported only by a 5-step ablation; no power-law fit, no compute-matched frontier.</li>
+<li>⚠️ <strong>Author attribution is opaque.</strong> With 31 authors and no stated affiliations, it is hard to verify or assign credit. Combined with the "FaceMind Research Asia" publisher — which has no obvious web presence in the cited references — this raises minor reproducibility / accountability concerns.</li>
+<li>✅ <strong>Architectural contributions are sound.</strong> The Parcae-style spectral-stability trick is real and well-defined; deferred decoding is a clean and useful idea; the prelude/recurrent/coda decomposition is sensible. Even if the empirical claims overreach, the design itself is publishable as an architectural proposal.</li>
+<li>✅ <strong>Theoretical contribution is non-trivial.</strong> Showing that <code>ρ(Ā) < 1</code> by parameterisation gives a genuine bounded-input/bounded-output-style stability guarantee — this is more than most "loop = efficient" papers offer.</li>
+</ul>
+<h2>Strengths</h2>
+<ul>
+<li><strong>Clean architectural story.</strong> Prelude/recurrent/coda with shared weights is easy to understand and reproduce; the Parcae-style spectral constraint is mathematically elegant and <em>guaranteed</em> rather than empirically tuned.</li>
+<li><strong>Deferred Decoding is a real, reusable idea.</strong> Decoupling latent dynamics from per-step observation decoding is a useful generalisation that any latent world model could adopt; the latent-consistency regulariser + spectral contraction budget are sensible design choices.</li>
+<li><strong>Curriculum on deferral horizon K</strong> is a practical engineering contribution: training is unstable with large K from scratch.</li>
+<li><strong>Adaptive early exit</strong> with entropy regularisation is well-motivated and prevents trivial collapse.</li>
+<li><strong>Parameter efficiency narrative</strong> — even if the baseline is questionable, the absolute finding that a 1B looped model outperforms API-scale LLMs on these text world-modelling tasks is striking and worth taking seriously in that setting.</li>
+<li><strong>Honest framing of limitations</strong> in the "Broader Impacts" section — the authors concede they have not published all their results, which is more transparent than typical.</li>
+</ul>
+<h2>Limitations</h2>
+<ul>
+<li><strong>No comparison to true world-model baselines.</strong> DreamerV3, IRIS, ∆-IRIS, DIAMOND, EMERALD, Sora-style video-diffusion models — none appear in the experiments.</li>
+<li><strong>No visual-control benchmarks.</strong> No Atari 100k, DMControl, Crafter, Procgen, or video-prediction evaluation. The entire empirical case rests on text-based science / household tasks.</li>
+<li><strong>No downstream RL.</strong> No agent is trained inside LoopWM and rolled out in a real environment; the model is only evaluated as a <em>predictor</em>, not as a <em>planner</em>.</li>
+<li><strong>5-step rollouts are short.</strong> The stability claim is about long horizons, but the only horizon measured is 5 environment steps.</li>
+<li><strong>No variance / seed reporting.</strong> Single-number per-task metrics with no error bars; results are deterministic-looking.</li>
+<li><strong>100× parameter efficiency is misleading.</strong> Comparing a 1B specialised model to a closed-source general LLM is not a meaningful "efficiency" comparison — it conflates specialisation gain with parameter efficiency.</li>
+<li><strong>No released code, checkpoints, or dataset splits</strong> are mentioned in the PDF.</li>
+<li><strong>FaceMind Research Asia</strong> is unverifiable as an institution; no contact, no funding disclosure, no link.</li>
+</ul>
+<h2>Relevance</h2>
+<p>直接命中本项目关注的世界模型与可扩展架构方向：LoopWM 把"循环 Transformer + 谱稳定"这一近期在语言建模中被验证的范式（Parcae、Universal Transformer）拓展到动作条件潜在动力学，并在评测中提出"延迟解码"以提升长 rollout 效率——这与潜在动力学模型、Dreamer 流派、以及 video-token 世界模型的研究脉络形成清晰对话，值得作为"looped world model"这一新分支的入门读物。</p>
+<h2>Questions for Further Exploration</h2>
+<ul>
+<li>Does LoopWM hold up when evaluated against <strong>actual world-model baselines</strong> (DreamerV3, IRIS, ∆-IRIS, DIAMOND) on <strong>continuous visual control</strong> benchmarks (Atari 100k, DMControl, Crafter)?</li>
+<li>What is the rollout-quality vs. compute curve when varying the deferral horizon <em>K</em> and the inner loop depth <em>T</em> — is there a genuine power law, or does it saturate?</li>
+<li>How does the <strong>spectral-norm constraint</strong> interact with longer horizons (>100 steps)? Does the contractive <code>Ā</code> become a bottleneck that suppresses expressivity?</li>
+<li>Can <strong>Deferred Decoding</strong> be retrofitted to existing latent world models (DreamerV3, IRIS) to recover similar gains, or is it specific to the looped dynamics core?</li>
+<li>How sensitive are the results to the choice of Poisson-sampled loop depth <code>µ_rec</code>? Is the method robust across <code>µ_rec ∈ [4, 64]</code>?</li>
+<li>What is the wall-clock inference cost of LoopWM-DD vs. a fixed-depth baseline at matched predictive quality, and does the "100× efficiency" survive this re-framing?</li>
+<li>How does LoopWM compose with <strong>discrete-latent</strong> world models (tokenized IRIS-style), or is it intrinsically continuous?</li>
+<li>Will the authors release code and checkpoints, and is FaceMind Research Asia a verifiable institution?</li>
+</ul>
+<p class="note">Generated from Markdown summary. Full paper: <a href="https://arxiv.org/abs/2606.18208">arXiv:2606.18208</a></p>
+</div>
+</body>
+</html>

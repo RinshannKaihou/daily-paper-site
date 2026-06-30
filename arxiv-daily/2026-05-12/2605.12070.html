@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Missing Old Logits in Asynchronous Agentic RL: Semantic Mismatch and Repair Methods for Off-Policy Correction</title>
+<style>
+:root { --paper:#fafafa; --ink:#1a1a1a; --muted:#555; --accent:#1a5276; --line:#ddd; --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif; --serif:Georgia,"Noto Serif SC",serif; }
+body { font-family:var(--serif); background:var(--paper); color:var(--ink); line-height:1.6; margin:0; padding:0; }
+.container { max-width:min(95vw, 760px); margin:0 auto; padding:28px 20px 60px; }
+.topnav { position:fixed; top:12px; left:14px; z-index:50; font-family:var(--sans); font-size:.75rem; background:var(--paper); border:1px solid var(--line); padding:5px 10px; border-radius:999px; }
+.topnav a { color:var(--muted); text-decoration:none; font-weight:600; }
+.topnav a:hover { color:var(--accent); }
+h1 { font-size:1.6rem; margin:2.2rem 0 1rem; border-bottom:2px solid var(--accent); padding-bottom:.3rem; }
+h2 { font-size:1.3rem; margin:1.8rem 0 .8rem; color:var(--accent); }
+h3 { font-size:1.1rem; margin:1.4rem 0 .6rem; }
+p { margin:.8rem 0; }
+.authors { font-style:italic; color:var(--muted); margin-top:-.4rem; }
+.meta { font-family:var(--sans); font-size:.82rem; color:var(--muted); margin:.2rem 0; }
+a { color:var(--accent); text-decoration:none; }
+a:hover { text-decoration:underline; }
+blockquote { border-left:3px solid var(--accent); margin:1rem 0; padding:.2rem 0 .2rem 1rem; color:var(--muted); font-style:italic; }
+code { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; background:#f0f0f0; padding:2px 5px; border-radius:3px; font-size:.9em; }
+pre { background:#f5f5f5; padding:14px; overflow-x:auto; border-radius:4px; border:1px solid var(--line); }
+pre code { background:transparent; padding:0; }
+ul,ol { margin:.6rem 0; padding-left:1.5rem; }
+li { margin:.25rem 0; }
+table { border-collapse:collapse; width:100%; margin:1rem 0; font-family:var(--sans); font-size:.9rem; }
+th,td { border:1px solid var(--line); padding:6px 10px; text-align:left; }
+th { background:#f0f0f0; }
+hr { border:none; border-top:1px solid var(--line); margin:1.5rem 0; }
+.note { font-family:var(--sans); font-size:.78rem; color:var(--muted); border-top:1px solid var(--line); margin-top:2rem; padding-top:1rem; }
+@media (max-width: 600px) { .container { padding:22px 14px 40px; } h1 { font-size:1.35rem; } }
+</style>
+</head>
+<body>
+<div class="topnav"><a href="./index.html">← Today's digest</a></div>
+<div class="container">
+<h1>Missing Old Logits in Asynchronous Agentic RL: Semantic Mismatch and Repair Methods for Off-Policy Correction</h1>
+<p class="meta">arXiv: 2605.12070</p>
+<p class="meta">Date: 2026-05-12</p>
+<p class="meta"><a href="https://arxiv.org/abs/2605.12070">https://arxiv.org/abs/2605.12070</a></p>
+<blockquote><strong>一句话总结：</strong> 本文揭示了异步LLM智能体RL训练中"旧logit缺失"导致PPO解耦校正语义失效的问题，提出三种精确获取旧logit的系统策略和一种低成本的PPO-EWMA近似方法，在多个智能体基准上实现了显著的训练速度和优化性能提升。</blockquote>
+<blockquote><strong>TL;DR:</strong> This paper identifies the "missing old logits" problem in asynchronous agentic RL for LLMs, where the training-side old policy logits needed for proper PPO off-policy correction are lost due to delayed updates and partial rollouts. It proposes three exact recovery strategies and a revised PPO-EWMA method, demonstrating significant gains on agentic benchmarks with dense and MoE models.</blockquote>
+<h2>核心贡献</h2>
+<ul>
+<li>揭示了异步LLM智能体RL训练中"旧logit缺失"问题：当训练侧的历史策略版本被丢弃时，PPO解耦校正中的训练-推理差异修复（discrepancy repair）与策略过时校正（staleness correction）无法正确分离，导致语义混淆。</li>
+<li>证明了现有的插值代理策略（如线性插值、对数线性插值）实际上只是对总重要性比率的约束边界进行了重新参数化，并未真正恢复缺失的参考策略。</li>
+<li>提出三种精确旧logit获取方案（快照版本追踪、专用旧logit模型、部分rollout中断同步），并系统分析了其代价权衡。</li>
+<li>提出改进的PPO-EWMA方法，通过过时感知衰减和自动重置机制，以极低的系统开销近似恢复解耦校正的效果。</li>
+</ul>
+<h2>Key Contributions</h2>
+<ul>
+<li>Identifies and formalizes the <strong>missing-old-logit problem</strong> in asynchronous agentic RL: the training-side old policy logits π_old are often unavailable due to delayed updates and partial rollouts, breaking the semantic decomposition of the importance ratio into discrepancy repair (r_d) and staleness correction (r_s).</li>
+<li>Provides a <strong>unified analysis</strong> showing that existing interpolation-based proxy policies merely re-parameterize the effective clipping boundaries of the total importance ratio, rather than genuinely recovering the missing reference policy (Proposition 1).</li>
+<li>Proposes <strong>three exact old-logit acquisition strategies</strong> (snapshot-based version tracking, dedicated old-logit model, synchronization via partial rollout interruption) with detailed system trade-off analysis.</li>
+<li>Designs a <strong>revised PPO-EWMA</strong> method with staleness-aware decay (β ≈ W_stale / (W_stale + 2)) and automatic reset, achieving near-exact-correction performance at a fraction of the system cost.</li>
+</ul>
+<h2>Methodology</h2>
+<p>The paper starts from the observation that in modern asynchronous RL systems for LLMs, the total importance ratio r(θ) = π_θ / μ_old should be decomposed into two semantically distinct factors: a discrepancy ratio r_d = π_old / μ_old (training-inference numerical mismatch) and a staleness ratio r_s = π_θ / π_old (policy update magnitude). However, when old training-side logits π_old are missing, this decomposition breaks down.</p>
+<p>For <strong>exact correction</strong>, three strategies are proposed: (1) snapshot-based version tracking that retains historical parameter checkpoints but incurs significant memory and I/O overhead (~95s/step for 4B model, ~178s/step for 30B MoE); (2) a dedicated old-logit model that overlaps computation with training but requires additional GPU resources; (3) partial rollout interruption that computes old logits before versions are discarded but introduces synchronization stalls.</p>
+<p>For <strong>approximate correction</strong>, the PPO-EWMA method maintains an exponentially weighted moving average of historical actor parameters θ_prox. Two key refinements are introduced: (1) staleness-aware decay that sets β_prox to align the EWMA center-of-mass with the midpoint of the asynchronous version window, and (2) automatic reset that re-centers θ_prox to the current actor when the Train-Infer Mask drops below a threshold τ.</p>
+<p>The authors mathematically prove (Proposition 1, Appendix A) that interpolation-based proxies only re-parameterize the constraint boundaries of the total ratio, providing empirical verification by showing nearly identical training curves between log-linear interpolation and the corresponding reparameterized baseline.</p>
+<h2>Results & Highlights</h2>
+<ul>
+<li><strong>PPO-EWMA consistently outperforms</strong> Decoupled PPO and Linear_prox across all benchmarks on both Qwen3-4B (dense) and Qwen3-30B-A3B (MoE) models.</li>
+<li>On τ²-Bench Airline with 30B MoE, PPO-EWMA achieves 82% pass@4 vs. 74-76% for baselines; on VitaBench In-store, 48% pass@2 vs. 32-47%.</li>
+<li>Snapshot-based exact recovery provides the strongest results (e.g., 69.70% avg@4 on retail for 30B), but PPO-EWMA approaches this performance at much lower cost.</li>
+<li>Snapshot overhead: 95s/step extra for 4B model, 178s/step for 30B MoE, plus 40-76GB CPU storage for retained snapshots.</li>
+<li>A clear <strong>early-speed vs. late-stability trade-off</strong> is identified: looser discrepancy thresholds accelerate early training but destabilize later trajectories, while stricter thresholds are slower but more stable.</li>
+<li>Automatic reset in PPO-EWMA is triggered only 2-3 times during training but prevents late-stage Train-Infer Mask collapse entirely.</li>
+</ul>
+<h2>Authors & Credibility</h2>
+<p>The authors are from Tianjin University, Tsinghua University, Peking University, and JDT AI Infra. The paper is accepted at NeurIPS 2026. Code is publicly available at https://github.com/millioniron/ROLL. The work includes extensive theoretical derivations (Appendix A), detailed system measurements (Appendix G), and thorough ablations (Appendices D, E). The paper follows the NeurIPS paper checklist rigorously, with transparent disclosure of limitations in Appendix H.</p>
+<h2>Critical Assessment</h2>
+<ul>
+<li><strong>Novelty:</strong> The missing-old-logit problem formulation is a genuine and timely contribution. While individual components (EWMA reference policies, snapshot-based tracking) exist in prior work, the unified analysis showing that interpolation proxies merely re-parameterize constraint boundaries is novel and insightful.</li>
+<li><strong>Rigor:</strong> The theoretical analysis is sound with complete derivations. Proposition 1 is well-supported both analytically and empirically. The experimental setup controls for confounding factors by isolating staleness to rollout-training asynchrony.</li>
+<li><strong>Reproducibility:</strong> Code is released. However, full training hyperparameters are noted as not yet included in the manuscript, and error bars / confidence intervals are absent due to computational cost of large-scale runs. This limits statistical rigor.</li>
+<li><strong>Significance:</strong> Highly relevant for practitioners deploying asynchronous RL at scale for LLM agents. The trade-off analysis between exact and approximate correction is practical and actionable. However, experiments are limited to 4B and 30B-A3B models; behavior at several-hundred-billion-parameter scale is acknowledged as unvalidated.</li>
+<li><strong>Red flags:</strong> The PPO-EWMA approach, while practical, is still an approximation — the paper honestly notes it may become unreliable under highly non-stationary staleness or extreme version gaps. The throughput measurements are described as "indicative rather than comprehensive." No broader societal impact discussion is provided.</li>
+</ul>
+<h2>Strengths</h2>
+<ul>
+<li>Clearly identifies and formalizes a real, previously underappreciated failure mode in asynchronous LLM RL training.</li>
+<li>Provides both theoretical grounding (Proposition 1) and practical solutions at multiple points in the cost-performance spectrum.</li>
+<li>Thorough ablation studies covering decay factors, thresholds, and reset mechanisms with informative diagnostic plots.</li>
+<li>Honest about limitations: explicitly acknowledges scale limitations, incomplete systems coverage, and the approximate nature of PPO-EWMA.</li>
+</ul>
+<h2>Limitations</h2>
+<ul>
+<li>Experiments are limited to 4B dense and 30B-A3B MoE models; behavior at larger scales (hundreds of billions of parameters) is unknown.</li>
+<li>No error bars or statistical significance tests due to computational cost.</li>
+<li>Full training hyperparameters are not yet included in the manuscript.</li>
+<li>PPO-EWMA remains an approximate reference and may fail under extreme version gaps or highly non-stationary training regimes.</li>
+<li>The dedicated old-logit model strategy is discussed conceptually but not thoroughly evaluated in experiments.</li>
+</ul>
+<h2>相关性</h2>
+<p>本文直接关联"LLM Training Stability & Observability"和"Computation Reliability & Precision Errors"研究兴趣。它深入分析了异步分布式RL训练中由于数值不一致和版本不同步导致的训练不稳定问题，提出了系统级的解决方案，对理解大规模LLM训练中的故障模式具有重要参考价值。</p>
+<h2>Questions for Further Exploration</h2>
+<ol>
+<li>How does PPO-EWMA behave when the maximum staleness window is increased beyond 3 versions, as is common in very large-scale distributed training?</li>
+<li>Can the automatic reset mechanism be made adaptive, e.g., by using gradient statistics or KL divergence rather than a fixed mask threshold?</li>
+<li>What is the interaction between missing old logits and other training instabilities like loss spikes or gradient anomalies in very large models?</li>
+<li>How would the exact old-logit strategies scale with mixture-of-experts models that have dynamic routing, where routing decisions themselves introduce additional sources of numerical discrepancy?</li>
+<li>Is there a theoretical bound on how well any approximate proxy can recover the true decomposition under bounded staleness?</li>
+</ol>
+<p class="note">Generated from Markdown summary. Full paper: <a href="https://arxiv.org/abs/2605.12070">arXiv:2605.12070</a></p>
+</div>
+</body>
+</html>

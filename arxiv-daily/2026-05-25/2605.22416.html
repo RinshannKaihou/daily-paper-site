@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AVMP — Asymmetric Virtual Memory Paging</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Space+Grotesk:wght@300;400;600;700&display=swap');
+
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+
+:root{
+  --bg:#0B0E14;
+  --surface:#12161F;
+  --surface2:#181D28;
+  --border:#252B3A;
+  --text:#C8CDD8;
+  --text-dim:#6B7280;
+  --text-bright:#EDF0F7;
+  --accent:#00E5C3;
+  --accent-dim:rgba(0,229,195,.12);
+  --accent-glow:rgba(0,229,195,.25);
+  --danger:#FF6B6B;
+  --warn:#FFB347;
+  --mono:'JetBrains Mono',monospace;
+  --sans:'Space Grotesk',system-ui,sans-serif;
+}
+
+html{font-size:16px;scroll-behavior:smooth}
+body{background:var(--bg);color:var(--text);font-family:var(--sans);line-height:1.6;min-height:100vh}
+
+a{color:var(--accent);text-decoration:none;transition:opacity .2s}
+a:hover{opacity:.8}
+
+.topbar{
+  position:sticky;top:0;z-index:100;
+  background:rgba(11,14,20,.85);backdrop-filter:blur(12px);
+  border-bottom:1px solid var(--border);
+  padding:.65rem 1.5rem;
+  display:flex;align-items:center;gap:1rem;
+  font-size:.82rem;
+}
+.topbar .back{display:flex;align-items:center;gap:.35rem;font-weight:600;letter-spacing:.02em}
+.topbar .meta{color:var(--text-dim);margin-left:auto;font-family:var(--mono);font-size:.75rem}
+.topbar .meta span{color:var(--accent)}
+
+.hero{
+  padding:3rem 2rem 2.5rem;
+  max-width:1200px;margin:0 auto;
+  position:relative;
+  overflow:hidden;
+}
+.hero::before{
+  content:'';position:absolute;top:-40%;left:-10%;width:55%;height:180%;
+  background:radial-gradient(ellipse,rgba(0,229,195,.07) 0%,transparent 70%);
+  pointer-events:none;
+}
+.hero .tag{
+  display:inline-block;
+  font-family:var(--mono);font-size:.7rem;letter-spacing:.08em;text-transform:uppercase;
+  color:var(--accent);background:var(--accent-dim);
+  padding:.25rem .7rem;border-radius:3px;
+  margin-bottom:1rem;
+}
+.hero h1{
+  font-size:clamp(1.6rem,3.5vw,2.4rem);
+  font-weight:700;color:var(--text-bright);
+  line-height:1.25;margin-bottom:.6rem;
+  max-width:860px;
+}
+.hero h1 a{color:inherit}
+.hero .tldr{
+  color:var(--text-dim);font-size:.92rem;max-width:780px;line-height:1.65;
+}
+.hero .tldr strong{color:var(--text-bright);font-weight:600}
+
+.finding-band{
+  max-width:1200px;margin:0 auto 2rem;padding:0 2rem;
+}
+.finding-inner{
+  background:var(--surface);
+  border:1px solid var(--border);
+  border-left:4px solid var(--accent);
+  border-radius:6px;
+  padding:2rem 2.5rem;
+  position:relative;
+  overflow:hidden;
+}
+.finding-inner::after{
+  content:'';position:absolute;top:0;right:0;width:200px;height:100%;
+  background:linear-gradient(90deg,transparent,rgba(0,229,195,.04));
+  pointer-events:none;
+}
+.finding-label{
+  font-family:var(--mono);font-size:.65rem;letter-spacing:.12em;text-transform:uppercase;
+  color:var(--accent);margin-bottom:.8rem;
+}
+.finding-number{
+  font-size:clamp(2.8rem,7vw,5.2rem);
+  font-weight:700;color:var(--accent);
+  line-height:1;font-family:var(--sans);
+  letter-spacing:-.03em;
+}
+.finding-number .dim{color:var(--text-dim);font-weight:300;font-size:.45em;vertical-align:middle;margin-left:.3em}
+.finding-sub{
+  font-size:.95rem;color:var(--text);margin-top:.8rem;line-height:1.6;max-width:700px;
+}
+.finding-sub strong{color:var(--text-bright)}
+
+.stats-row{
+  max-width:1200px;margin:0 auto 2.5rem;padding:0 2rem;
+  display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:1rem;
+}
+.stat-card{
+  background:var(--surface);border:1px solid var(--border);border-radius:6px;
+  padding:1.4rem 1.5rem;position:relative;
+  transition:border-color .3s;
+}
+.stat-card:hover{border-color:var(--accent)}
+.stat-val{
+  font-size:1.9rem;font-weight:700;color:var(--text-bright);
+  font-family:var(--mono);letter-spacing:-.02em;
+  margin-bottom:.25rem;
+}
+.stat-val .unit{font-size:.55em;color:var(--text-dim);font-weight:400}
+.stat-label{font-size:.78rem;color:var(--text-dim);line-height:1.45}
+
+.grid{
+  max-width:1200px;margin:0 auto 3rem;padding:0 2rem;
+  display:grid;grid-template-columns:1fr 1fr;gap:1.25rem;
+}
+@media(max-width:768px){.grid{grid-template-columns:1fr}}
+
+.card{
+  background:var(--surface);border:1px solid var(--border);border-radius:6px;
+  padding:1.6rem 1.7rem;
+  transition:border-color .3s,transform .2s;
+}
+.card:hover{border-color:rgba(0,229,195,.35);transform:translateY(-1px)}
+.card.full{grid-column:1/-1}
+.card h2{
+  font-size:.82rem;font-weight:600;text-transform:uppercase;letter-spacing:.08em;
+  color:var(--accent);margin-bottom:1rem;
+  display:flex;align-items:center;gap:.5rem;
+}
+.card h2 .icon{
+  width:18px;height:18px;border-radius:3px;
+  background:var(--accent-dim);
+  display:inline-flex;align-items:center;justify-content:center;
+  font-size:.7rem;
+}
+.card ul{list-style:none;display:flex;flex-direction:column;gap:.6rem}
+.card li{
+  font-size:.88rem;line-height:1.55;color:var(--text);
+  padding-left:1.1rem;position:relative;
+}
+.card li::before{
+  content:'';position:absolute;left:0;top:.55rem;
+  width:5px;height:5px;border-radius:50%;
+  background:var(--accent);opacity:.6;
+}
+.card li strong{color:var(--text-bright)}
+
+.assessment-grid{
+  display:grid;grid-template-columns:1fr 1fr;gap:.5rem 1.5rem;
+}
+@media(max-width:500px){.assessment-grid{grid-template-columns:1fr}}
+.assess-item .assess-label{font-size:.78rem;color:var(--text-dim);margin-bottom:.2rem}
+.assess-item .assess-value{font-size:.88rem;color:var(--text-bright);font-weight:600}
+.assess-item .assess-value.good{color:var(--accent)}
+.assess-item .assess-value.moderate{color:var(--warn)}
+.assess-item .assess-value .bar{
+  display:inline-block;height:4px;border-radius:2px;
+  background:var(--border);width:60px;vertical-align:middle;margin-left:.4rem;
+  position:relative;overflow:hidden;
+}
+.assess-item .assess-value .bar::after{
+  content:'';position:absolute;top:0;left:0;height:100%;border-radius:2px;
+}
+.assess-item .assess-value.good .bar::after{background:var(--accent);width:75%}
+.assess-item .assess-value.moderate .bar::after{background:var(--warn);width:55%}
+
+.questions{columns:2;column-gap:2rem}
+@media(max-width:600px){.questions{columns:1}}
+.questions li{break-inside:avoid;margin-bottom:.7rem}
+
+.footer{
+  max-width:1200px;margin:0 auto 3rem;padding:0 2rem;
+  border-top:1px solid var(--border);padding-top:1.5rem;
+  display:flex;align-items:center;gap:1.5rem;flex-wrap:wrap;
+  font-size:.82rem;color:var(--text-dim);
+}
+.footer a{color:var(--accent)}
+
+@keyframes fadeUp{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
+.finding-inner{animation:fadeUp .5s ease-out .1s both}
+.stat-card:nth-child(1){animation:fadeUp .4s ease-out .2s both}
+.stat-card:nth-child(2){animation:fadeUp .4s ease-out .3s both}
+.stat-card:nth-child(3){animation:fadeUp .4s ease-out .35s both}
+.stat-card:nth-child(4){animation:fadeUp .4s ease-out .4s both}
+.card{animation:fadeUp .45s ease-out both}
+.card:nth-child(1){animation-delay:.35s}
+.card:nth-child(2){animation-delay:.4s}
+.card:nth-child(3){animation-delay:.45s}
+.card:nth-child(4){animation-delay:.5s}
+.card:nth-child(5){animation-delay:.55s}
+.card:nth-child(6){animation-delay:.6s}
+.card:nth-child(7){animation-delay:.65s}
+.card:nth-child(8){animation-delay:.7s}
+</style>
+</head>
+<body>
+
+<nav class="topbar">
+  <a href="./index.html" class="back">↩ Today's digest</a>
+  <div class="meta"><span>2605.22416</span> &middot; 2026-05-25</div>
+</nav>
+
+<section class="hero">
+  <div class="tag">Inference Optimization</div>
+  <h1><a href="https://arxiv.org/abs/2605.22416">Asymmetric Virtual Memory Paging for Hybrid Mamba-Transformer Inference</a></h1>
+  <p class="tldr">
+    AVMP separates <strong>KV cache</strong> and <strong>SSM state</strong> into physically distinct memory pools behind a unified virtual address space, migrating capacity on allocation failure — eliminating up to <strong>7.3x waste</strong> from unified padding and adapting to shifting prompt distributions.
+  </p>
+</section>
+
+<section class="finding-band">
+  <div class="finding-inner">
+    <div class="finding-label">KEY FINDING</div>
+    <div class="finding-number">13.3×<span class="dim">max throughput gain</span></div>
+    <div class="finding-sub">
+      On synthetic workloads, throughput improves <strong>1.83x–13.3x</strong>; on ShareGPT traces <strong>2.36x</strong>.
+      OOM events drop <strong>7.6%</strong>. All gains confirmed under <strong>paired-bootstrap 95% CIs</strong> across <strong>330 test cells</strong> on an RTX 3060 12GB.
+    </div>
+  </div>
+</section>
+
+<section class="stats-row">
+  <div class="stat-card">
+    <div class="stat-val">7.3×<span class="unit"> waste eliminated</span></div>
+    <div class="stat-label">Padding SSM states to KV cache page sizes in unified pools</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-val">2.36×<span class="unit"> throughput</span></div>
+    <div class="stat-label">Improvement on real ShareGPT trace replay</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-val">7.6%<span class="unit"> OOM ↓</span></div>
+    <div class="stat-label">Out-of-memory events reduced across tested workloads</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-val">0<span class="unit"> CUDA kernels</span></div>
+    <div class="stat-label">Pure Python implementation — no Triton or custom CUDA required</div>
+  </div>
+</section>
+
+<div class="grid">
+
+  <div class="card full">
+    <h2><span class="icon">⊕</span> Key Contributions</h2>
+    <ul>
+      <li>Identifies and quantifies memory waste in hybrid Mamba-Transformer inference: unified pools pad SSM states to attention page sizes, wasting up to <strong>7.3x capacity</strong></li>
+      <li>Proposes AVMP with <strong>physically distinct pools</strong> behind a unified virtual address space and <strong>on-demand capacity migration</strong> triggered only on allocation failure</li>
+      <li>Demonstrates practical gains on RTX 3060 12GB with <strong>statistical significance</strong> via paired-bootstrap 95% CIs across 330 test cells</li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <h2><span class="icon">⚙</span> Methodology</h2>
+    <ul>
+      <li>Allocator maintains <strong>two physically separate pools</strong> (KV caches vs. SSM states) behind a unified virtual address abstraction</li>
+      <li><strong>Lazy migration</strong> — capacity moves between pools only on allocation failure, ensuring deterministic behavior</li>
+      <li>Evaluation: 270 synthetic + 60 ShareGPT cells on RTX 3060 12GB</li>
+      <li>Phase-time breakdown isolates two distinct improvement mechanisms</li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <h2><span class="icon">⚡</span> Results & Highlights</h2>
+    <ul>
+      <li><strong>OOM reduction:</strong> Out-of-memory events drop by 7.6%</li>
+      <li><strong>Throughput:</strong> 1.83x–13.3x synthetic; 2.36x ShareGPT</li>
+      <li><strong>Memory efficiency:</strong> Up to 7.3x waste eliminated</li>
+      <li><strong>Two mechanisms:</strong> shorter OOM recovery (capacity-pressured) and faster allocation (KV-heavy)</li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <h2><span class="icon">✓</span> Strengths</h2>
+    <ul>
+      <li>Clean problem formulation directly addressing KV/SSM memory profile mismatch</li>
+      <li>Lazy migration ensures deterministic behavior — no prediction heuristics</li>
+      <li>Thorough evaluation with statistical significance testing</li>
+      <li>Simple pure Python implementation as reference design</li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <h2><span class="icon">!</span> Limitations</h2>
+    <ul>
+      <li>Only tested on <strong>RTX 3060 12GB</strong>; scalability unknown</li>
+      <li>Pure Python overhead; Triton/CUDA integration is future work</li>
+      <li>No multi-request scheduling or preemption strategies</li>
+      <li>Hybrid model landscape evolving — pool sizing assumptions may become obsolete</li>
+    </ul>
+  </div>
+
+  <div class="card full">
+    <h2><span class="icon">◎</span> Critical Assessment</h2>
+    <div class="assessment-grid">
+      <div class="assess-item"><div class="assess-label">Novelty</div><div class="assess-value moderate">Moderate <span class="bar"></span></div></div>
+      <div class="assess-item"><div class="assess-label">Rigor</div><div class="assess-value good">Good <span class="bar"></span></div></div>
+      <div class="assess-item"><div class="assess-label">Reproducibility</div><div class="assess-value good">Good <span class="bar"></span></div></div>
+      <div class="assess-item"><div class="assess-label">Significance</div><div class="assess-value moderate">Moderate <span class="bar"></span></div></div>
+    </div>
+    <ul style="margin-top:1.2rem">
+      <li>Separate pools for heterogeneous caches is a natural engineering response; virtual address unification and lazy migration add incremental novelty</li>
+      <li>Single author, no institutional affiliation visible; 13.3x gain likely a corner-case synthetic workload</li>
+    </ul>
+  </div>
+
+  <div class="card full">
+    <h2><span class="icon">?</span> Questions for Further Exploration</h2>
+    <ul class="questions">
+      <li>How does AVMP perform on GPUs with larger memory (e.g. A100 80GB) where OOM pressure is lower?</li>
+      <li>What is the overhead of capacity migration under adversarial workloads with rapid KV/SSM alternation?</li>
+      <li>Can lazy migration extend to multi-GPU or distributed inference?</li>
+      <li>How does AVMP interact with KV cache compression (quantization, pruning)?</li>
+      <li>Would a Triton implementation preserve the same relative gains, or does Python overhead inflate improvement numbers?</li>
+    </ul>
+  </div>
+
+</div>
+
+<footer class="footer">
+  <span>An Xuan Nguyen · Single-author work</span>
+  <a href="https://arxiv.org/abs/2605.22416">arxiv.org/abs/2605.22416</a>
+  <a href="2605.22416.html">Markdown source ↗</a>
+  <span style="margin-left:auto;font-family:var(--mono);font-size:.72rem;color:var(--text-dim)">Abstract-only summary</span>
+</footer>
+
+</body>
+</html>

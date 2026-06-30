@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TACT: Mitigating Overthinking and Overacting in Coding Agents via Activation Steering</title>
+<style>
+:root { --paper:#fafafa; --ink:#1a1a1a; --muted:#555; --accent:#1a5276; --line:#ddd; --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif; --serif:Georgia,"Noto Serif SC",serif; }
+body { font-family:var(--serif); background:var(--paper); color:var(--ink); line-height:1.6; margin:0; padding:0; }
+.container { max-width:min(95vw, 760px); margin:0 auto; padding:28px 20px 60px; }
+.topnav { position:fixed; top:12px; left:14px; z-index:50; font-family:var(--sans); font-size:.75rem; background:var(--paper); border:1px solid var(--line); padding:5px 10px; border-radius:999px; }
+.topnav a { color:var(--muted); text-decoration:none; font-weight:600; }
+.topnav a:hover { color:var(--accent); }
+h1 { font-size:1.6rem; margin:2.2rem 0 1rem; border-bottom:2px solid var(--accent); padding-bottom:.3rem; }
+h2 { font-size:1.3rem; margin:1.8rem 0 .8rem; color:var(--accent); }
+h3 { font-size:1.1rem; margin:1.4rem 0 .6rem; }
+p { margin:.8rem 0; }
+.authors { font-style:italic; color:var(--muted); margin-top:-.4rem; }
+.meta { font-family:var(--sans); font-size:.82rem; color:var(--muted); margin:.2rem 0; }
+a { color:var(--accent); text-decoration:none; }
+a:hover { text-decoration:underline; }
+blockquote { border-left:3px solid var(--accent); margin:1rem 0; padding:.2rem 0 .2rem 1rem; color:var(--muted); font-style:italic; }
+code { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; background:#f0f0f0; padding:2px 5px; border-radius:3px; font-size:.9em; }
+pre { background:#f5f5f5; padding:14px; overflow-x:auto; border-radius:4px; border:1px solid var(--line); }
+pre code { background:transparent; padding:0; }
+ul,ol { margin:.6rem 0; padding-left:1.5rem; }
+li { margin:.25rem 0; }
+table { border-collapse:collapse; width:100%; margin:1rem 0; font-family:var(--sans); font-size:.9rem; }
+th,td { border:1px solid var(--line); padding:6px 10px; text-align:left; }
+th { background:#f0f0f0; }
+hr { border:none; border-top:1px solid var(--line); margin:1.5rem 0; }
+.note { font-family:var(--sans); font-size:.78rem; color:var(--muted); border-top:1px solid var(--line); margin-top:2rem; padding-top:1rem; }
+@media (max-width: 600px) { .container { padding:22px 14px 40px; } h1 { font-size:1.35rem; } }
+</style>
+</head>
+<body>
+<div class="topnav"><a href="./index.html">← Today's digest</a></div>
+<div class="container">
+<h1>TACT: Mitigating Overthinking and Overacting in Coding Agents via Activation Steering</h1>
+<p class="meta">arXiv: 2605.05980</p>
+<p class="meta">Date: 2026-05-07</p>
+<p class="meta"><a href="https://arxiv.org/abs/2605.05980">https://arxiv.org/abs/2605.05980</a></p>
+<blockquote><strong>一句话总结：</strong> TACT 通过在 Transformer 残差流中提取"过度思考"与"过度行动"两条对比激活方向轴，并在推理时将偏离的隐藏状态拉回校准区域，在不需要微调或修改提示的前提下，将 Qwen3.5-27B 在 SWE-bench Verified 上的解决率提升 5.8 个百分点，并将步骤数减少最多 26%。</blockquote>
+<blockquote><strong>TL;DR:</strong> Coding agents operating over long trajectories tend to degrade through two failure modes — "overthinking" (redundant reasoning over already-known information) and "overacting" (redundant tool calls that retrieve already-observed observations). TACT formalizes these failures, labels them with an LLM-as-judge pipeline that maintains a rolling compressed state, extracts two orthogonal contrastive directions (drift axes) in the residual stream at the <code></think></code> token, and at test time steers out-of-band hidden states back toward the calibrated region via a lightweight forward hook — no fine-tuning, no extra LLM calls, no prompt changes. On SWE-bench Verified and two additional coding benchmarks the method lifts resolve rate by up to +5.8 pp on Qwen3.5-27B and +4.8 pp on Gemma-4-26B, while reducing steps-to-resolve by up to 26%. Worth reading if you work on long-horizon agent reliability, activation/representation engineering, or want a training-free alternative to prompt-based self-reflection.</blockquote>
+<p>---</p>
+<h2>核心贡献</h2>
+<ul>
+<li><strong>定义并量化了两类智能体漂移：</strong> 将"过度思考"（Overthinking, OT）和"过度行动"（Overacting, OA）形式化为轨迹步骤级别的标签，并证明两者的比率与 SWE-bench 解决率呈显著负相关，为下游干预提供了明确动机。</li>
+<li><strong>LLM-as-Judge 标注流水线：</strong> 设计了三阶段（State Maintainer → State Verifier → Annotator）滚动状态标注方案，以 10 步分块方式高效管理长轨迹上下文，并通过人工验证达到 Cohen's κ = 0.78 的实质性一致度。</li>
+<li><strong>对比激活轴提取：</strong> 在 <code></think></code> token 处提取每层隐藏状态，用逐问题均值差法构造 OT-vs-CAL 和 OA-vs-CAL 两条方向向量，并通过 Gram-Schmidt 正交化保证两轴独立；OT-vs-CAL 在早期-中期层（第 3 层）的 AUC 达 0.91，三类可线性分离。</li>
+<li><strong>测试时双轴引导（三种策略）：</strong> 提出 TACT-Cap（双向限幅）、TACT-Add（加性偏移）、TACT-Gate（投影门控）三种仅需向前钩子的干预方式，最优方案 TACT-Gate 在 SWE-bench Verified 上将解决率从 67.0% 提升至 73.3%，步骤数从 75.2 降至 65.3。</li>
+<li><strong>无需微调、无需额外 LLM 调用：</strong> 与需要多次 rollout 的 AgentDebug 基线相比，TACT 以常数时间读写残差流，在同等或更低计算开销下取得更高收益。</li>
+</ul>
+<p>---</p>
+<h2>Key Contributions</h2>
+<ul>
+<li><strong>Formal taxonomy of agent drift:</strong> Defines overthinking (OT) — re-deriving or re-reasoning from information already in the agent's knowledge state — and overacting (OA) — firing tool calls that return already-observed observations — as measurable step-level labels, and shows both drift ratios anti-correlate with task resolve rate.</li>
+<li><strong>Scalable LLM-as-judge annotation with rolling state:</strong> A three-agent pipeline (State Maintainer, State Verifier, Annotator) processes trajectories in chunks of 10 steps, forwarding a compressed verified state to avoid context blow-up. Achieves Cohen's κ = 0.78 vs. human consensus and is robust to judge model substitution (GPT-5.4 vs. Claude Opus 4.6 yields <1 pp resolve-rate difference).</li>
+<li><strong>Drift axis extraction via representation engineering:</strong> Per-layer contrastive directions are computed as per-problem balanced mean differences in the residual stream at <code></think></code> tokens. Orthogonalization via Gram-Schmidt ensures the two failure-mode axes do not interfere during steering. OT-vs-CAL AUC peaks at 0.91 (layer 3); 3-class LDA confirms linear separability.</li>
+<li><strong>Three training-free test-time steering operators:</strong> TACT-Cap (bidirectional projection clamping), TACT-Add (constant additive shift), and TACT-Gate (conditional projection-gated correction) are all implemented as residual-stream forward hooks at the top-K layers (K=10 by default). No retraining, no prompt engineering, no extra inference passes.</li>
+<li><strong>Consistent gains across models and benchmarks:</strong> Evaluated on SWE-bench Verified (500 real GitHub issues), Terminal-Bench 2.0 (89 hard terminal tasks), and CLAW-Eval (autonomous agent trustworthiness), with two open-weight reasoning models (Qwen3.5-27B, Gemma-4-26B-A4B-it).</li>
+</ul>
+<p>---</p>
+<h2>Methodology</h2>
+<p>TACT is a three-stage pipeline operating entirely at inference time.</p>
+<p><strong>Stage 1 — Trajectory Annotation.</strong> Given completed agent rollouts, every step <code>s_t = (r_t, a_t, o_t)</code> (reasoning, action, observation) is labeled as OVERTHINKING, OVERACTING, or CALIBRATED by an LLM-as-judge system. To handle the long-range context dependency (label at step 50 requires knowing what the agent knew at step 1), the pipeline maintains a rolling compressed state with two fields: <code>KnownFacts</code> (concrete files read, hypotheses, edits, test results) and <code>Progress</code> (stagnation signals, hypothesis cycling, re-read counts). A State Maintainer updates this state per chunk; a State Verifier audits for hallucination, omission, and contradiction (up to 3 correction iterations); and an Annotator labels each candidate step given the verified rolling state plus the raw steps in the current chunk. Only high- and medium-confidence labels are retained for axis training.</p>
+<p><strong>Stage 2 — Drift Axis Extraction.</strong> For each transformer layer ℓ, TACT reads the hidden state at the <code></think></code> token (the reasoning-action boundary). Three contrastive axes are computed via per-problem balanced mean differences: OT-vs-CAL (primary overthinking axis), OA-vs-CAL (overacting axis), and OT-vs-OA (diagnostic only). To decouple the two steering directions, OA-vs-CAL is orthogonalized against OT-vs-CAL via Gram-Schmidt, yielding the pair (v̂_OT, v̂_OA⊥). The calibrated centroid μ_CAL and per-axis projection standard deviation σ_CAL are estimated on calibrated training steps and serve as the reference band. Layers are ranked by per-problem AUC of OT-vs-CAL on a held-out validation split; the top K=10 layers are selected as the steering set.</p>
+<p><strong>Stage 3 — Dual-Axis Test-Time Steering.</strong> A forward hook is registered at each of the K selected layers. At every step, after the <code></think></code> token is generated, the hook reads h_t^(ℓ), computes its centered projections onto the two drift axes, and conditionally modifies h_t^(ℓ) before the forward pass continues:</p>
+<ul>
+<li><strong>TACT-Cap:</strong> Clamps both projections into [-τ, +τ] (τ = k·σ_CAL); only fires when activations leave the band. Conservative and precise.</li>
+<li><strong>TACT-Add:</strong> Applies a fixed shift s·(v̂_OT + v̂_OA⊥) at every step regardless of current projection; simpler but less selective.</li>
+<li><strong>TACT-Gate:</strong> Fires when |p| > τ and subtracts λ·excess(p, τ)·v̂_a; combines selectivity with a tunable correction strength λ. Best overall performance.</li>
+</ul>
+<p>The entire axis-extraction procedure is closed-form linear algebra and completes in seconds on a single GPU after a one-time forward pass to cache hidden states.</p>
+<p>---</p>
+<h2>Results & Highlights</h2>
+<p><strong>Main Results (Table 1):</strong></p>
+<p>| Model | Method | SWE-V Res. | Steps↓ | TB2 Res. | CLAW Pass@3 | Avg. Res. |</p>
+<p>|---|---|---|---|---|---|---|</p>
+<p>| Qwen3.5-27B | Base | 67.0 | 75.2 | 29.8 | 55.9 | 51.1 |</p>
+<p>| Qwen3.5-27B | AgentDebug† | 70.5 | 116.4 | 32.8 | 58.2 | 53.8 |</p>
+<p>| Qwen3.5-27B | TACT-Gate | <strong>73.3</strong> | <strong>65.3</strong> | <strong>36.0</strong> | <strong>61.5</strong> | <strong>56.9</strong> |</p>
+<p>| Gemma-4-26B | Base | 59.7 | 52.1 | 15.7 | 56.3 | 43.9 |</p>
+<p>| Gemma-4-26B | AgentDebug† | 62.0 | 78.9 | 17.2 | 58.0 | 45.7 |</p>
+<p>| Gemma-4-26B | TACT-Gate | <strong>65.5</strong> | <strong>44.7</strong> | <strong>19.1</strong> | <strong>61.4</strong> | <strong>48.7</strong> |</p>
+<p>(†AgentDebug requires at least two rollouts per task; all other methods use a single rollout.)</p>
+<p><strong>Key findings:</strong></p>
+<ul>
+<li>TACT-Gate achieves +6.3 pp over baseline on Qwen3.5-27B SWE-V and +5.8 pp on Gemma, exceeding AgentDebug at roughly half the inference cost.</li>
+<li>TACT-Cap, despite firing conservatively, still cuts steps-to-resolve by 26% on SWE-V for both models — indicating that even targeted interventions on a small fraction of steps produce trajectory-level efficiency gains.</li>
+<li>Ablations (Table 2) confirm both axes contribute: removing OT axis drops gain to +2.6 pp, removing OA axis drops to +4.2 pp, using all 64 layers instead of top-10 drops to +1.4 pp.</li>
+<li>Drift axes are stable across early-to-middle transformer layers (AUC > 0.86 through layer ~20), demonstrating that agent drift is a multi-layer distributed representation, not a single-layer artifact.</li>
+<li>Judge label robustness: replacing GPT-5.4 with Claude Opus 4.6 changes end-to-end resolve rate by <1 pp across all three TACT variants (Table 3).</li>
+</ul>
+<p>---</p>
+<h2>Authors & Credibility</h2>
+<p>The paper is a collaboration between the <strong>National University of Singapore</strong> (Yuan Sui, Yulin Chen, Yibo Li, Yufei He, Xiaoxin He, Tianyu Gao, Bryan Hooi), <strong>Peking University</strong> (Xue Jiang, Yihong Dong), and <strong>Meta</strong> (Xiaoxin He). Bryan Hooi is a faculty member at NUS with a strong track record in robust ML. Yuan Sui has prior work on meta-reasoner and what-if analysis for LLM agents. Tianyu Gao is known for representation learning and contrastive methods.</p>
+<p>The paper draws on well-established foundations: representation engineering (Zou et al., 2023), contrastive activation addition (Turner et al., 2023; Rimsky et al., 2024), and SWE-bench (Jimenez et al., 2024). The methodology is clearly positioned relative to concurrent work (Reflexion, Self-Refine, Tree-of-Thoughts, AgentDebug, ReCap).</p>
+<p>The experimental setup is thorough: three diverse benchmarks, two open-weight models, multiple baselines including prompt-injection and post-hoc reflection methods, ablations on axis choice/orthogonalization/layer selection, hyperparameter sweeps, and a human reliability study. This is a credible, well-resourced group with genuine prior expertise in both the LLM agent and representation engineering spaces.</p>
+<p>---</p>
+<h2>Critical Assessment</h2>
+<p><strong>Novelty:</strong> The core idea — treating agent behavioral drift as a steerable direction in activation space — is a meaningful conceptual contribution that bridges representation engineering (previously applied to single-turn behaviors like refusal or truthfulness) with long-horizon multi-step agents. The LLM-as-judge annotation pipeline with rolling state compression is also a non-trivial engineering contribution for handling trajectory-length context. The connection between drift ratios and task success provides motivation beyond anecdote. That said, the mechanical components (contrastive mean difference axes, Gram-Schmidt orthogonalization, residual stream hooks) are all prior art; novelty is primarily in their combination and application to coding agents.</p>
+<p><strong>Rigor:</strong> Experimental rigor is above average for the area. The use of three independent benchmarks, two model families, and multiple baseline categories is commendable. Ablations are well-targeted and the hyperparameter sweeps are reported rather than cherry-picked. The human annotation reliability study with per-class precision/recall and Cohen's κ is appropriate and the numbers (κ = 0.78, F1 ≥ 0.83 per class) are genuinely substantial rather than marginal.</p>
+<p><strong>Reproducibility:</strong> Potential concerns exist. The method requires access to model internals (residual stream activations), so it is limited to open-weight models. The axis extraction requires a corpus of labeled agent trajectories on the target benchmark — the paper does not clearly specify the size of the training split used for axis fitting, which is a practical reproducibility gap. Full system prompts and rolling state schemas are deferred to appendix G (not reviewed here), but their quality will critically affect the quality of the OT/OA labels and therefore the axes. The choice of GPT-5.4 as the judge (a cutting-edge, potentially expensive model) may limit reproducibility for researchers with constrained budgets, though the cross-judge robustness check partially mitigates this concern.</p>
+<p><strong>Significance:</strong> Practically significant for the coding agent community: the +5–6 pp gains on SWE-bench Verified are meaningful on a benchmark that is competitive and extensively studied, and the 26% step reduction has real inference cost implications. The training-free nature makes deployment straightforward for practitioners with open-weight model access.</p>
+<p><strong>Red flags:</strong></p>
+<ul>
+<li>The method is inherently benchmark-coupled: axes are extracted from trajectories on the same distribution as the test set (with a train/val/test split, but all from SWE-bench Verified). Generalization to genuinely out-of-distribution tasks is not demonstrated.</li>
+<li>The paper evaluates only two model families. Both are open-weight reasoning models; it is unclear whether the drift axes transfer across architectures or whether they must be re-extracted per model.</li>
+<li>The claim that TACT works with "no prompt changes" is accurate, but the axis-extraction phase still requires a batch of labeled trajectories, which involves running the agent, labeling with GPT-5.4, and extracting axes — a non-trivial offline cost that is not fully accounted for in the efficiency comparison.</li>
+<li>Overacting is harder to detect than overthinking (OA-vs-CAL AUC peaks at 0.77 vs. 0.91 for OT), and the orthogonalization places OT as primary; this asymmetry may limit OA correction more than the results suggest.</li>
+</ul>
+<p>---</p>
+<h2>Strengths</h2>
+<ul>
+<li>Clean formalization of two distinct failure modes with measurable drift ratios and empirical correlation to task outcome.</li>
+<li>Lightweight test-time intervention: constant-time hook with no LLM calls, no extra tokens, no rollout retries.</li>
+<li>Comprehensive ablations that convincingly isolate the contribution of each design choice.</li>
+<li>Human reliability study is thorough and reported transparently, including per-class confusion and OT↔OA cross-labeling rates.</li>
+<li>Cross-judge consistency check (GPT-5.4 vs. Claude Opus 4.6 vs. Kimi K2.6 vs. Grok-4.1-fast) significantly strengthens the claim that the axis is a model property, not a judge artifact.</li>
+<li>Dual-axis orthogonalization is a principled design choice — not just a heuristic — with the ablation confirming it contributes +0.8 pp vs. non-orthogonalized dual-axis steering.</li>
+</ul>
+<p>---</p>
+<h2>Limitations</h2>
+<ul>
+<li><strong>Open-weight only:</strong> Requires direct access to transformer hidden states; closed-source models (GPT-5, Claude Opus) are out of scope.</li>
+<li><strong>Domain specificity:</strong> Axes are fitted on coding trajectories; transfer to non-coding agent domains (web navigation, tool-using assistants) is explicitly noted as future work and not demonstrated.</li>
+<li><strong>Linear representation assumption:</strong> The entire approach relies on drift being linearly separable in the residual stream. More complex or compositional drift patterns may not be well-captured by a single contrastive direction per layer, and the paper acknowledges sparse autoencoders as a natural next step.</li>
+<li><strong>Offline axis extraction cost:</strong> Requires a batch of completed agent rollouts, LLM-as-judge labeling (with a strong judge like GPT-5.4), and a forward pass over labeled data to compute axes. This is a one-time cost but is non-trivial and may need to be repeated for significantly different task distributions.</li>
+<li><strong>Limited model diversity:</strong> Only tested on two model families (Qwen 3.5 and Gemma 4); transferability across architectures with different hidden dimensions, layer counts, or training regimes is unknown.</li>
+<li><strong>Calibrated class imbalance:</strong> The calibrated class accounts for ~58% of labeled steps vs. ~10% OT and ~26% OA; class imbalance in label distribution may affect axis quality, though the per-problem balanced mean difference partially addresses this.</li>
+</ul>
+<p>---</p>
+<h2>Relevance</h2>
+<p>对于关注 LLM 智能体可靠性和推理效率的研究者而言，本文提供了一种无需微调、可在开源推理模型上即插即用的干预框架，尤其适合研究如何通过表示工程（representation engineering）提升代码智能体在长轨迹任务中的鲁棒性，其双轴激活引导思路也可启发对其他类型智能体漂移的探索。</p>
+<p>---</p>
+<h2>Questions for Further Exploration</h2>
+<ol>
+<li><strong>Axis transfer across models and tasks:</strong> Do drift axes extracted from Qwen3.5-27B coding trajectories transfer to Qwen3.5-7B or to a different model family like Llama-4? What is the minimum number of labeled trajectories needed to extract axes with sufficient AUC for effective steering?</li>
+</ol>
+<ol>
+<li><strong>Beyond linear representation:</strong> Sparse autoencoders have been shown to extract more interpretable features than mean-difference vectors. Would SAE-based drift features yield higher AUC and stronger steering gains, or does the per-problem balanced mean difference already saturate the available linear signal?</li>
+</ol>
+<ol>
+<li><strong>Non-coding agent domains:</strong> The paper explicitly limits evaluation to coding benchmarks. How do overthinking and overacting manifest in web agent tasks (e.g., WebArena) or tool-using chat assistants, where the action space and trajectory structure are quite different?</li>
+</ol>
+<ol>
+<li><strong>Online axis adaptation:</strong> Axes are currently fixed offline. Could an online variant update the calibrated centroid and drift axes during a trajectory using the agent's own recent steps, improving calibration for novel task types encountered at test time?</li>
+</ol>
+<ol>
+<li><strong>Interaction with thinking budget and test-time scaling:</strong> Reasoning models are often deployed with extended thinking budgets. How does TACT interact with varying thinking lengths — does reducing overthinking in early layers conflict with or complement inference-time scaling strategies like majority voting or best-of-N?</li>
+</ol>
+<ol>
+<li><strong>Failure mode specificity of the judge:</strong> The OT↔OA confusion rate is 5–6% in the human study. For tasks where both failure modes co-occur within a single step, how should the label be assigned, and does mixed labeling degrade axis purity in practice?</li>
+</ol>
+<p class="note">Generated from Markdown summary. Full paper: <a href="https://arxiv.org/abs/2605.05980">arXiv:2605.05980</a></p>
+</div>
+</body>
+</html>

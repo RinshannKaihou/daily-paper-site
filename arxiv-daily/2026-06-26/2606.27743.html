@@ -1,0 +1,648 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>L2A · End-to-End Dynamic Sparsity for Resource-Adaptive LLM Inference</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Hanken+Grotesk:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
+<style>
+  :root{
+    --ink:#0b0d12;
+    --ink-2:#0f1218;
+    --panel:#141822;
+    --panel-2:#1a1f2b;
+    --line:#272d3a;
+    --line-soft:#1f2430;
+    --bone:#ece7da;
+    --dim:#8b919f;
+    --dim-2:#646a78;
+    --accent:#ffb43d;       /* signal amber */
+    --accent-soft:#3a2f17;
+    --green:#54d6a8;        /* online / positive metric */
+    --warn:#ff6b5e;         /* critical edge */
+    --pruned:#333945;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    background:var(--ink);
+    color:var(--bone);
+    font-family:"Hanken Grotesk",system-ui,sans-serif;
+    font-weight:400;
+    line-height:1.5;
+    -webkit-font-smoothing:antialiased;
+    overflow-x:hidden;
+  }
+  /* atmosphere: faint grid + grain */
+  body::before{
+    content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
+    background-image:
+      linear-gradient(var(--line-soft) 1px,transparent 1px),
+      linear-gradient(90deg,var(--line-soft) 1px,transparent 1px);
+    background-size:64px 64px;
+    background-position:-1px -1px;
+    opacity:.35;
+    mask-image:radial-gradient(ellipse 90% 60% at 50% 0%,#000 30%,transparent 80%);
+  }
+  body::after{
+    content:"";position:fixed;inset:0;pointer-events:none;z-index:1;opacity:.04;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+  a{color:inherit;text-decoration:none}
+
+  /* ---------- top nav ---------- */
+  .topnav{
+    position:fixed;top:18px;left:18px;z-index:50;
+    font-family:"JetBrains Mono",monospace;font-size:12px;letter-spacing:.02em;
+    background:rgba(11,13,18,.7);backdrop-filter:blur(8px);
+    border:1px solid var(--line);border-radius:8px;
+    padding:7px 12px;color:var(--dim);
+    transition:color .2s,border-color .2s,transform .2s;
+  }
+  .topnav:hover{color:var(--accent);border-color:var(--accent);transform:translateY(-1px)}
+
+  .wrap{position:relative;z-index:2;max-width:1280px;margin:0 auto;padding:0 28px}
+
+  /* ---------- HERO ---------- */
+  header{padding:96px 0 28px}
+  .eyebrow{
+    font-family:"JetBrains Mono",monospace;font-size:11px;letter-spacing:.22em;
+    text-transform:uppercase;color:var(--accent);margin-bottom:22px;
+    display:flex;align-items:center;gap:10px;
+  }
+  .eyebrow .dot{width:7px;height:7px;border-radius:50%;background:var(--green);
+    box-shadow:0 0 10px var(--green);animation:pulse 2s infinite}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+
+  .chips{display:flex;flex-wrap:wrap;gap:7px;margin-bottom:26px}
+  .chip{
+    font-family:"JetBrains Mono",monospace;font-size:10.5px;letter-spacing:.04em;
+    color:var(--dim);border:1px solid var(--line);background:var(--ink-2);
+    padding:4px 9px;border-radius:3px;
+  }
+  .chip.hot{color:var(--accent);border-color:var(--accent-soft)}
+
+  .hero-grid{display:grid;grid-template-columns:1.35fr .9fr;gap:54px;align-items:start}
+
+  .paper-title{
+    font-family:"JetBrains Mono",monospace;font-size:12.5px;color:var(--dim);
+    margin:0 0 30px;
+  }
+  .paper-title a{color:var(--bone);border-bottom:1px solid var(--line);transition:.2s}
+  .paper-title a:hover{color:var(--accent);border-color:var(--accent)}
+
+  .finding{
+    font-family:"Space Grotesk",sans-serif;font-weight:600;
+    font-size:clamp(2.05rem,4.4vw,3.7rem);line-height:1.04;letter-spacing:-.02em;
+    color:var(--bone);margin:0 0 22px;
+  }
+  .finding .hl{color:var(--accent)}
+  .finding .strike{
+    position:relative;color:var(--dim-2);
+  }
+  .finding em{font-style:normal;color:var(--green)}
+
+  .bilingual{
+    border-left:2px solid var(--accent);padding:4px 0 4px 14px;margin:6px 0 0;
+    font-size:14.5px;color:var(--dim);line-height:1.65;max-width:620px;
+  }
+  .bilingual b{color:var(--bone);font-weight:500}
+
+  .meta-row{
+    display:flex;flex-wrap:wrap;gap:10px 22px;align-items:center;margin-top:30px;
+    font-size:13px;color:var(--dim);
+  }
+  .meta-row .authors{color:var(--bone);font-weight:500}
+  .meta-row .aff{color:var(--dim-2);font-size:12px}
+  .meta-row .sep{color:var(--line)}
+
+  /* hero right : instrument */
+  .instrument{
+    background:linear-gradient(180deg,var(--panel),var(--ink-2));
+    border:1px solid var(--line);border-radius:10px;padding:18px 18px 20px;
+    position:relative;overflow:hidden;
+  }
+  .inst-head{
+    display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;
+    font-family:"JetBrains Mono",monospace;font-size:10.5px;letter-spacing:.14em;
+    text-transform:uppercase;color:var(--dim);
+  }
+  .inst-head .tag{color:var(--green)}
+
+  .lattice{display:grid;grid-template-columns:repeat(12,1fr);gap:4px;margin-bottom:16px}
+  .cell{
+    aspect-ratio:1;border-radius:2px;background:var(--pruned);
+    transition:background .35s ease,box-shadow .35s ease,transform .25s;
+  }
+  .cell.on{background:var(--accent);box-shadow:0 0 7px rgba(255,180,61,.55)}
+
+  .readout{
+    display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px;
+    font-family:"JetBrains Mono",monospace;
+  }
+  .readout .r{background:var(--ink-2);border:1px solid var(--line);border-radius:6px;padding:8px 9px}
+  .readout .lbl{font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--dim-2);display:block}
+  .readout .val{font-size:16px;font-weight:700;color:var(--bone);margin-top:2px}
+  .readout .val.prune{color:var(--warn)}
+
+  .slider-wrap{display:flex;flex-direction:column;gap:6px}
+  .slider-wrap .top{display:flex;justify-content:space-between;
+    font-family:"JetBrains Mono",monospace;font-size:10px;color:var(--dim);letter-spacing:.08em}
+  input[type=range]{
+    -webkit-appearance:none;appearance:none;width:100%;height:4px;border-radius:4px;
+    background:linear-gradient(90deg,var(--accent) 0%,var(--accent) var(--p,66%),var(--line) var(--p,66%),var(--line) 100%);
+    outline:none;cursor:pointer;
+  }
+  input[type=range]::-webkit-slider-thumb{
+    -webkit-appearance:none;width:16px;height:16px;border-radius:50%;
+    background:var(--bone);border:2px solid var(--accent);cursor:grab;
+    box-shadow:0 0 0 3px rgba(255,180,61,.18);
+  }
+  input[type=range]::-moz-range-thumb{
+    width:16px;height:16px;border-radius:50%;background:var(--bone);
+    border:2px solid var(--accent);cursor:grab;
+  }
+
+  /* ---------- ASSET ROW ---------- */
+  .assets{
+    display:grid;grid-template-columns:1fr 1.25fr 1.25fr;gap:16px;
+    margin:46px 0 14px;
+  }
+  .card{
+    background:var(--panel);border:1px solid var(--line);border-radius:10px;
+    padding:22px 22px 20px;position:relative;overflow:hidden;
+  }
+  .card .k{
+    font-family:"JetBrains Mono",monospace;font-size:10px;letter-spacing:.16em;
+    text-transform:uppercase;color:var(--dim);margin-bottom:14px;display:flex;gap:8px;align-items:center;
+  }
+  .card .k .ic{width:8px;height:8px;border-radius:2px}
+  .metric .big{
+    font-family:"Space Grotesk",sans-serif;font-weight:700;font-size:4.2rem;line-height:.9;
+    color:var(--green);letter-spacing:-.03em;
+  }
+  .metric .sub{font-size:13px;color:var(--dim);margin-top:10px;line-height:1.5}
+  .metric .sub b{color:var(--bone);font-weight:600}
+  .card .corner{
+    position:absolute;top:0;right:0;font-family:"JetBrains Mono",monospace;font-size:9px;
+    color:var(--dim-2);padding:6px 10px;border-left:1px solid var(--line);border-bottom:1px solid var(--line);
+    border-bottom-left-radius:8px;
+  }
+  .matters p{margin:0;font-size:15px;line-height:1.55;color:var(--bone);font-weight:400}
+  .matters .lead{font-family:"Space Grotesk",sans-serif;font-weight:600;font-size:18px;color:var(--bone);line-height:1.4}
+  .edge{border-color:#3a2622}
+  .edge .lead{font-size:15px;line-height:1.5;color:var(--bone)}
+  .edge .lead b{color:var(--warn);font-weight:600}
+  .edge .src{font-family:"JetBrains Mono",monospace;font-size:10px;color:var(--dim-2);margin-top:14px;letter-spacing:.05em}
+
+  /* ---------- BODY GRID ---------- */
+  section.body{padding:42px 0 30px}
+  .sectitle{
+    display:flex;align-items:baseline;gap:14px;margin:0 0 22px;
+    font-family:"JetBrains Mono",monospace;font-size:11px;letter-spacing:.2em;
+    text-transform:uppercase;color:var(--dim);
+  }
+  .sectitle .n{color:var(--accent)}
+  .sectitle .t{color:var(--bone)}
+
+  .method{display:grid;grid-template-columns:1.1fr .9fr;gap:34px;margin-bottom:48px}
+  .method .prose{font-size:15px;line-height:1.72;color:var(--bone)}
+  .method .prose b{color:var(--accent);font-weight:600}
+  .method .prose .muted{color:var(--dim)}
+  .method .prose code{font-family:"JetBrains Mono",monospace;font-size:13px;color:var(--green);background:var(--ink-2);padding:1px 5px;border-radius:3px}
+
+  .gates{display:flex;flex-direction:column;gap:11px}
+  .gate{
+    display:grid;grid-template-columns:42px 1fr auto;gap:14px;align-items:center;
+    background:var(--panel);border:1px solid var(--line);border-radius:9px;padding:14px 15px;
+  }
+  .gate .sym{
+    width:42px;height:42px;border-radius:7px;display:grid;place-items:center;
+    font-family:"Space Grotesk",sans-serif;font-weight:700;font-size:18px;
+  }
+  .gate.g1 .sym{background:rgba(255,180,61,.13);color:var(--accent)}
+  .gate.g2 .sym{background:rgba(84,214,168,.13);color:var(--green)}
+  .gate.g3 .sym{background:rgba(255,107,94,.13);color:var(--warn)}
+  .gate .gt{font-family:"Space Grotesk",sans-serif;font-weight:600;font-size:15px;color:var(--bone)}
+  .gate .gd{font-size:12.5px;color:var(--dim);margin-top:2px;line-height:1.4}
+  .gate .axis{font-family:"JetBrains Mono",monospace;font-size:10px;color:var(--dim-2);text-align:right;letter-spacing:.04em}
+
+  /* results */
+  .results{margin-bottom:48px}
+  .table-wrap{border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--panel)}
+  table{width:100%;border-collapse:collapse;font-size:13.5px}
+  thead th{
+    font-family:"JetBrains Mono",monospace;font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;
+    color:var(--dim);text-align:right;padding:13px 16px;background:var(--ink-2);border-bottom:1px solid var(--line);
+  }
+  thead th:first-child{text-align:left}
+  tbody td{padding:13px 16px;border-bottom:1px solid var(--line-soft);text-align:right;font-family:"JetBrains Mono",monospace;color:var(--dim)}
+  tbody td:first-child{text-align:left;font-family:"Hanken Grotesk",sans-serif;color:var(--bone);font-weight:500}
+  tbody tr:last-child td{border-bottom:none}
+  tbody tr.win td{color:var(--green);font-weight:700}
+  tbody tr.win td:first-child{color:var(--bone)}
+  tbody tr.dense td{color:var(--dim-2)}
+  tbody tr .delta{font-size:11px;opacity:.8}
+  .win-tag{display:inline-block;font-size:9px;font-family:"JetBrains Mono",monospace;letter-spacing:.08em;
+    background:rgba(84,214,168,.13);color:var(--green);padding:1px 6px;border-radius:3px;margin-left:8px;vertical-align:middle}
+
+  .pareto-row{display:grid;grid-template-columns:1.3fr 1fr;gap:24px;margin-top:22px}
+  .pareto{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:18px 18px 14px}
+  .pareto .ph{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+  .pareto .ph .t{font-family:"JetBrains Mono",monospace;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim)}
+  .pareto .ph .t b{color:var(--accent)}
+  .pareto svg{width:100%;height:auto;display:block}
+  .legend{display:flex;flex-direction:column;gap:13px;justify-content:center}
+  .legend .li{display:flex;gap:11px;align-items:flex-start;font-size:13px;color:var(--bone);line-height:1.45}
+  .legend .li .mk{width:11px;height:11px;border-radius:50%;margin-top:4px;flex-shrink:0}
+  .legend .li small{display:block;color:var(--dim);font-size:11.5px;margin-top:1px;font-family:"JetBrains Mono",monospace}
+
+  /* strengths / limits */
+  .twocol{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-bottom:48px}
+  .pane{border:1px solid var(--line);border-radius:10px;padding:20px 22px;background:var(--panel)}
+  .pane.good{border-top:2px solid var(--green)}
+  .pane.bad{border-top:2px solid var(--warn)}
+  .pane h3{font-family:"Space Grotesk",sans-serif;font-weight:600;font-size:15px;margin:0 0 14px;letter-spacing:.01em;display:flex;align-items:center;gap:9px}
+  .pane h3 .badge{font-family:"JetBrains Mono",monospace;font-size:9.5px;letter-spacing:.1em;padding:2px 7px;border-radius:3px}
+  .pane.good h3 .badge{background:rgba(84,214,168,.13);color:var(--green)}
+  .pane.bad h3 .badge{background:rgba(255,107,94,.13);color:var(--warn)}
+  .pane ul{margin:0;padding:0;list-style:none}
+  .pane li{font-size:13.5px;line-height:1.5;color:var(--dim);padding:9px 0 9px 20px;position:relative;border-top:1px solid var(--line-soft)}
+  .pane li:first-child{border-top:none}
+  .pane.good li::before{content:"+";position:absolute;left:0;color:var(--green);font-weight:700;font-family:"JetBrains Mono",monospace}
+  .pane.bad li::before{content:"!";position:absolute;left:0;color:var(--warn);font-weight:700;font-family:"JetBrains Mono",monospace}
+  .pane li b{color:var(--bone);font-weight:600}
+
+  /* questions */
+  .questions{margin-bottom:30px}
+  .qlist{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  .q{
+    border:1px solid var(--line);border-radius:9px;padding:16px 18px;background:var(--panel);
+    display:flex;gap:14px;align-items:flex-start;transition:border-color .2s,transform .2s;cursor:default;
+  }
+  .q:hover{border-color:var(--accent);transform:translateY(-2px)}
+  .q .qn{font-family:"JetBrains Mono",monospace;font-size:11px;color:var(--accent);flex-shrink:0;font-weight:700;letter-spacing:.05em;padding-top:1px}
+  .q .qt{font-size:13.5px;line-height:1.5;color:var(--bone)}
+  .q .qt small{display:block;color:var(--dim);font-size:12px;margin-top:3px}
+
+  /* footer */
+  footer{
+    border-top:1px solid var(--line);margin-top:40px;padding:26px 0 60px;
+    display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;
+    font-family:"JetBrains Mono",monospace;font-size:11.5px;color:var(--dim);letter-spacing:.04em;
+  }
+  footer .src{transition:color .2s}
+  footer .src:hover{color:var(--accent)}
+  footer .id{color:var(--dim-2)}
+
+  /* reveal animation */
+  .reveal{opacity:0;transform:translateY(14px);animation:rise .7s cubic-bezier(.2,.7,.2,1) forwards}
+  @keyframes rise{to{opacity:1;transform:none}}
+  .d1{animation-delay:.05s}.d2{animation-delay:.13s}.d3{animation-delay:.21s}
+  .d4{animation-delay:.30s}.d5{animation-delay:.40s}.d6{animation-delay:.50s}
+  .d7{animation-delay:.60s}.d8{animation-delay:.72s}
+
+  /* responsive */
+  @media (max-width:980px){
+    .hero-grid{grid-template-columns:1fr;gap:34px}
+    .assets{grid-template-columns:1fr}
+    .method{grid-template-columns:1fr;gap:22px}
+    .pareto-row{grid-template-columns:1fr}
+    .twocol{grid-template-columns:1fr}
+    .qlist{grid-template-columns:1fr}
+    .finding{font-size:clamp(1.9rem,7vw,2.7rem)}
+    header{padding:84px 0 18px}
+  }
+  @media (max-width:560px){
+    .wrap{padding:0 18px}
+    .metric .big{font-size:3.2rem}
+    thead th,tbody td{padding:10px 11px;font-size:12px}
+  }
+  @media (prefers-reduced-motion:reduce){
+    .reveal{animation:none;opacity:1;transform:none}
+    .eyebrow .dot{animation:none}
+  }
+</style>
+</head>
+<body>
+  <a class="topnav" href="./index.html" title="Back to today's digest">↩ Today's digest</a>
+
+  <div class="wrap">
+    <!-- ============ HERO ============ -->
+    <header>
+      <div class="eyebrow reveal d1"><span class="dot"></span> PAPER DASHBOARD · arXiv 2606.27743 · 2026-06-26</div>
+
+      <div class="chips reveal d1">
+        <span class="chip hot">DYNAMIC SPARSITY</span>
+        <span class="chip">LLM INFERENCE</span>
+        <span class="chip">RESOURCE ALLOCATION</span>
+        <span class="chip">LORA</span>
+        <span class="chip">PARETO FRONTIER</span>
+      </div>
+
+      <div class="hero-grid">
+        <div>
+          <p class="paper-title reveal d2">
+            <a href="https://arxiv.org/abs/2606.27743" target="_blank" rel="noopener">End-to-End Dynamic Sparsity for Resource-Adaptive LLM Inference&nbsp;↗</a>
+          </p>
+
+          <h1 class="finding reveal d2">
+            One budget-conditioned model <span class="hl">skips layers</span>,
+            <span class="hl">prunes heads</span>, and <span class="hl">trims reasoning tokens</span> &mdash;
+            tracing the entire accuracy&ndash;cost Pareto frontier <em>within 0.6% of dense</em>.
+          </h1>
+
+          <div class="bilingual reveal d3">
+            <b>一句话总结：</b>提出 L2A 框架，通过预算条件化的轻量级门控网络，让单一 LLM
+            依据实时资源预算动态地跳层、剪头、缩减推理 token，在精度损失 &lt;0.6% 的前提下沿整条
+            算力&ndash;精度 Pareto 前沿运行。
+          </div>
+
+          <div class="meta-row reveal d3">
+            <span><span class="authors">Yuhang Chen</span> <span class="aff">et al.</span></span>
+            <span class="sep">/</span>
+            <span class="aff">UNC Chapel Hill · Meta AI</span>
+            <span class="sep">/</span>
+            <span>6 authors</span>
+            <span class="sep">/</span>
+            <span>Jun 26, 2026</span>
+          </div>
+        </div>
+
+        <!-- instrument: budget -> sparsity lattice -->
+        <div class="instrument reveal d4">
+          <div class="inst-head">
+            <span>ADAPTIVE COMPUTE · L2A</span>
+            <span class="tag">● LIVE</span>
+          </div>
+          <div class="lattice" id="lattice"></div>
+          <div class="readout">
+            <div class="r"><span class="lbl">Budget b</span><span class="val" id="rBud">0.66</span></div>
+            <div class="r"><span class="lbl">Active</span><span class="val" id="rAct">66%</span></div>
+            <div class="r"><span class="lbl">Sparsity</span><span class="val prune" id="rSpr">34%</span></div>
+          </div>
+          <div class="slider-wrap">
+            <div class="top"><span>DRAG BUDGET →</span><span id="rNote">34% layer sparsity, &lt;0.6% gap</span></div>
+            <input type="range" id="budget" min="0.40" max="1" step="0.01" value="0.66" />
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <!-- ============ ASSET ROW ============ -->
+    <div class="assets">
+      <div class="card metric reveal d5">
+        <span class="corner">KEY METRIC</span>
+        <div class="k"><span class="ic" style="background:var(--green)"></span> ACCURACY GAP TO DENSE</div>
+        <div class="big">0.6<span style="font-size:2rem">%</span></div>
+        <div class="sub">
+          Llama-3-8B GSM8K: <b>35.9%</b> at <b>34% / 24%</b> layer / head sparsity vs. <b>36.5%</b> dense &mdash;
+          gap holds zero-shot on HumanEval &amp; BBH.
+        </div>
+      </div>
+
+      <div class="card matters reveal d5">
+        <span class="corner">WHY THIS MATTERS</span>
+        <div class="k"><span class="ic" style="background:var(--accent)"></span> DEPLOYMENT SIGNAL</div>
+        <p class="lead">Turns compression from a one-time static artifact into a <span style="color:var(--accent)">runtime budget-adaptive</span> mechanism.</p>
+        <p style="color:var(--dim);font-size:13.5px;margin:12px 0 0;line-height:1.55">
+          Reliable, non-wasteful serving for volatile multi-tenant clouds (spot preemption, tiered QoS) &mdash; one model spans the whole budget range.
+        </p>
+      </div>
+
+      <div class="card edge reveal d5">
+        <span class="corner">CRITICAL EDGE</span>
+        <div class="k"><span class="ic" style="background:var(--warn)"></span> READ WITH CAUTION</div>
+        <p class="lead">
+          Head-pruning wall-clock speedups are admitted as <b>implementation-dependent and largely unrealized</b> &mdash;
+          the three-axis framing is partly aspirational for the throughput axis.
+        </p>
+        <div class="src">— reported gains come from layer-skip + reasoning-length reduction only</div>
+      </div>
+    </div>
+
+    <!-- ============ BODY ============ -->
+    <section class="body">
+      <!-- Methodology -->
+      <div class="sectitle reveal d6"><span class="n">01</span><span class="t">Methodology — Learning to Allocate</span></div>
+      <div class="method">
+        <div class="prose reveal d6">
+          <p style="margin-top:0">
+            <b>L2A</b> turns a frozen LLM <code>fθ</code> into a dynamic, input-dependent compute graph.
+            A scalar <b>budget b ∈ [0,1]</b> (larger = more compute) is embedded and fed to three lightweight
+            gating MLPs that each condition on both the hidden state and the budget &mdash; so the policy reacts to
+            <span class="muted">real system signals (deadline, spot time-to-interruption, KV-cache headroom, queue length),</span>
+            not just input difficulty.
+          </p>
+          <p>
+            <b>LoRA</b> adapters (rank 16) let the backbone adapt to sparse execution paths without catastrophic
+            forgetting. Training jointly samples data and a budget <code>b ~ D</code>, minimizing a unified objective
+            <code>L = L_ce + γ·L_kd + λ·(C−B) + λT·R_tok</code> &mdash; balancing task accuracy, KL distillation
+            (logical consistency), budget matching, and reasoning-length cost. Gate temperature anneals toward
+            near-binary decisions; at deployment the conservative aggregate
+            <code>b = min{b_time, b_mem, b_queue}</code> protects against the tightest constraint.
+          </p>
+        </div>
+
+        <div class="gates reveal d6">
+          <div class="gate g1">
+            <div class="sym">α</div>
+            <div><div class="gt">Layer-skip gate</div><div class="gd">Soft-scales each residual in training; binarized (skip when α≤0.5) at inference.</div></div>
+            <div class="axis">MEMORY<br>/ DEPTH</div>
+          </div>
+          <div class="gate g2">
+            <div class="sym">β</div>
+            <div><div class="gt">Head-prune gate</div><div class="gd">Reweights attention heads per layer under throughput contention.</div></div>
+            <div class="axis">THROUGH<br>-PUT</div>
+          </div>
+          <div class="gate g3">
+            <div class="sym">τ</div>
+            <div><div class="gt">Transition gate</div><div class="gd">Force-emits <code style="font-size:11px">&lt;/think&gt;&lt;answer&gt;</code> to shorten the reasoning segment.</div></div>
+            <div class="axis">LATENCY</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Results -->
+      <div class="sectitle reveal d7"><span class="n">02</span><span class="t">Results — single model, full frontier</span></div>
+      <div class="results reveal d7">
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Backbone · GSM8K</th>
+                <th>Method</th>
+                <th>Layer / Head sparsity</th>
+                <th>Acc.</th>
+                <th>Δ vs dense</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr class="dense">
+                <td>Llama-3-8B</td><td>Dense baseline</td><td>0% / 0%</td><td>36.5%</td><td>—</td>
+              </tr>
+              <tr class="win">
+                <td>Llama-3-8B <span class="win-tag">L2A</span></td><td>L2A (ours)</td><td>34% / 24%</td><td>35.9%</td><td>−0.6%</td>
+              </tr>
+              <tr>
+                <td>Llama-3-8B</td><td>Static Pruning</td><td>~34%</td><td>25.4%</td><td>−11.1%</td>
+              </tr>
+              <tr>
+                <td>Llama-3-8B</td><td>AdaSkip / FlexiDepth</td><td>~34%</td><td>31–33%</td><td>−3.5 to −5.5%</td>
+              </tr>
+              <tr class="dense">
+                <td>Qwen-3-4B</td><td>Dense baseline</td><td>0% / 0%</td><td>48.5%</td><td>—</td>
+              </tr>
+              <tr class="win">
+                <td>Qwen-3-4B <span class="win-tag">L2A</span></td><td>L2A (ours)</td><td>38% / 28%</td><td>47.8%</td><td>−0.7%</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="pareto-row">
+          <div class="pareto">
+            <div class="ph"><span class="t">PARETO FRONTIER · <b>Llama-3-8B · GSM8K</b></span><span class="t">accuracy % vs compute</span></div>
+            <svg viewBox="0 0 320 210" role="img" aria-label="Pareto frontier chart">
+              <!-- axes -->
+              <line x1="44" y1="20" x2="44" y2="170" stroke="#272d3a" stroke-width="1"/>
+              <line x1="44" y1="170" x2="306" y2="170" stroke="#272d3a" stroke-width="1"/>
+              <!-- gridlines + y labels -->
+              <g font-family="JetBrains Mono" font-size="8" fill="#646a78">
+                <line x1="44" y1="49" x2="306" y2="49" stroke="#1f2430"/><text x="40" y="52" text-anchor="end">35</text>
+                <line x1="44" y1="96" x2="306" y2="96" stroke="#1f2430"/><text x="40" y="99" text-anchor="end">30</text>
+                <line x1="44" y1="143" x2="306" y2="143" stroke="#1f2430"/><text x="40" y="146" text-anchor="end">25</text>
+                <text x="40" y="20" text-anchor="end">38</text>
+              </g>
+              <!-- x labels -->
+              <g font-family="JetBrains Mono" font-size="8" fill="#646a78">
+                <text x="44" y="184" text-anchor="middle">0</text>
+                <text x="109" y="184" text-anchor="middle">10</text>
+                <text x="175" y="184" text-anchor="middle">20</text>
+                <text x="240" y="184" text-anchor="middle">30</text>
+                <text x="306" y="184" text-anchor="middle">40%</text>
+                <text x="175" y="200" text-anchor="middle" fill="#8b919f" letter-spacing="1">LAYER SPARSITY →</text>
+              </g>
+              <!-- L2A frontier band (dense -> l2a) -->
+              <line x1="44" y1="34" x2="271" y2="40" stroke="#54d6a8" stroke-width="2.5" stroke-linecap="round"/>
+              <line x1="44" y1="34" x2="271" y2="40" stroke="#54d6a8" stroke-width="8" stroke-linecap="round" opacity=".15"/>
+              <!-- points -->
+              <!-- Dense (0,36.5) -> (44,34) -->
+              <circle cx="44" cy="34" r="4.5" fill="#ece7da" stroke="#0b0d12" stroke-width="1.5"/>
+              <text x="52" y="30" font-family="JetBrains Mono" font-size="8" fill="#ece7da">dense 36.5%</text>
+              <!-- L2A (34,35.9) -> (271,40) -->
+              <circle cx="271" cy="40" r="5.5" fill="#54d6a8" stroke="#0b0d12" stroke-width="1.5"/>
+              <text x="278" y="38" font-family="JetBrains Mono" font-size="8.5" font-weight="700" fill="#54d6a8">L2A 35.9%</text>
+              <text x="278" y="49" font-family="JetBrains Mono" font-size="7.5" fill="#8b919f">34% sparsity</text>
+              <!-- AdaSkip/FlexiDepth (33,~32) -> (264,76) -->
+              <circle cx="264" cy="76" r="4" fill="#ffb43d" stroke="#0b0d12" stroke-width="1.5"/>
+              <text x="258" y="71" font-family="JetBrains Mono" font-size="7.5" fill="#ffb43d" text-anchor="end">AdaSkip/FlexiDepth ≈32%</text>
+              <!-- Static Pruning (34,25.4) -> (271,138) -->
+              <circle cx="271" cy="138" r="4" fill="#ff6b5e" stroke="#0b0d12" stroke-width="1.5"/>
+              <text x="265" y="150" font-family="JetBrains Mono" font-size="7.5" fill="#ff6b5e" text-anchor="end">Static 25.4%</text>
+              <!-- gap annotation -->
+              <line x1="271" y1="46" x2="271" y2="132" stroke="#3a3f4b" stroke-width="1" stroke-dasharray="2 3"/>
+              <text x="297" y="92" font-family="JetBrains Mono" font-size="7.5" fill="#646a78" text-anchor="middle">≈10pt</text>
+              <text x="297" y="101" font-family="JetBrains Mono" font-size="7.5" fill="#646a78" text-anchor="middle">gap</text>
+            </svg>
+          </div>
+
+          <div class="legend">
+            <div class="li"><span class="mk" style="background:#54d6a8"></span><div><b>L2A — traces the frontier</b><small>single model, near-lossless at 34% sparsity</small></div></div>
+            <div class="li"><span class="mk" style="background:#ece7da"></span><div><b>Dense baseline</b><small>full compute, 36.5% accuracy</small></div></div>
+            <div class="li"><span class="mk" style="background:#ffb43d"></span><div><b>AdaSkip / FlexiDepth</b><small>input-only gating, 31–33% — drop 3.5–5.5 pts</small></div></div>
+            <div class="li"><span class="mk" style="background:#ff6b5e"></span><div><b>Static Pruning</b><small>collapses to 25.4% — needs per-budget tuning</small></div></div>
+            <div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--dim-2);border-top:1px solid var(--line-soft);padding-top:12px;line-height:1.5">
+              Fixed-budget b=0.6: L2A <b style="color:var(--green)">35.8%</b> vs FixedBudget 31.7% / Static Oracle 33.5% — input-dependent beats uniform caps.
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Strengths / Limitations -->
+      <div class="sectitle reveal d7"><span class="n">03</span><span class="t">Assessment — strengths × limitations</span></div>
+      <div class="twocol reveal d8">
+        <div class="pane good">
+          <h3>Strengths <span class="badge">RIGOR · HIGH</span></h3>
+          <ul>
+            <li><b>Genuine runtime adaptivity</b> — one trained model spans the full budget range; no per-budget models.</li>
+            <li><b>Principled unified objective</b> with interpretable roles per term, validated cleanly by ablations.</li>
+            <li><b>Strong OOD robustness</b> — policy generalizes across math, code, and symbolic reasoning.</li>
+            <li><b>Practical budget calibration</b> mapping real signals (deadline, memory, queue) to a normalized budget.</li>
+          </ul>
+        </div>
+        <div class="pane bad">
+          <h3>Limitations <span class="badge">REPRO · MODERATE</span></h3>
+          <ul>
+            <li><b>Head-pruning speedups implementation-dependent</b> and not consistently realized in wall-clock time.</li>
+            <li><b>Budget calibration assumes accurate online latency/memory estimators</b>; errors bias the policy.</li>
+            <li><b>Structured <code>&lt;think&gt;/&lt;answer&gt;</code> format</b> requires consistent prompting; may not suit all settings.</li>
+            <li><b>Single hardware/serving-stack validation</b>; no code release; D, annealing schedule, estimators under-specified.</li>
+          </ul>
+        </div>
+      </div>
+
+      <!-- Questions -->
+      <div class="sectitle reveal d8"><span class="n">04</span><span class="t">Open questions for further exploration</span></div>
+      <div class="questions reveal d8">
+        <div class="qlist">
+          <div class="q"><span class="qn">Q1</span><div class="qt">Behavior under <b>sudden mid-generation budget changes</b> (spot preemption mid-token)?<small>what is the recovery cost?</small></div></div>
+          <div class="q"><span class="qn">Q2</span><div class="qt">Can the three gates be <b>shared / parameter-tied</b> to cut overhead?<small>gating compute as a fraction of inference?</small></div></div>
+          <div class="q"><span class="qn">Q3</span><div class="qt">Does the policy transfer to <b>70B+ models or quantized backbones</b>?<small>without retraining the gates?</small></div></div>
+          <div class="q"><span class="qn">Q4</span><div class="qt">Sensitivity of the frontier to <b>budget distribution D</b> &amp; annealing schedule?<small>how brittle is the learned policy?</small></div></div>
+        </div>
+      </div>
+    </section>
+
+    <footer>
+      <a class="src" href="2606.27743.html">↗ Markdown source</a>
+      <span class="id">arXiv:2606.27743 · dashboard rendered 2026-06-26</span>
+    </footer>
+  </div>
+
+<script>
+(function(){
+  // ---- sparsity lattice ----
+  var lat = document.getElementById('lattice');
+  var COLS = 12, ROWS = 11, TOTAL = COLS*ROWS;
+  var order = [];
+  for (var i=0;i<TOTAL;i++) order.push(i);
+  // deterministic shuffle so pruning looks organic but stable
+  for (var k=0;k<TOTAL;k++){
+    var j = (k*7 + 3) % TOTAL;
+    var t = order[k]; order[k]=order[j]; order[j]=t;
+  }
+  var cells = [];
+  for (var c=0;c<TOTAL;c++){
+    var d = document.createElement('div');
+    d.className='cell on'; lat.appendChild(d); cells.push(d);
+  }
+  function applyBudget(b){
+    var active = Math.round(b*TOTAL);
+    for (var i=0;i<TOTAL;i++){
+      var rank = order.indexOf(i); // priority rank
+      cells[i].classList.toggle('on', rank < active);
+    }
+    var pct = Math.round(b*100);
+    document.getElementById('rBud').textContent = b.toFixed(2);
+    document.getElementById('rAct').textContent = pct + '%';
+    document.getElementById('rSpr').textContent = (100-pct) + '%';
+    var note = document.getElementById('rNote');
+    if (b >= 0.97)      note.textContent = 'dense baseline · full compute';
+    else if (b >= 0.60) note.textContent = (100-pct)+'% sparsity, <0.6% gap';
+    else if (b >= 0.50) note.textContent = 'aggressive · watch accuracy';
+    else                note.textContent = 'over-pruned · accuracy at risk';
+  }
+  var slider = document.getElementById('budget');
+  function syncFill(){
+    var v = (slider.value - slider.min)/(slider.max - slider.min)*100;
+    slider.style.setProperty('--p', v+'%');
+  }
+  slider.addEventListener('input', function(){ applyBudget(parseFloat(slider.value)); syncFill(); });
+  applyBudget(parseFloat(slider.value)); syncFill();
+})();
+</script>
+</body>
+</html>

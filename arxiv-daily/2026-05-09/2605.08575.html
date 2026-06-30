@@ -1,0 +1,576 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Uncovering Intra-expert Activation Sparsity for Efficient MoE Execution</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Source+Serif+4:ital,opsz,wght@0,8..60,300;0,8..60,600;0,8..60,900;1,8..60,400&display=swap');
+
+  :root {
+    --bg: #0e0e0e;
+    --surface: #1a1a1a;
+    --border: #2a2a2a;
+    --fg: #e8e4df;
+    --muted: #8a8580;
+    --accent: #e85d3a;
+    --accent-dim: #e85d3a22;
+    --mono: 'DM Mono', monospace;
+    --serif: 'Source Serif 4', Georgia, serif;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html { font-size: 16px; scroll-behavior: smooth; }
+
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: var(--serif);
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .container {
+    max-width: min(95vw, 1100px);
+    margin: 0 auto;
+    padding: 0 clamp(1rem, 3vw, 2rem);
+  }
+
+  /* ── NAV ── */
+  nav {
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    background: var(--bg);
+    border-bottom: 1px solid var(--border);
+    padding: 0.65rem 0;
+    font-family: var(--mono);
+    font-size: 0.75rem;
+    letter-spacing: 0.03em;
+  }
+  nav .container {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  nav a {
+    color: var(--muted);
+    text-decoration: none;
+    transition: color 0.2s;
+  }
+  nav a:hover { color: var(--accent); }
+  nav .tag {
+    color: var(--accent);
+    border: 1px solid var(--accent);
+    padding: 0.15em 0.55em;
+    border-radius: 2px;
+    font-size: 0.7rem;
+  }
+
+  /* ── HERO ── */
+  .hero {
+    padding: clamp(3rem, 8vw, 6rem) 0 clamp(2rem, 5vw, 3.5rem);
+    border-bottom: 1px solid var(--border);
+  }
+  .hero-meta {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    color: var(--muted);
+    margin-bottom: 1.2rem;
+    letter-spacing: 0.04em;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem 1.5rem;
+  }
+  .hero h1 {
+    font-family: var(--serif);
+    font-weight: 900;
+    font-size: clamp(1.6rem, 4vw, 2.6rem);
+    line-height: 1.15;
+    letter-spacing: -0.02em;
+    max-width: 52ch;
+  }
+  .hero h1 a {
+    color: var(--fg);
+    text-decoration: none;
+    transition: color 0.2s;
+  }
+  .hero h1 a:hover { color: var(--accent); }
+  .hero-authors {
+    margin-top: 1.2rem;
+    font-size: 0.88rem;
+    color: var(--muted);
+    font-style: italic;
+  }
+
+  /* ── ASSET GRID ── */
+  .assets {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 1px;
+    background: var(--border);
+    margin: 0 0 1px;
+  }
+  .asset {
+    background: var(--bg);
+    padding: clamp(1.4rem, 3vw, 2.2rem);
+    position: relative;
+    opacity: 0;
+    animation: fadeUp 0.5s ease forwards;
+  }
+  .asset:nth-child(1) { animation-delay: 0.1s; }
+  .asset:nth-child(2) { animation-delay: 0.2s; }
+  .asset:nth-child(3) { animation-delay: 0.3s; }
+  .asset:nth-child(4) { animation-delay: 0.4s; }
+
+  .asset-label {
+    font-family: var(--mono);
+    font-size: 0.62rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 0.8rem;
+  }
+  .asset-value {
+    font-weight: 600;
+    line-height: 1.35;
+  }
+
+  .asset--metric .asset-value {
+    font-family: var(--mono);
+    font-size: clamp(2.2rem, 5vw, 3.4rem);
+    font-weight: 500;
+    color: var(--accent);
+    line-height: 1;
+    margin-bottom: 0.4rem;
+  }
+  .asset--metric .asset-sub {
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    color: var(--muted);
+  }
+
+  .asset--finding .asset-value {
+    font-size: clamp(1rem, 2vw, 1.15rem);
+  }
+
+  .asset--why .asset-value {
+    font-size: clamp(1rem, 2vw, 1.15rem);
+  }
+
+  .asset--edge {
+    border-left: 3px solid var(--accent);
+  }
+  .asset--edge .asset-value {
+    font-size: clamp(0.92rem, 1.8vw, 1.05rem);
+    color: #ccc8c3;
+  }
+
+  /* ── SPARSITY TABLE ── */
+  .section {
+    padding: clamp(2rem, 5vw, 3.5rem) 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .section-title {
+    font-family: var(--mono);
+    font-size: 0.62rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 1.5rem;
+  }
+
+  .sparsity-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 2px;
+  }
+  .sparsity-row {
+    display: grid;
+    grid-template-columns: minmax(0, 2.4fr) minmax(0, 0.8fr) minmax(0, 3fr);
+    gap: 0;
+    background: var(--border);
+  }
+  .sparsity-row > span {
+    background: var(--bg);
+    padding: 0.55rem 0.8rem;
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    display: flex;
+    align-items: center;
+  }
+  .sparsity-row--head > span {
+    color: var(--muted);
+    font-size: 0.65rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    background: var(--surface);
+  }
+  .sparsity-bar-wrap {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+  }
+  .sparsity-bar-track {
+    flex: 1;
+    height: 4px;
+    background: var(--border);
+    border-radius: 1px;
+    overflow: hidden;
+  }
+  .sparsity-bar-fill {
+    height: 100%;
+    background: var(--accent);
+    border-radius: 1px;
+    width: 0;
+    transition: width 1.2s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  .sparsity-pct {
+    font-family: var(--mono);
+    font-size: 0.75rem;
+    color: var(--accent);
+    min-width: 3.5ch;
+    text-align: right;
+  }
+
+  /* ── METHOD TIMELINE ── */
+  .method-phases {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 1px;
+    background: var(--border);
+  }
+  .phase {
+    background: var(--bg);
+    padding: clamp(1.4rem, 3vw, 2rem);
+  }
+  .phase-num {
+    font-family: var(--mono);
+    font-size: 0.65rem;
+    color: var(--accent);
+    letter-spacing: 0.1em;
+    margin-bottom: 0.6rem;
+  }
+  .phase h3 {
+    font-size: 1rem;
+    font-weight: 600;
+    margin-bottom: 0.7rem;
+  }
+  .phase ul {
+    list-style: none;
+    font-size: 0.88rem;
+    color: #b5b0ab;
+  }
+  .phase li {
+    padding: 0.25rem 0;
+    padding-left: 1rem;
+    position: relative;
+  }
+  .phase li::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0.7rem;
+    width: 4px;
+    height: 1px;
+    background: var(--muted);
+  }
+
+  /* ── SPEEDUP CHART ── */
+  .chart-container {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1px;
+    background: var(--border);
+  }
+  .gpu-card {
+    background: var(--bg);
+    padding: clamp(1.2rem, 2.5vw, 1.8rem);
+  }
+  .gpu-name {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    color: var(--muted);
+    letter-spacing: 0.06em;
+    margin-bottom: 0.8rem;
+  }
+  .gpu-speedup {
+    font-family: var(--mono);
+    font-size: clamp(1.6rem, 3.5vw, 2.2rem);
+    font-weight: 500;
+    color: var(--fg);
+    line-height: 1;
+  }
+  .gpu-speedup span { color: var(--accent); }
+  .gpu-detail {
+    font-size: 0.78rem;
+    color: var(--muted);
+    margin-top: 0.5rem;
+    line-height: 1.45;
+  }
+
+  /* ── STRENGTHS / LIMITATIONS ── */
+  .split {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 1px;
+    background: var(--border);
+  }
+  .split-panel {
+    background: var(--bg);
+    padding: clamp(1.4rem, 3vw, 2rem);
+  }
+  .split-panel h3 {
+    font-family: var(--mono);
+    font-size: 0.65rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    margin-bottom: 1rem;
+  }
+  .split-panel--str h3 { color: #6dce8a; }
+  .split-panel--lim h3 { color: var(--accent); }
+  .split-panel ul {
+    list-style: none;
+    font-size: 0.85rem;
+  }
+  .split-panel li {
+    padding: 0.4rem 0;
+    color: #b5b0ab;
+    border-bottom: 1px solid var(--border);
+    line-height: 1.45;
+  }
+  .split-panel li:last-child { border-bottom: none; }
+
+  /* ── FOOTER ── */
+  footer {
+    padding: 1.5rem 0;
+    font-family: var(--mono);
+    font-size: 0.65rem;
+    color: var(--muted);
+    letter-spacing: 0.04em;
+    display: flex;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+  footer a { color: var(--muted); text-decoration: none; }
+  footer a:hover { color: var(--accent); }
+
+  /* ── ANIMATIONS ── */
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(12px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  /* ── RESPONSIVE ── */
+  @media (max-width: 700px) {
+    .assets,
+    .method-phases,
+    .chart-container,
+    .split {
+      grid-template-columns: 1fr;
+    }
+    .sparsity-row {
+      grid-template-columns: minmax(0, 2fr) minmax(0, 3.5fr);
+    }
+    .sparsity-row > span:nth-child(2) {
+      display: none;
+    }
+    .asset--edge { border-left: none; border-top: 3px solid var(--accent); }
+  }
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="container">
+    <a href="./index.html">&larr; Index</a>
+    <span class="tag">2605.08575</span>
+  </div>
+</nav>
+
+<header class="hero">
+  <div class="container">
+    <div class="hero-meta">
+      <span>2026-05-09</span>
+      <span>MoE &middot; Activation Sparsity &middot; Efficient Inference</span>
+    </div>
+    <h1><a href="https://arxiv.org/abs/2605.08575">Uncovering Intra-expert Activation Sparsity for Efficient Mixture-of-Expert Model Execution</a></h1>
+    <p class="hero-authors">Jongseok Park, Sunga Kim, Zhenyu Gu, Ion Stoica, Alvin Cheung &mdash; UC Berkeley &amp; AMD</p>
+  </div>
+</header>
+
+<section class="assets" aria-label="Key findings">
+  <div class="asset asset--finding">
+    <div class="asset-label">Key Finding</div>
+    <p class="asset-value">Pretrained MoE models across 3 orders of magnitude (1B&ndash;400B params) contain up to 90.8% intra-expert activation sparsity&mdash;exploitable with zero model modification and 95% accuracy retention.</p>
+  </div>
+  <div class="asset asset--metric">
+    <div class="asset-label">Key Metric</div>
+    <div class="asset-value">2.5&times;</div>
+    <p class="asset-sub">MoE layer speedup (RTX 4090, 85&ndash;87% sparsity). 1.2&times; end-to-end.</p>
+  </div>
+  <div class="asset asset--why">
+    <div class="asset-label">Why This Matters</div>
+    <p class="asset-value">Sparsity increases with model scale. As frontier models grow, the free speedup grows too&mdash;no retraining, no architecture change, deployable today in vLLM.</p>
+  </div>
+  <div class="asset asset--edge">
+    <div class="asset-label">Critical Edge</div>
+    <p class="asset-value">Amdahl's law caps end-to-end gains at 1.2&times; because MoE layers account for only ~45% of runtime. Gate projection must stay dense, hard-capping theoretical max at 3&times;. Evaluated only on multiple-choice benchmarks.</p>
+  </div>
+</section>
+
+<section class="section">
+  <div class="container">
+    <div class="section-title">Sparsity Cutoff by Model &mdash; Retaining 95% Accuracy</div>
+    <div class="sparsity-grid" id="sparsityGrid">
+      <!-- Header -->
+      <div class="sparsity-row sparsity-row--head">
+        <span>Model</span>
+        <span>Params</span>
+        <span>Sparsity</span>
+      </div>
+      <!-- Rows injected by JS -->
+    </div>
+  </div>
+</section>
+
+<section class="section" style="padding-top:0">
+  <div class="container">
+    <div class="section-title">Method &mdash; Two-Phase Approach</div>
+    <div class="method-phases">
+      <div class="phase">
+        <div class="phase-num">Phase 01</div>
+        <h3>Sparsity Analysis</h3>
+        <ul>
+          <li>Profile 8 pretrained MoE models (1B&ndash;400B params)</li>
+          <li>Sort neurons by post-SwiGLU magnitude; zero lowest at varying thresholds</li>
+          <li>Evaluate on 5 benchmarks via lm-eval-harness</li>
+          <li>Define sparsity cutoff: max sparsity at 95% baseline score</li>
+          <li>Analyze shared vs. routed expert neuron importance</li>
+        </ul>
+      </div>
+      <div class="phase">
+        <div class="phase-num">Phase 02</div>
+        <h3>System Integration (vLLM)</h3>
+        <ul>
+          <li>Custom Triton kernel: O(n) threshold-based sparse masking</li>
+          <li>Fused sparse up-down projection with gather-based execution</li>
+          <li>64-neuron tile granularity for CUDA/HIP graph compatibility</li>
+          <li>Dynamic sparse/dense switching profiled at engine startup</li>
+          <li>Preserves expert parallelism, kernel fusion, graph capture</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="section" style="padding-top:0">
+  <div class="container">
+    <div class="section-title">MoE-Layer Speedup by GPU</div>
+    <div class="chart-container">
+      <div class="gpu-card">
+        <div class="gpu-name">NVIDIA RTX 4090</div>
+        <div class="gpu-speedup"><span>2.5</span>&times;</div>
+        <p class="gpu-detail">Most resource-constrained GPU; highest relative gain at 85&ndash;87% sparsity.</p>
+      </div>
+      <div class="gpu-card">
+        <div class="gpu-name">NVIDIA H200</div>
+        <div class="gpu-speedup"><span>1.5&ndash;2.0</span>&times;</div>
+        <p class="gpu-detail">Datacenter GPU; speedup peaks at batch sizes 16&ndash;128.</p>
+      </div>
+      <div class="gpu-card">
+        <div class="gpu-name">AMD MI355X</div>
+        <div class="gpu-speedup"><span>1.5&ndash;2.0</span>&times;</div>
+        <p class="gpu-detail">AMD accelerator; confirms cross-vendor applicability via HIP graph support.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="section" style="padding-top:0">
+  <div class="container">
+    <div class="section-title">Assessment</div>
+    <div class="split">
+      <div class="split-panel split-panel--str">
+        <h3>Strengths</h3>
+        <ul>
+          <li>Zero modification to pretrained models&mdash;deployable on existing MoE serving infrastructure today.</li>
+          <li>Evaluated across 8 models spanning 3 orders of magnitude, including Llama-4-Maverick (400B).</li>
+          <li>Production-grade vLLM integration with full source code in appendix, not just a research prototype.</li>
+          <li>Sparsity scales with model size: counteracts the narrative that efficiency gains diminish at frontier scale.</li>
+          <li>Clean shared vs. routed expert analysis provides actionable guidance for future MoE architecture design.</li>
+        </ul>
+      </div>
+      <div class="split-panel split-panel--lim">
+        <h3>Limitations</h3>
+        <ul>
+          <li>End-to-end 1.2&times; is modest; MoE layers are only ~45% of runtime (Amdahl's law).</li>
+          <li>Gate projection must remain dense, capping theoretical max at 3&times;.</li>
+          <li>Benchmarks are simple multiple-choice tasks; no code, math, or long-context evaluation.</li>
+          <li>Gather-based sparse path has lower peak throughput than dense BMM at large batch sizes.</li>
+          <li>End-to-end results reported only for Qwen3.5-35B-A3B, not the larger (sparser) models.</li>
+          <li>Static threshold set at startup; per-layer adaptive thresholds not explored.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="container">
+    <span>Source: <a href="2605.08575.html">2605.08575.md</a></span>
+    <span><a href="https://arxiv.org/abs/2605.08575">arxiv.org/abs/2605.08575</a></span>
+  </div>
+</footer>
+
+<script>
+  // Sparsity data
+  const models = [
+    { name: 'Granite-1B-A400M',       params: '1B',    sparsity: 26.5 },
+    { name: 'OLMoE-1B-7B',            params: '7B',    sparsity: 47.3 },
+    { name: 'DeepSeek-V2-Lite',       params: '16B',   sparsity: 49.0 },
+    { name: 'GPT-OSS-20B',            params: '20B',   sparsity: 56.1 },
+    { name: 'Qwen3.5-35B-A3B',        params: '35B',   sparsity: 84.5 },
+    { name: 'Qwen3.5-122B-A10B',      params: '122B',  sparsity: 87.4 },
+    { name: 'Qwen3.5-397B-A17B',      params: '397B',  sparsity: 89.6 },
+    { name: 'Llama-4-Maverick',       params: '400B',  sparsity: 90.8 },
+  ];
+
+  const grid = document.getElementById('sparsityGrid');
+
+  models.forEach(function(m) {
+    const row = document.createElement('div');
+    row.className = 'sparsity-row';
+    row.innerHTML =
+      '<span>' + m.name + '</span>' +
+      '<span style="color:var(--muted)">' + m.params + '</span>' +
+      '<span>' +
+        '<div class="sparsity-bar-wrap">' +
+          '<div class="sparsity-bar-track"><div class="sparsity-bar-fill" data-w="' + m.sparsity + '"></div></div>' +
+          '<span class="sparsity-pct">' + m.sparsity + '%</span>' +
+        '</div>' +
+      '</span>';
+    grid.appendChild(row);
+  });
+
+  // Animate bars on scroll
+  var animated = false;
+  function animateBars() {
+    if (animated) return;
+    var rect = grid.getBoundingClientRect();
+    if (rect.top < window.innerHeight * 0.9) {
+      animated = true;
+      var fills = grid.querySelectorAll('.sparsity-bar-fill');
+      fills.forEach(function(f) {
+        f.style.width = f.getAttribute('data-w') + '%';
+      });
+    }
+  }
+  window.addEventListener('scroll', animateBars, { passive: true });
+  window.addEventListener('load', animateBars);
+</script>
+
+</body>
+</html>

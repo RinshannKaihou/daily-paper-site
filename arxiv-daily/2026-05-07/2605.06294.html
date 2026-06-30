@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Log-Likelihood, Simpson&#x27;s Paradox, and the Detection of Machine-Generated Text</title>
+<style>
+:root { --paper:#fafafa; --ink:#1a1a1a; --muted:#555; --accent:#1a5276; --line:#ddd; --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif; --serif:Georgia,"Noto Serif SC",serif; }
+body { font-family:var(--serif); background:var(--paper); color:var(--ink); line-height:1.6; margin:0; padding:0; }
+.container { max-width:min(95vw, 760px); margin:0 auto; padding:28px 20px 60px; }
+.topnav { position:fixed; top:12px; left:14px; z-index:50; font-family:var(--sans); font-size:.75rem; background:var(--paper); border:1px solid var(--line); padding:5px 10px; border-radius:999px; }
+.topnav a { color:var(--muted); text-decoration:none; font-weight:600; }
+.topnav a:hover { color:var(--accent); }
+h1 { font-size:1.6rem; margin:2.2rem 0 1rem; border-bottom:2px solid var(--accent); padding-bottom:.3rem; }
+h2 { font-size:1.3rem; margin:1.8rem 0 .8rem; color:var(--accent); }
+h3 { font-size:1.1rem; margin:1.4rem 0 .6rem; }
+p { margin:.8rem 0; }
+.authors { font-style:italic; color:var(--muted); margin-top:-.4rem; }
+.meta { font-family:var(--sans); font-size:.82rem; color:var(--muted); margin:.2rem 0; }
+a { color:var(--accent); text-decoration:none; }
+a:hover { text-decoration:underline; }
+blockquote { border-left:3px solid var(--accent); margin:1rem 0; padding:.2rem 0 .2rem 1rem; color:var(--muted); font-style:italic; }
+code { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; background:#f0f0f0; padding:2px 5px; border-radius:3px; font-size:.9em; }
+pre { background:#f5f5f5; padding:14px; overflow-x:auto; border-radius:4px; border:1px solid var(--line); }
+pre code { background:transparent; padding:0; }
+ul,ol { margin:.6rem 0; padding-left:1.5rem; }
+li { margin:.25rem 0; }
+table { border-collapse:collapse; width:100%; margin:1rem 0; font-family:var(--sans); font-size:.9rem; }
+th,td { border:1px solid var(--line); padding:6px 10px; text-align:left; }
+th { background:#f0f0f0; }
+hr { border:none; border-top:1px solid var(--line); margin:1.5rem 0; }
+.note { font-family:var(--sans); font-size:.78rem; color:var(--muted); border-top:1px solid var(--line); margin-top:2rem; padding-top:1rem; }
+@media (max-width: 600px) { .container { padding:22px 14px 40px; } h1 { font-size:1.35rem; } }
+</style>
+</head>
+<body>
+<div class="topnav"><a href="./index.html">← Today's digest</a></div>
+<div class="container">
+<h1>Log-Likelihood, Simpson&#x27;s Paradox, and the Detection of Machine-Generated Text</h1>
+<p class="meta">arXiv: 2605.06294v1</p>
+<p class="meta">Date: 2026-05-07</p>
+<p class="meta"><a href="https://arxiv.org/abs/2605.06294">https://arxiv.org/abs/2605.06294</a></p>
+<blockquote><strong>一句话总结：</strong> 现有基于对数似然的机器生成文本检测器因在隐空间不同区域直接平均token得分而产生辛普森悖论，引入轻量级局部校准层（学习隐空间条件下的得分分布并聚合校准对数似然比）后，Fast-DetectGPT在GPT-5.4文本上的AUROC从0.63提升至0.85，校准DMAP在所有基线上均达到最优。</blockquote>
+<blockquote><strong>TL;DR:</strong> Existing likelihood-based detectors of machine-generated text (MGT) systematically underperform because they naively average per-token log-likelihood scores across hidden-space regions with fundamentally different statistical structure — a form of Simpson's paradox. The authors diagnose this root cause rigorously using Bayesian decision theory, then propose a lightweight learned local-calibration step that learns plug-in estimators of score distributions conditioned on a token's position in the detector's hidden space, and aggregates calibrated log-likelihood ratios instead of raw scores. Applied as a modular add-on to five existing detectors (log-surprisal, log-rank, Fast-DetectGPT, NPR, DMAP) across three datasets spanning frontier models (GPT-5.4, Gemini 3.1 Pro, Claude Sonnet 4.6), calibration improves AUROC in all 30 out of 30 comparisons. The best resulting system — Calibrated DMAP — achieves AUROC of 0.939/0.937/0.961 on Modern RAID and 0.973/0.979/0.994 on the Peer-Review benchmark, matching or beating state-of-the-art supervised methods like DALD in 5 of 6 settings. The contribution is not a new detector architecture but a precise diagnosis of a fundamental aggregation flaw and a principled, architecture-agnostic remedy.</blockquote>
+<h2>核心贡献</h2>
+<ul>
+<li><strong>诊断辛普森悖论根因：</strong> 证明token级对数似然信号在隐空间不同区域之间具有高度异质性，跨区域朴素平均会压制局部判别信号，这是现有检测器性能随前沿模型迭代不断退化的核心原因。</li>
+<li><strong>贝叶斯决策理论框架：</strong> 从Neyman-Pearson引理出发，推导出最优检测规则应当聚合局部校准的对数似然比（而非原始得分），为校准步骤提供了理论依据。</li>
+<li><strong>轻量级局部校准模块：</strong> 提出将隐层激活向量经PCA降维后作为上下文特征，用简单两层MLP为每个生成器学习条件得分分布，并以此计算校准后的token得分；该模块可无缝插入任何现有基于平均token得分的检测管线。</li>
+<li><strong>全面实验验证：</strong> 在三个数据集（Classic RAID、Modern RAID、Peer-Review）、五种基线检测器、六个生成模型上验证，校准后30/30组合均有AUROC提升，且效果在多生成器混合检测与跨域设置下依然显著。</li>
+<li><strong>记录检测性能随时间退化的规律：</strong> 系统性记录了Fast-DetectGPT从GPT-3.5（AUROC 0.96）到GPT-5.4（AUROC 0.63）的性能退化，证明问题源于前沿模型减弱过度自信偏差。</li>
+</ul>
+<h2>Key Contributions</h2>
+<ul>
+<li><strong>Root-cause diagnosis of detector under-performance:</strong> Demonstrates that per-token likelihood signals vary substantially across hidden-space regions, and that naive averaging aggregates across heterogeneous subgroups — a form of Simpson's paradox — suppressing the locally strong signal. This explains the empirically observed degradation of existing detectors as frontier models reduce overconfidence.</li>
+<li><strong>Bayesian decision-theoretic grounding:</strong> Derives the Bayes-optimal decision rule from first principles (Neyman-Pearson), showing that optimal aggregation requires summing locally calibrated log-likelihood ratios, not raw per-token scores.</li>
+<li><strong>Modular local-calibration layer:</strong> Introduces a lightweight plug-in calibration step using PCA projections of the detector model's final hidden layer as context features, paired with per-generator two-layer MLP predictors of conditional score distributions. The calibrated score is the summed log-ratio of human vs. machine plug-in densities evaluated at each token.</li>
+<li><strong>Universal empirical improvement:</strong> Calibration improves AUROC in every single one of 30 (baseline × generator × dataset) combinations tested, including multi-generator and out-of-domain settings.</li>
+<li><strong>Degradation trend documentation:</strong> Provides quantitative evidence of declining detector performance over successive model generations and links it mechanistically to the mitigation of instruction-tuning overconfidence.</li>
+</ul>
+<h2>Methodology</h2>
+<p><strong>Problem setup.</strong> The standard pipeline for likelihood-based MGT detection assigns each token a scalar score g(x_i) (e.g., log-probability or log-rank under a detector model), averages these scores across the text, and thresholds the result. The authors observe that the distribution of g(x_i) varies dramatically across regions of the detector's hidden space — the activation vector at the final hidden layer captures the local "writing context." Some regions have strong human-vs-machine separation; others have reversed or null signal. Naive averaging conflates these, destroying net discriminative power — the Simpson's paradox analogy.</p>
+<p><strong>Bayesian derivation.</strong> Let Z(x_i) be a low-dimensional projection (via PCA, d=25 dimensions) of the hidden vector at token i, concatenated with the top-k (k=5) next-token probabilities under the detector model. The Bayes-optimal decision statistic given both g(x_i) and Z(x_i) for each token decomposes (under a conditional independence assumption across tokens) as:</p>
+<p>Λ_3 = Σ_i [ log(P(g(x_i) | Z(x_i), H) / P(g(x_i) | Z(x_i), M)) + log(P(Z(x_i) | H) / P(Z(x_i) | M)) ]</p>
+<p>The paper focuses only on the first term (the locally calibrated likelihood ratio), deliberately setting aside the second term (hidden-space geometry signal) to isolate the effect of calibration alone.</p>
+<p><strong>Calibration implementation.</strong> For each generator model M and score function g, two lightweight predictors are trained on a labelled set (~500 texts per class): one models P(g(x_i) | Z(x_i), H) and the other P(g(x_i) | Z(x_i), M). For scalar scores (log-surprisal, log-rank, FastDetectGPT, NPR token approximations), local Gaussian predictors (outputting μ, σ as a function of Z) are used. For DMAP (a distributional score), a two-layer MLP predicts a 6-bin histogram distribution. The calibrated score per token is the log-ratio of the two predicted densities evaluated at the observed score; these are summed over the text.</p>
+<p><strong>Baselines.</strong> Five detector families are calibrated: per-token log-surprisal, per-token log-rank, token-level approximations to Fast-DetectGPT and NPR, and DMAP. The detector backbone in all cases is OPT-125M (except Binoculars, which uses Falcon-3-7B). Deliberate design choices: no hyperparameter tuning, simple Gaussian distributional models (acknowledged as suboptimal), off-the-shelf AdamW training for 50 epochs, batch size 4096.</p>
+<p><strong>Evaluation.</strong> Three benchmarks: Classic RAID (ChatGPT 3.5 / GPT-4), Modern RAID (GPT-5.4 / Gemini 3.1 Pro / Claude Sonnet 4.6), and a Peer-Review benchmark (GPT-4o / Gemini Pro 1.5 / Claude Sonnet 3.5). Primary metric: AUROC on the first 200 tokens of each text. 95% confidence intervals via bootstrap resampling (10,000 iterations).</p>
+<h2>Results & Highlights</h2>
+<ul>
+<li>Calibration improves AUROC in 30/30 tested combinations (all 5 scorers × 6 generators across 2 datasets). The improvement is the largest where baseline detectors struggle most — e.g., log-surprisal on GPT-5.4 rises from 0.562 to 0.918.</li>
+<li>Calibrated DMAP achieves the best AUROC in 5 of 6 main-table settings, and is within 0.02 of DALD (the best supervised baseline) in the remaining case. It outperforms Fast-DetectGPT by more than 0.30 AUROC on GPT-5.4.</li>
+<li>On Modern RAID: Calibrated DMAP scores 0.939 (GPT-5.4), 0.937 (Gemini), 0.961 (Claude).</li>
+<li>On Peer-Review: Calibrated DMAP scores 0.973 (GPT-4o), 0.979 (Gemini), 0.994 (Claude).</li>
+<li>Multi-generator detection (Table 9, pooled AI vs. human): Calibrated DMAP achieves 0.9967 AUROC on Peer-Review and 0.9043 on Modern RAID, substantially outperforming all zero-shot baselines in this harder setting.</li>
+<li>Domain-shift (leave-one-domain-out on Modern RAID): OOD AUROC drops ~8–12 pp from in-domain, but calibrated methods remain substantially better than uncalibrated alternatives, confirming that local calibration partially mitigates domain shift.</li>
+<li>Hyperparameter sweep (Appendix H): With modest increases in MLP hidden dimension (64→256) and DMAP bins (6→12), calibrated DMAP AUROC on GPT-5.4 (Modern RAID) rises further from 0.939 to 0.968, showing the naive implementation in the main paper is a lower bound.</li>
+<li>Computation overhead: Feature extraction and calibration training add under 2 hours of GPU time total, vs. days for the NPR and Binoculars baselines.</li>
+<li>Detector performance over time (Figure 1 / Appendix G): Fast-DetectGPT AUROC declines monotonically from 0.96 (GPT-3.5) → 0.79 (GPT-4) → 0.63 (GPT-5.4), corroborating the degradation hypothesis.</li>
+</ul>
+<h2>Authors & Credibility</h2>
+<ul>
+<li><strong>Tom Kempton</strong> (University of Manchester, Department of Mathematics; consultant at Visa Risk and Security AI Lab): primary academic contributor, with prior work on DMAP (ICLR 2026) and TempTest (AISTATS 2025), both directly relevant to this paper's theoretical foundations.</li>
+<li><strong>Viktor Drobnyi, Maeve Madigan, Stuart Burrell</strong> (Visa Inc., Risk and Security AI Lab): industry researchers with apparent motivation in fraud and document authenticity detection, providing a practical use-case anchor.</li>
+<li>The paper builds on a coherent line of prior work (DMAP, TempTest) from overlapping authors, lending credibility to the theoretical framing.</li>
+<li>Published as a preprint on 7 May 2026; not yet peer reviewed at time of writing.</li>
+<li>Evaluation is thorough: three datasets, multiple generators, confidence intervals, domain-shift analysis, ablations, hyperparameter sweeps. The deliberate choice of a naive calibration implementation strengthens the "lower bound on improvement" claim.</li>
+</ul>
+<h2>Critical Assessment</h2>
+<p><strong>Novelty:</strong> Moderate-to-high. The core diagnostic insight — that naive token-score averaging constitutes a Simpson's paradox across heterogeneous hidden-space regions — is original and well-argued. The Bayesian derivation formalizes the intuition cleanly. The calibration step itself is conceptually straightforward (conditional density estimation + log-ratio), but the framing and the connection to the aggregation failure is the contribution. The authors are transparent that the implementation is deliberately naive.</p>
+<p><strong>Rigor:</strong> Good. The theoretical derivation is sound under stated assumptions (conditional independence of token scores given Z, which is known to fail and is discussed). Experimental results include 95% CI from bootstrapping, and the 30/30 win rate is a strong empirical claim. The failure mode of the Gaussian assumption is explicitly studied and quantified (Figure 5, Appendix F).</p>
+<p><strong>Reproducibility:</strong> Moderate. OPT-125M is publicly available and small enough for academic use. The RAID dataset is public. However, Modern RAID requires generating text from GPT-5.4, Gemini 3.1 Pro, and Claude Sonnet 4.6, which requires API access and cost that may not be trivial to replicate. The paper provides hyperparameter details but no public code repository is mentioned.</p>
+<p><strong>Significance:</strong> High within the subfield. The performance gains are large and consistent across an unusually wide range of conditions. The modular, architecture-agnostic framing means the findings are immediately applicable to existing detection pipelines without retraining detector models.</p>
+<p><strong>Red flags / caveats:</strong></p>
+<ul>
+<li>The calibration step requires a labelled training set from the specific generator model one wishes to detect. This is a meaningful operational constraint, unlike zero-shot detectors. The authors acknowledge this and argue that zero-shot generalization claims in prior work were based on flawed evaluation (below-chance on pure-sampling models), but the constraint is real.</li>
+<li>The calibrated detectors are evaluated only on English-language text. Generalization to other languages is explicitly noted as an open question.</li>
+<li>The Gaussian distributional assumption is shown to be a poor fit (Appendix F), and the authors acknowledge this introduces suboptimality. This means the improvements reported are a lower bound, but also that the method as described is not the best version of itself.</li>
+<li>Domain-shift robustness degrades noticeably (~8–12 pp AUROC), which matters for real-world deployment where the test distribution may not match training.</li>
+<li>The paper does not test against evasion attacks (paraphrasing, prompt engineering to avoid detection), which is the most practically relevant threat model.</li>
+</ul>
+<h2>Strengths</h2>
+<ul>
+<li>Provides a principled, theoretically grounded explanation for an empirically observed but poorly understood phenomenon (detector degradation with newer models).</li>
+<li>The 30/30 win rate across a deliberately simple implementation is a compelling empirical demonstration of the core claim.</li>
+<li>Modular design: the calibration step can be dropped into any token-averaging pipeline with minimal overhead (~2 GPU-hours).</li>
+<li>Honest about limitations: explicitly avoids hyperparameter tuning to prevent overfitting the demonstration to benchmarks, and flags the Gaussian assumption as a known weak point.</li>
+<li>Broad evaluation across three datasets, six generator models, and five baseline detectors, with confidence intervals throughout.</li>
+<li>Connects to a meaningful societal trend: documents and quantifies the degradation of existing detectors as frontier models improve.</li>
+</ul>
+<h2>Limitations</h2>
+<ul>
+<li>Requires labelled training data from each target generator; not zero-shot deployable in the strictest sense.</li>
+<li>Calibration performance degrades under domain shift (OOD AUROC ~8–12 pp lower than in-domain), limiting robustness in heterogeneous deployment environments.</li>
+<li>Current implementation uses simplistic Gaussian distributional models, which are a known poor fit; practical deployment would require replacing them with more expressive density estimators (normalizing flows, mixtures).</li>
+<li>Conditional independence assumption across tokens (necessary for the Λ_3 decomposition) is acknowledged to be violated in practice, particularly for detectors that exploit sequential structure.</li>
+<li>No evaluation against adversarial evasion attacks, which are the primary concern in real-world adversarial settings.</li>
+<li>English-only evaluation; multilingual generalization is unaddressed.</li>
+<li>No public code release mentioned, which limits immediate reproducibility.</li>
+</ul>
+<h2>相关性</h2>
+<p>本文直接针对大语言模型生成文本的可靠检测问题，提出了有理论支撑的通用改进框架，对关注LLM安全、学术诚信或内容真实性验证的研究者有较高实用价值；所揭示的"聚合即悖论"现象对理解似然信号的统计性质也具有方法论层面的启发意义。</p>
+<h2>Questions for Further Exploration</h2>
+<ol>
+<li>How much additional gain can be obtained by replacing the Gaussian local predictors with normalizing flows or mixture models, and is this practically deployable at scale?</li>
+<li>Can the second term of the Bayes-optimal decomposition — the hidden-space geometry signal P(Z(x_i)|H)/P(Z(x_i)|M) — be incorporated efficiently, and does ensembling the two terms approach the full Bayes-optimal performance?</li>
+<li>How does calibrated DMAP perform against active adversarial evasion attacks (e.g., paraphrase-based or watermark-stripping attacks)?</li>
+<li>Is there a zero-shot or source-agnostic variant of the local calibration idea (e.g., training on a diverse mixture of generators) that avoids the requirement for generator-specific labelled data?</li>
+<li>Does the Simpson's paradox phenomenon manifest similarly in non-English languages, and does the calibration remedy transfer across languages?</li>
+<li>The conditional independence assumption across tokens is known to fail. What is the performance gap between the factored Λ_3 objective and the full Λ_2 (joint sequence) objective, and is it feasible to learn the joint distribution with sufficient data?</li>
+</ol>
+<p class="note">Generated from Markdown summary. Full paper: <a href="https://arxiv.org/abs/2605.06294v1">arXiv:2605.06294v1</a></p>
+</div>
+</body>
+</html>

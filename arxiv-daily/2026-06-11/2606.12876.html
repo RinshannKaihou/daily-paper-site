@@ -1,0 +1,524 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Drop-by-Drop — Multi-Bitwidth LLM Quantization via Additive Codebooks</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Source+Serif+4:ital,wght@0,400;0,700;1,400&display=swap');
+
+  :root {
+    --bg: #0E0E10;
+    --surface: #18181B;
+    --surface2: #1F1F23;
+    --border: #2A2A30;
+    --fg: #E4E4E7;
+    --fg-dim: #8B8B96;
+    --fg-muted: #5A5A66;
+    --accent: #D97706;
+    --accent-glow: rgba(217, 119, 6, 0.12);
+    --accent-dim: #92400E;
+    --red: #EF4444;
+    --red-bg: rgba(239, 68, 68, 0.08);
+    --green: #34D399;
+    --green-bg: rgba(52, 211, 153, 0.08);
+    --mono: 'JetBrains Mono', 'Menlo', 'Consolas', monospace;
+    --serif: 'Source Serif 4', 'Noto Serif SC', 'Songti SC', Georgia, serif;
+    --sans: -apple-system, 'Segoe UI', 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html { font-size: 15px; scroll-behavior: smooth; }
+
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: var(--sans);
+    line-height: 1.6;
+    min-height: 100vh;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ── Top nav ── */
+  .topbar {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+    background: rgba(14,14,16,0.85);
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--border);
+    padding: 0.6rem 1.2rem;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .topbar a {
+    color: var(--fg-dim); text-decoration: none; font-size: 0.82rem;
+    font-family: var(--mono); transition: color 0.2s;
+  }
+  .topbar a:hover { color: var(--accent); }
+  .topbar .tag {
+    font-family: var(--mono); font-size: 0.72rem;
+    color: var(--accent); background: var(--accent-glow);
+    border: 1px solid var(--accent-dim);
+    padding: 0.15rem 0.5rem; border-radius: 3px;
+  }
+
+  /* ── Container ── */
+  .wrap {
+    max-width: min(95vw, 1100px);
+    margin: 0 auto;
+    padding: 4.5rem 1.5rem 3rem;
+  }
+
+  /* ── Hero ── */
+  .hero {
+    padding: 2.8rem 0 2rem;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 2rem;
+    animation: fadeUp 0.5s ease-out both;
+  }
+  .hero-eyebrow {
+    font-family: var(--mono); font-size: 0.72rem; text-transform: uppercase;
+    letter-spacing: 0.12em; color: var(--accent); margin-bottom: 0.8rem;
+    display: flex; align-items: center; gap: 0.6rem;
+  }
+  .hero-eyebrow::before {
+    content: ''; display: inline-block; width: 18px; height: 2px;
+    background: var(--accent);
+  }
+  .hero h1 {
+    font-family: var(--serif);
+    font-size: clamp(1.65rem, 3.8vw, 2.4rem);
+    font-weight: 700; line-height: 1.25;
+    color: #FAFAFA; margin-bottom: 0.6rem;
+    max-width: 42rem;
+  }
+  .hero-sub {
+    font-size: 0.92rem; color: var(--fg-dim);
+    max-width: 38rem; line-height: 1.65;
+  }
+  .hero-meta {
+    display: flex; flex-wrap: wrap; gap: 0.5rem 1.2rem;
+    margin-top: 1.2rem; font-family: var(--mono); font-size: 0.72rem;
+    color: var(--fg-muted);
+  }
+  .hero-meta span { display: flex; align-items: center; gap: 0.3rem; }
+
+  /* ── Asset grid ── */
+  .assets {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 1rem;
+    margin-bottom: 2.5rem;
+    animation: fadeUp 0.5s 0.12s ease-out both;
+  }
+  @media (max-width: 820px) { .assets { grid-template-columns: repeat(2, 1fr); } }
+  @media (max-width: 480px) { .assets { grid-template-columns: 1fr; } }
+
+  .asset-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1.3rem 1.2rem 1.1rem;
+    position: relative;
+    overflow: hidden;
+    transition: border-color 0.2s, transform 0.15s;
+  }
+  .asset-card:hover { border-color: var(--fg-muted); transform: translateY(-2px); }
+  .asset-card .label {
+    font-family: var(--mono); font-size: 0.62rem; text-transform: uppercase;
+    letter-spacing: 0.1em; color: var(--fg-muted); margin-bottom: 0.75rem;
+  }
+  .asset-card .value {
+    font-size: 0.88rem; line-height: 1.55; color: var(--fg);
+  }
+  .asset-card .big-num {
+    font-family: var(--mono); font-size: 2.2rem; font-weight: 700;
+    line-height: 1; color: var(--accent); margin-bottom: 0.25rem;
+  }
+  .asset-card .big-num small {
+    font-size: 0.55em; font-weight: 400; color: var(--fg-dim);
+  }
+  .asset-card.edge { border-left: 3px solid var(--red); }
+  .asset-card.edge .label { color: var(--red); }
+
+  /* ── Section grid ── */
+  .body-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1.2rem;
+    margin-bottom: 2.5rem;
+    animation: fadeUp 0.5s 0.24s ease-out both;
+  }
+  @media (max-width: 700px) { .body-grid { grid-template-columns: 1fr; } }
+
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1.4rem 1.3rem;
+  }
+  .panel.wide { grid-column: 1 / -1; }
+
+  .panel h2 {
+    font-family: var(--mono); font-size: 0.7rem; text-transform: uppercase;
+    letter-spacing: 0.1em; color: var(--accent);
+    margin-bottom: 1rem; display: flex; align-items: center; gap: 0.5rem;
+  }
+  .panel h2::after {
+    content: ''; flex: 1; height: 1px; background: var(--border);
+  }
+
+  .panel p, .panel li {
+    font-size: 0.85rem; color: var(--fg-dim); line-height: 1.7;
+  }
+  .panel ul { list-style: none; }
+  .panel li {
+    position: relative; padding-left: 1rem; margin-bottom: 0.55rem;
+  }
+  .panel li::before {
+    content: '▸'; position: absolute; left: 0; color: var(--accent);
+    font-size: 0.7rem; top: 0.2rem;
+  }
+  .panel strong { color: var(--fg); font-weight: 600; }
+
+  /* ── Method diagram ── */
+  .method-flow {
+    display: flex; align-items: stretch; gap: 0; margin: 1rem 0;
+    border-radius: 5px; overflow: hidden;
+  }
+  .method-step {
+    flex: 1; padding: 0.9rem 0.7rem;
+    background: var(--surface2);
+    border-right: 1px solid var(--border);
+    text-align: center;
+  }
+  .method-step:last-child { border-right: none; }
+  .method-step .step-num {
+    font-family: var(--mono); font-size: 0.58rem; color: var(--fg-muted);
+    text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 0.3rem;
+  }
+  .method-step .step-txt {
+    font-size: 0.78rem; color: var(--fg); line-height: 1.4;
+  }
+  .method-step .step-txt em {
+    font-style: normal; color: var(--accent);
+  }
+  @media (max-width: 540px) {
+    .method-flow { flex-direction: column; }
+    .method-step { border-right: none; border-bottom: 1px solid var(--border); }
+    .method-step:last-child { border-bottom: none; }
+  }
+
+  /* ── Comparison table ── */
+  .cmp-table {
+    width: 100%; border-collapse: collapse; font-size: 0.78rem;
+    font-family: var(--mono);
+  }
+  .cmp-table th {
+    text-align: left; font-weight: 400; color: var(--fg-muted);
+    padding: 0.4rem 0.6rem; border-bottom: 1px solid var(--border);
+    font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.06em;
+  }
+  .cmp-table td {
+    padding: 0.45rem 0.6rem; border-bottom: 1px solid var(--border);
+    color: var(--fg-dim);
+  }
+  .cmp-table tr:last-child td { border-bottom: none; }
+  .cmp-table .model { color: var(--fg); font-weight: 600; }
+  .cmp-table .good { color: var(--green); }
+  .cmp-table .bad { color: var(--red); }
+  .cmp-table .mid { color: var(--accent); }
+
+  /* ── Tags ── */
+  .tags {
+    display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 0.5rem;
+  }
+  .tags span {
+    font-family: var(--mono); font-size: 0.62rem; color: var(--fg-muted);
+    background: var(--surface2); border: 1px solid var(--border);
+    padding: 0.15rem 0.45rem; border-radius: 3px;
+  }
+
+  /* ── Questions ── */
+  .q-list { counter-reset: q; }
+  .q-list li {
+    counter-increment: q;
+    padding-left: 2rem !important;
+    margin-bottom: 0.7rem !important;
+  }
+  .q-list li::before {
+    content: counter(q) !important;
+    font-family: var(--mono) !important; font-size: 0.68rem !important;
+    color: var(--accent) !important;
+    background: var(--accent-glow);
+    border: 1px solid var(--accent-dim);
+    border-radius: 3px;
+    width: 1.3rem; height: 1.3rem;
+    display: inline-flex; align-items: center; justify-content: center;
+    position: absolute; left: 0; top: 0.15rem;
+  }
+
+  /* ── Relevance callout ── */
+  .relevance {
+    background: var(--accent-glow);
+    border: 1px solid var(--accent-dim);
+    border-radius: 6px;
+    padding: 1.2rem 1.3rem;
+    animation: fadeUp 0.5s 0.36s ease-out both;
+  }
+  .relevance h2 {
+    font-family: var(--mono); font-size: 0.7rem; text-transform: uppercase;
+    letter-spacing: 0.1em; color: var(--accent); margin-bottom: 0.6rem;
+  }
+  .relevance p {
+    font-size: 0.88rem; color: var(--fg); line-height: 1.7;
+  }
+
+  /* ── Footer ── */
+  .footer {
+    margin-top: 2.5rem; padding-top: 1.5rem;
+    border-top: 1px solid var(--border);
+    display: flex; justify-content: space-between; align-items: center;
+    flex-wrap: wrap; gap: 0.8rem;
+    animation: fadeUp 0.5s 0.42s ease-out both;
+  }
+  .footer a {
+    font-family: var(--mono); font-size: 0.78rem;
+    color: var(--fg-dim); text-decoration: none;
+    transition: color 0.2s;
+  }
+  .footer a:hover { color: var(--accent); }
+  .footer .arxiv-link {
+    display: inline-flex; align-items: center; gap: 0.3rem;
+    background: var(--surface); border: 1px solid var(--border);
+    padding: 0.4rem 0.8rem; border-radius: 4px;
+  }
+
+  /* ── Animations ── */
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(12px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: 0.01ms !important; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ── Top bar ── -->
+<nav class="topbar">
+  <a href="./index.html">↩ Today's digest</a>
+  <span class="tag">2606.12876</span>
+</nav>
+
+<div class="wrap">
+
+  <!-- ══ Hero ══ -->
+  <header class="hero">
+    <div class="hero-eyebrow">arXiv 2026-06-11 · cs.LG cs.CL cs.IT</div>
+    <h1>Drop-by-Drop: Multi-Bitwidth LLM Quantization via Successive Refinement of Additive Codebooks</h1>
+    <p class="hero-sub">
+      A single trained checkpoint serves 3-bit through 5-bit inference by progressively dropping codebooks — grounded in an information-theoretic proof that Gaussian weight matrices are successively refinable under weighted MSE.
+    </p>
+    <div class="hero-meta">
+      <span>Liza Babaoglu · Shuangyi Chen · Ashish Khisti</span>
+      <span>University of Toronto, ECE</span>
+      <span>Models tested: 0.5B–32B</span>
+    </div>
+  </header>
+
+  <!-- ══ 4 Asset cards ══ -->
+  <section class="assets">
+
+    <!-- KEY FINDING -->
+    <div class="asset-card">
+      <div class="label">Key Finding</div>
+      <p class="value">
+        Adding <strong>Matryoshka-style supervision</strong> to AQLM's additive codebooks makes each ordered subset independently usable — one model, multiple bitwidths, zero retraining.
+      </p>
+    </div>
+
+    <!-- KEY METRIC -->
+    <div class="asset-card">
+      <div class="label">Key Metric</div>
+      <div class="big-num">6.19 <small>vs 112.75</small></div>
+      <p class="value">
+        Mistral-7B 3×8 WikiText-2 perplexity: <strong>DbyD(35W)</strong> stays stable while naive AQLM codebook dropping catastrophically fails.
+      </p>
+    </div>
+
+    <!-- WHY THIS MATTERS -->
+    <div class="asset-card">
+      <div class="label">Why This Matters</div>
+      <p class="value">
+        Replace <strong>3 separate quantized checkpoints</strong> with one. Heterogeneous fleet? Same model, different devices, just drop codebooks.
+      </p>
+    </div>
+
+    <!-- CRITICAL EDGE -->
+    <div class="asset-card edge">
+      <div class="label">⚠ Critical Edge</div>
+      <p class="value">
+        Heavily dependent on <strong>hand-tuned loss weights</strong> (35W). Uniform variant is much weaker. Floors at 3-bit; no 1/2-bit validation. Weights-only — no activation or KV-cache quantization.
+      </p>
+    </div>
+
+  </section>
+
+  <!-- ══ Body grid ══ -->
+  <div class="body-grid">
+
+    <!-- Method (full width) -->
+    <div class="panel wide">
+      <h2>Method at a glance</h2>
+      <div class="method-flow">
+        <div class="method-step">
+          <div class="step-num">Step 1</div>
+          <div class="step-txt">Prove Gaussian weights are <em>successively refinable</em> under WMSE via reverse water-filling</div>
+        </div>
+        <div class="method-step">
+          <div class="step-num">Step 2</div>
+          <div class="step-txt">Add <em>Matryoshka loss</em>: sum WMSE at each codebook prefix k</div>
+        </div>
+        <div class="method-step">
+          <div class="step-num">Step 3</div>
+          <div class="step-txt">Alternate <em>beam-search</em> assignments + gradient codebook updates</div>
+        </div>
+        <div class="method-step">
+          <div class="step-num">Deploy</div>
+          <div class="step-txt">Select first <em>k ≥ 3</em> codebooks → 3/4/5-bit from one file</div>
+        </div>
+      </div>
+      <ul>
+        <li><strong>Loss</strong>: <code style="color:var(--accent);font-family:var(--mono);font-size:0.8rem">L = Σ λₖ · D<sub>WMSE</sub>(W, Ŵ⁽ᵏ⁾)</code> — Weighted (35W) uses λ₃=λ₅=0.5</li>
+        <li><strong>Codebook config</strong>: M ∈ {3,4,5} codebooks × 8-bit each, group size g=8</li>
+        <li><strong>Calibration</strong>: 1024 samples, block-level finetuning after codebook convergence</li>
+      </ul>
+    </div>
+
+    <!-- Results table -->
+    <div class="panel wide">
+      <h2>WikiText-2 Perplexity — 3×8 (≈3-bit)</h2>
+      <table class="cmp-table">
+        <thead>
+          <tr>
+            <th>Model</th>
+            <th>AQLM Individual</th>
+            <th>DbyD (35W)</th>
+            <th>AQLM Drop</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="model">Qwen-2.5-32B</td>
+            <td class="good">5.48</td>
+            <td class="mid">6.06</td>
+            <td class="bad">6.65</td>
+          </tr>
+          <tr>
+            <td class="model">Qwen-2.5-7B</td>
+            <td class="good">9.16</td>
+            <td class="mid">10.15</td>
+            <td class="bad">13.13</td>
+          </tr>
+          <tr>
+            <td class="model">Mistral-7B</td>
+            <td class="good">5.38</td>
+            <td class="mid">6.19</td>
+            <td class="bad">112.75</td>
+          </tr>
+          <tr>
+            <td class="model">Gemma-2B</td>
+            <td class="good">12.10</td>
+            <td class="mid">14.24</td>
+            <td class="bad">27.20</td>
+          </tr>
+        </tbody>
+      </table>
+      <p style="margin-top:0.7rem;font-size:0.72rem;color:var(--fg-muted);">
+        Lower is better. <span class="good">Green</span> = per-bitwidth oracle, <span style="color:var(--accent)">amber</span> = Drop-by-Drop, <span class="bad">red</span> = naive drop. DbyD closes most of the gap.
+      </p>
+    </div>
+
+    <!-- Strengths -->
+    <div class="panel">
+      <h2>Strengths</h2>
+      <ul>
+        <li><strong>Rigorous theory</strong>: first to prove successive refinability for WMSE on Gaussian weights</li>
+        <li><strong>Minimal engineering change</strong>: Matryoshka loss on top of AQLM, no architecture changes</li>
+        <li><strong>Broad validation</strong>: 6 model families, 0.5B–32B, both perplexity and 5 downstream tasks</li>
+        <li><strong>Direct deployment value</strong>: one file → fleet-wide heterogeneous serving</li>
+        <li><strong>Exposes baseline fragility</strong>: shows QuIP# and AQLM codebook dropping catastrophically fail</li>
+      </ul>
+    </div>
+
+    <!-- Limitations -->
+    <div class="panel">
+      <h2>Limitations</h2>
+      <ul>
+        <li><strong>Hand-tuned weights</strong>: 35W is an ablation pick; uniform variant clearly worse</li>
+        <li><strong>Floor at 3-bit</strong>: no 1/2-bit exploration; extreme compression untested</li>
+        <li><strong>Weights only</strong>: ignores activation & KV-cache, often the real bottleneck</li>
+        <li><strong>Training overhead</strong>: M partial reconstructions per step; no wall-clock comparison to single AQLM</li>
+        <li><strong>Anonymous code</strong>: reproducibility pending final open-source release</li>
+      </ul>
+    </div>
+
+    <!-- Zero-shot accuracy snippet -->
+    <div class="panel">
+      <h2>Zero-Shot Accuracy (5-task avg)</h2>
+      <table class="cmp-table">
+        <thead>
+          <tr><th>Qwen-7B</th><th>5×8</th><th>4×8</th><th>3×8</th></tr>
+        </thead>
+        <tbody>
+          <tr><td class="model">AQLM Ind.</td><td class="good">73.59</td><td class="good">72.37</td><td class="good">70.83</td></tr>
+          <tr><td class="model">DbyD 35W</td><td class="good">73.72</td><td class="mid">72.52</td><td class="mid">69.54</td></tr>
+          <tr><td class="model">AQLM Drop</td><td class="mid">73.59</td><td class="bad">71.40</td><td class="bad">66.77</td></tr>
+        </tbody>
+      </table>
+      <p style="margin-top:0.6rem;font-size:0.72rem;color:var(--fg-muted);">
+        At 5×8, DbyD actually <em>matches or slightly exceeds</em> the individually trained oracle. The gap widens at 3×8 but remains well above naive dropping.
+      </p>
+    </div>
+
+    <!-- Open questions -->
+    <div class="panel">
+      <h2>Open Questions</h2>
+      <ul class="q-list">
+        <li>Can successive refinement hold at 1–2 bit? Does the Gaussian assumption break?</li>
+        <li>Auto-learn λₖ instead of hand-tuning — task-aware weighting?</li>
+        <li>Joint weight + KV-cache quantization with Matryoshka supervision?</li>
+        <li>Pareto front across group size g, codebook bits B, and codebook count M?</li>
+        <li>System implications: batching & scheduling with variable codebook depth?</li>
+      </ul>
+    </div>
+
+  </div><!-- /body-grid -->
+
+  <!-- ══ Relevance ══ -->
+  <div class="relevance">
+    <h2>Relevance / 实用价值</h2>
+    <p>
+      对于需要在云端、桌面、边缘和移动设备上以轻量可维护方式部署同一 LLM 的团队，Drop-by-Drop 提供"一次训练、多精度推理"的权重量化方案。其信息论动机为未来更低比特、更细粒度的逐次求精量化奠定了理论基础。
+    </p>
+    <div class="tags">
+      <span>LLM</span><span>quantization</span><span>multi-bitwidth</span>
+      <span>additive codebooks</span><span>post-training quantization</span>
+      <span>successive refinement</span>
+    </div>
+  </div>
+
+  <!-- ══ Footer ══ -->
+  <footer class="footer">
+    <a href="2606.12876.html">↗ Markdown source</a>
+    <a class="arxiv-link" href="https://arxiv.org/abs/2606.12876" target="_blank" rel="noopener">
+      arxiv.org/abs/2606.12876 ↗
+    </a>
+  </footer>
+
+</div><!-- /wrap -->
+
+</body>
+</html>

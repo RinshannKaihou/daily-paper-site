@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Equifinality in Mixture of Experts: Routing Topology Does Not Determine Language Modeling Quality</title>
+<style>
+:root { --paper:#fafafa; --ink:#1a1a1a; --muted:#555; --accent:#1a5276; --line:#ddd; --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif; --serif:Georgia,"Noto Serif SC",serif; }
+body { font-family:var(--serif); background:var(--paper); color:var(--ink); line-height:1.6; margin:0; padding:0; }
+.container { max-width:min(95vw, 760px); margin:0 auto; padding:28px 20px 60px; }
+.topnav { position:fixed; top:12px; left:14px; z-index:50; font-family:var(--sans); font-size:.75rem; background:var(--paper); border:1px solid var(--line); padding:5px 10px; border-radius:999px; }
+.topnav a { color:var(--muted); text-decoration:none; font-weight:600; }
+.topnav a:hover { color:var(--accent); }
+h1 { font-size:1.6rem; margin:2.2rem 0 1rem; border-bottom:2px solid var(--accent); padding-bottom:.3rem; }
+h2 { font-size:1.3rem; margin:1.8rem 0 .8rem; color:var(--accent); }
+h3 { font-size:1.1rem; margin:1.4rem 0 .6rem; }
+p { margin:.8rem 0; }
+.authors { font-style:italic; color:var(--muted); margin-top:-.4rem; }
+.meta { font-family:var(--sans); font-size:.82rem; color:var(--muted); margin:.2rem 0; }
+a { color:var(--accent); text-decoration:none; }
+a:hover { text-decoration:underline; }
+blockquote { border-left:3px solid var(--accent); margin:1rem 0; padding:.2rem 0 .2rem 1rem; color:var(--muted); font-style:italic; }
+code { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; background:#f0f0f0; padding:2px 5px; border-radius:3px; font-size:.9em; }
+pre { background:#f5f5f5; padding:14px; overflow-x:auto; border-radius:4px; border:1px solid var(--line); }
+pre code { background:transparent; padding:0; }
+ul,ol { margin:.6rem 0; padding-left:1.5rem; }
+li { margin:.25rem 0; }
+table { border-collapse:collapse; width:100%; margin:1rem 0; font-family:var(--sans); font-size:.9rem; }
+th,td { border:1px solid var(--line); padding:6px 10px; text-align:left; }
+th { background:#f0f0f0; }
+hr { border:none; border-top:1px solid var(--line); margin:1.5rem 0; }
+.note { font-family:var(--sans); font-size:.78rem; color:var(--muted); border-top:1px solid var(--line); margin-top:2rem; padding-top:1rem; }
+@media (max-width: 600px) { .container { padding:22px 14px 40px; } h1 { font-size:1.35rem; } }
+</style>
+</head>
+<body>
+<div class="topnav"><a href="./index.html">← Today's digest</a></div>
+<div class="container">
+<h1>Equifinality in Mixture of Experts: Routing Topology Does Not Determine Language Modeling Quality</h1>
+<p class="meta">arXiv: 2604.14419</p>
+<p class="meta">Date: 2026-04-15</p>
+<p class="meta"><a href="https://arxiv.org/abs/2604.14419">https://arxiv.org/abs/2604.14419</a></p>
+<blockquote><strong>一句话总结：</strong> 通过62组受控实验证明，MoE模型中不同的路由拓扑结构（包括余弦相似度、哈希、随机固定等）在统计上产生等价的语言建模质量，揭示多跳路由本质上是幅度放大而非组合推理，为MoE架构简化提供了理论和实证依据。</blockquote>
+<blockquote><strong>TL;DR:</strong> This paper demonstrates through 62 controlled experiments that routing topology in Sparse MoE models does not determine language modeling quality -- five cosine-routing variants are statistically equivalent (TOST, p < 0.05), multi-hop routing is just magnitude amplification (cosine similarity of updates = 0.805), and a zero-shot halting method saves 25% FLOPs at negligible perplexity cost.</blockquote>
+<h2>核心贡献</h2>
+<ul>
+<li><strong>路由等终定性（Equifinality）的发现</strong>：通过62组在WikiText-103上76-84M参数的受控实验，证明五种不同的余弦路由变体在收敛后的困惑度（PPL）上统计等价（TOST检验，p < 0.05，范围33.93-34.72），说明路由拓扑结构不决定模型最终质量。</li>
+<li><strong>几何路由方法ST-MoE</strong>：提出基于余弦相似度的几何路由机制，在低维空间（d=64）中匹配学习到的质心，路由参数比标准线性路由器减少80%。</li>
+<li><strong>多跳路由的机械性解释</strong>：揭示多跳路由更新之间高度共线（cos = 0.805），本质是幅度放大而非组合推理，单个可学习标量即可复现多跳性能。</li>
+<li><strong>实用优化方法</strong>：提出零样本相对范数停止（zero-shot relative-norm halting）策略，在仅增加0.12% PPL的代价下节省25%的MoE FLOPs。</li>
+<li><strong>等参数公平比较</strong>：在相同参数预算下，余弦路由能缩小67%与标准线性路由的性能差距，真正的机制优势仅约1.2%。</li>
+</ul>
+<h2>Key Contributions</h2>
+<ul>
+<li><strong>Discovery of routing equifinality</strong>: Through 62 controlled experiments on WikiText-103 (76-84M params, 50K steps, 1.64B tokens), five cosine-routing variants achieve statistically equivalent perplexity within a 1-PPL margin (TOST, p < 0.05 for all 10 pairwise comparisons across 3 seeds).</li>
+<li><strong>ST-MoE geometric routing</strong>: A cosine-similarity routing mechanism in a 64-dimensional space against learned centroids, using 80% fewer routing parameters than standard linear routers.</li>
+<li><strong>Mechanistic explanation of multi-hop redundancy</strong>: Multi-hop updates are collinear (cos = 0.805), implementing magnitude amplification rather than compositional reasoning; a single learnable scalar replicates multi-hop performance.</li>
+<li><strong>Zero-shot relative-norm halting</strong>: A practical FLOPs-saving technique that reduces MoE computation by 25% at only +0.12% PPL degradation, requiring no additional training.</li>
+<li><strong>Iso-parameter analysis</strong>: A standard linear router with 5.3x more routing parameters reaches PPL 32.76, but iso-parameter cosine routing closes 67% of this gap, revealing the true mechanism advantage is approximately 1.2%.</li>
+</ul>
+<h2>Methodology</h2>
+<p>The authors build a Sparse Mixture-of-Experts architecture called <strong>ST-MoE</strong> that uses cosine-similarity routing against learned centroids in a low-dimensional projection space (d_space = 64). The core methodology involves:</p>
+<ol>
+<li><strong>Geometric routing design</strong>: Tokens are projected into a 64-dimensional space and routed to experts based on cosine similarity to learned centroid vectors, replacing the standard linear gating mechanism.</li>
+</ol>
+<ol>
+<li><strong>Five routing variants</strong>: The authors compare five cosine-routing configurations (varying in normalization, temperature, and routing strategies) to test whether routing topology differences matter.</li>
+</ol>
+<ol>
+<li><strong>Extended routing topologies</strong>: Beyond cosine variants, the study tests hash-based routing, random-fixed routing, and top-1 routing to broaden the equifinality claim.</li>
+</ol>
+<ol>
+<li><strong>Statistical rigor</strong>: The authors use Two One-Sided Tests (TOST) for equivalence testing with a 1-PPL margin, running 15 runs across 3 seeds for each cosine variant, providing proper statistical evidence rather than point estimates.</li>
+</ol>
+<ol>
+<li><strong>Mechanistic probing</strong>: To explain <em>why</em> equifinality occurs, they analyze multi-hop routing updates by computing cosine similarity between successive update vectors (Delta h_0, Delta h_1), finding high collinearity (0.805).</li>
+</ol>
+<ol>
+<li><strong>Replication</strong>: Key findings are replicated on OpenWebText (0.03 PPL gap, 6 runs, 3 seeds each), strengthening generalizability.</li>
+</ol>
+<ol>
+<li><strong>FLOPs optimization</strong>: The zero-shot relative-norm halting method monitors activation norms during inference and early-exits tokens whose representations have stabilized.</li>
+</ol>
+<h2>Results & Highlights</h2>
+<ul>
+<li><strong>Equifinality confirmed</strong>: Five cosine-routing variants yield PPL range of 33.93-34.72 on WikiText-103, all statistically equivalent (TOST p < 0.05).</li>
+<li><strong>Hash/random routing gracefully degrades</strong>: Even hash-based, random-fixed, and top-1 routing only show 1.1-2.2 PPL degradation (single-seed), suggesting routing sophistication matters less than expected.</li>
+<li><strong>OpenWebText replication</strong>: The 0.03 PPL gap between routing variants on OpenWebText confirms the finding generalizes beyond WikiText-103.</li>
+<li><strong>Parameter efficiency of cosine routing</strong>: Cosine routing with 80% fewer routing parameters closes 67% of the gap to a 5.3x larger linear router, with the true mechanism advantage being only ~1.2%.</li>
+<li><strong>Multi-hop is magnitude amplification</strong>: Cosine similarity of 0.805 between multi-hop updates demonstrates compositional reasoning is not the mechanism; a single scalar suffices.</li>
+<li><strong>25% FLOPs savings</strong>: Zero-shot relative-norm halting achieves 25% computation reduction at only +0.12% PPL, a practical deployment benefit.</li>
+</ul>
+<h2>Authors & Credibility</h2>
+<ul>
+<li><strong>Ivan Ternovtsii and Yurii Bilak</strong>: The authors appear to be independent researchers (no institutional affiliation highlighted in the abstract metadata).</li>
+<li><strong>Statistical rigor</strong>: The use of TOST equivalence testing with multiple seeds and proper statistical thresholds is commendable and uncommon in MoE literature, which often relies on single-run comparisons.</li>
+<li><strong>Scale of experiments</strong>: 62 controlled experiments represent an unusually thorough ablation study for this research area.</li>
+<li><strong>Companion paper</strong>: The authors mention a companion paper on expert-level specialization and causal controllability, suggesting this is part of a larger research program.</li>
+<li><strong>Reproducibility</strong>: The controlled setting (fixed parameter budgets, fixed training tokens, multiple seeds) and clear experimental design facilitate replication. However, no code repository link is provided in the abstract.</li>
+</ul>
+<h2>Critical Assessment</h2>
+<ul>
+<li><strong>Novelty</strong>: Moderate-to-high. The equifinality finding is striking and counter-intuitive for the MoE community, which has invested heavily in routing mechanism design. The geometric routing approach itself is a useful but less novel contribution. The mechanistic analysis of multi-hop redundancy adds genuine insight.</li>
+<li><strong>Rigor</strong>: High. The use of formal equivalence testing (TOST) with multiple seeds and a pre-specified equivalence margin is a significant methodological improvement over typical single-run comparisons. The 62-experiment design is thorough.</li>
+<li><strong>Reproducibility</strong>: Moderate. While the experimental design is clearly specified, the absence of a public code repository at submission time limits immediate reproducibility. The paper provides sufficient hyperparameter details for replication.</li>
+<li><strong>Significance</strong>: Potentially high impact. If the equifinality result holds at larger scales (billions of parameters), it could redirect MoE research away from routing mechanism engineering toward expert capacity and training efficiency.</li>
+<li><strong>Red flags</strong>:</li>
+<li>Experiments are conducted at 76-84M parameter scale, which is quite small. It remains unclear whether equifinality holds for production-scale MoE models (e.g., Mixtral, Switch Transformer at billions of parameters).</li>
+<li>Single-seed results for hash, random-fixed, and top-1 routing weaken the broader equifinality claim for non-cosine variants.</li>
+<li>The authors are not affiliated with a major institution; while this does not diminish the work's quality, it may limit community attention.</li>
+<li>The companion paper (expert specialization/controllability) is not available, leaving some claims partially substantiated.</li>
+</ul>
+<h2>Strengths</h2>
+<ul>
+<li>Exceptional experimental rigor with 62 controlled experiments and formal statistical equivalence testing (TOST), setting a new standard for MoE ablation studies.</li>
+<li>Counter-intuitive finding that challenges the prevailing assumption that routing mechanism sophistication drives MoE performance.</li>
+<li>Clear mechanistic explanation: multi-hop redundancy as magnitude amplification rather than compositional reasoning.</li>
+<li>Practical payoff with zero-shot halting that delivers 25% FLOPs reduction at negligible quality cost.</li>
+<li>Replication on a second dataset (OpenWebText) strengthens external validity.</li>
+<li>Honest about limitations and scope of claims.</li>
+</ul>
+<h2>Limitations</h2>
+<ul>
+<li><strong>Scale gap</strong>: 76-84M parameters is orders of magnitude below production MoE models. Scaling behavior of equifinality is unknown.</li>
+<li><strong>Single-seed for some baselines</strong>: Hash, random-fixed, and top-1 routing results lack multi-seed statistical validation.</li>
+<li><strong>Task limitation</strong>: Only language modeling (perplexity) is evaluated; downstream task performance, instruction-following, and reasoning capabilities are not assessed.</li>
+<li><strong>Expert count constraint</strong>: The study uses a specific number of experts; equifinality may not hold when the expert count varies dramatically.</li>
+<li><strong>No downstream evaluation</strong>: Perplexity equivalence does not guarantee equivalence on downstream tasks where routing may affect specialization in meaningful ways.</li>
+<li><strong>Missing code release</strong>: No public code repository linked at submission time.</li>
+</ul>
+<h2>Relevance</h2>
+<p>这项研究直接关联到大语言模型训练的可靠性问题——它挑战了MoE路由设计中的常见假设，表明路由机制的复杂性对最终模型质量影响有限。对于关注LLM训练稳定性和可解释性的研究者而言，该文提供了理解MoE内部工作机制的新视角（多跳路由的共线性分析），并提出了可实际部署的推理效率优化方案（零样本停止策略）。</p>
+<h2>Questions for Further Exploration</h2>
+<ol>
+<li>Does routing equifinality persist at billion-parameter scale (e.g., Mixtral 8x7B, DeepSeek-MoE) and with different expert architectures?</li>
+<li>How does equifinality interact with downstream task performance (MMLU, HumanEval, GSM8K) where expert specialization may matter more than perplexity?</li>
+<li>Can the zero-shot relative-norm halting strategy be combined with dynamic expert loading for memory-constrained deployment?</li>
+<li>What is the relationship between equifinality and load balancing -- do equivalent-routing models also exhibit similar expert utilization patterns?</li>
+<li>Does the collinearity of multi-hop updates (cos = 0.805) hold across training dynamics, or does it emerge only at convergence?</li>
+</ol>
+<p class="note">Generated from Markdown summary. Full paper: <a href="https://arxiv.org/abs/2604.14419">arXiv:2604.14419</a></p>
+</div>
+</body>
+</html>

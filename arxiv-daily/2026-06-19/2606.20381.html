@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Rethinking Shrinkage Bias in LLM FP4 Pretraining: Geometric Origin, Systemic Impact, and UFP4 Recipe</title>
+<style>
+:root { --paper:#fafafa; --ink:#1a1a1a; --muted:#555; --accent:#1a5276; --line:#ddd; --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif; --serif:Georgia,"Noto Serif SC",serif; }
+body { font-family:var(--serif); background:var(--paper); color:var(--ink); line-height:1.6; margin:0; padding:0; }
+.container { max-width:min(95vw, 760px); margin:0 auto; padding:28px 20px 60px; }
+.topnav { position:fixed; top:12px; left:14px; z-index:50; font-family:var(--sans); font-size:.75rem; background:var(--paper); border:1px solid var(--line); padding:5px 10px; border-radius:999px; }
+.topnav a { color:var(--muted); text-decoration:none; font-weight:600; }
+.topnav a:hover { color:var(--accent); }
+h1 { font-size:1.6rem; margin:2.2rem 0 1rem; border-bottom:2px solid var(--accent); padding-bottom:.3rem; }
+h2 { font-size:1.3rem; margin:1.8rem 0 .8rem; color:var(--accent); }
+h3 { font-size:1.1rem; margin:1.4rem 0 .6rem; }
+p { margin:.8rem 0; }
+.authors { font-style:italic; color:var(--muted); margin-top:-.4rem; }
+.meta { font-family:var(--sans); font-size:.82rem; color:var(--muted); margin:.2rem 0; }
+a { color:var(--accent); text-decoration:none; }
+a:hover { text-decoration:underline; }
+blockquote { border-left:3px solid var(--accent); margin:1rem 0; padding:.2rem 0 .2rem 1rem; color:var(--muted); font-style:italic; }
+code { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; background:#f0f0f0; padding:2px 5px; border-radius:3px; font-size:.9em; }
+pre { background:#f5f5f5; padding:14px; overflow-x:auto; border-radius:4px; border:1px solid var(--line); }
+pre code { background:transparent; padding:0; }
+ul,ol { margin:.6rem 0; padding-left:1.5rem; }
+li { margin:.25rem 0; }
+table { border-collapse:collapse; width:100%; margin:1rem 0; font-family:var(--sans); font-size:.9rem; }
+th,td { border:1px solid var(--line); padding:6px 10px; text-align:left; }
+th { background:#f0f0f0; }
+hr { border:none; border-top:1px solid var(--line); margin:1.5rem 0; }
+.note { font-family:var(--sans); font-size:.78rem; color:var(--muted); border-top:1px solid var(--line); margin-top:2rem; padding-top:1rem; }
+@media (max-width: 600px) { .container { padding:22px 14px 40px; } h1 { font-size:1.35rem; } }
+</style>
+</head>
+<body>
+<div class="topnav"><a href="./index.html">← Today's digest</a></div>
+<div class="container">
+<h1>Rethinking Shrinkage Bias in LLM FP4 Pretraining: Geometric Origin, Systemic Impact, and UFP4 Recipe</h1>
+<p class="meta">arXiv: 2606.20381</p>
+<p class="meta">Date: 2026-06-19</p>
+<p class="meta"><a href="https://arxiv.org/abs/2606.20381">https://arxiv.org/abs/2606.20381</a></p>
+<blockquote><strong>一句话总结：</strong> 本文从量化 bin 的几何不对称出发，揭示非均匀 FP4 格式（E2M1）在 Round-to-Nearest-Even 下存在系统性负向"收缩偏置"（Shrinkage Bias），它随层乘性累积并被 Random Hadamard Transform 放大，是 NVFP4 等 E2M1-based 配方训练不稳定的统一根因；作者据此提出 UFP4——基于 E1M2/INT4 均匀网格、在三个 GEMM 全程启用 RHT、且仅对 dY 用随机舍入的 4-bit 训练配方，在 Dense 1.5B / MoE 7.9B / MoE 124B 长时预训练中持续降低 BF16 相对损失误差。</blockquote>
+<blockquote><strong>TL;DR:</strong> The paper traces FP4 pretraining instability to a geometric root cause: non-uniform formats like E2M1 (used in NVFP4 on Blackwell/Rubin and AMD MI350) suffer Shrinkage Bias — a systematic negative RTNE rounding error from asymmetric bins — that accumulates multiplicatively across layers and is amplified, not mitigated, by the Random Hadamard Transform (RHT). The authors propose UFP4: an E1M2/INT4-style uniform 4-bit recipe with RHT applied to all three training GEMMs (fwd_y, bwd_dx, bwd_dw) and stochastic rounding restricted to dY, which consistently reduces BF16-relative loss error on Dense 1.5B, MoE 7.9B, and MoE 124B long pretraining runs, and advocate that future accelerators treat uniform grids as first-class FP4 training primitives.</blockquote>
+<h2>核心贡献</h2>
+<ul>
+<li><strong>几何归因（Shrinkage Bias）</strong>：首次将 FP4 训练不稳定归因于非均匀格式（E2M1）量化 bin 的几何不对称——在 RTNE 下，相邻 bin 宽度不等（r_i > l_i）会导致条件期望误差为负（公式推导 −(ℓ_i−r_i)/4 = (q_{i+1}−q_{i−1}−2q_i)/4）。例如 E2M1 在 q=2 处偏置为 −0.125。均匀网格（E1M2/INT4）满足 ℓ_i=r_i，从根本上消除该误差。</li>
+<li><strong>乘性累积与 RHT 放大</strong>：通过张量正交分解（A=α_A·A+R_A）证明 GEMM 主信号衰减因子 η≈α_A·α_B<1，跨 K 层乘性累积 ∏η_k≈exp(−Σδ_k)；非叶子路径（fwd_y、bwd_dx）的误差会级联放大。同时 RHT 把张量从"动态范围受限"变为"局部分辨率受限"，使张量质量进入 E2M1 最不对称的 bin，从而 ∆SQNR 反而为负——这是 RHT 在 E2M1 上的隐藏陷阱。</li>
+<li><strong>均匀网格的优势与 RHT 配合</strong>：在真实 MLP 张量上验证，RHT 显著提升 effective bucket ratio（如 linear_fc2/fwd_x 从 0.56 升至 0.97），但对 E2M1 反而降低 SQNR，对 E1M2 提升约 +3.24 dB；RHT 会反转格式排序（旋转前 E2M1 略优，旋转后 E1M2 更优）。</li>
+<li><strong>UFP4 配方</strong>：基于 E1M2/INT4 均匀网格，对前向 FPROP(fwd_y)、数据梯度 DGRAD(bwd_dx)、权重梯度 WGRAD(bwd_dw) 三个 GEMM 全部施加 RHT，随机舍入（SR）仅用于 dY；block size 1×16，FP32 单层 scale，与 E2M1 基线其他配置保持一致以隔离格式与 RHT 范围的影响。</li>
+<li><strong>规模验证与 Scaling-law</strong>：在 Dense 1.5B、MoE 7.9B、MoE 124B 长时预训练中，最新 1000 步 BF16 相对损失误差分别从 1.2570%→0.9673%、2.3596%→1.8469%、1.7308%→1.3863%；10M–324M MoE scaling-law 外推显示 E1M2 曲线持续低于 E2M1，且拟合的 FP4-to-BF16 gap 不随 compute 增长。</li>
+<li><strong>消融与可融合性</strong>：消融表明 full-RHT（vs 无 RHT）降损 0.01123，SR-on-dY 再降 0.00456；范围受限 E2M1（max_fpx=2/3/4）不能替代原生均匀网格；fused RHT+quantization 在 SM90/SM100 上分别是独立 quant. 的 1.06×/1.07× 延迟，远低于 unfused 的 1.62×/1.41×。</li>
+<li><strong>硬件建议</strong>：呼吁未来加速器（含 HiFloat4/Ascend 960 这类已有均匀 S1P2 元素的系统）将 E1M2/INT4 风格均匀网格作为一等 FP4 训练原语，E2M1 仍保留给离群值重的推理负载。</li>
+</ul>
+<h2>Key Contributions</h2>
+<ul>
+<li><strong>Formalizes Shrinkage Bias</strong>: Derives (Eq. 2) that asymmetric RTNE bins in non-uniform formats (E2M1) yield a systematic negative expected rounding error — e.g., −0.125 at q=2 — while uniform grids (E1M2/INT4) eliminate it by construction.</li>
+<li><strong>Propagation and RHT-exacerbation theory</strong>: Uses an orthogonal tensor decomposition to show GEMM signal attenuation η≈α_A·α_B<1 accumulates multiplicatively across K layers (∏η_k≈exp(−Σδ_k)); proves RHT shifts tensors into E2M1's most asymmetric bins, flipping the grid ranking after rotation.</li>
+<li><strong>UFP4 recipe</strong>: A uniform E1M2/INT4 4-bit recipe applying RHT to all three training GEMMs and stochastic rounding only to dY, with all other knobs (block size 1×16, single-level FP32 scale, SR scope) matched to the E2M1 baseline to isolate the grid effect.</li>
+<li><strong>Scale-level validation</strong>: Reports BF16-relative loss error reductions on Dense 1.5B (1.26%→0.97%), MoE 7.9B (2.36%→1.85%), and MoE 124B (1.73%→1.39%); scaling-law extrapolation over 10M–324M MoE shows the advantage persists and the FP4 gap does not grow with compute.</li>
+<li><strong>Mechanistic ablations</strong>: Full-RHT beats no-RHT by 0.01123; SR-on-dY adds 0.00456; range-restricted E2M1 (max_fpx=2/3/4) cannot emulate a true uniform grid; fused RHT+quant kernels add only ~6–7% latency over standalone quantization on SM90/SM100.</li>
+<li><strong>Hardware recommendation</strong>: Argues future training accelerators should expose E1M2/INT4-style uniform grids as first-class FP4 data elements alongside E2M1 (which should remain for range-limited workloads).</li>
+</ul>
+<h2>Methodology</h2>
+<p>The paper proceeds in four analytical layers and one experimental layer:</p>
+<ol>
+<li><strong>Geometric origin (§3.1)</strong>: For a non-negative normalized codebook G⁺={0=q_0<…<q_n}, the interior of each RTNE bin around q_i has widths ℓ_i=(q_i−q_{i−1})/2 and r_i=(q_{i+1}−q_i)/2. Under locally uniform density, the conditional expected RTNE error is E[ρ_G(t)−t | t∈B_i]=(ℓ_i−r_i)/4 (Eq. 2), so any r_i>ℓ_i (which E2M1 has at spacing transitions like q=2,4) yields negative Shrinkage Bias. Uniform grids satisfy ℓ_i=r_i for all bins and cancel the term.</li>
+</ol>
+<ol>
+<li><strong>Systemic impact (§3.2)</strong>: Decomposing quantized operands Ã=α_A·A+R_A with ⟨R_A,A⟩=0 gives Z̃_q=α_A·α_B·AB⊤ + residual noise, so the coherent signal is attenuated by η≈α_A·α_B<1 per GEMM and by ∏η_k across K layers (Eq. 5) — multiplicative, hence non-cancelling. Non-leaf outputs (fwd_y, bwd_dx) cascade this decay. RHT then shifts outlier energy into mid-magnitude mass, where E2M1's asymmetric bins dominate; bucket entropy metric B_eff and ∆SQNR=10·log₁₀(NMSE_I/NMSE_H16) quantify this.</li>
+</ol>
+<ol>
+<li><strong>UFP4 design (§4)</strong>: Once RHT moves tensors into the local-resolution-limited regime, the grid should prioritize local magnitude preservation over dynamic range → choose E1M2/INT4. Because the grid is now unbiased, RHT can be safely extended to all three GEMMs (whereas E2M1 recipes restrict RHT to bwd_dw to avoid compounding geometric error). SR is kept only on dY to preserve gradient expectations.</li>
+</ol>
+<ol>
+<li><strong>Experiments (§5)</strong> organized as Q1–Q5: (Q1) tensor- and GEMM-level SQNR with/without RHT on real MLP tensors; (Q2) long-run BF16-relative loss on Dense 1.5B / MoE 7.9B / MoE 124B; (Q3) Ling scaling-law protocol over 10M–324M MoE; (Q4) ablation of RHT scope and SR scope, plus a range-restricted E2M1 emulation test; (Q5) fused vs unfused RHT+quantization kernel latency on SM90/SM100. The E2M1 baseline is selected by a controlled configuration search (§B) with all auxiliary settings (block size, scale hierarchy, SR scope) matched.</li>
+</ol>
+<h2>Results & Highlights</h2>
+<ul>
+<li><strong>Q1 (single tensor / GEMM)</strong>: On well-behaved linear_fc1/fwd_x, RHT is near-neutral for both formats. On outlier-heavy linear_fc2/fwd_x, RHT reverses the ranking: E2M1 leads before rotation (21.90 vs 19.94 dB) but E1M2 leads after (23.19 vs 20.00 dB), with B_eff rising 0.56→0.97. The inversion persists in GEMM outputs (fwd_y, bwd_dx, bwd_dw): E1M2 preserves/improves SQNR, E2M1 often loses it after rotation (e.g., linear_fc2 fwd_y: E1M2 +2.51 dB vs E2M1 −2.05 dB).</li>
+<li><strong>Q2 (end-to-end)</strong>: Latest-1000-step BF16-relative LM loss error drops on Dense 1.5B (1.2570%→0.9673%), MoE 7.9B (2.3596%→1.8469%), MoE 124B (1.7308%→1.3863%). Both FP4 recipes still leave a measurable gap to BF16.</li>
+<li><strong>Q3 (scaling)</strong>: Ling-protocol scaling-law fit (10M@6e17 → 324M@2e20 FLOPs) shows the E1M2 curve stays below E2M1 across measured and extrapolated compute; the fitted FP4-to-BF16 gap decreases with compute.</li>
+<li><strong>Q4 (ablation)</strong>: Full-RHT vs no-RHT → −0.01123 loss; SR-on-dY under full-RHT → −0.00456. Range-restricted E2M1 (max_fpx=2/3/4) all underperform the E2M1 reference on Dense 1.5B and MoE 7.9B, so E2M1 range clipping cannot substitute for native uniform grids.</li>
+<li><strong>Q5 (kernel)</strong>: Fused RHT+quantization adds only 1.06× (SM90) and 1.07× (SM100) latency over standalone quantization, versus 1.62×/1.41× unfused — full-RHT training is practically cheap to fuse.</li>
+<li><strong>Concrete numbers to anchor</strong>: E2M1 bin bias −0.125 at q=2; full-RHT + SR total reduction ~0.01579 on Dense 1.5B; MoE 124B final gap 1.3863% (UFP4) vs 1.7308% (E2M1).</li>
+</ul>
+<h2>Authors & Credibility</h2>
+<ul>
+<li>All authors are from the <strong>Ling Team, Ant Group</strong>; Zhiqiang Zhang is corresponding author alongside Qian Zhao. Ant's Ling team has an established line of work on low-bit/quantized LLM training (e.g., referenced PowLU activation work by the same authors).</li>
+<li>The work engages directly with production hardware (NVIDIA Blackwell/Rubin NVFP4, AMD MI350) and current SOTA FP4 recipes (NVFP4, MXFP4, Microsoft FP4, Quartet II, FAAR, TetraJet-v2, Four Over Six, MixFP4), and is explicitly positioned relative to them in §6.</li>
+<li>Evidence scales to MoE 124B long-run pretraining with fused-kernel benchmarks on SM90/SM100, which is above the typical scale for a methods paper.</li>
+<li>Note: affiliation inference is from the PDF title block; venue not stated (appears to be an arXiv preprint as of June 19, 2026).</li>
+</ul>
+<h2>Critical Assessment</h2>
+<ul>
+<li><strong>Novelty — High.</strong> The framing of FP4 instability as a <em>geometric</em> property of asymmetric RTNE bins (Shrinkage Bias), with an exact closed-form (Eq. 2) and a multiplicative-layer-accumulation argument (Eq. 5), is a clean unifying theory rather than an empirical patch. The observation that RHT <em>reverses</em> the preferred grid is a genuinely useful and counterintuitive insight.</li>
+<li><strong>Rigor — Solid.</strong> The tensor-level theory is backed by GEMM-level SQNR diagnostics on real training tensors, controlled ablations isolating grid vs RHT scope vs SR scope, scaling-law extrapolation, and kernel measurements. The controlled E2M1-baseline selection (§B) is a commendable effort to make the comparison fair.</li>
+<li><strong>Reproducibility — Moderate, hardware-gated.</strong> Two concerns. (1) Current FP4 hardware paths are E2M1-centric, so E1M2 results may rely on emulation/simulation rather than native silicon — the paper does not unambiguously state that all runs execute on real uniform-FP4 hardware. (2) Seed counts, variance bars, and exact training horizons for the 124B run are worth verifying in the appendix; figures show point curves without explicit error bars.</li>
+<li><strong>Significance — High if the uniform-grid path is realizable.</strong> The actionable hardware recommendation (E1M2/INT4 as a first-class training primitive) is well-motivated and partially supported by emerging hardware (HiFloat4 on Ascend 960). If adopted, it reshapes the FP4 training stack.</li>
+<li><strong>Red flags / open questions</strong>:</li>
+<li>The "native vs emulated" status of the E1M2 GEMMs is the single most important caveat; if emulated, memory/throughput claims need qualification.</li>
+<li>Only LM-loss parity is reported; downstream benchmark quality (e.g., MMLU, GSM8K, human evals) is absent, and loss parity does not guarantee capability parity.</li>
+<li>The improvement magnitude (e.g., MoE 7.9B: 2.36%→1.85%) is meaningful but still leaves a >1.8% gap to BF16 — whether this matters for downstream tasks is untested.</li>
+<li>SR restricted to dY is justified empirically by a 0.00456 reduction but the theoretical rationale for <em>not</em> applying SR to fwd_y/bwd_dx is thinner than the bias analysis.</li>
+<li>Vendor alignment risk: if the agenda aligns with promoting a specific grid format, independent replication matters, though the analysis itself is vendor-neutral.</li>
+</ul>
+<h2>Strengths</h2>
+<ul>
+<li>Provides a principled, geometry-based diagnosis with a closed-form bias term, not an empirical patch.</li>
+<li>Unifies quantization grid geometry, RHT regime shift, and layer-wise accumulation in one coherent theory with two clear "Key Findings".</li>
+<li>Validates at meaningful scale (up to MoE 124B) with scaling-law support and per-GEMM ablations.</li>
+<li>Practical kernel evidence (fused RHT+quant adds only ~6–7% latency) addresses the "is full-RHT too expensive" objection.</li>
+<li>Concrete, actionable recipe (UFP4) plus a clear, narrowly-scoped hardware recommendation.</li>
+<li>Honest about residual gaps: explicitly states both FP4 recipes still leave a measurable BF16 gap.</li>
+</ul>
+<h2>Limitations</h2>
+<ul>
+<li>Does not clearly state whether E1M2 GEMMs run on shipping uniform-FP4 hardware or via emulation; this is the key practical caveat.</li>
+<li>No downstream task benchmarks — only LM loss is reported.</li>
+<li>Seed counts and variance bars not visible in the main figures.</li>
+<li>Range-restricted E2M1 emulation failing does not rule out other E2M1-side fixes (e.g., adaptive per-block format like MixFP4) that could close part of the gap on existing hardware.</li>
+<li>SR-on-dY-only rationale is empirical more than theoretical.</li>
+<li>The hardware recommendation depends on vendor roadmap adoption outside the authors' control.</li>
+</ul>
+<h2>Relevance</h2>
+<p>与用户关注的 "Computation Reliability & Precision Errors" 及 "LLM Training Stability & Observability" 高度契合：本文直击低精度（FP4）预训练中由量化网格几何引发的系统性精度误差与训练不稳定，给出可解析的数值稳定性诊断与以稳定性为导向的训练配方，并从硬件原语层面提出减少精度误差的路径。</p>
+<h2>Questions for Further Exploration</h2>
+<ul>
+<li>Are the E1M2 GEMMs executed on native uniform-FP4 silicon or emulated, and how does that affect the memory and throughput claims?</li>
+<li>Do downstream benchmark scores (MMLU, reasoning, code) confirm the LM-loss improvement translates to capability parity with BF16?</li>
+<li>How sensitive is the 124B result to RHT seed and Hadamard block size, and what are the run-to-run variances?</li>
+<li>Could adaptive per-block format selection (MixFP4-style) recover most of the uniform-grid benefit on existing E2M1-only hardware?</li>
+<li>Can Shrinkage Bias analysis predict instability a priori for other non-uniform low-bit formats (FP6, MXFP, E3M0 exponent-only)?</li>
+<li>Does SR-on-dY-only generalize across architectures (different attention/MoE routing variants), or is it specific to the tested Ling stack?</li>
+<li>What is the interaction between UFP4 and quantization-aware training / outlier-control methods — are they complementary or redundant?</li>
+<li>Given the residual >1% gap on MoE 7.9B, is there a hybrid BF16-critical-path + FP4-rest design that closes it further?</li>
+</ul>
+<p class="note">Generated from Markdown summary. Full paper: <a href="https://arxiv.org/abs/2606.20381">arXiv:2606.20381</a></p>
+</div>
+</body>
+</html>

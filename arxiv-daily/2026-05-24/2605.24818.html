@@ -1,0 +1,525 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Spiking the Training Data to Correct for Test Set Contamination — 2605.24818</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg: #0e0f11;
+  --surface: #18191d;
+  --surface2: #1f2126;
+  --border: #2a2c32;
+  --fg: #e4e4e7;
+  --muted: #8b8d96;
+  --accent: #e8a025;
+  --accent-dim: rgba(232,160,37,0.12);
+  --accent-glow: rgba(232,160,37,0.25);
+  --red: #ef6461;
+  --green: #56c97a;
+  --grid-gap: 1.25rem;
+  --max-w: min(95vw, 1100px);
+  --mono: 'SF Mono', 'Fira Code', 'Cascadia Code', 'JetBrains Mono', Menlo, monospace;
+  --sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+  --serif: 'Iowan Old Style', 'Georgia', 'Noto Serif', serif;
+}
+
+html { font-size: 16px; scroll-behavior: smooth; }
+body {
+  font-family: var(--sans);
+  background: var(--bg);
+  color: var(--fg);
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+.dashboard {
+  max-width: var(--max-w);
+  margin: 0 auto;
+  padding: 1.5rem 1.25rem 3rem;
+  display: grid;
+  gap: var(--grid-gap);
+}
+
+/* ── Top nav bar ── */
+.topbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.8rem;
+  color: var(--muted);
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 0.75rem;
+}
+.topbar a { color: var(--muted); }
+.topbar a:hover { color: var(--accent); }
+.arxiv-tag {
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  padding: 0.15rem 0.5rem;
+  border-radius: 3px;
+}
+
+/* ── Hero ── */
+.hero {
+  background: linear-gradient(135deg, var(--surface) 0%, var(--surface2) 100%);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 2.5rem 2.5rem 2rem;
+  position: relative;
+  overflow: hidden;
+}
+.hero::before {
+  content: '';
+  position: absolute;
+  top: -40%; right: -10%;
+  width: 420px; height: 420px;
+  background: radial-gradient(circle, var(--accent-glow) 0%, transparent 70%);
+  pointer-events: none;
+}
+.hero-label {
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--accent);
+  margin-bottom: 0.75rem;
+  position: relative;
+}
+.hero h1 {
+  font-family: var(--serif);
+  font-size: clamp(1.6rem, 3.5vw, 2.4rem);
+  font-weight: 700;
+  line-height: 1.2;
+  margin-bottom: 0.6rem;
+  position: relative;
+  max-width: 28ch;
+}
+.hero-sub {
+  color: var(--muted);
+  font-size: 0.92rem;
+  max-width: 52ch;
+  position: relative;
+  line-height: 1.55;
+}
+.hero-sub strong { color: var(--fg); font-weight: 600; }
+.hero-authors {
+  margin-top: 1rem;
+  font-size: 0.82rem;
+  color: var(--muted);
+  position: relative;
+}
+.hero-authors span { color: var(--fg); }
+
+/* ── Asset row (3 cards) ── */
+.asset-row {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--grid-gap);
+}
+@media (max-width: 700px) {
+  .asset-row { grid-template-columns: 1fr; }
+}
+.asset-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 1.4rem 1.3rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.asset-card .label {
+  font-family: var(--mono);
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--muted);
+}
+.asset-card .value {
+  font-size: 1rem;
+  line-height: 1.45;
+}
+.asset-card .big-num {
+  font-family: var(--mono);
+  font-size: 2.4rem;
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: -0.03em;
+}
+.asset-card.accent-border { border-left: 3px solid var(--accent); }
+.asset-card.red-border { border-left: 3px solid var(--red); }
+
+/* ── Metric comparison strip ── */
+.metric-strip {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 1rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 1.5rem 2rem;
+}
+@media (max-width: 600px) {
+  .metric-strip { grid-template-columns: 1fr; text-align: center; }
+}
+.metric-side .metric-num {
+  font-family: var(--mono);
+  font-size: 2.2rem;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+}
+.metric-side .metric-label {
+  font-size: 0.75rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.metric-side.before .metric-num { color: var(--red); }
+.metric-side.after .metric-num { color: var(--green); }
+.metric-arrow {
+  font-size: 1.8rem;
+  color: var(--accent);
+  text-align: center;
+}
+@media (max-width: 600px) { .metric-arrow { transform: rotate(90deg); } }
+
+/* ── Body sections grid ── */
+.body-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--grid-gap);
+}
+@media (max-width: 780px) {
+  .body-grid { grid-template-columns: 1fr; }
+}
+.body-grid .full-width { grid-column: 1 / -1; }
+
+.section {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 1.5rem;
+}
+.section h2 {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--accent);
+  margin-bottom: 0.9rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--border);
+}
+.section h3 {
+  font-size: 0.85rem;
+  font-weight: 600;
+  margin: 0.8rem 0 0.3rem;
+}
+.section ul {
+  list-style: none;
+  padding: 0;
+}
+.section li {
+  font-size: 0.88rem;
+  line-height: 1.55;
+  padding: 0.35rem 0 0.35rem 1.1rem;
+  position: relative;
+  color: var(--fg);
+}
+.section li::before {
+  content: '›';
+  position: absolute;
+  left: 0;
+  color: var(--accent);
+  font-weight: 700;
+}
+.section li.dim { color: var(--muted); }
+.section li.dim::before { color: var(--border); }
+.section p {
+  font-size: 0.88rem;
+  line-height: 1.55;
+  color: var(--fg);
+  margin-bottom: 0.5rem;
+}
+
+/* strengths / limitations split */
+.split-panels {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0;
+}
+@media (max-width: 500px) {
+  .split-panels { grid-template-columns: 1fr; }
+}
+.split-panels .panel {
+  padding: 1.5rem;
+}
+.split-panels .panel:first-child {
+  border-right: 1px solid var(--border);
+}
+@media (max-width: 500px) {
+  .split-panels .panel:first-child {
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+  }
+}
+.split-panels .panel.strengths h2 { color: var(--green); }
+.split-panels .panel.strengths li::before { color: var(--green); content: '+'; }
+.split-panels .panel.limitations h2 { color: var(--red); }
+.split-panels .panel.limitations li::before { color: var(--red); content: '—'; }
+
+/* questions */
+.questions-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 0.9rem;
+}
+.q-card {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 1rem 1.1rem;
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+.q-num {
+  font-family: var(--mono);
+  font-size: 0.65rem;
+  color: var(--accent);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-bottom: 0.35rem;
+}
+
+/* ── Credibility bar ── */
+.cred-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.5rem;
+  align-items: baseline;
+  font-size: 0.82rem;
+  color: var(--muted);
+  padding: 0.75rem 0;
+}
+.cred-bar span { color: var(--fg); }
+
+/* ── Footer ── */
+.footer {
+  border-top: 1px solid var(--border);
+  padding-top: 1rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+/* ── Staggered load animation ── */
+.hero, .asset-card, .metric-strip, .section {
+  animation: fadeUp 0.45s ease-out both;
+}
+.asset-card:nth-child(1) { animation-delay: 0.08s; }
+.asset-card:nth-child(2) { animation-delay: 0.16s; }
+.asset-card:nth-child(3) { animation-delay: 0.24s; }
+.metric-strip { animation-delay: 0.32s; }
+.body-grid .section:nth-child(1) { animation-delay: 0.4s; }
+.body-grid .section:nth-child(2) { animation-delay: 0.48s; }
+.body-grid .section:nth-child(3) { animation-delay: 0.56s; }
+.body-grid .section:nth-child(4) { animation-delay: 0.64s; }
+
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hero, .asset-card, .metric-strip, .section { animation: none; }
+}
+</style>
+</head>
+<body>
+<div class="dashboard">
+
+  <!-- Topbar -->
+  <nav class="topbar">
+    <a href="./index.html">↩ Today's digest</a>
+    <span class="arxiv-tag">2605.24818</span>
+  </nav>
+
+  <!-- Hero -->
+  <header class="hero">
+    <div class="hero-label">Key Finding</div>
+    <h1>Spiking Training Data Corrects Contaminated Benchmark Scores</h1>
+    <p class="hero-sub">
+      Intentionally inserting test examples into training data at known rates creates a <strong>causal randomization control</strong> that enables principled statistical correction — cutting MMLU error from 13.1pp down to <strong>1.8pp</strong> with just ~10 calibration samples.
+    </p>
+    <div class="hero-authors">
+      <span>Johnny Wei</span>, <span>Jerry Li</span>, <span>Ameya Godbole</span>, <span>Robin Jia</span> — USC &nbsp;·&nbsp; 2026-05-24
+    </div>
+  </header>
+
+  <!-- Metric comparison strip -->
+  <div class="metric-strip">
+    <div class="metric-side before">
+      <div class="metric-num">13.1pp</div>
+      <div class="metric-label">MMLU RMSE — Naive (uncorrected)</div>
+    </div>
+    <div class="metric-arrow">→</div>
+    <div class="metric-side after">
+      <div class="metric-num">1.8pp</div>
+      <div class="metric-label">MMLU RMSE — Combined estimator</div>
+    </div>
+  </div>
+
+  <!-- Asset row -->
+  <div class="asset-row">
+    <div class="asset-card accent-border">
+      <div class="label">Why This Matters</div>
+      <div class="value">Gives LLM developers a low-cost, statistically grounded method to correct inflated benchmark scores from test-set contamination.</div>
+    </div>
+    <div class="asset-card">
+      <div class="label">Calibration Cost</div>
+      <div class="value"><span class="big-num">~10</span> spiked examples suffice for IPW with Min-K%++, and calibrators transfer across datasets.</div>
+    </div>
+    <div class="asset-card red-border">
+      <div class="label">Critical Edge</div>
+      <div class="value">Exact-duplicate contamination only; requires developer access; correlated hard-contamination still leaves ~10–15pp residual error.</div>
+    </div>
+  </div>
+
+  <!-- Body grid -->
+  <div class="body-grid">
+
+    <!-- Methodology -->
+    <section class="section full-width">
+      <h2>Methodology</h2>
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:1.2rem;">
+        <div>
+          <h3>1. Hubble Simulation</h3>
+          <p>Matched pairs of 8B Llama models (clean vs. contaminated at duplication rates {1,4,16,64,256}) across WinoGrande, MMLU, HellaSwag, PIQA, PopQA. 500-item test sets, 0.3 contamination rate, 1,000 bootstrap replicates.</p>
+          <h3>2. Four Estimators</h3>
+          <ul>
+            <li><strong>Naive</strong> — raw contaminated accuracy (baseline)</li>
+            <li><strong>IPW</strong> — downweights by P̂(contam), drops memorized items</li>
+            <li><strong>Imputation</strong> — replaces outcomes with correctness predictor P̂(correct)</li>
+            <li><strong>Combined</strong> — doubly-robust-style interpolation (Eq. 4)</li>
+          </ul>
+        </div>
+        <div>
+          <h3>3. Predictors</h3>
+          <ul>
+            <li><strong>Memorization:</strong> LOSS, Min-K%, Min-K%++, zlib — Platt-scaled; reference model as oracle</li>
+            <li><strong>Correctness:</strong> fine-tuned RoBERTa or LLM confidence (Llama 3.1, Pythia 6.9B, Qwen3 8B)</li>
+          </ul>
+          <h3>4. Practical Analysis</h3>
+          <ul>
+            <li>IPW needs only ~10 spiked examples for calibration</li>
+            <li>Memorization calibrators trained on Wikipedia transfer to other datasets</li>
+            <li>Developers need not spike every benchmark individually</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- Results -->
+    <section class="section full-width">
+      <h2>Results &amp; Highlights</h2>
+      <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(260px,1fr)); gap:0.8rem;">
+        <div class="q-card">
+          <div class="q-num">Phase Diagrams</div>
+          Combined estimator dominates under stronger contamination; IPW fails when hard examples are selectively contaminated (selection bias).
+        </div>
+        <div class="q-card">
+          <div class="q-num">Memorization Predictors</div>
+          AUROC near chance at low contamination, near-perfect at high. Simple LOSS after Platt scaling performs well despite its simplicity.
+        </div>
+        <div class="q-card">
+          <div class="q-num">MMLU Correction</div>
+          Combined: 1.4–2.3pp RMSE (random) vs. 1.8–13.1pp naive. Correlated hard: imputation cuts 29.2pp → 10.5pp.
+        </div>
+        <div class="q-card">
+          <div class="q-num">Cross-dataset Transfer</div>
+          Wikipedia-spiked calibrators closely match dataset-specific ones — developers don't need per-benchmark spiking.
+        </div>
+      </div>
+    </section>
+
+    <!-- Strengths + Limitations -->
+    <section class="section full-width" style="padding:0;">
+      <div class="split-panels">
+        <div class="panel strengths">
+          <h2>Strengths</h2>
+          <ul>
+            <li>First principled framework for <em>correcting</em> (not just detecting) contaminated scores</li>
+            <li>Elegant causal-inference framing — spiking as randomization, estimators as propensity/outcome models</li>
+            <li>10-example calibration with cross-dataset transfer</li>
+            <li>Phase diagrams give clear practitioner decision guidance</li>
+            <li>Practical: studies real costs and shows Wikipedia spiking is often sufficient</li>
+          </ul>
+        </div>
+        <div class="panel limitations">
+          <h2>Limitations</h2>
+          <ul>
+            <li>Exact-duplicate contamination only — paraphrases and near-duplicates not addressed</li>
+            <li>Requires developer cooperation; not applicable to third-party black-box audits</li>
+            <li>Correlated contamination still leaves 10–15pp residual error</li>
+            <li>Evaluated only on 8B models; scaling to frontier models unknown</li>
+            <li>Positivity assumption may fail when entire benchmarks are contaminated</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- Questions for further exploration -->
+    <section class="section full-width">
+      <h2>Open Questions</h2>
+      <div class="questions-grid">
+        <div class="q-card">
+          <div class="q-num">Q1</div>
+          How does spiking perform under paraphrase or near-duplicate contamination?
+        </div>
+        <div class="q-card">
+          <div class="q-num">Q2</div>
+          Does memorization scale predictably to 70B+ frontier models?
+        </div>
+        <div class="q-card">
+          <div class="q-num">Q3</div>
+          Can spiked examples serve dual purposes for DP auditing and contamination correction?
+        </div>
+        <div class="q-card">
+          <div class="q-num">Q4</div>
+          How robust are estimators when contamination rate is misspecified or unknown?
+        </div>
+        <div class="q-card">
+          <div class="q-num">Q5</div>
+          Could multi-model spiking across several runs improve estimator robustness?
+        </div>
+      </div>
+    </section>
+
+    <!-- Credibility bar -->
+    <div class="cred-bar full-width">
+      <div>Code: <span><a href="https://github.com/Jeli04/spiking-tsc">github.com/Jeli04/spiking-tsc</a></span></div>
+      <div>Funded by: <span>IARPA · NSF · USC-Amazon Center</span></div>
+      <div>Testbed: <span>Hubble model suite (Wei et al., 2026)</span></div>
+    </div>
+  </div>
+
+  <!-- Footer -->
+  <footer class="footer">
+    <span>arXiv:2605.24818 — Spiking the Training Data to Correct for Test Set Contamination</span>
+    <a href="2605.24818.html">↗ Markdown source</a>
+  </footer>
+
+</div>
+</body>
+</html>

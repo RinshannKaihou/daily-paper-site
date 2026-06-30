@@ -1,0 +1,735 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Audit Report — On instruction-tuned LLMs, token-level truthfulness methods fail under strict controls</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Newsreader:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&family=Inter:wght@400;500;600&display=swap');
+
+  :root {
+    --bg: #0b0b0d;
+    --surface: #141418;
+    --surface-2: #1c1c22;
+    --border: #2a2a32;
+    --border-strong: #3a3a44;
+    --text: #e8e6df;
+    --text-dim: #9b988f;
+    --text-muted: #6b6960;
+    --accent: #e85a3c;
+    --accent-dim: #b03e25;
+    --accent-bg: rgba(232, 90, 60, 0.08);
+    --accent-border: rgba(232, 90, 60, 0.28);
+    --positive: #7cb87c;
+    --negative: #d65a4a;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.55;
+    min-height: 100vh;
+    -webkit-font-smoothing: antialiased;
+    font-feature-settings: 'cv11', 'ss01';
+  }
+
+  /* ===== Top-left nav ===== */
+  .nav-back {
+    position: fixed;
+    top: 18px;
+    left: 18px;
+    z-index: 100;
+    padding: 8px 14px;
+    background: rgba(11, 11, 13, 0.85);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 11.5px;
+    color: var(--text-dim);
+    text-decoration: none;
+    letter-spacing: 0.04em;
+    transition: color 0.2s, border-color 0.2s;
+  }
+  .nav-back:hover { color: var(--accent); border-color: var(--accent-border); }
+
+  /* ===== Layout ===== */
+  .page {
+    max-width: min(95vw, 1100px);
+    margin: 0 auto;
+    padding: 70px 0 80px;
+  }
+
+  /* ===== Hero ===== */
+  .hero {
+    padding: 0 8px 44px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .hero-meta {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 11px;
+    color: var(--text-muted);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    margin-bottom: 28px;
+  }
+  .hero-meta .dot { width: 4px; height: 4px; background: var(--accent); border-radius: 50%; }
+  .hero-meta .tag-audit {
+    color: var(--accent);
+    border: 1px solid var(--accent-border);
+    padding: 3px 8px;
+    border-radius: 4px;
+    background: var(--accent-bg);
+    letter-spacing: 0.16em;
+  }
+
+  .hero-headline {
+    font-family: 'Newsreader', 'Iowan Old Style', 'Charter', Georgia, 'Songti SC', serif;
+    font-size: clamp(28px, 4.6vw, 48px);
+    line-height: 1.12;
+    font-weight: 500;
+    letter-spacing: -0.012em;
+    color: var(--text);
+    max-width: 940px;
+    margin-bottom: 32px;
+  }
+  .hero-headline em {
+    font-style: italic;
+    font-weight: 400;
+    color: var(--accent);
+  }
+
+  .hero-cite {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    padding-top: 22px;
+    border-top: 1px dashed var(--border);
+  }
+  .paper-title-link {
+    font-family: 'Newsreader', 'Iowan Old Style', Georgia, serif;
+    font-size: 16px;
+    font-style: italic;
+    color: var(--text-dim);
+    text-decoration: none;
+    line-height: 1.45;
+    max-width: 720px;
+    transition: color 0.2s;
+  }
+  .paper-title-link:hover { color: var(--accent); }
+  .paper-title-link .arxiv-tag {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--accent);
+    font-style: normal;
+    margin-right: 8px;
+    letter-spacing: 0.04em;
+  }
+
+  .hero-byline {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px 16px;
+    font-size: 13px;
+    color: var(--text-dim);
+  }
+  .hero-byline .author { color: var(--text); font-weight: 500; }
+  .hero-byline .sep { color: var(--text-muted); }
+
+  .chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 4px;
+  }
+  .chip {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10.5px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    padding: 4px 9px;
+    border: 1px solid var(--border-strong);
+    border-radius: 3px;
+    color: var(--text-dim);
+    background: var(--surface);
+  }
+
+  /* ===== Asset row ===== */
+  .assets {
+    display: grid;
+    grid-template-columns: 1.05fr 1fr 1fr;
+    gap: 1px;
+    background: var(--border);
+    border-bottom: 1px solid var(--border);
+  }
+  .asset {
+    background: var(--bg);
+    padding: 26px 22px 28px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    min-height: 200px;
+  }
+  .asset-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10.5px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+  }
+  .asset-value {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 22px;
+    line-height: 1.25;
+    color: var(--text);
+    font-weight: 500;
+    letter-spacing: -0.01em;
+  }
+  .asset-value .arrow { color: var(--negative); margin: 0 6px; font-weight: 400; }
+  .asset-value .pos { color: var(--negative); }
+  .asset-value .neg { color: var(--negative); }
+  .asset-value .ctx {
+    display: block;
+    margin-top: 10px;
+    font-family: 'Inter', sans-serif;
+    font-size: 12px;
+    color: var(--text-muted);
+    font-weight: 400;
+    letter-spacing: 0;
+    line-height: 1.45;
+  }
+  .asset.contrast {
+    background: var(--accent-bg);
+    border-left: 2px solid var(--accent);
+  }
+  .asset.contrast .asset-label { color: var(--accent); }
+  .asset.contrast .asset-value {
+    font-family: 'Newsreader', Georgia, serif;
+    font-size: 17px;
+    line-height: 1.4;
+    font-style: italic;
+    color: var(--text);
+  }
+  .asset.edge .asset-value {
+    font-family: 'Inter', sans-serif;
+    font-size: 14px;
+    line-height: 1.5;
+    color: var(--text-dim);
+    font-weight: 400;
+    letter-spacing: 0;
+  }
+
+  /* ===== Section heading ===== */
+  .section-title {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    margin-bottom: 14px;
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+  }
+  .section-title::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--border);
+  }
+  .section-title .num { color: var(--accent); font-weight: 600; }
+
+  /* ===== Body grid ===== */
+  .body {
+    padding: 48px 8px 0;
+    display: flex;
+    flex-direction: column;
+    gap: 56px;
+  }
+
+  .row-2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+  }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 24px 26px;
+  }
+  .card h3 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 14px;
+    font-weight: 600;
+  }
+
+  /* ===== Methodology list ===== */
+  .method-list {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 11px;
+  }
+  .method-list li {
+    display: grid;
+    grid-template-columns: 28px 1fr;
+    gap: 8px;
+    font-size: 13.5px;
+    line-height: 1.5;
+    color: var(--text-dim);
+    padding-left: 0;
+  }
+  .method-list li::before {
+    content: attr(data-num);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--accent);
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    padding-top: 2px;
+  }
+  .method-list li b { color: var(--text); font-weight: 500; }
+  .method-list li code {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11.5px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 1px 6px;
+    color: var(--text);
+  }
+
+  /* ===== Results table ===== */
+  .table-card { padding: 24px 26px 26px; }
+  .table-sub {
+    font-size: 12.5px;
+    color: var(--text-muted);
+    margin: -6px 0 16px;
+    font-style: italic;
+  }
+  table.results {
+    width: 100%;
+    border-collapse: collapse;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    margin-top: 4px;
+  }
+  table.results caption {
+    text-align: left;
+    font-size: 11.5px;
+    color: var(--text-muted);
+    padding: 4px 0 10px;
+    caption-side: top;
+    font-family: 'Inter', sans-serif;
+    font-style: italic;
+    letter-spacing: 0;
+  }
+  table.results th, table.results td {
+    padding: 9px 10px;
+    text-align: right;
+    border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+  }
+  table.results th:first-child, table.results td:first-child {
+    text-align: left;
+    color: var(--text);
+    font-weight: 500;
+  }
+  table.results th {
+    color: var(--text-muted);
+    font-weight: 500;
+    font-size: 10.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    border-bottom: 1px solid var(--border-strong);
+  }
+  table.results tr:last-child td { border-bottom: none; }
+  table.results .pos { color: var(--positive); }
+  table.results .neg { color: var(--negative); }
+  table.results .n { color: var(--text-muted); font-size: 11px; }
+  table.results .row-highlight td { background: var(--accent-bg); }
+  table.results .row-highlight td:first-child { color: var(--accent); font-weight: 600; }
+
+  .table-note {
+    margin-top: 14px;
+    font-size: 11.5px;
+    color: var(--text-muted);
+    line-height: 1.5;
+    font-style: italic;
+  }
+
+  /* ===== Strengths / Limitations ===== */
+  .split {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+  }
+  .split .card { padding: 24px 26px; }
+  .split .card h3.alt { color: var(--text-dim); }
+  .split-list {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .split-list li {
+    position: relative;
+    padding-left: 18px;
+    font-size: 13px;
+    line-height: 1.55;
+    color: var(--text-dim);
+  }
+  .split-list li::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 9px;
+    width: 6px;
+    height: 1px;
+    background: var(--accent);
+  }
+  .split-list.neg li::before { background: var(--negative); }
+  .split-list.neg li { color: var(--text-dim); }
+  .split-list b { color: var(--text); font-weight: 500; }
+
+  /* ===== Questions ===== */
+  .questions {
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--surface);
+    padding: 26px 28px;
+  }
+  .questions h3 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 18px;
+    font-weight: 600;
+  }
+  .questions ol {
+    list-style: none;
+    counter-reset: q;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px 28px;
+  }
+  .questions ol li {
+    counter-increment: q;
+    font-size: 13px;
+    line-height: 1.55;
+    color: var(--text-dim);
+    padding-left: 36px;
+    position: relative;
+  }
+  .questions ol li::before {
+    content: 'Q' counter(q);
+    position: absolute;
+    left: 0;
+    top: 1px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10.5px;
+    color: var(--accent);
+    font-weight: 600;
+    background: var(--accent-bg);
+    border: 1px solid var(--accent-border);
+    border-radius: 3px;
+    padding: 1px 5px;
+    letter-spacing: 0.04em;
+  }
+  .questions b { color: var(--text); font-weight: 500; }
+
+  /* ===== Relevance (Chinese) ===== */
+  .relevance {
+    margin-top: 0;
+    background: transparent;
+    border: 1px solid var(--border);
+    border-left: 2px solid var(--accent);
+    border-radius: 4px;
+    padding: 18px 22px;
+    font-size: 14px;
+    line-height: 1.7;
+    color: var(--text-dim);
+    font-family: 'Inter', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+  }
+  .relevance .rel-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10.5px;
+    color: var(--accent);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    display: block;
+    margin-bottom: 8px;
+  }
+
+  /* ===== Footer ===== */
+  .footer {
+    margin-top: 64px;
+    padding: 22px 8px 0;
+    border-top: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 12px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11.5px;
+    color: var(--text-muted);
+  }
+  .footer a {
+    color: var(--text-dim);
+    text-decoration: none;
+    transition: color 0.2s;
+    letter-spacing: 0.04em;
+  }
+  .footer a:hover { color: var(--accent); }
+
+  /* ===== Responsive ===== */
+  @media (max-width: 820px) {
+    .assets { grid-template-columns: 1fr; }
+    .asset { min-height: auto; padding: 22px 20px; }
+    .row-2, .split { grid-template-columns: 1fr; }
+    .questions ol { grid-template-columns: 1fr; }
+    .hero { padding-bottom: 32px; }
+    .body { gap: 36px; }
+  }
+</style>
+</head>
+<body>
+
+<a href="./index.html" class="nav-back">↩ Today's digest</a>
+
+<div class="page">
+
+  <!-- HERO -->
+  <header class="hero">
+    <div class="hero-meta">
+      <span class="tag-audit">AUDIT REPORT</span>
+      <span>2606.12160</span>
+      <span class="dot"></span>
+      <span>2026-06-10</span>
+      <span class="dot"></span>
+      <span>ICANN 2026</span>
+    </div>
+
+    <h1 class="hero-headline">
+      On instruction-tuned LLMs, <em>every</em> token-level decoding-time truthfulness method collapses to noise under strict controls — chain-of-thought is the only thing left standing.
+    </h1>
+
+    <div class="hero-cite">
+      <a href="https://arxiv.org/abs/2606.12160" class="paper-title-link" target="_blank" rel="noopener">
+        <span class="arxiv-tag">arXiv:2606.12160</span>A Controlled Study of Decoding-Time Truthfulness Methods on Instruction-Tuned LLMs
+      </a>
+      <div class="hero-byline">
+        <span class="author">Ao Sun</span>
+        <span class="sep">·</span>
+        <span>Independent Researcher</span>
+        <span class="sep">·</span>
+        <span>ao.sun@outlook.com</span>
+      </div>
+      <div class="chips">
+        <span class="chip">hallucination</span>
+        <span class="chip">decoding-strategies</span>
+        <span class="chip">LLM-evaluation</span>
+        <span class="chip">truthfulness</span>
+        <span class="chip">instruction-tuning</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- ASSET ROW -->
+  <section class="assets">
+    <div class="asset">
+      <span class="asset-label">Key Metric · TRACE-LD</span>
+      <div class="asset-value">
+        +7.5<span class="pos">pp</span>
+        <span class="arrow">→</span>
+        −2.0<span class="neg">pp</span>
+        <span class="ctx">Apparent gain on N=100 inverts to a loss at full N=817 (p=0.23). Minimum detectable effect at 80% power is 4.8pp — every reported ±2pp token-level gain is inside the noise floor.</span>
+      </div>
+    </div>
+    <div class="asset contrast">
+      <span class="asset-label">Why This Matters</span>
+      <div class="asset-value">
+        Reframes a decade of token-level truthfulness gains as base-model measurement artifacts — and pushes the field toward reasoning-based interventions instead.
+      </div>
+    </div>
+    <div class="asset edge">
+      <span class="asset-label">Critical Edge</span>
+      <div class="asset-value">
+        Single-author study, only Llama and Qwen families tested, and the entire evaluation relies on LLM-as-judge despite the paper's own evidence that judge choice can reverse the sign of a result.
+      </div>
+    </div>
+  </section>
+
+  <!-- BODY -->
+  <main class="body">
+
+    <!-- METHODOLOGY + RESULTS -->
+    <section>
+      <div class="section-title"><span class="num">01</span> Methodology &amp; Results</div>
+
+      <div class="row-2">
+        <!-- Methodology -->
+        <div class="card">
+          <h3>Six-Control Framework</h3>
+          <ol class="method-list">
+            <li data-num="C1"><b>OOD training.</b> Trained adapters on HaluEval (0% TruthfulQA overlap) so contamination cannot inflate gains — dose-response shows 27% overlap yields +7.5pp while 0% yields +1.0pp.</li>
+            <li data-num="C2"><b>Multiple judges.</b> Llama-3.3-70B and Qwen-235B, 3 prompt variants each. Qwen scores TRACE-LD at <code>−21pp</code> where Llama scores it at <code>−3pp</code>.</li>
+            <li data-num="C3"><b>Simple baselines.</b> Temperature T=0.3 reaches <code>+2.0pp</code> — matching every learned adapter at zero cost.</li>
+            <li data-num="C4"><b>Confound controls.</b> Length-matched and non-refusal subsets shrink TRACE-LD's <code>+1.0</code> advantage to <code>+0.5</code> and <code>−2.2pp</code> respectively.</li>
+            <li data-num="C5"><b>Bootstrap CIs.</b> 10k resamples, 95% CIs. Only self-critique clears p&lt;0.05 at full scale.</li>
+            <li data-num="C6"><b>Seed variance.</b> 3 seeds establish a <code>±1.3%</code> noise floor — equal to the largest token-level improvements.</li>
+          </ol>
+        </div>
+
+        <!-- Results table -->
+        <div class="card table-card">
+          <h3>Main Results · TruthfulQA (N=817)</h3>
+          <p class="table-sub">Llama-3-8B-Instruct. Greedy baseline 61.1% [57.8, 64.4].</p>
+          <table class="results">
+            <caption>Δ vs. greedy, full-scale strict controls</caption>
+            <thead>
+              <tr>
+                <th>Method</th>
+                <th>Δpp</th>
+                <th>p / CI</th>
+                <th>Verdict</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr class="row-highlight">
+                <td>CoT (concise, 245c)</td>
+                <td class="pos">+14.0</td>
+                <td class="n">robust</td>
+                <td>Only robust winner</td>
+              </tr>
+              <tr>
+                <td>Self-critique</td>
+                <td class="pos">+3.1</td>
+                <td class="n">p&lt;0.05</td>
+                <td>Significant</td>
+              </tr>
+              <tr>
+                <td>T = 0.3 (baseline)</td>
+                <td class="pos">+2.0</td>
+                <td class="n">—</td>
+                <td>Zero-cost ref.</td>
+              </tr>
+              <tr>
+                <td>DoLA (best of 7)</td>
+                <td class="neg">−1.0</td>
+                <td class="n">n.s.</td>
+                <td>Below noise</td>
+              </tr>
+              <tr>
+                <td>ITI (best α)</td>
+                <td class="neg">−2.0</td>
+                <td class="n">n.s.</td>
+                <td>Sign-reversed</td>
+              </tr>
+              <tr>
+                <td>Contrastive (α=0.5)</td>
+                <td class="neg">−2.0</td>
+                <td class="n">n.s.</td>
+                <td>Sign-reversed</td>
+              </tr>
+              <tr>
+                <td>TRACE-LD (2.3M)</td>
+                <td class="neg">−2.0</td>
+                <td class="n">p=0.23</td>
+                <td>72 W / 88 L</td>
+              </tr>
+              <tr>
+                <td>LoRA (6.8M)</td>
+                <td class="neg">−10.0</td>
+                <td class="n">n.s.</td>
+                <td>Catastrophic</td>
+              </tr>
+            </tbody>
+          </table>
+          <p class="table-note">Contrastive decoding's α sweep shows the trade-off: <code>α: 0.1→2.0</code> raises %Truthful 84→93 but drops %Informative 76→42; net %Both falls 66→40. More cautious ≠ more factual.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- STRENGTHS / LIMITATIONS -->
+    <section>
+      <div class="section-title"><span class="num">02</span> Strengths &amp; Limitations</div>
+      <div class="split">
+        <div class="card">
+          <h3>Strengths</h3>
+          <ul class="split-list">
+            <li><b>Most comprehensive controlled evaluation to date</b> — 120+ experiments, 5 models, 3 benchmarks, 15 methods.</li>
+            <li>Each of the six controls is shown <b>quantitatively</b> to flip conclusions, not just argued theoretically.</li>
+            <li>The <b>contamination dose-response</b> (Table 4) — 27% overlap yields +7.5pp, 0% yields +1.0pp — is decisive evidence the effect is memorization, not domain match.</li>
+            <li><b>Concise CoT ablation</b>: 245 chars beats greedy at 554 chars by +14pp, cleanly ruling out response length as a confound.</li>
+            <li>Releases a <b>seven-point evaluation checklist</b> as a citable community artifact for reviewers and authors.</li>
+          </ul>
+        </div>
+        <div class="card">
+          <h3 class="alt">Limitations</h3>
+          <ul class="split-list neg">
+            <li>Scope limited to two model families — Llama and Qwen. <b>Mistral, Gemma, Phi, and frontier models are untested.</b></li>
+            <li>All evaluation is LLM-as-judge; the paper's own C2 evidence shows judge choice can <b>reverse the sign</b> of results.</li>
+            <li>Deliberative method analysis uses N=200 — <b>below the paper's own MDE threshold</b> (4.8pp at 80% power).</li>
+            <li>No analysis of <b>why CoT degrades</b> at high-baseline models (+2pp at 90% vs +16pp at 63%) — an important boundary left uncharacterized.</li>
+            <li>Does not investigate <b>hybrid approaches</b> combining token-level + reasoning interventions.</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- RELEVANCE + QUESTIONS -->
+    <section>
+      <div class="section-title"><span class="num">03</span> Relevance &amp; Open Questions</div>
+
+      <div class="relevance">
+        <span class="rel-label">Relevance · 相关性</span>
+        本文直接挑战了解码时幻觉抑制方法（DoLA、ITI、对比解码）在现代指令微调模型上的有效性假设，以严格受控实验表明 CoT 提示是当前最稳健的无训练方案。对研究 LLM 可靠性、评估方法论以及推理增强的工作具有重要参考价值。
+      </div>
+
+      <div style="height: 28px;"></div>
+
+      <div class="questions">
+        <h3>Questions for Further Exploration</h3>
+        <ol>
+          <li>Do these findings <b>generalize beyond Llama/Qwen</b> to Mistral, Gemma, Phi, or larger frontier models — or is the alignment-ceiling effect family-specific?</li>
+          <li>CoT gains <b>inversely correlate with baseline capability</b> (+16pp at 63% → +2pp at 90%). Does alignment training subsume the reasoning benefit CoT provides?</li>
+          <li>TRACE-LD changes 15.3% of token positions but gates stay near α=0.997 — what architectural change (position-specific gating, factuality-targeted heads) would make logit intervention <b>actually targeted</b> on aligned models?</li>
+          <li>The contamination dose-response shows 5% overlap → +0pp while 27% overlap → +7.5pp — is there a <b>threshold effect</b>, or is the curve smooth?</li>
+          <li>If the six-control framework is applied retrospectively to the original DoLA and ITI papers, can the <b>full gap</b> between reported and strict-control performance be explained by the five identified sensitivities?</li>
+          <li>CoT magnitude varies with <b>prompt-benchmark alignment</b>. Can prompt selection be automated or learned to make CoT gains reproducible across deployments?</li>
+        </ol>
+      </div>
+    </section>
+
+    <!-- FOOTER -->
+    <footer class="footer">
+      <span>2606.12160 · Ao Sun · ICANN 2026</span>
+      <a href="2606.12160.html">↗ Markdown source</a>
+    </footer>
+
+  </main>
+</div>
+
+</body>
+</html>

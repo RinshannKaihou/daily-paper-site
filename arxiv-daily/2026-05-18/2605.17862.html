@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>f-OPD: Stabilizing Long-Horizon On-Policy Distillation with Freshness-Aware Control</title>
+<style>
+:root { --paper:#fafafa; --ink:#1a1a1a; --muted:#555; --accent:#1a5276; --line:#ddd; --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif; --serif:Georgia,"Noto Serif SC",serif; }
+body { font-family:var(--serif); background:var(--paper); color:var(--ink); line-height:1.6; margin:0; padding:0; }
+.container { max-width:min(95vw, 760px); margin:0 auto; padding:28px 20px 60px; }
+.topnav { position:fixed; top:12px; left:14px; z-index:50; font-family:var(--sans); font-size:.75rem; background:var(--paper); border:1px solid var(--line); padding:5px 10px; border-radius:999px; }
+.topnav a { color:var(--muted); text-decoration:none; font-weight:600; }
+.topnav a:hover { color:var(--accent); }
+h1 { font-size:1.6rem; margin:2.2rem 0 1rem; border-bottom:2px solid var(--accent); padding-bottom:.3rem; }
+h2 { font-size:1.3rem; margin:1.8rem 0 .8rem; color:var(--accent); }
+h3 { font-size:1.1rem; margin:1.4rem 0 .6rem; }
+p { margin:.8rem 0; }
+.authors { font-style:italic; color:var(--muted); margin-top:-.4rem; }
+.meta { font-family:var(--sans); font-size:.82rem; color:var(--muted); margin:.2rem 0; }
+a { color:var(--accent); text-decoration:none; }
+a:hover { text-decoration:underline; }
+blockquote { border-left:3px solid var(--accent); margin:1rem 0; padding:.2rem 0 .2rem 1rem; color:var(--muted); font-style:italic; }
+code { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; background:#f0f0f0; padding:2px 5px; border-radius:3px; font-size:.9em; }
+pre { background:#f5f5f5; padding:14px; overflow-x:auto; border-radius:4px; border:1px solid var(--line); }
+pre code { background:transparent; padding:0; }
+ul,ol { margin:.6rem 0; padding-left:1.5rem; }
+li { margin:.25rem 0; }
+table { border-collapse:collapse; width:100%; margin:1rem 0; font-family:var(--sans); font-size:.9rem; }
+th,td { border:1px solid var(--line); padding:6px 10px; text-align:left; }
+th { background:#f0f0f0; }
+hr { border:none; border-top:1px solid var(--line); margin:1.5rem 0; }
+.note { font-family:var(--sans); font-size:.78rem; color:var(--muted); border-top:1px solid var(--line); margin-top:2rem; padding-top:1rem; }
+@media (max-width: 600px) { .container { padding:22px 14px 40px; } h1 { font-size:1.35rem; } }
+</style>
+</head>
+<body>
+<div class="topnav"><a href="./index.html">← Today's digest</a></div>
+<div class="container">
+<h1>f-OPD: Stabilizing Long-Horizon On-Policy Distillation with Freshness-Aware Control</h1>
+<p class="meta">arXiv: 2605.17862</p>
+<p class="meta">Date: 2026-05-18</p>
+<p class="meta"><a href="https://arxiv.org/abs/2605.17862">https://arxiv.org/abs/2605.17862</a></p>
+<blockquote><strong>一句话总结：</strong> 本文提出 f-OPD 框架，通过量化异步 on-policy 蒸馏中样本的"新鲜度"（rollout 漂移和监督漂移），自适应地抑制过时样本的影响，在编码智能体等长时序任务上以 1.46 倍吞吐量恢复了同步训练 94% 的性能，同时消除了训练崩溃。</blockquote>
+<blockquote><strong>TL;DR:</strong> f-OPD decomposes the objective discrepancy in asynchronous on-policy distillation (OPD) into rollout drift and supervision drift, introduces a sample-level freshness score to quantify stale-sample reliability, and adaptively controls stale-sample influence — achieving ~94% of synchronous OPD quality on long-horizon coding-agent tasks while retaining a 1.46× throughput advantage and eliminating training collapse.</blockquote>
+<h2>核心贡献</h2>
+<ul>
+<li><strong>理论分解异步 OPD 的目标偏差</strong>：将同步与异步 on-policy 蒸馏之间的目标差异分解为"rollout 漂移"（学生策略过时导致的分布偏移）和"监督漂移"（教师上下文过时导致的标签偏移），并证明了随交互时序增长漂移会指数级累积。</li>
+<li><strong>提出样本级新鲜度分数</strong>：基于可观测的 rollout KL 散度和监督 KL 散度，结合策略更新延迟，为缓冲区中每个样本计算新鲜度分数，量化其对当前 on-policy 目标的可靠性。</li>
+<li><strong>三重新鲜度感知控制机制</strong>：新鲜度加权（降低过时样本权重）、rollout 锚定正则化（约束每次更新的策略漂移）、自适应刷新（当缓冲区整体新鲜度或对齐率低于阈值时触发重新采样），三者互补。</li>
+<li><strong>在长时序编码智能体上验证</strong>：在 SWE-bench Verified 上以 Qwen3-8B 学生模型获得 39.4% resolve rate，接近同步 OPD 的 41.8%，同时吞吐量提升 1.46 倍，完全消除了异步训练中 60% 的运行崩溃率。</li>
+</ul>
+<h2>Key Contributions</h2>
+<ul>
+<li><strong>Theoretical decomposition of asynchronous OPD objective discrepancy</strong> into rollout drift (student-side distributional shift from stale rollouts) and supervision drift (teacher-side label shift from stale contexts), with a formal bound showing both terms compound with interaction horizon length (Proposition 3.2, Proposition A.4).</li>
+<li><strong>Sample-level freshness score</strong> computed from replay-based rollout KL divergence, supervision KL divergence, and update lag — a calibrated surrogate for per-sample stale-objective bias that is cheap to evaluate during training.</li>
+<li><strong>Three complementary freshness-aware control mechanisms</strong>: (1) freshness-weighted loss gating that suppresses unreliable samples via a sigmoid threshold, (2) rollout-anchored regularization that constrains per-update policy drift on the stale buffer, and (3) adaptive buffer refresh triggered by aggregate freshness, alignment ratio, or support degradation.</li>
+<li><strong>Comprehensive empirical validation</strong> across three task families of increasing interaction horizon — short-horizon reasoning (MATH500), medium-horizon tool-use (ReTool-style code interpreter), and long-horizon coding agents (SWE-bench Verified) — demonstrating that f-OPD consistently recovers synchronous OPD quality while retaining most of the asynchronous throughput advantage.</li>
+</ul>
+<h2>Methodology</h2>
+<p>The paper targets the performance–efficiency trade-off in on-policy distillation (OPD) for LLMs, where synchronous execution guarantees on-policy fidelity but wastes GPU cycles waiting for rollouts, while asynchronous execution maximizes throughput but introduces objective mismatch.</p>
+<p><strong>Theoretical analysis (Section 3):</strong> The authors decompose the discrepancy between the synchronous OPD objective $J^{\text{sync}}$ and the asynchronous stale-buffer objective $J^{\text{async}}$ into two terms:</p>
+<ol>
+<li><strong>Rollout drift</strong> $\delta_i^{\text{roll}} = \text{TV}(\pi_{\theta_t}(\cdot|x_i), \pi_{\theta_{r(i)}}(\cdot|x_i))$: how much the student policy has changed since the sample was rolled out.</li>
+<li><strong>Supervision drift</strong> $\delta_i^{\text{sup}} = \text{KL}(\pi_{\text{teacher}}(\cdot|c_i^t) \| \pi_{\text{teacher}}(\cdot|c_i^{r(i)}))$: how much the teacher's supervision would change under the current vs. stale context.</li>
+</ol>
+<p>They prove (Proposition A.4) that rollout drift compounds with horizon length $H$ via $K_H = O(HL)$, explaining why asynchronous OPD degrades catastrophically on long-horizon tasks.</p>
+<p><strong>Freshness score (Section 4):</strong> For each buffered sample $i$:</p>
+<p>$$\tilde{\Delta}_i^t = \alpha\sqrt{D_i^{\text{roll}}} + \beta\sqrt{D_i^{\text{sup}}}$$</p>
+<p>$$f_i = (\tau_i + 1)^{-1} \exp(-\tilde{\Delta}_i^t)$$</p>
+<p>where $\tau_i = t - r(i)$ is the update lag, and $D_i^{\text{roll}}, D_i^{\text{sup}}$ are estimated via partial replay on aligned token positions.</p>
+<p><strong>f-OPD algorithm (Algorithm 1):</strong></p>
+<ol>
+<li>For each sample in the active buffer, compute rollout drift, supervision drift, and the freshness score via partial replay.</li>
+<li>If aggregate buffer freshness $\bar{f}^t$, alignment ratios $\bar{M}^t_{\text{roll}}, \bar{M}^t_{\text{sup}}$ fall below thresholds, trigger an adaptive refresh.</li>
+<li>Optimize a freshness-weighted, rollout-anchored loss: $L_M = \frac{1}{|M|}\sum_{i \in M} w_i [\ell_i^t + \lambda D_i^{\text{roll}}]$ where $w_i = \sigma(f_i - \xi)$.</li>
+</ol>
+<p><strong>Experimental setup:</strong> Qwen2.5-Math-7B/72B for reasoning, Qwen3-8B with Qwen3-Coder-30B teacher for tool-use and coding. Five random seeds per configuration. ~16k H100-80GB GPU-hours total.</p>
+<h2>Results & Highlights</h2>
+<ul>
+<li><strong>Coding-agent (SWE-bench Verified):</strong> f-OPD achieves 39.4% resolve rate vs. 41.8% for synchronous OPD (94% retention) and 26.8% for vanilla async OPD, with 1.46× throughput vs. 1.00× for sync OPD. Collapse ratio drops from 3/5 (async) to 0/5 (f-OPD).</li>
+<li><strong>Tool-use:</strong> f-OPD achieves 74.4 avg@4 accuracy vs. 74.8 (sync) and 61.6 (async), with 3.1 peak-final drop vs. 10.4 (async).</li>
+<li><strong>Reasoning (MATH500):</strong> All three methods converge to similar performance, confirming that staleness matters less for short-horizon single-shot tasks.</li>
+<li><strong>Ablation:</strong> Freshness weighting alone recovers +9.7 coding resolve; adding rollout-anchored regularization adds +1.6; adaptive refresh delivers final gains and eliminates collapse entirely. The three mechanisms address complementary axes.</li>
+<li><strong>Failure analysis:</strong> Policy lag causes monotonic performance degradation across all tasks, with coding-agent performance dropping ~40% at lag=8. Supervision drift scales more steeply with lag than rollout drift, highlighting the importance of teacher-context staleness control.</li>
+<li><strong>Entropy dynamics:</strong> Asynchronous OPD exhibits progressively unstable entropy dynamics with increasing lag; f-OPD maintains entropy curves comparable to synchronous training.</li>
+</ul>
+<h2>Authors & Credibility</h2>
+<ul>
+<li><strong>Xianwei Chen, Shimin Zhang, Jibin Wu</strong> — affiliated with an industry lab (affiliation not explicitly stated in the PDF, but the work references internal systems and builds on prior work "Relax" by the same group [14]).</li>
+<li>The work follows the student-teacher OPD protocol introduced by Thinking Machines Lab [40] and uses well-established benchmarks (MATH500, SWE-bench Verified, ReTool).</li>
+<li>The paper includes formal theoretical analysis with explicit assumptions (3.1, A.1, A.2), proof sketches in the appendix, and honest scoping of claims in Appendix D.</li>
+<li>Compute budget (~16k H100-hours) is substantial but reasonable for the scale of experiments.</li>
+<li>Results are averaged over 5 seeds with standard deviation bands, lending statistical credibility.</li>
+</ul>
+<h2>Critical Assessment</h2>
+<ul>
+<li><strong>Novelty (Moderate-High):</strong> The decomposition of asynchronous OPD discrepancy into rollout drift and supervision drift, while building on known ideas from IMPALA/staleness-aware SGD, is novel in the OPD context and the compounding-with-horizon analysis is insightful. The freshness score design is pragmatic but not fundamentally new — it combines well-known diagnostics (KL divergence, update lag) through a hand-crafted formula with tunable coefficients $\alpha, \beta$.</li>
+<li><strong>Rigor (High):</strong> Theoretical claims are formally stated with explicit assumptions and proof sketches. Empirical evaluation uses 5 seeds, multiple task families, and well-defined metrics. Ablation study cleanly isolates each component's contribution. The honest limitations discussion (Appendix D) is commendable.</li>
+<li><strong>Reproducibility (Moderate):</strong> Algorithm 1 is fully specified, but the freshness score involves several hyperparameters ($\alpha, \beta, \lambda, \xi, \kappa_f, \kappa_{\text{roll}}, \kappa_{\text{sup}}$) selected on pilot splits. The models (Qwen family) are publicly available, but the full training infrastructure and hyperparameter search details are not included. The total compute (16k H100-hours) is substantial for academic reproducibility.</li>
+<li><strong>Significance (High):</strong> The result directly addresses a practical bottleneck in scaling OPD for agentic post-training. The finding that vanilla async OPD collapses 60% of the time on coding-agent tasks is itself a valuable negative result. f-OPD's ability to close the performance-efficiency gap could influence how production systems design post-training pipelines.</li>
+<li><strong>Red flags:</strong> The freshness score formula uses square roots of KL divergences without strong theoretical justification (the authors acknowledge $\alpha, \beta$ are "domain-dependent calibration parameters"). The evaluation is limited to Qwen family models — cross-family generalization is untested. The supervision drift diagnostic requires replay on aligned positions, which adds computational overhead not fully accounted for in throughput comparisons.</li>
+</ul>
+<h2>Strengths</h2>
+<ul>
+<li>Clean theoretical decomposition that explains <em>why</em> async OPD fails and <em>when</em> it matters most (long horizons).</li>
+<li>Three mechanisms are well-motivated and shown to be complementary through careful ablation.</li>
+<li>Comprehensive evaluation spanning three task families of increasing difficulty.</li>
+<li>Honest about limitations: explicitly states the analysis is a discrepancy bound, not a convergence theory.</li>
+<li>Practical impact: enables reliable async OPD for long-horizon agentic training, a growing use case.</li>
+</ul>
+<h2>Limitations</h2>
+<ul>
+<li>Only tested on Qwen family models; generalization to other model families (Llama, DeepSeek, etc.) is unknown.</li>
+<li>Freshness score hyperparameters ($\alpha, \beta$, thresholds) require pilot-split tuning, adding engineering overhead.</li>
+<li>Supervision drift is negligible in static-labeling settings (the authors acknowledge this), limiting the framework's added value for simpler distillation scenarios.</li>
+<li>Replay-based drift estimation adds overhead; the paper does not fully quantify this cost against the throughput gains.</li>
+<li>Not a convergence guarantee — the freshness score is a calibrated surrogate, and the bounds rely on strong regularity assumptions (Assumptions 3.1, A.1, A.2).</li>
+</ul>
+<h2>Relevance</h2>
+<p>与本研究兴趣高度相关：f-OPD 直接解决了 LLM 训练稳定性问题（异步 on-policy 蒸馏中的训练崩溃），提供了训练不稳定性的形式化分析和诊断方法，属于"LLM Training Stability & Observability"和"ML Reliability & Mathematical Foundations"范畴。其漂移分解框架对理解分布式训练中的目标偏差具有参考价值。</p>
+<h2>Questions for Further Exploration</h2>
+<ol>
+<li>How does the freshness score's effectiveness scale with model size (e.g., 70B+ student models) where per-step policy changes may be smaller but rollout costs are much higher?</li>
+<li>Can the replay-based drift estimation be replaced with a cheaper proxy (e.g., parameter-space distance) without sacrificing freshness score quality?</li>
+<li>How does f-OPD interact with other training stability techniques like gradient clipping, learning rate warmup, or trust-region methods (PPO/TRPO)?</li>
+<li>Is the supervision drift diagnostic useful for detecting silent data corruption or hardware-induced label perturbations in distributed training?</li>
+<li>What happens when the teacher model is also being updated (non-frozen teacher) — does the freshness framework still apply, and how must it be extended?</li>
+</ol>
+<p class="note">Generated from Markdown summary. Full paper: <a href="https://arxiv.org/abs/2605.17862">arXiv:2605.17862</a></p>
+</div>
+</body>
+</html>

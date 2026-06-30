@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VaSE — Value-Aware KV Cache Eviction for Reasoning Models</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Exo+2:ital,wght@0,400;0,600;0,700;1,400&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --accent: #ff6b35;
+    --accent2: #ffd166;
+    --bg: #080509;
+    --surface: #100c12;
+    --surface2: #160f18;
+    --border: #271a2a;
+    --text: #f0e8f5;
+    --muted: #7a5a80;
+    --green: #57cc99;
+    --red: #ef476f;
+    --blue: #4cc9f0;
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Exo 2', sans-serif;
+    font-size: 14px;
+    line-height: 1.68;
+  }
+
+  nav {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+    background: rgba(8,5,9,.96); backdrop-filter: blur(10px);
+    border-bottom: 1px solid var(--border);
+    padding: .5rem 2rem;
+    display: flex; align-items: center; gap: 1.4rem;
+  }
+  nav a { color: var(--muted); text-decoration: none; font-size: 12.5px; font-family: 'Share Tech Mono', monospace; }
+  nav a:hover { color: var(--accent); }
+  .badge {
+    margin-left: auto; border: 1px solid var(--accent);
+    color: var(--accent); padding: 2px 12px; border-radius: 2px; font-size: 11px;
+    font-family: 'Share Tech Mono', monospace;
+  }
+
+  .hero {
+    padding: 5.5rem 2rem 2.5rem;
+    max-width: 980px; margin: 0 auto;
+    animation: blaze .5s ease both;
+  }
+  .kicker { font-family: 'Share Tech Mono', monospace; font-size: 10.5px; letter-spacing: .2em; text-transform: uppercase; color: var(--accent); margin-bottom: .65rem; }
+  h1 {
+    font-size: clamp(1.7rem, 4vw, 3rem);
+    font-weight: 700; line-height: 1.12; color: #fff;
+    margin-bottom: 1.3rem;
+  }
+  h1 em { color: var(--accent); font-style: normal; border-bottom: 3px solid var(--accent); }
+  .alink {
+    display: inline-block; color: var(--muted); text-decoration: none;
+    font-size: 12.5px; font-family: 'Share Tech Mono', monospace;
+    border: 1px solid var(--border); border-radius: 2px; padding: 4px 14px;
+    transition: .2s;
+  }
+  .alink:hover { border-color: var(--accent); color: var(--accent); }
+
+  /* WARNING BOX */
+  .warning-box {
+    border: 1px solid var(--red); border-left: 4px solid var(--red);
+    background: rgba(239,71,111,.08);
+    padding: 1rem 1.3rem; margin: 2rem 0;
+    animation: blaze .5s .08s ease both;
+  }
+  .wlabel { font-family: 'Share Tech Mono', monospace; font-size: 10px; letter-spacing: .18em; text-transform: uppercase; color: var(--red); margin-bottom: .4rem; }
+  .wtext { color: var(--text); font-size: 13.5px; }
+  .wtext code { background: var(--surface); color: var(--red); padding: 1px 5px; border-radius: 2px; font-family: 'Share Tech Mono', monospace; font-size: 12px; }
+
+  .strip {
+    display: grid; grid-template-columns: repeat(3,1fr);
+    gap: 1px; background: var(--border); border: 1px solid var(--border);
+    margin-bottom: 1.5rem; animation: blaze .5s .15s ease both;
+  }
+  .sc {
+    background: var(--surface); padding: 1.3rem 1.5rem; position: relative;
+  }
+  .sc::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px; }
+  .sc:nth-child(1)::before { background: var(--accent); }
+  .sc:nth-child(2)::before { background: var(--green); }
+  .sc:nth-child(3)::before { background: var(--red); }
+  .sl { font-family: 'Share Tech Mono', monospace; font-size: 10px; letter-spacing: .16em; text-transform: uppercase; color: var(--muted); margin-bottom: .4rem; }
+  .sv { font-size: clamp(1.3rem, 3vw, 2.2rem); font-weight: 700; color: var(--accent); line-height: 1.05; margin-bottom: .4rem; }
+  .sc:nth-child(2) .sv { color: var(--green); }
+  .sc:nth-child(3) .sv { color: var(--red); font-size: .92rem; line-height: 1.4; }
+  .sd { font-size: 12.5px; color: var(--muted); }
+
+  /* ACCURACY TABLE */
+  .acc-table { width: 100%; border-collapse: collapse; font-size: 12.5px; margin: .8rem 0; font-family: 'Share Tech Mono', monospace; }
+  .acc-table th { font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); border-bottom: 1px solid var(--border); padding: 5px 8px; text-align: left; }
+  .acc-table td { padding: 5px 8px; color: var(--muted); border-bottom: 1px solid rgba(39,26,42,.4); }
+  .acc-table tr.vase td { color: var(--accent); font-weight: 600; }
+  .acc-table tr.vase td:first-child::before { content: '▶ '; }
+  .acc-table tr.full td { color: var(--blue); }
+
+  .grid2 {
+    display: grid; grid-template-columns: 1fr 1fr;
+    gap: 1px; background: var(--border); border: 1px solid var(--border);
+    animation: blaze .5s .25s ease both;
+    margin-bottom: 1.5rem;
+  }
+  .cell { background: var(--surface2); padding: 1.5rem 1.7rem; }
+  .cell.wide { grid-column: 1 / -1; }
+  .ch {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 10.5px; letter-spacing: .14em;
+    text-transform: uppercase; color: var(--accent);
+    margin-bottom: .9rem; padding-bottom: .4rem; border-bottom: 1px solid var(--border);
+  }
+  .cell p { color: var(--muted); margin-bottom: .55rem; }
+  .cell p:last-child { margin-bottom: 0; }
+  strong { color: var(--text); font-weight: 600; }
+  ul.li { list-style: none; }
+  ul.li li { color: var(--muted); margin-bottom: .45rem; padding-left: 1.1rem; position: relative; }
+  ul.li li::before { content: '⬡'; position: absolute; left: 0; color: var(--accent); font-size: 9px; top: .3rem; }
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; }
+  .th { font-size: 11px; text-transform: uppercase; letter-spacing: .1em; margin-bottom: .5rem; }
+  .th.g { color: var(--green); } .th.r { color: var(--red); }
+  .q-li { list-style: none; }
+  .q-li li {
+    border-left: 2px solid var(--border); padding-left: .8rem;
+    margin-bottom: .65rem; color: var(--muted);
+    transition: border-color .2s;
+  }
+  .q-li li:hover { border-left-color: var(--accent); color: var(--text); }
+  code { font-family: 'Share Tech Mono', monospace; background: var(--surface); color: var(--accent2); padding: 1px 5px; border-radius: 2px; font-size: 12px; }
+
+  @keyframes blaze {
+    from { opacity: 0; transform: translateY(12px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  @media (max-width: 620px) {
+    .strip, .grid2 { grid-template-columns: 1fr; }
+    .cell.wide { grid-column: 1; }
+    .two { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<nav>
+  <a href="./index.html">↩ Today's digest</a>
+  <span style="color:var(--border)">|</span>
+  <a href="https://arxiv.org/abs/2606.03928" target="_blank">arXiv 2606.03928</a>
+  <span class="badge">KV-cache · reasoning · inference</span>
+</nav>
+
+<main style="max-width:980px;margin:0 auto;padding:0 2rem 4rem;">
+
+  <div class="hero">
+    <div class="kicker">Key Finding</div>
+    <h1>A tiny fraction of KV value states with <em>abnormally large magnitudes</em> sustain reasoning coherence — evict them and the model loops forever</h1>
+    <a class="alink" href="https://arxiv.org/abs/2606.03928" target="_blank">Value-Aware Stochastic KV Cache Eviction for Reasoning Models ↗</a>
+  </div>
+
+  <div class="warning-box">
+    <div class="wlabel">Critical empirical finding</div>
+    <div class="wtext">Deliberately evicting the top-magnitude value tokens drops Qwen3-4B GSM8K accuracy from <strong>88%</strong> to <code>14.3%</code> — worse than random eviction (53.2%). The model enters infinite self-reflection loops. Value-state magnitudes are not noise; they are load-bearing structure for reasoning progression.</div>
+  </div>
+
+  <div class="strip">
+    <div class="sc">
+      <div class="sl">Key Metric</div>
+      <div class="sv">+4.9%</div>
+      <div class="sd">Avg accuracy gain over best prior eviction method (R-KV) on Qwen3-14B at 4× compression across 6 hard reasoning benchmarks (AIME25, AIME26, HMMT25, GPQA-Diamond, MATH, LiveCodeBench). Matches selection-based SOTA.</div>
+    </div>
+    <div class="sc">
+      <div class="sl">Why This Matters</div>
+      <div class="sv">Static-memory eviction now competitive with selection methods</div>
+      <div class="sd">Selection-based KV cache grows with sequence length — impractical for reasoning traces that exceed 10K tokens. VaSE achieves comparable accuracy with bounded memory and 3.1× throughput gain.</div>
+    </div>
+    <div class="sc">
+      <div class="sl">Critical Edge</div>
+      <div class="sv">Only Qwen3 tested; mechanistic why unexplained</div>
+      <div class="sd">All experiments on Qwen3-4B and 14B only. Why large-magnitude value states matter mechanistically remains a hypothesis. Stochastic sampling introduces per-run variance.</div>
+    </div>
+  </div>
+
+  <div class="grid2">
+
+    <div class="cell">
+      <div class="ch">Methodology</div>
+      <p><strong>Value-state magnitude scoring.</strong> <code>Range(v) = max_j v_j − min_j v_j</code>. Chosen for strong correlation with per-token KV quantization error (avg 0.83–0.92 across bit-widths), grounding the metric empirically.</p>
+      <p><strong>VASE-AttnV.</strong> Given budget K and value reservation budget N_v &lt; K: (1) unconditionally retain the top N_v tokens by Range(v) — reserved set R_V; (2) fill remaining K−|R| slots by sampling from the SnapKV attention distribution (weights ∝ ᾱ_i) rather than hard top-k. Every token has strictly positive retention probability after T steps.</p>
+      <p><strong>VASE-DKV.</strong> Inherits CurDKV's combined key-value score <code>s_i = ‖G^T kᵢ‖² · ‖G^T vᵢ‖²</code> but resamples the Gaussian projection matrix G independently at every eviction step, preventing tokens from being permanently disadvantaged by a single unlucky projection.</p>
+      <p><strong>Memory and throughput.</strong> VASE-DKV: 3.1× throughput over Full KV at 16K tokens / 2048 budget (Qwen3-14B, A100-80G). Peak memory: ~39.6 GB vs. Full OOM at 32K.</p>
+    </div>
+
+    <div class="cell">
+      <div class="ch">Results (4× compression)</div>
+      <table class="acc-table">
+        <tr><th>Method</th><th>4B avg</th><th>14B avg</th></tr>
+        <tr class="full"><td>Full KV</td><td>65.04</td><td>72.30</td></tr>
+        <tr><td>SeerAttn-R (select)</td><td>58.81</td><td>65.37</td></tr>
+        <tr><td>R-KV (evict)</td><td>54.69</td><td>60.90</td></tr>
+        <tr><td>SnapKV (evict)</td><td>49.15</td><td>—</td></tr>
+        <tr><td>CurDKV (evict)</td><td>49.78</td><td>55.70</td></tr>
+        <tr class="vase"><td>VASE-AttnV</td><td>59.09</td><td>65.81</td></tr>
+        <tr class="vase"><td>VASE-DKV</td><td>57.48</td><td>64.94</td></tr>
+      </table>
+      <p style="margin-top:.7rem">VASE-AttnV slightly edges SeerAttention-R on 14B. On LiveCodeBench: VASE-AttnV <strong>63.5%</strong> vs. SeerAttention-R <strong>45.3%</strong> — training-free method generalizes better.</p>
+      <p><strong>GSM8K ablation:</strong> value scoring alone +16.2%, stochasticity alone +6.6%, both together: 80.5% vs. 64.3% SnapKV baseline — complementary orthogonal gains.</p>
+      <p><strong>Quantization implication:</strong> Range(v) correlation with quant error (0.83–0.92) → mixed-precision KV caching path identified.</p>
+    </div>
+
+    <div class="cell wide">
+      <div class="ch">Strengths / Limitations</div>
+      <div class="two">
+        <div>
+          <div class="th g">Strengths</div>
+          <ul class="li">
+            <li>Two orthogonal insights (value magnitude + stochasticity) validated independently before combination</li>
+            <li>Training-free, plug-in on SnapKV or CurDKV — minimal engineering overhead</li>
+            <li>Static memory footprint: predictable deployment for long-output reasoning workloads</li>
+            <li>FlashAttention2 compatible — throughput gains are real, not theoretical</li>
+            <li>Magnitude-quantization correlation extends the insight to KV quantization — broader impact</li>
+          </ul>
+        </div>
+        <div>
+          <div class="th r">Limitations</div>
+          <ul class="li">
+            <li>Only Qwen3-4B and 14B tested — generalization to DeepSeek-R1, Llama reasoning models unverified</li>
+            <li>Why large-magnitude value states matter mechanistically is hypothesized, not explained</li>
+            <li>Stochastic sampling creates per-run variance; pass@1 averaged over 8–16 runs may not reflect single-inference deployment</li>
+            <li>No experiments on prefill-phase compression or combined prefill+decode settings</li>
+            <li>N_v and B hyperparameters tuned on GSM8K and applied cross-task without further calibration</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <div class="cell wide">
+      <div class="ch">Open Questions</div>
+      <ul class="q-li">
+        <li>Do large-magnitude value states encode specific semantic roles (e.g., reasoning transition tokens like "therefore", "wait") or is the pattern more distributed?</li>
+        <li>Does VASE generalize to non-Qwen reasoning models — is the skewed value-magnitude distribution architecture-specific?</li>
+        <li>Can value-magnitude reservation be combined with KV quantization in a mixed-precision scheme for compounding efficiency gain?</li>
+        <li>Is there a phase transition in N_v (minimum reservation budget), and does it correlate with the number of attention sink tokens?</li>
+      </ul>
+    </div>
+
+  </div>
+</main>
+
+</body>
+</html>

@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HASTE: Hardware-Aware Dynamic Sparse Training for Large Output Spaces</title>
+<style>
+:root { --paper:#fafafa; --ink:#1a1a1a; --muted:#555; --accent:#1a5276; --line:#ddd; --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif; --serif:Georgia,"Noto Serif SC",serif; }
+body { font-family:var(--serif); background:var(--paper); color:var(--ink); line-height:1.6; margin:0; padding:0; }
+.container { max-width:min(95vw, 760px); margin:0 auto; padding:28px 20px 60px; }
+.topnav { position:fixed; top:12px; left:14px; z-index:50; font-family:var(--sans); font-size:.75rem; background:var(--paper); border:1px solid var(--line); padding:5px 10px; border-radius:999px; }
+.topnav a { color:var(--muted); text-decoration:none; font-weight:600; }
+.topnav a:hover { color:var(--accent); }
+h1 { font-size:1.6rem; margin:2.2rem 0 1rem; border-bottom:2px solid var(--accent); padding-bottom:.3rem; }
+h2 { font-size:1.3rem; margin:1.8rem 0 .8rem; color:var(--accent); }
+h3 { font-size:1.1rem; margin:1.4rem 0 .6rem; }
+p { margin:.8rem 0; }
+.authors { font-style:italic; color:var(--muted); margin-top:-.4rem; }
+.meta { font-family:var(--sans); font-size:.82rem; color:var(--muted); margin:.2rem 0; }
+a { color:var(--accent); text-decoration:none; }
+a:hover { text-decoration:underline; }
+blockquote { border-left:3px solid var(--accent); margin:1rem 0; padding:.2rem 0 .2rem 1rem; color:var(--muted); font-style:italic; }
+code { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; background:#f0f0f0; padding:2px 5px; border-radius:3px; font-size:.9em; }
+pre { background:#f5f5f5; padding:14px; overflow-x:auto; border-radius:4px; border:1px solid var(--line); }
+pre code { background:transparent; padding:0; }
+ul,ol { margin:.6rem 0; padding-left:1.5rem; }
+li { margin:.25rem 0; }
+table { border-collapse:collapse; width:100%; margin:1rem 0; font-family:var(--sans); font-size:.9rem; }
+th,td { border:1px solid var(--line); padding:6px 10px; text-align:left; }
+th { background:#f0f0f0; }
+hr { border:none; border-top:1px solid var(--line); margin:1.5rem 0; }
+.note { font-family:var(--sans); font-size:.78rem; color:var(--muted); border-top:1px solid var(--line); margin-top:2rem; padding-top:1rem; }
+@media (max-width: 600px) { .container { padding:22px 14px 40px; } h1 { font-size:1.35rem; } }
+</style>
+</head>
+<body>
+<div class="topnav"><a href="./index.html">← Today's digest</a></div>
+<div class="container">
+<h1>HASTE: Hardware-Aware Dynamic Sparse Training for Large Output Spaces</h1>
+<p class="meta">arXiv: 2606.01117</p>
+<p class="meta">Date: 2026-06-02</p>
+<p class="meta"><a href="https://arxiv.org/abs/2606.01117">https://arxiv.org/abs/2606.01117</a></p>
+<blockquote><strong>一句话总结：</strong> HASTE 提出了一种面向硬件感知的组共享固定扇入稀疏输出层设计，通过让语义相关的标签共享稀疏特征模式，并配合稠密头-稀疏尾分解策略，在极端多标签分类任务上实现了数倍于先前稀疏基线的 GPU 训练加速，同时保持甚至提升了预测精度。</blockquote>
+<blockquote><strong>TL;DR:</strong> HASTE introduces group-shared fixed fan-in sparsity for the output layer of extreme multi-label classification (XMC) models, where semantically related labels share a sparse input pattern while retaining independent weights. Combined with a dense-head/sparse-tail decomposition and custom CUDA kernels, it achieves up to 4.4× forward-pass and 25× backward-pass speedups over prior sparse baselines while matching or improving precision@k.</blockquote>
+<h2>核心贡献</h2>
+<ul>
+<li><strong>组共享固定扇入稀疏结构</strong>：将语义相似的标签分组，使组内标签共享相同的稀疏输入特征模式，但保留独立的权重。该设计减少了索引内存开销，增加了特征复用，并与现代 GPU 张量核心兼容。</li>
+<li><strong>头-尾分解策略</strong>：将长尾标签分布中的高频标签用小型稠密层建模，其余低频标签用组共享稀疏层建模，为编码器提供稳定的梯度信号，无需辅助目标函数。</li>
+<li><strong>自定义 CUDA 内核</strong>：实现了针对组共享稀疏模式的高效前向与反向传播内核，采用 "gather-once and dense MMA" 执行模式，利用 Split-K 并行策略加速反向特征梯度计算。</li>
+<li><strong>在多个大规模 XMC 基准上取得领先性能</strong>：在 Amazon-670K、AmazonTitles-670K、Amazon-3M 和 LF-Paper2Keywords-8.6M 等数据集上，HASTE 在精度上超越现有稀疏基线，并显著缩小了与稠密模型的差距。</li>
+<li><strong>内核级微基准验证</strong>：在 A100 GPU 上，组共享固定扇入内核相比标准固定扇入稀疏内核，前向加速达 4.4 倍，反向权重/特征梯度加速分别达 25 倍，且接近 FLOPs 匹配的稠密瓶颈基线。</li>
+</ul>
+<h2>Key Contributions</h2>
+<ul>
+<li><strong>Group-shared fixed fan-in sparsity</strong>: Semantically related labels are grouped to share a common sparse input pattern while keeping per-label weights independent. This reduces index memory overhead, increases feature reuse, and is compatible with modern GPU Tensor Cores.</li>
+<li><strong>Head–tail split decomposition</strong>: Frequent labels are modeled with a small dense head, while the long tail uses the group-shared sparse layer. This provides a stable gradient pathway to the encoder without auxiliary objectives.</li>
+<li><strong>Custom CUDA kernels</strong>: Efficient forward and backward kernels implement a "gather-once and dense MMA" pattern, using Split-K parallelism for backward feature-gradient reduction over millions of labels.</li>
+<li><strong>State-of-the-art sparse XMC performance</strong>: On large-scale benchmarks (Amazon-670K, AmazonTitles-670K, Amazon-3M, LF-Paper2Keywords-8.6M), HASTE outperforms prior sparse baselines and substantially narrows the gap to dense models.</li>
+<li><strong>Kernel-level microbenchmarking</strong>: On an NVIDIA A100, group-shared fixed fan-in achieves up to 4.4× forward-pass and 25× backward-pass speedups over standard fixed fan-in sparsity, operating within a few percent of a FLOPs-matched dense bottleneck.</li>
+</ul>
+<h2>Methodology</h2>
+<p><strong>Problem setup.</strong> Extreme multi-label classification (XMC) involves learning a classifier over millions of labels, where the output layer weight matrix $W \in \mathbb{R}^{L \times H}$ dominates memory and compute. HASTE targets this bottleneck by redesigning the output layer sparsity pattern to be both structurally informed and hardware-efficient.</p>
+<p><strong>Group-shared fixed fan-in sparsity.</strong> Instead of assigning each label an independent set of $F$ input features (as in fixed fan-in sparsity / SPARTEX), HASTE partitions labels into groups of size $G$. Each group $G_k$ shares a single support set $I_k \subseteq [H]$ with $|I_k| = F$, but each label $\ell \in G_k$ maintains its own weight vector $w_\ell \in \mathbb{R}^F$. The logit for label $\ell$ is computed as $z_\ell(x) = \langle w_\ell, h_{I_{g(\ell)}} \rangle$, where $h$ is the encoder representation. This design reduces index memory from $LF$ to $(L/G)F$, improves feature reuse, and enables coalesced memory access.</p>
+<p><strong>Semantic label grouping.</strong> Labels are grouped using a two-stage procedure: (1) mini-batch spherical k-means partitions labels into coarse clusters; (2) within each cluster, greedy nearest-neighbor grouping forms compact groups of size $G$ based on cosine similarity of label embeddings. Label embeddings are computed offline by averaging encoder representations of positive training instances for each label.</p>
+<p><strong>Custom CUDA kernels.</strong> The shared fan-in pattern enables a tiled execution strategy: each thread block gathers the shared feature tile $H_k$ once into shared memory, then computes a dense GEMM $Z_k = H_k \times W_k^\top$ using Tensor Core MMA instructions. For backward feature gradients, a Split-K reduction over the label dimension aggregates partial gradients across groups whose fan-in overlaps.</p>
+<p><strong>Head–tail decomposition.</strong> The label space is split into a small dense head $H$ (top 2–5% frequent labels) and a sparse tail $T$ (remaining labels). Both branches use lightweight feature projections before their respective output layers. The dense head provides a consistent gradient signal during training, while the sparse tail preserves memory efficiency at scale.</p>
+<p><strong>Training procedure.</strong> Training alternates between a continuous phase (optimizing encoder and classifier parameters with fixed support sets) and a discrete rewiring phase (periodically updating group supports based on weight magnitudes and regrowing random connections).</p>
+<h2>Results & Highlights</h2>
+<p><strong>Prediction performance.</strong> On Amazon-670K, HASTE achieves P@1/3/5 of 48.1/43.1/39.2 at 92% sparsity, outperforming SPARTEX (47.1/41.8/38.0) and matching or exceeding dense bottleneck baselines. On the 8.6M-label LF-Paper2Keywords dataset, HASTE achieves 47.5/36.2/29.8, surpassing SPARTEX (40.7/28.7/22.3) and outperforming quantization-based ELMO on larger label scales.</p>
+<p><strong>Kernel speedups.</strong> Microbenchmarks on an A100 GPU show that at 96% sparsity with group size 32, HASTE forward kernels are up to 4.4× faster than standard fixed fan-in, while backward feature-gradient kernels achieve up to 25× speedup. Wall-clock time remains close to a FLOPs-matched dense baseline, confirming that structured feature reuse converts arithmetic reductions into practical GPU gains.</p>
+<p><strong>Memory efficiency.</strong> Peak training memory is substantially lower than dense and many sparse baselines. For example, on Amazon-3M, HASTE uses 5.67 GiB compared to 13.1 GiB for block sparsity and 39.7 GiB for dense end-to-end training.</p>
+<p><strong>Tail-label performance.</strong> Using propensity-scored precision (PSP@k), HASTE consistently improves over sparse baselines on rare labels. The head–tail split benefits not only head labels but also tail labels, indicating better gradient propagation in long-tailed regimes.</p>
+<p><strong>Ablation studies.</strong> Semantic grouping outperforms random and frequency-based grouping. Smaller group sizes (e.g., G=16) yield slightly higher accuracy, while larger groups (G=32, 64) improve kernel efficiency. The method is robust to the choice of embedding backbone used for grouping.</p>
+<h2>Authors & Credibility</h2>
+<p>The authors are from Aalto University (Finland), University of Bath (UK), and IST Austria. The paper is accepted at ICML 2026 as a regular paper. The first author and several co-authors have published extensively in extreme classification and sparse training, including prior work on SPARTEX (NeurIPS 2024) and memory-efficient XMC training. The codebase is publicly available. Experiments are conducted on standard XMC benchmarks with rigorous baselines and kernel-level microbenchmarking.</p>
+<h2>Critical Assessment</h2>
+<p><strong>Novelty:</strong> The core innovation is the group-shared fixed fan-in sparsity pattern, which sits between per-label fixed fan-in (high expressiveness, poor hardware efficiency) and block sparsity (high hardware efficiency, low expressiveness). The head–tail decomposition is conceptually simple but well-motivated as an alternative to auxiliary objectives.</p>
+<p><strong>Rigor:</strong> The paper provides extensive empirical validation across four large-scale datasets, multiple sparsity ratios, and detailed kernel microbenchmarks. The ablation studies on grouping strategy, group size, fan-in size, and embedding backbone are thorough.</p>
+<p><strong>Reproducibility:</strong> The authors release code and follow standard XMC evaluation protocols. Training uses a single A100 GPU, making reproduction accessible. However, some hyperparameters (e.g., exact rewiring schedule, projection dimensions) could benefit from more detailed reporting.</p>
+<p><strong>Significance:</strong> This work directly addresses a practical bottleneck in XMC training — the output layer memory wall — and demonstrates that hardware-aware sparse design can translate FLOPs reductions into real wall-clock speedups, not just theoretical savings.</p>
+<p><strong>Red flags:</strong> The paper does not compare against the latest retrieval-based XMC methods (e.g., NGAME, DEXML) under identical encoder architectures, focusing instead on end-to-end sparse/dense training. The semantic grouping relies on pretrained embeddings, which adds a preprocessing step whose quality may vary across domains.</p>
+<h2>Strengths</h2>
+<ul>
+<li>Hardware-aware sparse design that actually achieves proportional GPU speedups, unlike many sparsity methods that reduce FLOPs but not wall-clock time.</li>
+<li>Task-aligned inductive bias through semantic grouping, improving both efficiency and representational quality.</li>
+<li>Auxiliary-free training stabilization via the head–tail split, avoiding the brittleness and tuning burden of auxiliary objectives.</li>
+<li>Strong empirical results across multiple million-label benchmarks with both accuracy and efficiency gains.</li>
+<li>Custom CUDA kernels demonstrate deep systems-level understanding and practical engineering contribution.</li>
+<li>The method is compatible with low-precision training and other efficiency techniques, opening avenues for compositional gains.</li>
+</ul>
+<h2>Limitations</h2>
+<ul>
+<li>The method is evaluated primarily on product and paper-keyword datasets; generalization to other XMC domains (e.g., genomics, legal text) is not validated.</li>
+<li>Semantic grouping requires pretrained label embeddings and adds preprocessing overhead, though the paper shows this is small relative to total training time.</li>
+<li>The accuracy–efficiency trade-off is governed by group size $G$ and fan-in $F$, requiring tuning for each dataset and scale.</li>
+<li>The dense head size (2–5% of labels) is empirically chosen; there is no principled method for selecting this split point.</li>
+<li>Multi-GPU training and communication overheads are explicitly excluded from scope.</li>
+<li>The paper does not address inference-time efficiency or sparse-to-dense conversion for deployment.</li>
+</ul>
+<h2>Relevance</h2>
+<p>对于从事大规模多标签分类、推荐系统或任何需要处理数百万输出类别的机器学习研究者而言，HASTE 提供了一种将稀疏性真正转化为硬件加速的实用方案，其组共享设计与头-尾分解思路也值得在其他长尾学习场景中借鉴。</p>
+<h2>Questions for Further Exploration</h2>
+<ol>
+<li>How does HASTE perform on non-textual XMC domains such as protein function prediction or extreme multi-label image classification?</li>
+<li>Can the group size $G$ and fan-in $F$ be adapted dynamically during training rather than fixed beforehand?</li>
+<li>What is the impact of combining HASTE with quantization (e.g., FP8) and how do the custom kernels generalize to mixed-precision Tensor Cores?</li>
+<li>Could the head–tail split be learned end-to-end instead of using a frequency-based threshold?</li>
+<li>How well does the method scale to multi-GPU training, and what communication patterns are needed for distributed group-shared sparse layers?</li>
+<li>Can similar group-shared sparsity patterns be applied to other memory-bound layers, such as large embedding tables or mixture-of-experts routing?</li>
+</ol>
+<p class="note">Generated from Markdown summary. Full paper: <a href="https://arxiv.org/abs/2606.01117">arXiv:2606.01117</a></p>
+</div>
+</body>
+</html>

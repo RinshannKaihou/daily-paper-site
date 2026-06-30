@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Stability Implies Redundancy: Delta Attention Selective Halting for Efficient Long-Context Prefilling</title>
+<style>
+:root { --paper:#fafafa; --ink:#1a1a1a; --muted:#555; --accent:#1a5276; --line:#ddd; --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif; --serif:Georgia,"Noto Serif SC",serif; }
+body { font-family:var(--serif); background:var(--paper); color:var(--ink); line-height:1.6; margin:0; padding:0; }
+.container { max-width:min(95vw, 760px); margin:0 auto; padding:28px 20px 60px; }
+.topnav { position:fixed; top:12px; left:14px; z-index:50; font-family:var(--sans); font-size:.75rem; background:var(--paper); border:1px solid var(--line); padding:5px 10px; border-radius:999px; }
+.topnav a { color:var(--muted); text-decoration:none; font-weight:600; }
+.topnav a:hover { color:var(--accent); }
+h1 { font-size:1.6rem; margin:2.2rem 0 1rem; border-bottom:2px solid var(--accent); padding-bottom:.3rem; }
+h2 { font-size:1.3rem; margin:1.8rem 0 .8rem; color:var(--accent); }
+h3 { font-size:1.1rem; margin:1.4rem 0 .6rem; }
+p { margin:.8rem 0; }
+.authors { font-style:italic; color:var(--muted); margin-top:-.4rem; }
+.meta { font-family:var(--sans); font-size:.82rem; color:var(--muted); margin:.2rem 0; }
+a { color:var(--accent); text-decoration:none; }
+a:hover { text-decoration:underline; }
+blockquote { border-left:3px solid var(--accent); margin:1rem 0; padding:.2rem 0 .2rem 1rem; color:var(--muted); font-style:italic; }
+code { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; background:#f0f0f0; padding:2px 5px; border-radius:3px; font-size:.9em; }
+pre { background:#f5f5f5; padding:14px; overflow-x:auto; border-radius:4px; border:1px solid var(--line); }
+pre code { background:transparent; padding:0; }
+ul,ol { margin:.6rem 0; padding-left:1.5rem; }
+li { margin:.25rem 0; }
+table { border-collapse:collapse; width:100%; margin:1rem 0; font-family:var(--sans); font-size:.9rem; }
+th,td { border:1px solid var(--line); padding:6px 10px; text-align:left; }
+th { background:#f0f0f0; }
+hr { border:none; border-top:1px solid var(--line); margin:1.5rem 0; }
+.note { font-family:var(--sans); font-size:.78rem; color:var(--muted); border-top:1px solid var(--line); margin-top:2rem; padding-top:1rem; }
+@media (max-width: 600px) { .container { padding:22px 14px 40px; } h1 { font-size:1.35rem; } }
+</style>
+</head>
+<body>
+<div class="topnav"><a href="./index.html">← Today's digest</a></div>
+<div class="container">
+<h1>Stability Implies Redundancy: Delta Attention Selective Halting for Efficient Long-Context Prefilling</h1>
+<p class="meta">arXiv: 2604.18103</p>
+<p class="meta">Date: 2026-04-21</p>
+<p class="meta"><a href="https://arxiv.org/abs/2604.18103">https://arxiv.org/abs/2604.18103</a></p>
+<blockquote><strong>一句话总结：</strong> 本文提出DASH，一种免训练的推理时策略，通过监控自注意力层中token表示的更新幅度（Delta Attention），在token达到"语义不动点"后提前停止其计算，从而在长文本和多模态预填充阶段实现显著加速（1.74-1.89x），同时保持模型精度。</blockquote>
+<blockquote><strong>TL;DR:</strong> DASH is a training-free inference-time method that monitors per-token attention-branch update magnitudes across Transformer layers, identifies tokens that have converged to "semantic fixed points," and halts them early to reduce long-context prefill FLOPs by up to 1.83x with minimal accuracy loss across both text and vision-language benchmarks.</blockquote>
+<h2>核心贡献</h2>
+<ul>
+<li>发现Transformer中token表示会在深层逐渐收敛到"语义不动点"，进一步更新幅度趋近于零，表明后续计算存在大量冗余</li>
+<li>提出DASH（Delta Attention Selective Halting），一种免训练的推理时token选择性停止策略：在指定起始层计算每个token的注意力输出L2范数（Delta Attention），一次性选出Top-K活跃token集合，后续所有层仅对活跃token执行计算</li>
+<li>DASH完全兼容FlashAttention等硬件高效注意力内核，无需实例化完整注意力矩阵即可完成token筛选</li>
+<li>在长文本基准（LongBench-E, LooGLE）和多模态视觉-语言基准（GQA, MME, MMStar等）上全面超越FastV、SnapKV、D3、LLMLingua2等基线方法</li>
+<li>端到端推理实现1.74倍加速，性能仅轻微下降；在更激进的压缩比下（96%-99%视觉token移除）仍保持鲁棒</li>
+</ul>
+<h2>Key Contributions</h2>
+<ul>
+<li>Identifies that token representations in deep Transformers converge toward "semantic fixed points," where the attention-branch update magnitude (Delta Attention) approaches zero, revealing substantial computational redundancy in deeper layers</li>
+<li>Proposes DASH, a training-free inference-time policy that computes per-token L2 norms of the pre-residual attention output at a single start layer, selects a Top-K active set, and halts all other tokens for the remainder of prefilling</li>
+<li>Achieves full compatibility with FlashAttention and other efficient attention kernels since Delta Attention is computed from the attention output directly, without requiring full attention matrices</li>
+<li>Demonstrates state-of-the-art results on long-context text benchmarks (LongBench-E, LooGLE) and vision-language benchmarks (GQA, MME, MMStar, OCRBench, ChartQA) on Qwen2.5-7B-Instruct-1M and Qwen2-VL-7B</li>
+<li>Delivers 1.74x end-to-end speedup with marginal accuracy drop; maintains robust performance even under 96-99% visual token removal ratios</li>
+</ul>
+<h2>Methodology</h2>
+<p>DASH is built on three key empirical observations:</p>
+<ol>
+<li><strong>Semantic fixing points exist:</strong> The distribution of per-token Delta Attention (the L2 norm of the attention output before residual addition) is highly skewed across layers. The vast majority of tokens cluster near zero at deeper layers, indicating they have stabilized.</li>
+</ol>
+<ol>
+<li><strong>Stabilized tokens are redundant:</strong> There is a strong positive correlation between a token's Delta Attention magnitude and its attention importance score in subsequent layers. Tokens with low Delta Attention rarely attract significant attention from later layers, making them safe to halt.</li>
+</ol>
+<ol>
+<li><strong>Visual tokens saturate earlier than text tokens:</strong> In vision-language models, visual tokens reach their fixed points significantly earlier in the network than textual tokens, explaining why methods designed for multimodal settings often fail when applied to text-only scenarios.</li>
+</ol>
+<p><strong>Core mechanism:</strong> Given a Transformer with L layers and input of length T, DASH processes all tokens normally for layers before a start layer l_s (set to 0.4L by default). At layer l_s, it computes Delta Attention scores as the L2 norm of the pre-residual attention output for each token. A Top-K selection retains K = floor((1-rho) * T) tokens with the highest scores, where rho is the pruning ratio. This fixed active set is reused for all subsequent layers. Halted tokens skip both self-attention and FFN computation in deeper layers. The theoretical FLOPs speedup is approximately 1.83x at T=16,384 tokens with rho=0.667 and l_s=11 (for Qwen2.5-7B with 28 layers).</p>
+<p>The method includes a lightweight perplexity-based proxy for selecting l_s without exhaustive downstream sweeps, and always preserves a small prefix (64 tokens) and suffix (32 tokens) to maintain positional structure.</p>
+<h2>Results & Highlights</h2>
+<ul>
+<li><strong>LongBench-E (Qwen2.5-7B-Instruct-1M):</strong> DASH achieves the highest average score (46.76) among all compression methods, outperforming SnapKV-pr (46.15), D3 (45.00), LLMLingua2 (44.16), and FastV (43.99), while the uncompressed backbone scores 48.87.</li>
+<li><strong>LooGLE:</strong> DASH delivers the best overall score (19.94) among compression methods, with the highest cloze-style Exact (73.6) and Partial (83.1) scores.</li>
+<li><strong>Vision-Language (Qwen2-VL-7B):</strong> DASH consistently achieves the highest Average Decline Ratio across all compression ratios (75%-99%), with the advantage becoming more pronounced under aggressive compression. At 93.75% compression, DASH achieves ADR of 66.7 vs. competitors dropping below 60.</li>
+<li><strong>End-to-end efficiency:</strong> DASH achieves 1.74x E2E speedup with minimal accuracy drop, and outperforms FastV by 8.5% in score at comparable latency.</li>
+<li><strong>Kernel compatibility:</strong> Accuracy is essentially unchanged between Eager and FlashAttention implementations under identical pruning configurations.</li>
+<li><strong>Ablation on delta signal:</strong> Attention-branch Delta Attention consistently outperforms block-level deltas across both text and VL benchmarks, confirming that attention updates better capture global token relevance than FFN transformations.</li>
+<li><strong>Directionality matters:</strong> Halting low-Delta-Attention tokens preserves accuracy; reversing the criterion or selecting randomly causes severe degradation.</li>
+<li><strong>Single-shot vs. multi-shot:</strong> Single-shot selection captures most of the benefit (multi-shot provides only marginal +0.38 improvement on LongBench-E), validating the efficiency of the one-time decision approach.</li>
+</ul>
+<h2>Authors & Credibility</h2>
+<p>The authors are from Shanghai Jiao Tong University (Yujie Chen, Tailai Chen, Yifeng Gao, Shaobo Wang, Linfeng Zhang), University of California San Diego (Zoe Wanying He), and Carnegie Mellon University (Yijue Xu). Linfeng Zhang is the corresponding author from SJTU. The work is supported by the New Generation Artificial Intelligence National Science and Technology Major Project. The paper provides extensive evaluation across multiple benchmarks, backbones (Qwen2.5-7B, Qwen2-VL-7B, Llama-3.1-8B, Qwen-3-8B, Qwen2.5-VL-7B, InternVL-2.5-8B), and detailed ablation studies. Code is promised at GitHub.</p>
+<h2>Critical Assessment</h2>
+<p>The core insight -- that token representations stabilize across layers and that this stability can be detected via attention-branch update magnitudes -- is elegantly simple and well-supported by empirical evidence. The heavy-tailed distribution of Delta Attention provides a natural basis for single-shot Top-K selection, and the correlation analysis with attention importance scores is convincing. However, several aspects warrant scrutiny:</p>
+<ul>
+<li>The method relies on a fixed start layer l_s and pruning ratio rho as hyperparameters. While the perplexity proxy helps narrow the search, it still requires some validation overhead, and the optimal values may not transfer across all model architectures or task distributions.</li>
+<li>The paper acknowledges not exhaustively exploring all model scales. The 7B-parameter results may not directly extrapolate to much larger models (70B+, 405B+) where the layer dynamics could differ.</li>
+<li>The theoretical FLOPs speedup of 1.83x is derived from a per-layer proxy that may not perfectly reflect actual GPU latency, as acknowledged in the VL efficiency analysis where FLOPs alone do not reliably predict end-to-end latency.</li>
+<li>The single-shot schedule, while efficient, may miss tokens that become important only after the decision layer. The modest gain from multi-shot (+0.38) suggests this is rare but not zero.</li>
+<li>On fine-grained tasks (OCRBench, ChartQA), DASH's advantage narrows, indicating that global token selection may sacrifice locally critical visual details.</li>
+</ul>
+<h2>Strengths</h2>
+<ul>
+<li>Training-free and applicable at inference time without any model modification or retraining</li>
+<li>Full compatibility with FlashAttention and other hardware-efficient kernels -- a significant practical advantage over attention-matrix-based methods</li>
+<li>Strong empirical results across both text and vision-language benchmarks with a unified approach</li>
+<li>Graceful degradation under aggressive compression ratios (up to 99% token removal)</li>
+<li>Simple and elegant design: single-shot Top-K selection based on a readily available signal</li>
+<li>Comprehensive ablation studies validating each design choice (delta signal type, directionality, single-shot vs. multi-shot, start layer selection)</li>
+</ul>
+<h2>Limitations</h2>
+<ul>
+<li>Hyperparameter sensitivity: the start layer l_s and pruning ratio rho require tuning or proxy-based selection for each model</li>
+<li>Limited evaluation on very large models (only 7B-8B scale tested); scalability to 70B+ models is unverified</li>
+<li>Single-shot selection cannot adapt to tokens that become important after the decision layer</li>
+<li>Fine-grained visual tasks (OCR, chart understanding) show narrowed advantages, suggesting room for improvement in preserving local visual details</li>
+<li>The method targets only the prefill stage; decoding remains unchanged and may become the bottleneck for short-prompt long-generation scenarios</li>
+<li>The paper does not explore integration with KV cache compression or other decoding-time optimizations</li>
+</ul>
+<h2>Relevance</h2>
+<p>本文与训练稳定性和推理效率的研究方向高度相关。DASH通过揭示Transformer深层中token表示的收敛特性，提供了一种无需重训练即可大幅降低长上下文推理成本的方法。其对注意力更新动态的分析也为理解Transformer内部信息传播机制提供了新视角，对设计更高效、更稳定的模型架构具有参考价值。</p>
+<h2>Questions for Further Exploration</h2>
+<ul>
+<li>How does the semantic fixed-point convergence pattern change with model scale (e.g., 70B, 405B parameters)? Do larger models exhibit earlier or later saturation?</li>
+<li>Can DASH be combined with KV cache compression techniques (e.g., H2O, SnapKV) for compounded savings across both prefill and decoding stages?</li>
+<li>Is there a theoretical framework for predicting the optimal start layer l_s as a function of model architecture, depth, and task distribution?</li>
+<li>How does DASH interact with speculative decoding or other decoding-time acceleration methods?</li>
+<li>Could the Delta Attention signal be used as a training signal to encourage more uniform token utilization across layers, potentially improving both training stability and inference efficiency?</li>
+<li>What happens when DASH is applied during training (e.g., as a dynamic token dropping regularizer) rather than only at inference time?</li>
+</ul>
+<p class="note">Generated from Markdown summary. Full paper: <a href="https://arxiv.org/abs/2604.18103">arXiv:2604.18103</a></p>
+</div>
+</body>
+</html>

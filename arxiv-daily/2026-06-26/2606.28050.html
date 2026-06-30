@@ -1,0 +1,655 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>2606.28050 — Can LLMs Judge Better Than They Generate?</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700;9..144,900&family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet" />
+<style>
+  :root{
+    --bg:#0c0d12;
+    --surface:#14161e;
+    --surface-2:#1a1d27;
+    --surface-3:#20242f;
+    --line:#272b38;
+    --line-soft:#1d2130;
+    --ink:#ece8df;
+    --ink-2:#b6b1a6;
+    --ink-3:#75716a;
+    --ink-4:#534f49;
+    --gold:#f4b13a;     /* metric / generation */
+    --gold-soft:#f4b13a26;
+    --teal:#39d9c4;     /* evidence / eval-positive */
+    --teal-soft:#39d9c422;
+    --coral:#ef6b4e;    /* critical edge / asymmetry */
+    --coral-soft:#ef6b4e1f;
+    --hash:#4b5263;
+    --maxw:1180px;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;}
+  html{scroll-behavior:smooth;}
+  body{
+    background:var(--bg);
+    color:var(--ink);
+    font-family:"IBM Plex Sans",-apple-system,system-ui,sans-serif;
+    font-size:16px;
+    line-height:1.55;
+    -webkit-font-smoothing:antialiased;
+    overflow-x:hidden;
+    background-image:
+      radial-gradient(circle at 1px 1px, rgba(236,232,223,0.028) 1px, transparent 0);
+    background-size:26px 26px;
+  }
+  ::selection{background:var(--gold);color:#0c0d12;}
+  a{color:inherit;text-decoration:none;}
+
+  /* ---------- nav ---------- */
+  .nav{
+    position:fixed;top:16px;left:16px;z-index:50;
+    font-family:"JetBrains Mono",monospace;font-size:.74rem;
+    letter-spacing:.04em;
+  }
+  .nav a{
+    display:inline-flex;align-items:center;gap:.4em;
+    padding:.5em .85em;border:1px solid var(--line);
+    background:rgba(20,22,30,.78);backdrop-filter:blur(8px);
+    color:var(--ink-2);border-radius:8px;
+    transition:.2s;
+  }
+  .nav a:hover{color:var(--gold);border-color:var(--gold);}
+
+  .wrap{max-width:var(--maxw);margin:0 auto;padding:0 28px;}
+
+  /* ---------- hero ---------- */
+  .hero{position:relative;padding:120px 0 56px;}
+  .hero::before{
+    content:"";position:absolute;inset:0 0 auto 0;height:1px;
+    background:linear-gradient(90deg,transparent,var(--line) 20%,var(--line) 80%,transparent);
+  }
+  .metabar{
+    display:flex;flex-wrap:wrap;gap:.5em .9em;align-items:center;
+    font-family:"JetBrains Mono",monospace;font-size:.72rem;
+    color:var(--ink-3);letter-spacing:.05em;margin-bottom:26px;
+    text-transform:uppercase;
+  }
+  .metabar .sep{color:var(--ink-4);}
+  .metabar .arxiv{color:var(--teal);}
+  .metabar .root{color:var(--hash);}
+
+  .chips{display:flex;flex-wrap:wrap;gap:.5em;margin-bottom:34px;}
+  .chip{
+    font-family:"JetBrains Mono",monospace;font-size:.68rem;
+    letter-spacing:.06em;text-transform:uppercase;
+    padding:.4em .8em;border:1px solid var(--line);border-radius:999px;
+    color:var(--ink-2);background:var(--surface);
+  }
+  .chip.gold{color:var(--gold);border-color:#5a4417;background:var(--gold-soft);}
+  .chip.teal{color:var(--teal);border-color:#1c4a44;background:var(--teal-soft);}
+
+  /* atmospheric attention-token stream */
+  .attnstream{
+    position:absolute;right:0;top:128px;width:172px;
+    font-family:"JetBrains Mono",monospace;font-size:.6rem;
+    line-height:1.85;text-align:right;
+    pointer-events:none;user-select:none;
+    border-left:1px solid var(--line-soft);padding-left:14px;
+    opacity:0;animation:fadeIn 1s .6s forwards;
+  }
+  .attnstream .at-row{display:flex;justify-content:flex-end;align-items:center;gap:7px;color:var(--hash);}
+  .attnstream .at-tok{color:var(--ink-4);}
+  .attnstream .at-w{display:inline-block;height:5px;border-radius:2px;background:var(--ink-4);}
+  .attnstream .at-w.g{background:var(--gold);}
+  .attnstream .at-w.t{background:var(--teal);}
+  .attnstream .at-hdr{color:var(--teal);opacity:.75;letter-spacing:.08em;}
+  .attnstream .at-ftr{color:var(--hash);margin-top:4px;}
+
+  .kicker-cn{
+    font-family:"Noto Sans SC",sans-serif;
+    font-size:.98rem;line-height:1.7;color:var(--ink-2);
+    border-left:2px solid var(--gold);padding-left:14px;
+    max-width:780px;margin-bottom:22px;
+    opacity:0;animation:rise .7s .1s forwards;
+  }
+  .kicker-cn .lbl{
+    display:block;font-family:"JetBrains Mono",monospace;
+    font-size:.66rem;letter-spacing:.1em;color:var(--gold);
+    text-transform:uppercase;margin-bottom:6px;
+  }
+
+  .finding{
+    font-family:"Fraunces",serif;font-variation-settings:"opsz" 96;
+    font-weight:700;
+    font-size:clamp(2.05rem,5.4vw,4.3rem);
+    line-height:1.03;letter-spacing:-.02em;
+    color:var(--ink);
+    max-width:1000px;
+    opacity:0;animation:rise .9s .2s forwards;
+  }
+  .finding em{font-style:normal;}
+  .finding .hl-t{color:var(--teal);}
+  .finding .hl-g{color:var(--gold);}
+  .finding .hl-c{color:var(--coral);}
+  .finding .dim{color:var(--ink-2);font-weight:600;}
+
+  .title-block{
+    margin-top:30px;display:flex;flex-wrap:wrap;align-items:baseline;
+    gap:.5em 1.1em;
+    opacity:0;animation:rise .7s .45s forwards;
+  }
+  .title-block a.title{
+    font-family:"Fraunces",serif;font-weight:600;
+    font-size:1.02rem;color:var(--ink-2);
+    border-bottom:1px solid var(--line);padding-bottom:1px;
+    transition:.2s;
+  }
+  .title-block a.title:hover{color:var(--gold);border-color:var(--gold);}
+  .title-block .authors{font-size:.9rem;color:var(--ink-3);}
+  .title-block .aff{font-family:"JetBrains Mono",monospace;font-size:.72rem;color:var(--ink-4);}
+
+  /* ---------- asset row ---------- */
+  .assets{
+    display:grid;grid-template-columns:1.15fr 1fr;gap:18px;
+    margin-bottom:18px;
+  }
+  .card{
+    background:var(--surface);border:1px solid var(--line);
+    border-radius:14px;padding:26px 28px;position:relative;overflow:hidden;
+  }
+  .card .label{
+    font-family:"JetBrains Mono",monospace;font-size:.66rem;
+    letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3);
+    margin-bottom:16px;display:flex;align-items:center;gap:.55em;
+  }
+  .card .label::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--ink-4);}
+
+  .metric{grid-row:span 2;display:flex;flex-direction:column;justify-content:space-between;
+    border-color:#3a2c0e;background:linear-gradient(165deg,var(--surface),#181410);}
+  .metric .label{color:var(--gold);}
+  .metric .label::before{background:var(--gold);box-shadow:0 0 8px var(--gold);}
+  .metric .numwrap{margin:6px 0 4px;display:flex;align-items:flex-start;gap:.06em;}
+  .metric .num{
+    font-family:"Fraunces",serif;font-variation-settings:"opsz" 144;
+    font-weight:900;font-size:clamp(5.2rem,14vw,8.8rem);
+    line-height:.82;color:var(--gold);letter-spacing:-.04em;
+    display:inline-block;
+  }
+  .metric .num-unit{
+    font-family:"JetBrains Mono",monospace;font-size:1.5rem;color:var(--gold);
+    letter-spacing:.02em;margin-top:6px;
+  }
+  .metric .num-sub{
+    font-family:"JetBrains Mono",monospace;font-size:.85rem;
+    color:var(--ink-3);letter-spacing:.02em;margin-top:14px;
+  }
+  .metric .ctx{color:var(--ink-2);font-size:.95rem;line-height:1.6;margin-top:14px;}
+  .metric .ctx b{color:var(--ink);font-weight:600;}
+  .metric .stat-row{
+    display:flex;flex-wrap:wrap;gap:8px 18px;margin-top:20px;
+    padding-top:18px;border-top:1px dashed var(--line);
+    font-family:"JetBrains Mono",monospace;font-size:.74rem;color:var(--ink-3);
+  }
+  .metric .stat-row b{color:var(--teal);font-weight:500;}
+  .metric .stat-row b.g{color:var(--gold);}
+
+  .why .label::before{background:var(--teal);}
+  .why .label{color:var(--teal);}
+  .why p{font-size:1.16rem;line-height:1.5;color:var(--ink);font-weight:500;}
+  .why p b{color:var(--teal);font-weight:600;}
+
+  .edge{border-color:#4a2820;background:linear-gradient(165deg,var(--surface),#1c1311);}
+  .edge .label{color:var(--coral);}
+  .edge .label::before{background:var(--coral);box-shadow:0 0 8px var(--coral);}
+  .edge .glyph{font-family:"Fraunces",serif;font-size:1.6rem;color:var(--coral);}
+  .edge p{color:var(--ink-2);font-size:.96rem;line-height:1.6;margin-top:6px;}
+  .edge p b{color:var(--coral);font-weight:600;}
+
+  /* ---------- body grid ---------- */
+  .body{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-bottom:24px;}
+
+  .card.body-card{padding:28px 30px;}
+  .card h2{
+    font-family:"Fraunces",serif;font-weight:600;font-size:1.5rem;
+    letter-spacing:-.01em;margin-bottom:6px;
+  }
+  .card .sub{
+    font-family:"JetBrains Mono",monospace;font-size:.68rem;
+    letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3);
+    margin-bottom:18px;
+  }
+  .card p{color:var(--ink-2);font-size:.95rem;line-height:1.65;margin-bottom:12px;}
+  .card p b{color:var(--ink);font-weight:600;}
+  .card .tag-i{color:var(--teal);font-family:"JetBrains Mono",monospace;font-size:.85em;}
+  .card .tag-g{color:var(--gold);font-family:"JetBrains Mono",monospace;font-size:.85em;}
+  .card .tag-c{color:var(--coral);font-family:"JetBrains Mono",monospace;font-size:.85em;}
+
+  /* Tgen / Teval pipeline diagram */
+  .pipe{margin-top:18px;border:1px solid var(--line-soft);border-radius:12px;
+    background:radial-gradient(circle at 50% 0%,#171a23,#121419);padding:18px 16px;}
+  .pipe .pipe-title{
+    font-family:"JetBrains Mono",monospace;font-size:.64rem;
+    letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3);
+    display:flex;justify-content:space-between;margin-bottom:12px;
+  }
+  .pipe .pipe-title span:last-child{color:var(--hash);}
+  .pipe .rows{display:flex;flex-direction:column;gap:10px;}
+  .pipe .prow{display:flex;align-items:center;gap:8px;}
+  .pipe .ptag{
+    font-family:"JetBrains Mono",monospace;font-size:.62rem;letter-spacing:.06em;
+    text-transform:uppercase;width:54px;flex-shrink:0;
+  }
+  .pipe .prow.gen .ptag{color:var(--gold);}
+  .pipe .prow.eval .ptag{color:var(--teal);}
+  .pipe .pnodes{display:flex;align-items:center;gap:6px;flex:1;}
+  .pipe .nd{
+    font-family:"JetBrains Mono",monospace;font-size:.66rem;
+    padding:5px 8px;border:1px solid var(--line);border-radius:6px;
+    color:var(--ink-2);background:var(--surface-2);
+  }
+  .pipe .nd.ctx{border-color:#2a3a52;color:#9fc3e8;}
+  .pipe .nd.q{border-color:#3a3526;color:var(--gold);}
+  .pipe .nd.a{border-color:#1c4a44;color:var(--teal);}
+  .pipe .nd.j{border-color:#4a2820;color:var(--coral);}
+  .pipe .arr{color:var(--hash);font-size:.7rem;}
+  .pipe .out{font-family:"JetBrains Mono",monospace;font-size:.64rem;color:var(--ink-3);}
+
+  /* attention allocation viz */
+  .attn-viz{margin-top:8px;border:1px solid var(--line-soft);border-radius:12px;
+    background:radial-gradient(circle at 50% 0%,#171a23,#121419);padding:16px 16px 12px;}
+  .attn-viz .av-title{
+    font-family:"JetBrains Mono",monospace;font-size:.64rem;
+    letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3);
+    display:flex;justify-content:space-between;margin-bottom:14px;
+  }
+  .attn-viz .av-title span:last-child{color:var(--hash);}
+  .av-legend{display:flex;gap:14px;margin-bottom:12px;flex-wrap:wrap;
+    font-family:"JetBrains Mono",monospace;font-size:.62rem;color:var(--ink-3);}
+  .av-legend .lg{display:inline-flex;align-items:center;gap:5px;}
+  .av-legend .sw{width:10px;height:10px;border-radius:2px;display:inline-block;}
+  .av-bar-wrap{display:flex;flex-direction:column;gap:10px;}
+  .av-bar{display:flex;align-items:center;gap:10px;}
+  .av-bar .btag{font-family:"JetBrains Mono",monospace;font-size:.62rem;width:62px;flex-shrink:0;}
+  .av-bar.gen .btag{color:var(--gold);}
+  .av-bar.eval .btag{color:var(--teal);}
+  .av-track{flex:1;height:18px;background:var(--surface-3);border-radius:4px;overflow:hidden;display:flex;border:1px solid var(--line-soft);}
+  .av-seg{height:100%;transition:width .9s cubic-bezier(.2,.7,.2,1);}
+  .av-seg.ctx{background:#3a6ea5;}
+  .av-seg.q{background:var(--gold);}
+  .av-seg.cand{background:var(--coral);}
+  .av-bar .bnote{font-family:"JetBrains Mono",monospace;font-size:.6rem;color:var(--ink-4);width:96px;flex-shrink:0;text-align:right;}
+  .av-foot{font-family:"JetBrains Mono",monospace;font-size:.6rem;color:var(--hash);margin-top:10px;}
+
+  /* results */
+  .tiles{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:8px 0 18px;}
+  .tile{
+    border:1px solid var(--line-soft);border-radius:10px;padding:14px 14px;
+    background:var(--surface-2);
+  }
+  .tile .t-h{font-family:"JetBrains Mono",monospace;font-size:.64rem;
+    letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3);margin-bottom:7px;}
+  .tile .t-v{font-family:"Fraunces",serif;font-weight:700;font-size:1.5rem;color:var(--gold);line-height:1;}
+  .tile .t-v.teal{color:var(--teal);}
+  .tile .t-v.coral{color:var(--coral);}
+  .tile .t-d{font-size:.82rem;color:var(--ink-2);margin-top:7px;line-height:1.45;}
+
+  table{width:100%;border-collapse:collapse;margin:6px 0 4px;font-size:.84rem;}
+  th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line-soft);}
+  th{font-family:"JetBrains Mono",monospace;font-size:.64rem;font-weight:500;
+    letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3);}
+  td{color:var(--ink-2);}
+  td .num{font-family:"JetBrains Mono",monospace;color:var(--ink);}
+  td .ok{color:var(--teal);}
+  td .warn{color:var(--coral);}
+  td .neu{color:var(--ink-3);}
+  .tbl-cap{font-family:"JetBrains Mono",monospace;font-size:.66rem;
+    letter-spacing:.08em;text-transform:uppercase;color:var(--ink-4);margin:16px 0 2px;}
+  tr:hover td{background:rgba(244,177,58,0.03);}
+
+  /* strengths / limitations split */
+  .sl{grid-column:1 / -1;display:grid;grid-template-columns:1fr 1fr;gap:18px;}
+  .panel-h{display:flex;align-items:center;gap:.6em;margin-bottom:16px;}
+  .panel-h h2{margin:0;font-size:1.25rem;}
+  .panel-h .dot{width:9px;height:9px;border-radius:50%;}
+  .strengths .dot{background:var(--teal);box-shadow:0 0 8px var(--teal);}
+  .limitations .dot{background:var(--coral);box-shadow:0 0 8px var(--coral);}
+  .strengths .sub{color:var(--teal);}
+  .limitations .sub{color:var(--coral);}
+  ul.clean{list-style:none;}
+  ul.clean li{
+    color:var(--ink-2);font-size:.92rem;line-height:1.55;
+    padding:11px 0 11px 22px;position:relative;border-top:1px solid var(--line-soft);
+  }
+  ul.clean li:first-child{border-top:none;}
+  ul.clean li::before{
+    content:"";position:absolute;left:0;top:18px;width:10px;height:1px;
+  }
+  .strengths ul.clean li::before{background:var(--teal);}
+  .limitations ul.clean li::before{background:var(--coral);}
+  ul.clean li b{color:var(--ink);font-weight:600;}
+
+  /* questions */
+  .questions{grid-column:1 / -1;}
+  .qlist{display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--line-soft);
+    border:1px solid var(--line-soft);border-radius:12px;overflow:hidden;}
+  .q{
+    background:var(--surface);padding:18px 20px;display:flex;gap:14px;align-items:flex-start;
+  }
+  .q .qn{
+    font-family:"Fraunces",serif;font-weight:700;font-size:1.15rem;color:var(--gold);
+    line-height:1;flex-shrink:0;width:26px;
+  }
+  .q .qt{color:var(--ink-2);font-size:.9rem;line-height:1.5;}
+  .q .qt b{color:var(--ink);font-weight:600;}
+
+  /* ---------- footer ---------- */
+  .foot{
+    border-top:1px solid var(--line);margin-top:18px;
+    padding:34px 0 60px;display:flex;flex-wrap:wrap;justify-content:space-between;
+    align-items:center;gap:14px;
+  }
+  .foot .src{
+    font-family:"JetBrains Mono",monospace;font-size:.8rem;
+    color:var(--ink-2);display:inline-flex;align-items:center;gap:.5em;
+    padding:.6em 1em;border:1px solid var(--line);border-radius:8px;
+    transition:.2s;
+  }
+  .foot .src:hover{color:var(--teal);border-color:var(--teal);}
+  .foot .meta{font-family:"JetBrains Mono",monospace;font-size:.7rem;color:var(--ink-4);letter-spacing:.05em;}
+
+  /* ---------- animations ---------- */
+  @keyframes rise{from{opacity:0;transform:translateY(14px);}to{opacity:1;transform:none;}}
+  @keyframes fadeIn{to{opacity:1;}}
+  .reveal{opacity:0;animation:rise .7s forwards;}
+  @media (prefers-reduced-motion:reduce){
+    *{animation:none !important;}.reveal,.attnstream,.kicker-cn,.finding,.title-block{opacity:1 !important;}
+  }
+
+  /* ---------- responsive ---------- */
+  @media (max-width:860px){
+    .assets{grid-template-columns:1fr;}
+    .metric{grid-row:auto;}
+    .body{grid-template-columns:1fr;}
+    .sl{grid-template-columns:1fr;}
+    .qlist{grid-template-columns:1fr;}
+    .tiles{grid-template-columns:1fr;}
+    .attnstream{display:none;}
+    .hero{padding:96px 0 40px;}
+    .wrap{padding:0 20px;}
+    .card.body-card{padding:22px;}
+  }
+</style>
+</head>
+<body>
+
+<nav class="nav"><a href="./index.html">↩ Today's digest</a></nav>
+
+<header class="hero">
+  <div class="wrap" style="position:relative;">
+    <div class="attnstream">
+      <div class="at-hdr">last-token attn · Llama-8B</div>
+      <div class="at-row"><span class="at-tok">context</span><span class="at-w g" style="width:42px"></span></div>
+      <div class="at-row"><span class="at-tok">question</span><span class="at-w" style="width:18px"></span></div>
+      <div class="at-row"><span class="at-tok">candidate</span><span class="at-w t" style="width:3px"></span></div>
+      <div class="at-row"><span class="at-tok">context</span><span class="at-w g" style="width:48px"></span></div>
+      <div class="at-row"><span class="at-tok">question</span><span class="at-w" style="width:22px"></span></div>
+      <div class="at-row"><span class="at-tok">candidate</span><span class="at-w t" style="width:3px"></span></div>
+      <div class="at-row"><span class="at-tok">context</span><span class="at-w g" style="width:38px"></span></div>
+      <div class="at-ftr">eval reads cand. ≤ 0.5%</div>
+    </div>
+
+    <div class="metabar reveal" style="animation-delay:0s;">
+      <span class="arxiv">arXiv 2606.28050</span>
+      <span class="sep">/</span>
+      <span>2026-06-26</span>
+      <span class="sep">/</span>
+      <span>cs.CL</span>
+      <span class="sep">/</span>
+      <span>Generation vs. Evaluation</span>
+      <span class="sep">/</span>
+      <span class="root">∆ = EA − GA</span>
+    </div>
+
+    <div class="chips reveal" style="animation-delay:.05s;">
+      <span class="chip gold">LLM Self-Evaluation</span>
+      <span class="chip teal">Mechanistic Interpretability</span>
+      <span class="chip">Attention Routing</span>
+      <span class="chip">LoRA Transferability</span>
+      <span class="chip">In-Context QA</span>
+    </div>
+
+    <div class="kicker-cn">
+      <span class="lbl">一句话总结 · One-line</span>
+      受控上下文问答中，自评估并不比生成更简单：生成在 4 个基准中的 3 个上更准，评估任务对上下文去关注 3–5 倍、对候选答案几乎不读（0.3–0.5%），LoRA 证明这种不对称内禀且不可消除。
+    </div>
+
+    <h1 class="finding">
+      In controlled in-context QA, LLMs do <em class="hl-c">not</em> judge better than they generate <span class="dim">— the evaluator</span> <em class="hl-g">de-attends to context</em> 3–5× and <em class="hl-c">barely reads</em> the answer it scores.
+    </h1>
+
+    <div class="title-block">
+      <a class="title" href="https://arxiv.org/abs/2606.28050" target="_blank" rel="noopener">Can LLMs Judge Better Than They Generate? Evaluating Task Asymmetry, Mechanistic Interpretability and Transferability for In-Context QA ↗</a>
+      <span class="authors">Sambaran Bandyopadhyay</span>
+      <span class="aff">Adobe Research</span>
+    </div>
+  </div>
+</header>
+
+<!-- ============ ASSET ROW ============ -->
+<section class="wrap assets">
+
+  <div class="card metric reveal" style="animation-delay:.3s;">
+    <div>
+      <div class="label">Key metric · the headline finding</div>
+      <div class="numwrap"><span class="num">0.4</span><span class="num-unit">%</span></div>
+      <div class="num-sub">of last-token attention on the candidate answer it is judging</div>
+      <div class="ctx">The evaluator spends almost <b>none</b> of its attention on the answer it scores — <b>0.3–0.5%</b> across five datasets — while de-attending to the supporting context by <b>3–5×</b>. Generation beats self-evaluation on <b>3 of 4 benchmarks</b>, overturning "verification is easier."</div>
+    </div>
+    <div class="stat-row">
+      <span>context de-attn <b class="g">3–5×</b></span>
+      <span>gen wins <b class="g">3 / 4</b> benchmarks</span>
+      <span>n=500 · <b>±4.4 pp</b> CI</span>
+      <span>oracle <b>92%</b> vs GPT-5.4</span>
+    </div>
+  </div>
+
+  <div class="card why reveal" style="animation-delay:.4s;">
+    <div class="label">Why this matters</div>
+    <p>Self-evaluation fails at the <b>attention-routing level</b>, not the training level — a direct warning for <b>LLM-as-a-Judge</b>, self-reflection, and RLHF reward pipelines.</p>
+  </div>
+
+  <div class="card edge reveal" style="animation-delay:.5s;">
+    <div class="label">Critical edge</div>
+    <div class="glyph">⚠</div>
+    <p>Only <b>two models</b> tested; attention analysis rests on <b>one open model and one decision token</b>, and the mechanism cannot explain the <b>MuSiQue inversion</b>.</p>
+  </div>
+
+</section>
+
+<!-- ============ BODY GRID ============ -->
+<section class="wrap body">
+
+  <!-- Methodology -->
+  <div class="card body-card reveal" style="animation-delay:.55s;">
+    <h2>Methodology</h2>
+    <div class="sub">shared context · same model · judge your own answer</div>
+    <p>Each instance is a triple <span class="tag-g">(c, q, a*)</span> — context passage, question, gold answer synthesized from <b>c</b>. Two sequential tasks share the same instances and the same model <b>L</b>:</p>
+    <p><span class="tag-g">Tgen</span> — the model generates a free-text answer <b>a = L(c, q)</b>. <span class="tag-i">Teval</span> — the same <b>L</b> judges whether that same <b>a</b> is correct given <b>(c, q, a)</b>. An oracle <b>L*</b> (GPT-4o, validated against GPT-5.4 at 92% agreement, 99.5% intra-consistency) scores <b>a</b> vs <b>a*</b>, defining generation accuracy <b>GA</b> and ground-truth eval labels; eval accuracy <b>EA</b> is how often <b>L</b>'s self-judgment matches the oracle. The asymmetry measure is <span class="tag-c">∆ = EA − GA</span>.</p>
+    <p>Three studies extend the pipeline: (1) <b>task asymmetry</b> — ∆ across datasets, stratified by hop count; (2) <b>mechanistic interpretability</b> — last-token attention (layers 24–31) over 184 jointly-verified samples, decomposed into context / question / candidate spans, plus causal ablations; (3) <b>transferability</b> — rank-16 LoRA on q/k/v/o in Gen / Eval / Both configs, testing whether the two abilities share parametric structure. All prompts zero-shot; <b>n=500</b> per dataset (±4.4 pp half-width at p=0.5).</p>
+
+    <div class="pipe">
+      <div class="pipe-title"><span>shared-instance pipeline</span><span>n=500 · zero-shot</span></div>
+      <div class="rows">
+        <div class="prow gen">
+          <span class="ptag">Tgen</span>
+          <div class="pnodes">
+            <span class="nd ctx">context c</span><span class="arr">+</span>
+            <span class="nd q">question q</span><span class="arr">→</span>
+            <span class="nd a">a = L(c,q)</span><span class="arr">→</span>
+            <span class="out">score by oracle → GA</span>
+          </div>
+        </div>
+        <div class="prow eval">
+          <span class="ptag">Teval</span>
+          <div class="pnodes">
+            <span class="nd ctx">context c</span><span class="arr">+</span>
+            <span class="nd q">question q</span><span class="arr">+</span>
+            <span class="nd a">candidate a</span><span class="arr">→</span>
+            <span class="nd j">{Correct, Incorrect}</span><span class="arr">→</span>
+            <span class="out">match oracle → EA</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Results -->
+  <div class="card body-card reveal" style="animation-delay:.65s;">
+    <h2>Results &amp; Highlights</h2>
+    <div class="sub">∆ &lt; 0 ⇒ generation wins · attention collapse · shallow verification</div>
+
+    <div class="tbl-cap">Generation–evaluation gap · ∆ = EA − GA (pp)</div>
+    <table>
+      <thead><tr><th>Benchmark</th><th>Llama-8B</th><th>GPT-4o-mini</th><th>Verdict</th></tr></thead>
+      <tbody>
+        <tr><td>SQuAD 2.0</td><td><span class="num warn">−3.4</span></td><td><span class="num warn">−1.2</span></td><td class="warn">gen wins</td></tr>
+        <tr><td>DROP</td><td><span class="num warn">−1.0</span></td><td><span class="num warn">−5.8</span></td><td class="warn">gen wins</td></tr>
+        <tr><td>HotpotQA</td><td><span class="num warn">−14.2</span></td><td><span class="num warn">−2.0</span></td><td class="warn">gen wins</td></tr>
+        <tr><td>MuSiQue</td><td><span class="num ok">+3.6</span></td><td><span class="num ok">+4.0</span></td><td class="ok">eval wins</td></tr>
+      </tbody>
+    </table>
+
+    <div class="tbl-cap">Last-token attention allocation · Llama-3.1-8B-Instruct</div>
+    <div class="attn-viz">
+      <div class="av-title"><span>span attention share</span><span>184 verified samples</span></div>
+      <div class="av-legend">
+        <span class="lg"><span class="sw" style="background:#3a6ea5"></span>context</span>
+        <span class="lg"><span class="sw" style="background:var(--gold)"></span>question</span>
+        <span class="lg"><span class="sw" style="background:var(--coral)"></span>candidate</span>
+        <span class="lg" style="color:var(--hash)">(bars not to common scale — annotated %)</span>
+      </div>
+      <div class="av-bar-wrap">
+        <div class="av-bar gen">
+          <span class="btag">Tgen</span>
+          <div class="av-track">
+            <div class="av-seg ctx" data-w="64"></div>
+            <div class="av-seg q" data-w="28"></div>
+          </div>
+          <span class="bnote">ctx 11–21% · q heavy</span>
+        </div>
+        <div class="av-bar eval">
+          <span class="btag">Teval</span>
+          <div class="av-track">
+            <div class="av-seg ctx" data-w="38"></div>
+            <div class="av-seg q" data-w="20"></div>
+            <div class="av-seg cand" data-w="3"></div>
+          </div>
+          <span class="bnote">ctx 1.4–5.4% · cand 0.4%</span>
+        </div>
+      </div>
+      <div class="av-foot">para-selectivity 4.6× → 1.2× · answer-mention conc. 17× → 1.9×</div>
+    </div>
+
+    <div class="tiles">
+      <div class="tile">
+        <div class="t-h">C-MASK ablation</div>
+        <div class="t-v coral">5.8–23.4 pp</div>
+        <div class="t-d">EA drop when candidate is <b>[REDACTED]</b>; MuSiQue collapses to chance <b>50.0%</b>.</div>
+      </div>
+      <div class="tile">
+        <div class="t-h">C-SWAP ablation</div>
+        <div class="t-v teal">95.7–99.8%</div>
+        <div class="t-d">rejects an obviously-wrong swapped candidate — but misses <b>subtle near-misses</b>.</div>
+      </div>
+      <div class="tile">
+        <div class="t-h">MuSiQue hop stratification</div>
+        <div class="t-v">−1.1 → +10.7</div>
+        <div class="t-d">Llama ∆ jumps from 2-hop to 3-hop as GA bottoms at <b>48.7%</b> — a generation floor.</div>
+      </div>
+      <div class="tile">
+        <div class="t-h">2WikiMultiHopQA</div>
+        <div class="t-v coral">∆ −11.1</div>
+        <div class="t-d">reproduces 3–5× de-allocation; inference-type Qs uniquely <b class="ok" style="color:var(--teal)">+21.6</b>.</div>
+      </div>
+    </div>
+
+    <div class="tbl-cap">LoRA transferability · rank-16 on q/k/v/o</div>
+    <table>
+      <thead><tr><th>Config</th><th>Effect on ∆</th><th>Side-effect</th></tr></thead>
+      <tbody>
+        <tr><td>LoRA-Gen</td><td class="ok"><span class="num">∆ ≥ 0</span> all datasets</td><td class="warn">pure acquiescence — ER → 100%</td></tr>
+        <tr><td>LoRA-Eval</td><td class="warn"><span class="num">GA −17.6 pp</span></td><td class="warn">collapses HotpotQA evaluator (EA 47.5%)</td></tr>
+        <tr><td>LoRA-Both (per-ds)</td><td class="ok"><span class="num">|∆| ≤ 1 pp</span></td><td class="neu">only balanced config · still can't recover base GA</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Strengths / Limitations -->
+  <div class="sl">
+    <div class="card body-card strengths reveal" style="animation-delay:.75s;">
+      <div class="panel-h"><span class="dot"></span><h2>Strengths</h2></div>
+      <div class="sub">what holds up</div>
+      <ul class="clean">
+        <li><b>Clean experimental control</b> isolates task difficulty from differential memory retrieval — a genuine advance over confounded open-domain prior work.</li>
+        <li><b>Striking, robust mechanism</b>: 3–5× context de-attention and 0.3–0.5% candidate attention, causally corroborated by C-MASK / C-SWAP across five datasets.</li>
+        <li><b>Honest reporting</b> — the acquiescence artifact is exposed rather than dressed up as a transfer success; limitations and unexplained phenomena are openly flagged.</li>
+        <li><b>Pre-registered hypotheses</b> and a statistical-sufficiency analysis (n=500, ±4.4 pp) lend the conclusions credibility.</li>
+        <li>Translates mechanism into an <b>actionable deployment warning</b>: acquiescence risk whenever generation SFT is in the recipe.</li>
+      </ul>
+    </div>
+
+    <div class="card body-card limitations reveal" style="animation-delay:.8s;">
+      <div class="panel-h"><span class="dot"></span><h2>Limitations</h2></div>
+      <div class="sub">where it frays</div>
+      <ul class="clean">
+        <li><b>Narrow generalization</b>: two models, one of which (GPT-4o-mini) cannot be internally probed; attention rests on a single open model and a single decision token.</li>
+        <li>Scope restricted to <b>short-answer QA with unambiguous binary correctness</b> — abstractive, opinion-based, and long-form evaluation are out of scope.</li>
+        <li>The <b>MuSiQue inversion lacks a mechanistic explanation</b>; attributed to a generation-accuracy floor, not an eval-side attention advantage.</li>
+        <li>All prompts <b>fixed and zero-shot</b>; prompt-sensitivity and few-shot effects are untested.</li>
+        <li><b>English-only</b>; cross-lingual generalization not guaranteed. LoRA budgets modest; best calibration still can't recover base GA.</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- Questions -->
+  <div class="card body-card questions reveal" style="animation-delay:.85s;">
+    <h2>Questions for Further Exploration</h2>
+    <div class="sub">open threads the paper hands off</div>
+    <div class="qlist">
+      <div class="q"><span class="qn">1</span><span class="qt">Does the <b>3–5× de-attention signature</b> hold for stronger/larger models (70B+, GPT-4-class) and for long-form generation beyond the first token?</span></div>
+      <div class="q"><span class="qn">2</span><span class="qt">Can a <b>logit-lens / tuned-lens</b> analysis pin the exact layer where the candidate fuses into the residual stream — where the decision is "baked in"?</span></div>
+      <div class="q"><span class="qn">3</span><span class="qt">Would <b>few-shot or evaluator-specific prompting</b> (forcing re-reading of context and candidate) close the ∆ gap — and at what cost?</span></div>
+      <div class="q"><span class="qn">4</span><span class="qt">Is the <b>acquiescence bias</b> from generation SFT a function of LoRA rank, set size, or dataset heterogeneity — mitigable with calibration-aware objectives?</span></div>
+      <div class="q"><span class="qn">5</span><span class="qt">Can the <b>generation-floor vs. attention-advantage</b> dichotomy be disentangled with controlled hop-count and distractor-density variations?</span></div>
+      <div class="q"><span class="qn">6</span><span class="qt">Do these findings extend to <b>non-QA regimes</b> (summarization, code, reasoning) where correctness is less binary and more subjective?</span></div>
+    </div>
+  </div>
+
+</section>
+
+<footer class="wrap foot">
+  <a class="src" href="2606.28050.html">↗ Markdown source</a>
+  <span class="meta">arXiv 2606.28050 · Adobe Research · 2026-06-26</span>
+</footer>
+
+<script>
+  // animate the attention-allocation bars on first paint (data-w → width)
+  (function(){
+    var segs = document.querySelectorAll('.av-seg');
+    function fill(){
+      segs.forEach(function(s){
+        var w = s.getAttribute('data-w');
+        s.style.width = w + '%';
+      });
+    }
+    if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches){
+      fill();
+    } else {
+      // start collapsed then expand for a one-shot grow
+      segs.forEach(function(s){ s.style.width = '0%'; });
+      requestAnimationFrame(function(){ setTimeout(fill, 350); });
+    }
+  })();
+</script>
+</body>
+</html>

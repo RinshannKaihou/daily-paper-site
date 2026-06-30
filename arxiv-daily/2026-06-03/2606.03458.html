@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>KVarN: Variance-Normalized KV-Cache Quantization Mitigates Error Accumulation in Reasoning Tasks</title>
+<style>
+:root { --paper:#fafafa; --ink:#1a1a1a; --muted:#555; --accent:#1a5276; --line:#ddd; --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif; --serif:Georgia,"Noto Serif SC",serif; }
+body { font-family:var(--serif); background:var(--paper); color:var(--ink); line-height:1.6; margin:0; padding:0; }
+.container { max-width:min(95vw, 760px); margin:0 auto; padding:28px 20px 60px; }
+.topnav { position:fixed; top:12px; left:14px; z-index:50; font-family:var(--sans); font-size:.75rem; background:var(--paper); border:1px solid var(--line); padding:5px 10px; border-radius:999px; }
+.topnav a { color:var(--muted); text-decoration:none; font-weight:600; }
+.topnav a:hover { color:var(--accent); }
+h1 { font-size:1.6rem; margin:2.2rem 0 1rem; border-bottom:2px solid var(--accent); padding-bottom:.3rem; }
+h2 { font-size:1.3rem; margin:1.8rem 0 .8rem; color:var(--accent); }
+h3 { font-size:1.1rem; margin:1.4rem 0 .6rem; }
+p { margin:.8rem 0; }
+.authors { font-style:italic; color:var(--muted); margin-top:-.4rem; }
+.meta { font-family:var(--sans); font-size:.82rem; color:var(--muted); margin:.2rem 0; }
+a { color:var(--accent); text-decoration:none; }
+a:hover { text-decoration:underline; }
+blockquote { border-left:3px solid var(--accent); margin:1rem 0; padding:.2rem 0 .2rem 1rem; color:var(--muted); font-style:italic; }
+code { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; background:#f0f0f0; padding:2px 5px; border-radius:3px; font-size:.9em; }
+pre { background:#f5f5f5; padding:14px; overflow-x:auto; border-radius:4px; border:1px solid var(--line); }
+pre code { background:transparent; padding:0; }
+ul,ol { margin:.6rem 0; padding-left:1.5rem; }
+li { margin:.25rem 0; }
+table { border-collapse:collapse; width:100%; margin:1rem 0; font-family:var(--sans); font-size:.9rem; }
+th,td { border:1px solid var(--line); padding:6px 10px; text-align:left; }
+th { background:#f0f0f0; }
+hr { border:none; border-top:1px solid var(--line); margin:1.5rem 0; }
+.note { font-family:var(--sans); font-size:.78rem; color:var(--muted); border-top:1px solid var(--line); margin-top:2rem; padding-top:1rem; }
+@media (max-width: 600px) { .container { padding:22px 14px 40px; } h1 { font-size:1.35rem; } }
+</style>
+</head>
+<body>
+<div class="topnav"><a href="./index.html">← Today's digest</a></div>
+<div class="container">
+<h1>KVarN: Variance-Normalized KV-Cache Quantization Mitigates Error Accumulation in Reasoning Tasks</h1>
+<p class="meta">arXiv: 2606.03458</p>
+<p class="meta">Date: 2026-06-02</p>
+<p class="meta"><a href="https://arxiv.org/abs/2606.03458">https://arxiv.org/abs/2606.03458</a></p>
+<blockquote><strong>一句话总结：</strong> KVarN 提出了一种无需校准的 KV-cache 量化方法，通过 Hadamard 旋转和双轴方差归一化来修正异常的 token 尺度误差，从而显著减少自回归解码中的误差累积，在 2-bit 精度下于 MATH500、AIME24 和 HumanEval 等推理基准上达到新的最优水平。</blockquote>
+<blockquote><strong>TL;DR:</strong> KVarN introduces a calibration-free KV-cache quantizer that applies Hadamard rotation followed by dual-scaling variance normalization across both axes of K and V matrices, fixing outlying token-scale errors and substantially reducing error accumulation during autoregressive decoding. It achieves new state-of-the-art results for KV-cache quantization at 2-bit precision on reasoning benchmarks including MATH500, AIME24, and HumanEval, with only 0.18% measured latency overhead.</blockquote>
+<h2>核心贡献</h2>
+<ul>
+<li>揭示了现有 KV-cache 量化方法在自回归解码场景下的关键缺陷：误差会在时间步之间累积，主要由不正确的 token 尺度驱动，而非方向性失真。</li>
+<li>提出了 KVarN，一种无需校准的 KV-cache 量化器，结合 Hadamard 旋转和 K/V 矩阵双轴（channel 与 token 维度）方差归一化。</li>
+<li>发现 top 5% 的异常值误差对端到端性能的影响超过其余 95% 的误差，且这些异常值主要由幅度误差引起。</li>
+<li>在 2.3 bits/elem 的平均精度下，于 MATH500、AIME24、HumanEval 和 IFEval 等生成式基准上建立了 KV-cache 量化的新最优水平。</li>
+<li>提供了 vLLM 实现，实测量化延迟开销仅 0.18%，解量化开销不超过 1.4%。</li>
+</ul>
+<h2>Key Contributions</h2>
+<ul>
+<li>Reveals a critical flaw in existing KV-cache quantization methods under autoregressive decoding: quantization errors accumulate across timesteps, driven primarily by incorrect token scales (magnitude errors) rather than directional distortion.</li>
+<li>Introduces KVarN, a calibration-free KV-cache quantizer that combines Hadamard rotation with dual-scaling variance normalization across both channel and token dimensions of K and V matrices.</li>
+<li>Discovers that the top 5% outlier errors disproportionately drive end-to-end degradation, and these outliers are overwhelmingly caused by magnitude errors.</li>
+<li>Establishes a new state-of-the-art for KV-cache quantization at 2.3 bits/element on generative benchmarks including MATH500, AIME24, HumanEval, and IFEval.</li>
+<li>Provides a vLLM implementation with measured quantization latency overhead of only 0.18% and dequantization overhead of at most 1.4%.</li>
+</ul>
+<h2>Methodology</h2>
+<p>The paper begins with a formal error decomposition that separates quantization error into magnitude and directional components. For a full-precision key vector K and its dequantized counterpart K_dq, the squared L2 error expands as:</p>
+<p>∥K − K_dq∥² = (∥K∥ − ∥K_dq∥)² + 2∥K∥∥K_dq∥(1 − cos θ)</p>
+<p>The first term captures <strong>magnitude error</strong>; the second captures <strong>directional error</strong>. Experiments on Qwen3-4B show that large outlier errors in K are overwhelmingly due to magnitude rather than direction (Fig. 1a). Crucially, fixing the top 5% worst magnitude errors improves end-to-end KL-divergence more than fixing the bottom 95%, even though the latter contains more total MSE (Fig. 3).</p>
+<p><strong>KVarN pipeline</strong> (Fig. 2):</p>
+<ol>
+<li><strong>Hadamard rotation</strong>: Each token is Hadamard-rotated in the channel dimension (following QuaRot), which equalizes channel-space outliers. The transform has O(N log N) complexity and can be partially absorbed into adjacent weight matrices.</li>
+<li><strong>Dual-scaling variance normalization (VarN)</strong>: After accumulating a block of tokens (e.g., 128), the tile is iteratively normalized in both channel and token dimensions using a log-domain Sinkhorn-Knopp-style algorithm (Alg. 1). This yields uniform variance across rows and columns before quantization.</li>
+<li><strong>Round-to-nearest quantization</strong>: The normalized tile is quantized with standard scale and zero-point, plus a second high-precision scale from the variance normalization.</li>
+</ol>
+<p>The key insight is that Hadamard rotation alone is insufficient for KV-cache compression because it does not address token-wise scaling errors. Variance normalization complements it by directly fixing per-token magnitudes, especially at the extremes (Fig. 1b, Fig. 8).</p>
+<p><strong>Pseudo-decode evaluation</strong>: The paper introduces a fast evaluation protocol that models realistic decoding error accumulation. The prefill sequence is split into blocks; after every block, the freshly produced K and V are quantized before being written back. Subsequent blocks compute latents with this quantized cache, causing errors to compound across layers and timesteps (Fig. 4, Fig. 5).</p>
+<h2>Results & Highlights</h2>
+<p><strong>End-to-end reasoning and instruction following</strong> (Tabs. 1–3):</p>
+<ul>
+<li><strong>Qwen3-4B on AIME24</strong>: KVarN achieves 60.0% vs. KIVI 55.5%; on MATH500: 79.2% vs. 77.8%.</li>
+<li><strong>Phi-4-14B on AIME24</strong>: KVarN achieves 61.7% vs. KIVI 57.8%; on MATH500: 84.8% vs. 74.4% — a massive 10.4-point gap.</li>
+<li><strong>HumanEval</strong>: Qwen3-4B 88.4% vs. KIVI 86.4%; Phi-4 88.2% vs. KIVI 74.6% — another huge 13.6-point gap.</li>
+<li><strong>IFEval</strong>: KVarN consistently leads or matches the best across Qwen3-4B, Llama-3.1-8B, and Phi-4.</li>
+</ul>
+<p><strong>Line retrieval</strong> (Tab. 4): KVarN achieves best overall accuracy across all context lengths (100–600 lines) on Qwen3-4B, Llama-3.1-8B, and Phi-4. At 600 lines on Llama-3.1-8B, KVarN reaches 91% while KIVI drops to 58%.</p>
+<p><strong>Needle-in-a-Haystack</strong> (Appendix G): The standard static prefill setting is much easier than the accumulated pseudo-decode setting. KVarN maintains strong performance under realistic accumulated conditions where KIVI degrades significantly (Fig. 10).</p>
+<p><strong>Runtime overhead</strong> (Fig. 6, Fig. 11):</p>
+<ul>
+<li>Online variance normalization: 1.9 ms per 128-token block vs. 1050 ms for token generation → 0.18% overhead.</li>
+<li>Dual-scale dequantization: at most 1.4% overhead vs. KIVI single-scale, within measurement noise at 16k+ tokens.</li>
+</ul>
+<p>All KVarN results use uniform 2-bit precision for both K and V at 2.3 bits/element including auxiliary storage (two FP8 scales + one FP16 zero-point per 128-token group).</p>
+<h2>Authors & Credibility</h2>
+<p>All authors are from Huawei. Corresponding author: Lorenz K. Muller. The group has prior work in calibration-free quantization (SINQ, arXiv:2509.22944). The paper provides a vLLM implementation and detailed experimental protocols, including exact decoding parameters and benchmark configurations (Appendix D). The evaluation spans three model families (Qwen, Llama, Phi) and multiple task types, suggesting methodological care. Reproduction cost is estimated at ~50 GPU days.</p>
+<h2>Critical Assessment</h2>
+<p><strong>Novelty</strong>: High. The paper makes a crisp diagnostic contribution — identifying token magnitude errors as the dominant driver of outlier errors in KV-cache quantization — and backs it with a formal decomposition. The combination of Hadamard rotation with dual-scaling variance normalization is well-motivated and shown to be synergistic rather than redundant. The pseudo-decode evaluation protocol is a welcome methodological advance that better reflects real deployment conditions than standard prefill-only benchmarks.</p>
+<p><strong>Rigor</strong>: Strong. The error decomposition (Eq. 3) is clean and interpretable. Ablations systematically isolate the contributions of Hadamard rotation (HK), variance normalization alone (VarN), and the combined KVarN (Figs. 1b, 5, 8). The paper evaluates across three model families, multiple scales, and diverse tasks. Runtime overhead is measured on actual GPU hardware with vLLM, not just theoretically estimated.</p>
+<p><strong>Reproducibility</strong>: Good. The vLLM implementation is publicly available. Experimental details (decoding params, group sizes, benchmark versions) are documented in Appendix D. However, the code was not available for independent verification at the time of reading, and some baselines (e.g., TurboQuant) rely on community vLLM ports rather than official implementations.</p>
+<p><strong>Significance</strong>: High for inference optimization. KV-cache memory is the binding constraint for test-time scaling. Achieving near-lossless 2-bit quantization with <0.2% latency overhead could materially expand the feasible context window for reasoning models.</p>
+<p><strong>Red flags / limitations</strong>:</p>
+<ul>
+<li>The paper does not test on the very largest models (e.g., 70B+), where KV-cache pressure is most acute. Gains may scale differently.</li>
+<li>Comparisons with mixed-precision methods (KVQuant-1%, Kitty, TurboQuant) show KVarN often wins, but these methods sometimes use more bits/elem or non-uniform precision; direct head-to-heads at identical bit budgets are not always possible.</li>
+<li>The method is not applicable to KV-cache-free architectures (SSMs) or to MLA-based models like DeepSeek-V2, which are increasingly popular.</li>
+<li>Public serving frameworks do not yet support 2-bit KV-caches, creating a deployment gap.</li>
+<li>The Phi-4 MATH500 result (84.8% at 2.3 bits vs. 74.4% for KIVI) is surprisingly large; the paper does not deeply explain why Phi-4 benefits so much more than Qwen3-4B, raising questions about interaction with specific architectural details.</li>
+</ul>
+<h2>Strengths</h2>
+<ul>
+<li><strong>Precise diagnosis</strong>: Treats quantization not as a black-box compression problem but isolates the specific failure mode (token magnitude errors) that matters for end-to-end quality.</li>
+<li><strong>Strong empirical breadth</strong>: Three model families, four generative benchmarks, line retrieval, and NiaH under both static and accumulated settings.</li>
+<li><strong>Practical deployability</strong>: Calibration-free, minimal latency overhead, and vLLM integration.</li>
+<li><strong>Intellectual coherence</strong>: The theoretical decomposition, ablation studies, and end-to-end results align tightly.</li>
+<li><strong>Honest limitations section</strong>: Explicitly acknowledges incompatibility with SSMs and MLA, and the lack of framework support for 2-bit KV-caches.</li>
+</ul>
+<h2>Limitations</h2>
+<ul>
+<li><strong>Architecture scope</strong>: KVarN requires a KV-cache and is unsuitable for state-space models or train-time compressed attention like MLA.</li>
+<li><strong>Framework gap</strong>: No publicly available serving framework currently supports 2-bit KV-cache storage, limiting immediate deployment despite the vLLM implementation.</li>
+<li><strong>Large-model gap</strong>: Evaluation stops at 14B parameters; memory savings and quality trade-offs at 70B+ remain unverified.</li>
+<li><strong>MLA uncertainty</strong>: The interaction with multi-head latent attention — an increasingly common architecture choice — is unclear.</li>
+<li><strong>Baseline parity</strong>: Some competing methods (TurboQuant, KVQuant) use mixed precision or layer-skipping strategies that complicate strict bit-for-bit comparison.</li>
+</ul>
+<h2>Relevance</h2>
+<p>对于关注大语言模型推理效率、KV-cache 压缩以及测试时扩展（test-time scaling）的研究者和工程师而言，本文提供了一种有前景的校准无关量化方案，尤其在长序列推理场景下具有潜在应用价值。其对误差累积机制的深入分析也为后续量化方法的设计提供了重要参考。</p>
+<h2>Questions for Further Exploration</h2>
+<ol>
+<li>How does KVarN perform on 70B+ parameter models, where KV-cache memory pressure is most severe and error accumulation dynamics may differ?</li>
+<li>Can KVarN be adapted to work with multi-head latent attention (MLA) architectures such as DeepSeek-V2, or does the latent representation break the token-scale assumptions?</li>
+<li>What is the interaction between KVarN and token-eviction methods (e.g., SnapKV, H2O)? Can they be combined multiplicatively, or do they interfere?</li>
+<li>Does the surprising Phi-4 MATH500 gain (10.4 points over KIVI) generalize to other reasoning-specialized models, and what architectural property drives it?</li>
+<li>How difficult is it to upstream 2-bit KV-cache support into mainstream serving frameworks (vLLM, TensorRT-LLM, TGI), and what blockers remain?</li>
+</ol>
+<p class="note">Generated from Markdown summary. Full paper: <a href="https://arxiv.org/abs/2606.03458">arXiv:2606.03458</a></p>
+</div>
+</body>
+</html>

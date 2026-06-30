@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Latent Phase-Shift Rollback: Inference-Time Error Correction via Residual Stream Monitoring and KV-Cache Steering</title>
+<style>
+:root { --paper:#fafafa; --ink:#1a1a1a; --muted:#555; --accent:#1a5276; --line:#ddd; --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif; --serif:Georgia,"Noto Serif SC",serif; }
+body { font-family:var(--serif); background:var(--paper); color:var(--ink); line-height:1.6; margin:0; padding:0; }
+.container { max-width:min(95vw, 760px); margin:0 auto; padding:28px 20px 60px; }
+.topnav { position:fixed; top:12px; left:14px; z-index:50; font-family:var(--sans); font-size:.75rem; background:var(--paper); border:1px solid var(--line); padding:5px 10px; border-radius:999px; }
+.topnav a { color:var(--muted); text-decoration:none; font-weight:600; }
+.topnav a:hover { color:var(--accent); }
+h1 { font-size:1.6rem; margin:2.2rem 0 1rem; border-bottom:2px solid var(--accent); padding-bottom:.3rem; }
+h2 { font-size:1.3rem; margin:1.8rem 0 .8rem; color:var(--accent); }
+h3 { font-size:1.1rem; margin:1.4rem 0 .6rem; }
+p { margin:.8rem 0; }
+.authors { font-style:italic; color:var(--muted); margin-top:-.4rem; }
+.meta { font-family:var(--sans); font-size:.82rem; color:var(--muted); margin:.2rem 0; }
+a { color:var(--accent); text-decoration:none; }
+a:hover { text-decoration:underline; }
+blockquote { border-left:3px solid var(--accent); margin:1rem 0; padding:.2rem 0 .2rem 1rem; color:var(--muted); font-style:italic; }
+code { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; background:#f0f0f0; padding:2px 5px; border-radius:3px; font-size:.9em; }
+pre { background:#f5f5f5; padding:14px; overflow-x:auto; border-radius:4px; border:1px solid var(--line); }
+pre code { background:transparent; padding:0; }
+ul,ol { margin:.6rem 0; padding-left:1.5rem; }
+li { margin:.25rem 0; }
+table { border-collapse:collapse; width:100%; margin:1rem 0; font-family:var(--sans); font-size:.9rem; }
+th,td { border:1px solid var(--line); padding:6px 10px; text-align:left; }
+th { background:#f0f0f0; }
+hr { border:none; border-top:1px solid var(--line); margin:1.5rem 0; }
+.note { font-family:var(--sans); font-size:.78rem; color:var(--muted); border-top:1px solid var(--line); margin-top:2rem; padding-top:1rem; }
+@media (max-width: 600px) { .container { padding:22px 14px 40px; } h1 { font-size:1.35rem; } }
+</style>
+</head>
+<body>
+<div class="topnav"><a href="./index.html">← Today's digest</a></div>
+<div class="container">
+<h1>Latent Phase-Shift Rollback: Inference-Time Error Correction via Residual Stream Monitoring and KV-Cache Steering</h1>
+<p class="meta">arXiv: 2604.18567</p>
+<p class="meta">Date: 2026-04-21</p>
+<p class="meta"><a href="https://arxiv.org/abs/2604.18567">https://arxiv.org/abs/2604.18567</a></p>
+<blockquote><strong>一句话总结：</strong> LPSR 通过监控 Transformer 残差流中间层的余弦相似度"相位反转"信号，在检测到推理错误时回退 KV-Cache 并注入预计算的校正向量，无需微调即可将 Llama-3-8B 在 MATH-500 上的准确率从 28.8% 提升至 44.0%，甚至超过 Llama-3-70B 的标准解码。</blockquote>
+<blockquote><strong>TL;DR:</strong> LPSR monitors the residual stream at a critical layer for cosine-similarity phase shifts (directional reversals), rolls back the KV-cache and injects pre-computed steering vectors when errors are detected -- all without fine-tuning. It achieves 44.0% on MATH-500 with an 8B model, surpassing standard 70B decoding (35.2%), Best-of-16 (36.2%), and prompted self-correction (19.8%).</blockquote>
+<h2>核心贡献</h2>
+<ul>
+<li>提出 LPSR 算法：在推理时实时监控残差流，通过余弦相似度 + 熵的双门控机制检测"相位反转"信号，回退 KV-Cache 并注入校正向量，无需微调或额外前向传播。</li>
+<li>在 MATH-500 上以 8B 模型达到 44.0%，超过所有 8B 基线和标准 70B 模型（35.2%），且 token 开销仅为标准解码的约 3 倍。</li>
+<li>发现"检测-校正分离"现象：错误检测 AUC 在第 14 层最高（0.718），但任务准确率在第 16 层最高（44.0% vs. 29.2%），表明最优监控深度在检测和校正两个目标间存在根本差异。</li>
+<li>实证表明提示式自我纠正确认会主动降低性能（19.8%，比标准自回归低 9 pp），为残差流监控方法的必要性提供了系统性证据。</li>
+<li>对 50 个 LPSR 纠正案例进行错误类型分析，发现变量混淆（34%）和算术失误（16%）是最主要的可纠正错误类型。</li>
+</ul>
+<h2>Key Contributions</h2>
+<ul>
+<li>Introduces the LPSR algorithm: a training-free inference-time method that monitors residual streams, detects phase shifts via a cosine-similarity + entropy dual gate, and applies KV-cache rollback with steering vector injection.</li>
+<li>Achieves 44.0% on MATH-500 with an 8B model, outperforming all 8B baselines and a standard 70B model (35.2%) at roughly 3x the token budget of greedy decoding.</li>
+<li>Discovers a novel "detection-correction dissociation": error-detection AUC peaks at layer 14 (0.718) but task accuracy peaks at layer 16 (44.0% vs. 29.2%), showing optimal monitoring depth differs for detection and correction.</li>
+<li>Provides systematic empirical evidence that prompted self-correction actively degrades performance (19.8%, 9 pp below standard AR), motivating residual-stream-based approaches.</li>
+<li>Characterizes correctable error types: variable confusion (34%) and arithmetic slips (16%) dominate, with Geometry benefiting most (+34.2 pp).</li>
+</ul>
+<h2>Methodology</h2>
+<p>LPSR operates in three stages during autoregressive generation:</p>
+<ol>
+<li><strong>Phase-shift detection.</strong> At each generation step t, the residual stream hidden state $h_t^{(\ell_{\text{crit}})}$ at a critical layer ($\ell_{\text{crit}}=16$) is extracted via a forward hook. The cosine similarity between consecutive directional vectors is computed: $c_t = \langle v_t, v_{t-1} \rangle$. A "phase shift" is declared when $c_t < -\tau_\phi$ (i.e., the representation reverses direction). To reduce false positives from near-deterministic tokens (e.g., punctuation), an entropy gate $H_t > \tau_H$ is applied as a dual authentication condition. This dual-gate design achieves precision 0.784 with FPR 0.220.</li>
+</ol>
+<ol>
+<li><strong>Steering vector selection.</strong> A basis $\mathcal{V}$ of K=142 unit-norm steering vectors is pre-computed from a calibration set of 1,000 MATH training problems. Correction deltas are extracted by comparing teacher-forced correct trajectories with standard AR trajectories at the first phase-shift step, then clustered via k-means (k=256, orthogonalized to 142). At inference, the basis vector most aligned with the current hidden state is selected via FAISS max-inner-product search in <0.1 ms.</li>
+</ol>
+<ol>
+<li><strong>KV-cache rollback and injection.</strong> When a phase shift is authenticated: (a) the KV-cache is rolled back to step t-1, discarding the last token; (b) the selected steering vector $\delta^<em>$ is injected into the layer-$\ell_{\text{crit}}$ output as $h_t += \alpha \cdot \delta^</em>$ with adaptive scale $\alpha = \alpha_{\max} = 0.1$; (c) the model re-decodes from the corrected state. No additional forward passes beyond the re-decode are needed.</li>
+</ol>
+<p>The method requires no fine-tuning, gradient computation, or architectural changes. It adds <0.1% overhead per step when no rollback fires.</p>
+<h2>Results & Highlights</h2>
+<ul>
+<li><strong>MATH-500</strong>: LPSR achieves 44.0% [95% CI: 39.8-48.2%] vs. Standard AR 28.8% (+15.2 pp, McNemar $\chi^2=66.96$, $p<10^{-15}$).</li>
+<li><strong>vs. Prompted Self-Correction</strong>: LPSR exceeds PSC (19.8%) by +24.2 pp ($\chi^2=89.4$); PSC is 9 pp below standard AR, confirming that natural-language self-verification actively hurts at this scale.</li>
+<li><strong>vs. Best-of-16</strong>: LPSR outperforms Bo-16 (36.2%) by +7.8 pp ($\chi^2=13.25$, $p=0.0003$) at 5.4x lower token cost (752 vs. 4,070 tokens/problem).</li>
+<li><strong>vs. 70B model</strong>: LPSR (8B) surpasses Llama-3-70B standard AR (35.2%) by +8.8 pp with 8.75x fewer parameters.</li>
+<li><strong>GSM8K</strong>: 81.6% (vs. 79.8% standard AR); smaller gains because rollbacks fire less frequently on easier problems (8.3% vs. 62% on MATH-500).</li>
+<li><strong>AIME</strong>: No significant difference (all methods score 8.3% on 60 problems), likely due to extreme difficulty and generation-length constraints.</li>
+<li><strong>Difficulty stratification</strong>: Gains peak at Level 3 (+20.0 pp); LPSR at 8B exceeds 70B standard AR at every difficulty level.</li>
+<li><strong>Subject analysis</strong>: Geometry benefits most (+34.2 pp); Precalculus least (+7.1 pp).</li>
+<li><strong>Computational cost</strong>: Mean 1.61 rollbacks/problem; ~3x token budget of greedy decoding.</li>
+</ul>
+<h2>Authors & Credibility</h2>
+<p>The authors are Manan Gupta and Dhruv Kumar from BITS Pilani, Pilani Campus, India. The paper is marked as "Under Review." The experimental methodology is thorough: McNemar's tests with matched problem pairs for significance, bootstrap 95% CIs, a 32-layer sweep, and extensive ablations (hyperparameter sensitivity, rollback depth, basis size, entropy gate contribution). Appendices include theoretical analysis (concentration inequality bounds on phase-shift error probability, greedy optimality of FAISS retrieval), complete results tables, and implementation details. Code and pre-computed basis files are provided as supplementary material.</p>
+<h2>Critical Assessment</h2>
+<ul>
+<li><strong>Novelty</strong>: High. The combination of residual-stream phase-shift detection, KV-cache rollback for error recovery, and the discovery of detection-correction dissociation across layers is genuinely novel. The finding that monitoring depth should be selected by correction quality rather than detection AUC is a new design principle.</li>
+<li><strong>Rigor</strong>: Generally strong. McNemar tests on matched pairs, bootstrap CIs, grid-search on held-out validation split (100 problems) separate from test set (500) and calibration set (1,000). Three-seed stability verified ($\sigma < 0.003$). However, the calibration set and test set both come from MATH, which limits generalization claims. The 70B baseline is API-evaluated at 35.2% (published results report ~41-42%), and the authors acknowledge this narrows LPSR's advantage to ~2-3 pp against the published figure.</li>
+<li><strong>Reproducibility</strong>: Good. Single fixed hyperparameter set, fixed seed, code and basis files provided. Hardware specified (single A6000 48GB). FAISS index and calibration procedure documented.</li>
+<li><strong>Significance</strong>: High for inference-time compute and mechanistic interpretability. The detection-correction dissociation finding has implications beyond the specific method. The evidence that prompted self-correction actively degrades performance is a useful empirical datapoint. However, limited to mathematical reasoning with a single model family (Llama-3-8B-Instruct).</li>
+<li><strong>Red flags</strong>: (1) The calibration set uses gold-solution teacher-forced trajectories from MATH training data -- the steering basis is domain-specific and a preliminary test on HumanEval showed only +2.1%. (2) The phase-shift detector has low recall (0.267), meaning ~73% of errors go undetected; the method corrects only a small, high-confidence subset. (3) AIME results are null, raising questions about scalability to truly hard problems. (4) The 70B comparison is somewhat unfair due to API evaluation conditions; the authors' own acknowledgment that using published 70B numbers narrows the gap to ~2 pp weakens the headline claim. (5) The theoretical analysis relies on an isotropic Gaussian approximation that is a strong assumption for structured residual-stream geometry.</li>
+</ul>
+<h2>Strengths</h2>
+<ul>
+<li>Training-free and model-agnostic: no fine-tuning, gradient computation, or architectural changes required.</li>
+<li>Strong empirical gains on MATH-500 with rigorous statistical testing.</li>
+<li>Novel discovery of detection-correction dissociation across transformer depth -- a principled finding that extends beyond this specific method.</li>
+<li>Clear and thorough ablation studies decomposing the contributions of each design choice (dual gate, entropy filter, rollback depth, basis size).</li>
+<li>Efficient: only ~3x token budget overhead with FAISS queries <0.1 ms.</li>
+<li>Honest about limitations, including the null AIME result and domain-specificity of the calibration.</li>
+</ul>
+<h2>Limitations</h2>
+<ul>
+<li><strong>Domain specificity</strong>: The steering basis is calibrated on MATH training data and does not transfer well to other domains (preliminary HumanEval result: +2.1%). Deployment on coding, logical reasoning, or safety-critical tasks would require domain-specific recalibration.</li>
+<li><strong>Low recall</strong>: The detector only catches ~27% of errors; the majority of mistakes pass undetected. Gains come from high-confidence corrections on a small subset.</li>
+<li><strong>Scale uncertainty</strong>: Only tested at 8B; larger models may have more distributed error representations, reducing single-layer monitoring effectiveness.</li>
+<li><strong>Layer sensitivity</strong>: Performance is strongly dependent on $\ell_{\text{crit}}$; a poorly chosen layer can be catastrophic (layer 14: 29.2% vs. layer 16: 44.0%).</li>
+<li><strong>AIME null result</strong>: No improvement on the hardest benchmark, limiting claims about scalability to frontier-level difficulty.</li>
+<li><strong>70B comparison caveats</strong>: API evaluation yields 35.2% vs. published ~41-42%, meaning the headline 70B comparison advantage may be overstated by ~6 pp.</li>
+<li><strong>Compute ceiling</strong>: On problems with many rollbacks, overhead can reach 10x standard AR; no budget constraint mechanism explored.</li>
+</ul>
+<h2>Relevance</h2>
+<p>本文与隐藏状态分析和推理可靠性高度相关。LPSR 通过监控残差流中间层的几何方向变化来检测推理错误，直接利用了隐藏状态的内部结构进行推理时的实时纠错，为"模型内部表征是否能忠实地反映推理正确性"这一问题提供了实证支持和具体操作方案。</p>
+<h2>Questions for Further Exploration</h2>
+<ul>
+<li>How does LPSR perform with multi-layer monitoring (e.g., monitoring layers 14 and 16 simultaneously for detection and correction respectively)?</li>
+<li>Can the detection-correction dissociation be explained by specific circuit-level mechanisms in the transformer, and does it generalize across model architectures (e.g., Mistral, Gemma)?</li>
+<li>What is the relationship between phase shifts and the model's uncertainty calibration -- do phase shifts correlate with high-entropy token distributions in a systematic way?</li>
+<li>Could the steering basis be learned online (without a pre-computed calibration set) to enable domain-agnostic deployment?</li>
+<li>How does LPSR interact with chain-of-thought prompting, process reward models, or "thinking" models like DeepSeek-R1 -- are the gains complementary or redundant?</li>
+<li>What happens when LPSR is applied to non-mathematical reasoning tasks (e.g., logical deduction, code debugging, multi-hop QA)?</li>
+<li>Can the phase-shift detector be used as a training signal for process reward models, providing labels for where reasoning goes wrong?</li>
+</ul>
+<p class="note">Generated from Markdown summary. Full paper: <a href="https://arxiv.org/abs/2604.18567">arXiv:2604.18567</a></p>
+</div>
+</body>
+</html>

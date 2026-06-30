@@ -1,0 +1,500 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Soft-Elo — Conformal Elo Estimation for LLM Evaluation</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=Source+Sans+3:ital,wght@0,300;0,400;0,600;0,700;1,400&display=swap');
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg: #FAFAF7;
+  --fg: #1A1A18;
+  --muted: #6B6B63;
+  --accent: #B84A1C;
+  --accent-light: #F5E6DB;
+  --card-bg: #F0EFE9;
+  --border: #D8D7D0;
+  --radius: 3px;
+  --width: min(95vw, 1100px);
+}
+
+html { font-size: 16px; -webkit-font-smoothing: antialiased; }
+
+body {
+  font-family: 'Source Sans 3', 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  background: var(--bg);
+  color: var(--fg);
+  line-height: 1.75;
+  padding: 0 0 4rem 0;
+}
+
+/* ---- back link ---- */
+.back-link {
+  position: fixed;
+  top: 1rem;
+  left: 1rem;
+  z-index: 100;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--muted);
+  text-decoration: none;
+  letter-spacing: 0.02em;
+  background: var(--bg);
+  padding: 0.3em 0.7em;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  transition: color 0.15s, border-color 0.15s;
+}
+.back-link:hover { color: var(--accent); border-color: var(--accent); }
+
+/* ---- page container ---- */
+.page { max-width: var(--width); margin: 0 auto; padding: 2.5rem 1.5rem 0; }
+
+/* ---- hero ---- */
+.hero {
+  margin-top: 2rem;
+  padding-bottom: 2rem;
+  border-bottom: 1px solid var(--border);
+}
+.hero-finding {
+  font-family: 'DM Serif Display', Georgia, serif;
+  font-size: clamp(1.65rem, 4vw, 2.55rem);
+  line-height: 1.25;
+  color: var(--fg);
+  max-width: 52ch;
+  letter-spacing: -0.01em;
+}
+.hero-finding em {
+  font-style: normal;
+  color: var(--accent);
+}
+.hero-meta {
+  margin-top: 1rem;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.6rem 1.2rem;
+  font-size: 0.88rem;
+  color: var(--muted);
+}
+.hero-meta .paper-title {
+  font-weight: 600;
+  color: var(--fg);
+  text-decoration: none;
+  border-bottom: 1px solid var(--border);
+  transition: border-color 0.15s, color 0.15s;
+}
+.hero-meta .paper-title:hover { border-color: var(--accent); color: var(--accent); }
+.hero-meta .authors { font-weight: 400; }
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-top: 0.65rem;
+}
+.chip {
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 0.2em 0.65em;
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  color: var(--muted);
+  background: transparent;
+  transition: color 0.15s, border-color 0.15s;
+}
+.chip:hover { color: var(--accent); border-color: var(--accent); }
+
+/* ---- asset row ---- */
+.asset-row {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1rem;
+  margin-top: 2rem;
+}
+
+.asset-card {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1.25rem 1.3rem;
+  position: relative;
+}
+.asset-card .label {
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  margin-bottom: 0.5rem;
+}
+.asset-card .value {
+  font-size: 0.95rem;
+  line-height: 1.55;
+  color: var(--fg);
+}
+
+/* metric card special */
+.asset-card.metric .big-num {
+  font-family: 'DM Serif Display', Georgia, serif;
+  font-size: 2.4rem;
+  line-height: 1;
+  color: var(--accent);
+  letter-spacing: -0.02em;
+}
+.asset-card.metric .metric-sub {
+  font-size: 0.82rem;
+  color: var(--muted);
+  margin-top: 0.35rem;
+}
+.asset-card.metric .metric-detail {
+  font-size: 0.85rem;
+  line-height: 1.5;
+  margin-top: 0.6rem;
+  color: var(--fg);
+}
+
+/* critical card */
+.asset-card.critical {
+  border-left: 3px solid var(--accent);
+}
+.asset-card.critical .value {
+  font-size: 0.92rem;
+  font-style: italic;
+  color: var(--muted);
+}
+
+/* ---- body grid ---- */
+.body-grid {
+  margin-top: 2.5rem;
+  display: grid;
+  gap: 2rem;
+}
+
+.section { }
+.section-head {
+  font-family: 'DM Serif Display', Georgia, serif;
+  font-size: 1.2rem;
+  color: var(--fg);
+  margin-bottom: 0.7rem;
+  padding-bottom: 0.35rem;
+  border-bottom: 1px solid var(--border);
+}
+.section-body {
+  font-size: 0.9rem;
+  line-height: 1.7;
+  color: var(--fg);
+}
+.section-body ul {
+  list-style: none;
+  padding: 0;
+}
+.section-body li {
+  position: relative;
+  padding-left: 1.1em;
+  margin-bottom: 0.45em;
+}
+.section-body li::before {
+  content: '→';
+  position: absolute;
+  left: 0;
+  color: var(--accent);
+  font-weight: 700;
+  font-size: 0.85em;
+}
+
+/* side-by-side */
+.duo {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.5rem;
+}
+.duo .section-head { font-size: 1.05rem; }
+
+/* methodology steps */
+.steps {
+  display: grid;
+  gap: 0.75rem;
+}
+.step {
+  display: flex;
+  gap: 0.8rem;
+  align-items: flex-start;
+  font-size: 0.88rem;
+  line-height: 1.6;
+}
+.step-num {
+  flex-shrink: 0;
+  width: 1.6rem;
+  height: 1.6rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: 'DM Serif Display', Georgia, serif;
+  font-size: 0.85rem;
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: 50%;
+  margin-top: 0.15rem;
+}
+.step-text { flex: 1; }
+
+/* results grid */
+.result-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 0.75rem;
+}
+.result-item {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.9rem 1rem;
+}
+.result-item .ri-label {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  margin-bottom: 0.3rem;
+}
+.result-item .ri-value {
+  font-family: 'DM Serif Display', Georgia, serif;
+  font-size: 1.15rem;
+  color: var(--accent);
+}
+.result-item .ri-desc {
+  font-size: 0.82rem;
+  color: var(--muted);
+  margin-top: 0.2rem;
+}
+
+/* questions */
+.q-list {
+  list-style: none;
+  padding: 0;
+  counter-reset: q;
+}
+.q-list li {
+  counter-increment: q;
+  position: relative;
+  padding-left: 2.4em;
+  margin-bottom: 0.7em;
+  font-size: 0.9rem;
+  line-height: 1.6;
+}
+.q-list li::before {
+  content: 'Q' counter(q);
+  position: absolute;
+  left: 0;
+  font-family: 'DM Serif Display', Georgia, serif;
+  font-size: 0.9rem;
+  color: var(--accent);
+}
+
+/* footer */
+.footer {
+  margin-top: 3rem;
+  padding-top: 1.2rem;
+  border-top: 1px solid var(--border);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+.footer a {
+  color: var(--accent);
+  text-decoration: none;
+  font-weight: 600;
+}
+.footer a:hover { text-decoration: underline; }
+
+/* ---- responsive ---- */
+@media (max-width: 720px) {
+  .asset-row { grid-template-columns: 1fr; }
+  .duo { grid-template-columns: 1fr; }
+  .hero-finding { max-width: 100%; }
+  .result-grid { grid-template-columns: 1fr; }
+  .page { padding: 2rem 1rem 0; }
+  .back-link { top: 0.5rem; left: 0.5rem; font-size: 0.75rem; }
+}
+
+/* ---- entrance animation ---- */
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.hero        { animation: fadeUp 0.45s ease-out both; }
+.asset-row   { animation: fadeUp 0.45s ease-out 0.08s both; }
+.body-grid > *:nth-child(1) { animation: fadeUp 0.45s ease-out 0.16s both; }
+.body-grid > *:nth-child(2) { animation: fadeUp 0.45s ease-out 0.22s both; }
+.body-grid > *:nth-child(3) { animation: fadeUp 0.45s ease-out 0.28s both; }
+.body-grid > *:nth-child(4) { animation: fadeUp 0.45s ease-out 0.34s both; }
+</style>
+</head>
+<body>
+
+<a class="back-link" href="./index.html">↩ Today's digest</a>
+
+<div class="page">
+
+  <!-- HERO -->
+  <header class="hero">
+    <h1 class="hero-finding">
+      <em>Soft-Elo</em> calibrates LLM-judge score differences into soft probabilities for Bradley-Terry, cutting Elo error 61% with conformal uncertainty intervals.
+    </h1>
+    <div class="hero-meta">
+      <a class="paper-title" href="https://arxiv.org/abs/2606.13221">From Uncertain Judgments to Calibrated Rankings</a>
+      <span class="authors">Bora Kargi &amp; David Salinas · ELLIS Institute Tübingen</span>
+      <span>2026-06-11</span>
+    </div>
+    <div class="chips">
+      <span class="chip">LLM Evaluation</span>
+      <span class="chip">Elo Rating</span>
+      <span class="chip">Conformal Prediction</span>
+      <span class="chip">LLM-as-a-Judge</span>
+      <span class="chip">Bradley-Terry</span>
+    </div>
+  </header>
+
+  <!-- ASSET ROW -->
+  <section class="asset-row">
+
+    <div class="asset-card metric">
+      <div class="label">Key Metric</div>
+      <div class="big-num">45.9 → 17.9</div>
+      <div class="metric-sub">Mean Elo MAE across 8 judges, 55 held-out models</div>
+      <div class="metric-detail">Conformal interval widths shrink 39–70% while maintaining ≈90% coverage. Calibration ECE drops from 0.14 to 0.03.</div>
+    </div>
+
+    <div class="asset-card">
+      <div class="label">Why This Matters</div>
+      <div class="value">Gives teams using LLM-as-a-judge near-human Elo scores and interpretable uncertainty intervals at low cost — revealing scale distortion that rank-only metrics hide.</div>
+    </div>
+
+    <div class="asset-card critical">
+      <div class="label">Critical Edge</div>
+      <div class="value">Conformal coverage is marginal, not conditional, and may fail under distribution shifts — new model families, prompt distributions, or temporal drift.</div>
+    </div>
+
+  </section>
+
+  <!-- BODY -->
+  <div class="body-grid">
+
+    <!-- METHODOLOGY -->
+    <section class="section">
+      <h2 class="section-head">Methodology</h2>
+      <div class="steps">
+        <div class="step">
+          <span class="step-num">1</span>
+          <div class="step-text"><strong>Score collection.</strong> Each of 8 LLM judges scores ~25K battles across 55 models on LMArena. Scores averaged over 6 dimensions (1–10 scale), position-swapped to reduce bias.</div>
+        </div>
+        <div class="step">
+          <span class="step-num">2</span>
+          <div class="step-text"><strong>Soft probability mapping.</strong> Score difference <em>s(x)</em> is mapped through a learned temperature <em>β</em> to a calibrated soft preference probability <em>σ(β · s(x))</em>, replacing hard {0, 0.5, 1} labels.</div>
+        </div>
+        <div class="step">
+          <span class="step-num">3</span>
+          <div class="step-text"><strong>Bradley-Terry Elo.</strong> Soft targets are fed into the standard BT model. Temperature is fitted per judge via leave-one-model-out CV using human non-tie battles.</div>
+        </div>
+        <div class="step">
+          <span class="step-num">4</span>
+          <div class="step-text"><strong>Conformal intervals.</strong> LLM-human Elo residuals are normalized by bootstrap SE, yielding nonconformity scores. Split conformal prediction produces distribution-free prediction intervals for new models.</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- RESULTS -->
+    <section class="section">
+      <h2 class="section-head">Results &amp; Highlights</h2>
+      <div class="result-grid">
+        <div class="result-item">
+          <div class="ri-label">Elo MAE Reduction</div>
+          <div class="ri-value">45.9 → 17.9</div>
+          <div class="ri-desc">Average across 8 judges; best per-judge drop: 73%</div>
+        </div>
+        <div class="result-item">
+          <div class="ri-label">Interval Width</div>
+          <div class="ri-value">39–70% narrower</div>
+          <div class="ri-desc">Median conformal width drops from 132–261 to 74–144 Elo</div>
+        </div>
+        <div class="result-item">
+          <div class="ri-label">Coverage</div>
+          <div class="ri-value">92–96%</div>
+          <div class="ri-desc">Near-nominal 90%; comparable to Hard-Elo</div>
+        </div>
+        <div class="result-item">
+          <div class="ri-label">Rank Stability</div>
+          <div class="ri-value">Δρ ≈ 0</div>
+          <div class="ri-desc">Spearman ρ change under −0.011 to +0.014; ranking preserved</div>
+        </div>
+        <div class="result-item">
+          <div class="ri-label">Calibration ECE</div>
+          <div class="ri-value">0.14 → 0.03</div>
+          <div class="ri-desc">Raw σ(s) vs fitted σ(β*s)</div>
+        </div>
+        <div class="result-item">
+          <div class="ri-label">Sample Efficiency</div>
+          <div class="ri-value">Better at low N</div>
+          <div class="ri-desc">Soft-Elo advantage grows when human annotations are scarce</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- STRENGTHS / LIMITATIONS side-by-side -->
+    <div class="duo">
+      <section class="section">
+        <h2 class="section-head">Strengths</h2>
+        <div class="section-body">
+          <ul>
+            <li>Identifies the real failure mode of LLM-judge Elo: <strong>scale distortion</strong>, not ranking error.</li>
+            <li>Simple and modular — plugs into existing BT + conformal pipelines without changing the ranking model.</li>
+            <li>Strong empirical evidence across 8 diverse judges on a real leaderboard dataset (LMArena).</li>
+            <li>Honest, calibrated uncertainty intervals at model level — exactly what practitioners need to report.</li>
+          </ul>
+        </div>
+      </section>
+      <section class="section">
+        <h2 class="section-head">Limitations</h2>
+        <div class="section-body">
+          <ul>
+            <li>Requires judges that output continuous score differences; not all LLM-as-a-judge setups provide this.</li>
+            <li>Does not correct judge-specific biases (self-preference, verbosity) beyond position-swap averaging.</li>
+            <li>Conformal intervals assume exchangeability across model families and prompt distributions.</li>
+            <li>Needs a calibration pool of models with known human Elo; intervals degrade under distribution shift.</li>
+            <li>Average MAE 17.9 masks per-judge range of 13.6–24.5 — judge quality still matters.</li>
+          </ul>
+        </div>
+      </section>
+    </div>
+
+    <!-- QUESTIONS -->
+    <section class="section">
+      <h2 class="section-head">Open Questions</h2>
+      <ol class="q-list">
+        <li>How does Soft-Elo perform when the judge is explicitly debiased for verbosity, self-preference, or style before score calibration?</li>
+        <li>Can conformal calibration be made conditionally valid over model families or prompt domains?</li>
+        <li>What is the minimum human-Elo calibration pool size needed for reliable intervals in deployment?</li>
+        <li>Does the same score-difference calibration transfer to reward-model training or RLHF preference modeling?</li>
+      </ol>
+    </section>
+
+  </div><!-- body-grid -->
+
+  <footer class="footer">
+    <span>arXiv 2606.13221 · Code: <a href="https://github.com/kargibora/SoftElo">github.com/kargibora/SoftElo</a></span>
+    <a href="2606.13221.html">↗ Markdown source</a>
+  </footer>
+
+</div><!-- page -->
+
+</body>
+</html>

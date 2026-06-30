@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RAS: Measuring LLM Safety Through Refusal Alignment</title>
+<style>
+:root { --paper:#fafafa; --ink:#1a1a1a; --muted:#555; --accent:#1a5276; --line:#ddd; --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif; --serif:Georgia,"Noto Serif SC",serif; }
+body { font-family:var(--serif); background:var(--paper); color:var(--ink); line-height:1.6; margin:0; padding:0; }
+.container { max-width:min(95vw, 760px); margin:0 auto; padding:28px 20px 60px; }
+.topnav { position:fixed; top:12px; left:14px; z-index:50; font-family:var(--sans); font-size:.75rem; background:var(--paper); border:1px solid var(--line); padding:5px 10px; border-radius:999px; }
+.topnav a { color:var(--muted); text-decoration:none; font-weight:600; }
+.topnav a:hover { color:var(--accent); }
+h1 { font-size:1.6rem; margin:2.2rem 0 1rem; border-bottom:2px solid var(--accent); padding-bottom:.3rem; }
+h2 { font-size:1.3rem; margin:1.8rem 0 .8rem; color:var(--accent); }
+h3 { font-size:1.1rem; margin:1.4rem 0 .6rem; }
+p { margin:.8rem 0; }
+.authors { font-style:italic; color:var(--muted); margin-top:-.4rem; }
+.meta { font-family:var(--sans); font-size:.82rem; color:var(--muted); margin:.2rem 0; }
+a { color:var(--accent); text-decoration:none; }
+a:hover { text-decoration:underline; }
+blockquote { border-left:3px solid var(--accent); margin:1rem 0; padding:.2rem 0 .2rem 1rem; color:var(--muted); font-style:italic; }
+code { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; background:#f0f0f0; padding:2px 5px; border-radius:3px; font-size:.9em; }
+pre { background:#f5f5f5; padding:14px; overflow-x:auto; border-radius:4px; border:1px solid var(--line); }
+pre code { background:transparent; padding:0; }
+ul,ol { margin:.6rem 0; padding-left:1.5rem; }
+li { margin:.25rem 0; }
+table { border-collapse:collapse; width:100%; margin:1rem 0; font-family:var(--sans); font-size:.9rem; }
+th,td { border:1px solid var(--line); padding:6px 10px; text-align:left; }
+th { background:#f0f0f0; }
+hr { border:none; border-top:1px solid var(--line); margin:1.5rem 0; }
+.note { font-family:var(--sans); font-size:.78rem; color:var(--muted); border-top:1px solid var(--line); margin-top:2rem; padding-top:1rem; }
+@media (max-width: 600px) { .container { padding:22px 14px 40px; } h1 { font-size:1.35rem; } }
+</style>
+</head>
+<body>
+<div class="topnav"><a href="./index.html">← Today's digest</a></div>
+<div class="container">
+<h1>RAS: Measuring LLM Safety Through Refusal Alignment</h1>
+<p class="meta">arXiv: 2606.25750</p>
+<p class="meta">Date: 2026-06-24</p>
+<p class="meta"><a href="https://arxiv.org/abs/2606.25750">https://arxiv.org/abs/2606.25750</a></p>
+<blockquote><strong>一句话总结：</strong> 本文提出 SafeVec 白盒评测流程，从安全对齐参考模型中逐层提取"拒绝方向"，通过测量目标模型隐藏状态与该方向的余弦对齐程度，并经家族特异性校准映射为 0–100 的 RAS 分数；在 Llama/Gemma/Qwen 上能区分对齐、未审查与消融模型、与攻击成功率(ASR)趋势一致，且平均比判官式评测快约 210 倍，但仅适用于可获取隐藏状态的开权重模型。</blockquote>
+<blockquote><strong>TL;DR:</strong> A white-box safety metric (RAS) that measures LLM safety from internal hidden states rather than generated outputs. SafeVec extracts layer-wise "refusal directions" from a safety-aligned reference model, selects a stable layer window, and scores a target model by how strongly its hidden states align with that refusal direction under unsafe/jailbreak prompts, mapping raw cosine similarities to a calibrated 0–100 score. Across Llama-3.1-8B, Gemma-3-4B, and Qwen2.5-7B, RAS cleanly separates aligned vs. uncensored/abliterated variants, tracks output-level attack success rate, and runs ~210× faster than judge-based evaluation — but only works for open-weight models with hidden-state access and is calibrated per family, not as a strict per-model ASR clone.</blockquote>
+<h2>核心贡献</h2>
+<ul>
+<li>提出 <strong>SafeVec</strong>：一种基于表征层的白盒 LLM 安全评测流程，从安全对齐参考模型逐层提取"拒绝方向"(refusal direction = μ_unsafe − μ_safe 归一化)，不再依赖输出/判官。</li>
+<li>提出 <strong>RAS (Refusal Alignment Score)</strong>：通过家族特异性校准(坏锚点尺度 ba、严重度斜率 α、架构乘子 γa、sigmoid 映射)把原始余弦相似度映射为可比较的 0–100 安全分数。</li>
+<li>设计稳定层窗口选择准则(基于 unsafe 余弦均值、safe 抑制分数与 separation gap)，并为 Llama(22–30)、Gemma(27–29)、Qwen(22–26) 分别选定窗口。</li>
+<li>在三大模型族上验证：RAS 能区分对齐/未审查/abliterated 模型，与 ASR 趋势一致，跨族可泛化，且平均快约 210 倍(单次目标评分约 14 秒 vs 判官式约 2969 秒)。</li>
+<li>明确将 RAS 定位为行为评测的"补充"而非替代：衡量的是模型"内部是否进入拒绝状态"，而非是否最终拒绝。</li>
+</ul>
+<h2>Key Contributions</h2>
+<ul>
+<li><strong>SafeVec</strong>, a white-box, representation-level safety evaluation procedure that extracts per-layer refusal directions from a safety-aligned reference model and scores targets by hidden-state alignment instead of generated text.</li>
+<li><strong>RAS (Refusal Alignment Score)</strong>, a calibrated 0–100 metric that maps architecture-specific raw cosine similarities into a comparable safety scale using a bad-anchor scale, severity slope, architecture multiplier, and sigmoid transform.</li>
+<li>A principled <strong>layer-window selection</strong> criterion (based on unsafe cosine mean, safe-suppression score, and separation gap), yielding family-specific windows (Llama 22–30, Gemma 27–29, Qwen 22–26).</li>
+<li>Empirical validation across Llama-3.1-8B, Gemma-3-4B, and Qwen2.5-7B showing RAS separates aligned/uncensored/abliterated variants, tracks ASR, generalizes across families with calibration, and is ~210× faster on average.</li>
+<li>A clear scoping of RAS as a <strong>complementary</strong> white-box auditing/regression-testing signal rather than a replacement for behavioral evaluation.</li>
+</ul>
+<h2>Methodology</h2>
+<p>SafeVec is a five-stage white-box procedure. The evaluator needs hidden-state (residual-stream) access to the target model, plus three prompt sets (safe S, unsafe U, jailbreak J) and a per-family safety-aligned reference model <code>M_ref,a</code> with a small calibration set <code>C_a</code> of aligned/uncensored/abliterated variants.</p>
+<ol>
+<li><strong>Refusal direction extraction.</strong> For each decoder layer l, feed safe/unsafe prompts into the reference model, take last-token residual-stream activations, compute mean safe/unsafe activations, and define the refusal direction <code>r_l = μ_unsafe_l − μ_safe_l</code>, normalized to <code>r̂_l</code>. Intuition: it captures how the representation shifts when processing unsafe vs. safe requests.</li>
+</ol>
+<ol>
+<li><strong>Layer window selection.</strong> Not all layers are informative (early layers encode lexical info, late layers affected by readout). Per layer compute the unsafe cosine mean, safe-suppression score <code>q_l = −m_safe_l</code>, and separation gap <code>g_l = m_unsafe_l − m_safe_l</code>. Pick a consecutive stable window W where the gap is large and stable, validated against calibration models (safer models should align more).</li>
+</ol>
+<ol>
+<li><strong>Calibration model scoring.</strong> For each calibration model compute average cosine alignment on unsafe and jailbreak prompts:</li>
+</ol>
+<p><code>UnsafeScore(M) = mean_{l∈W,u∈U} cos(h_l^M(u), r̂_l)</code> and analogously <code>JailbreakScore(M)</code>.</p>
+<ol>
+<li><strong>RAS calibration.</strong> Combined score <code>s(M) = w_u·UnsafeScore + w_j·JailbreakScore</code> with <code>w_u = w_j = 0.5</code>. Refusal drop <code>d(M) = s_ref − s(M)</code>. A bad-anchor scale <code>b_a</code> is estimated (median of high-risk subset with <code>d > 0</code> and <code>ASR ≥ τ=0.8</code>, or 0.9-quantile fallback). Normalized drop <code>d̃(M) = d(M)/b_a</code>. A per-architecture severity slope <code>α_a</code> and a shrink-controlled multiplier <code>γ_a</code> (λ=0.5) translate normalized drops to ASR-equivalent severity, giving aligned drop <code>d_aligned(M) = γ_a·d̃(M)</code>. Finally a sigmoid maps to 0–100: <code>RAS(M) = 100 / (1 + exp(β(d_aligned(M) − c)))</code> with <code>c = 0.75</code>, <code>β = 5.0</code>.</li>
+</ol>
+<ol>
+<li><strong>Target model scoring.</strong> Apply the same cosine-similarity computation to the target model and pass through the fixed calibration to get RAS.</li>
+</ol>
+<p>Key hyperparameters: <code>τ=0.8</code>, <code>q=0.9</code>, <code>w_u=w_j=0.5</code>, <code>c=0.75</code>, <code>β=5.0</code>, <code>λ=0.5</code>. Reference models: meta-llama/Llama-3.1-8B-Instruct, google/gemma-3-4b-it, Qwen/Qwen2.5-7B-Instruct. Output-level ASR computed separately on HEx-PHI (330 prompts, 11 categories) using greedy decoding (512 max tokens) and a SORRY-Bench fine-tuned Mistral-7B judge. Hardware: 1× NVIDIA H100 PCIe 80GB, 2× AMD EPYC 7313, 256 GB RAM.</p>
+<h2>Results & Highlights</h2>
+<ul>
+<li><strong>RQ1 (representation-level separation):</strong> Safe and unsafe models separate clearly along the refusal direction in middle-to-late layers; green (safe) curves sit consistently above red (unsafe) curves in the selected windows.</li>
+<li><strong>RQ2 (correlation with output safety):</strong> Raw SafeVec scores already track ASR before calibration; after calibration RAS preserves the trend (e.g., Llama: aligned Instruct UnsafeScore 0.283 / ASR 0.106 vs. abliterated −0.155 / 0.933; Lexi-Uncensored 0.064 / 0.939). Authors note RAS tracks ASR <em>trends at the family level</em>, not a strict per-model ranking.</li>
+<li><strong>RQ3 (cross-family generalization):</strong> Same procedure works across Llama/Gemma/Qwen; calibrated RAS ranks aligned above unsafe variants in all three, though family-specific calibration is required.</li>
+<li><strong>RQ4 (efficiency):</strong> RAS is far faster than judge-based scoring.</li>
+</ul>
+<p>| Model | RAS time (s) | Judge time (s) | Speedup |</p>
+<p>|---|---|---|---|</p>
+<p>| Llama-3.1-8B-Instruct | 14.13 | 572.47 | 40.52× |</p>
+<p>| Gemma-3-4b-it | 13.29 | 6309.68 | 474.85× |</p>
+<p>| Qwen2.5-7B-Instruct | 14.97 | 2025.26 | 135.25× |</p>
+<p>| Average | 14.13 | 2969.14 | 210.13× |</p>
+<ul>
+<li><strong>Documented exception:</strong> In Gemma, <code>Viesar/gemma-3-4b-opus-reasoning-distill</code> has <em>lower</em> refusal-alignment than the reference yet a <em>lower</em> ASR (0.076 vs 0.230) — evidence some models achieve output safety via mechanisms not captured by a single reference refusal direction. This is an honest limitation the authors disclose.</li>
+</ul>
+<h2>Authors & Credibility</h2>
+<ul>
+<li><strong>Chang-Chie Huang, Yan-Lun Chen</strong> (co-first), <strong>Chia-Mu Yu</strong>, <strong>Wei-Bin Lee</strong>.</li>
+<li>Affiliations: <strong>National Yang Ming Chiao Tung University (NYCU)</strong> and <strong>Hon Hai Research Institute</strong> (Foxconn's research arm). Chia-Mu Yu is an established security/ML researcher; Wei-Bin Lee is at Hon Hai Research Institute.</li>
+<li>Published as arXiv:2606.25750v1, 24 Jun 2026, categories cs.CR / cs.CL / cs.LG. Built directly on Arditi et al. (2024) "Refusal is mediated by a single direction" and representation-engineering lineage (Zou et al. 2023a). No code link is given in the paper itself.</li>
+<li>Comparisons are against standard open benchmarks (SafetyBench, HarmBench, JailbreakBench, StrongREJECT) and HEx-PHI / SORRY-Bench for ASR, lending reasonable external validity to the output-level reference metric.</li>
+</ul>
+<h2>Critical Assessment</h2>
+<ul>
+<li><strong>Novelty: Moderate.</strong> The core idea — that refusal is encoded as a direction (Arditi et al. 2024) — is not new; the contribution is repurposing it as an <em>evaluation metric</em> rather than a steering/intervention mechanism. This is a sensible and useful reframing, but it is an incremental application of an existing interpretability result.</li>
+<li><strong>Rigor: Fair.</strong> The pipeline is well-specified with concrete hyperparameters, and the authors provide raw numbers (Tables 1/3/4) alongside ASR. However, the central "strong correlation" claim (RQ2) is supported visually and by rank-ordering, <strong>not by a reported correlation coefficient</strong> (Pearson/Spearman/τ), confidence intervals, or significance tests. Given small calibration sets (6–8 models per family), this is a notable gap.</li>
+<li><strong>Reproducibility: Moderate-to-Good.</strong> Method is described in enough detail to reimplement; reference models, layer windows, and hyperparameters are all listed. Weaknesses: no code repository linked in the paper, the safe/unsafe/jailbreak prompt <em>sets</em> are described only qualitatively (sizes, provenance, and exact contents not fully given), and several magic constants (τ=0.8, q=0.9, c=0.75, β=5.0, λ=0.5) are asserted without sensitivity analysis.</li>
+<li><strong>Significance: Moderate.</strong> A ~200× faster white-box safety signal is genuinely useful for model auditing and post-training regression testing, but it is explicitly scoped to open-weight models of the same family, so it cannot replace behavioral evals for closed APIs or for high-stakes deployment.</li>
+<li><strong>Red flags / caveats:</strong></li>
+<li>Authors themselves state RAS "should be interpreted as a refusal-alignment metric that tracks ASR trends at the family level, rather than as a strict per-model ranking identical to ASR." Read accordingly.</li>
+<li>A single reference refusal direction is assumed; the documented Gemma exception shows some models use alternative safety mechanisms, so RAS can be misled (false negatives for genuinely-safe-but-differently-aligned models).</li>
+<li>The abstract's "tracks output-level attack success rate" and "substantially faster" are accurate in spirit, but note a minor inconsistency: text says average "216.88× faster" while Table 2 reports 210.13×.</li>
+<li>Only mid-size models (4B–8B) are tested; behavior at larger scale and for different alignment recipes (e.g., DPO vs RLHF, reasoning models) is unverified.</li>
+</ul>
+<h2>Strengths</h2>
+<ul>
+<li>Conceptually clean and well-motivated: reframes safety evaluation from "does it refuse?" to "does it internally enter a refusal state?".</li>
+<li>Genuinely efficient: single forward pass, no generation, no judge model; ~210× speedup.</li>
+<li>Honest about scope and exceptions (Gemma counter-example is disclosed rather than hidden).</li>
+<li>Architecture-aware calibration is a thoughtful design to make raw cosines comparable across families.</li>
+<li>Practical positioning as a complement/regression-test signal for open-weight auditing is realistic and useful.</li>
+</ul>
+<h2>Limitations</h2>
+<ul>
+<li>Requires <strong>white-box access</strong> to residual-stream activations — inapplicable to closed/proprietary APIs.</li>
+<li>Calibrated <strong>within a model family</strong>; cross-family comparison quality depends entirely on the calibration set.</li>
+<li>Measures alignment with a <strong>single</strong> reference refusal direction; models with different safety mechanisms (alternative directions, multi-vector refusal) can be mis-scored.</li>
+<li>Small evaluation scale (only 4B–8B models; 6–8 calibration models per family); no larger-scale or reasoning-model validation.</li>
+<li>No quantitative correlation statistics, sensitivity analysis on hyperparameters, or released code/prompt sets.</li>
+<li>RAS is a trend metric, not a strict ASR substitute — risks of false confidence in high-stakes deployment.</li>
+</ul>
+<h2>Relevance</h2>
+<p>对关注 LLM 安全对齐与可解释性的研究者，本文把"拒绝方向"从干预手段转化为高效的白盒安全度量，提供了可在对齐训练/微调后做快速安全回归测试的实用工具；但其仅适用于同族开权重模型、且与 ASR 仅为趋势级一致，故更适合作为行为评测的加速补充而非权威基准。</p>
+<h2>Questions for Further Exploration</h2>
+<ul>
+<li>What is the actual Pearson/Spearman correlation between RAS and ASR per family, with confidence intervals, and how does it degrade as model size or alignment recipe (DPO/RLHF/reasoning) changes?</li>
+<li>Can RAS be extended to <strong>multi-vector / multi-category</strong> refusal directions (per HEx-PHI category) instead of a single global direction, to reduce the Gemma-style false negatives?</li>
+<li>How robust is RAS to <strong>distribution shift</strong> in the unsafe/jailbreak prompt set, and how stale is it relative to new adversarial attack styles?</li>
+<li>Could a closed-API approximation be built (e.g., via logit/prob proxies or token-level refusal-token probabilities) to recover some of the speed benefit without hidden-state access?</li>
+<li>How does RAS behave under <strong>fine-tuning safety regression</strong> — can it detect subtle safety degradation that output-level ASR misses due to benchmark staleness?</li>
+</ul>
+<p class="note">Generated from Markdown summary. Full paper: <a href="https://arxiv.org/abs/2606.25750">arXiv:2606.25750</a></p>
+</div>
+</body>
+</html>

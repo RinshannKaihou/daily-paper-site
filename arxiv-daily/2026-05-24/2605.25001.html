@@ -1,0 +1,522 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CAML — Constraint-Aligned Loss with Manifold Lifting</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #F8F7F4;
+    --fg: #1A1A1A;
+    --muted: #6B6B6B;
+    --accent: #D97706;
+    --accent-light: #FEF3C7;
+    --card: #FFFFFF;
+    --border: #E5E5E0;
+    --danger: #DC2626;
+    --radius: 6px;
+    --max-w: min(95vw, 1100px);
+    --font: 'SF Mono', 'Menlo', 'Consolas', 'Liberation Mono', monospace;
+    --font-body: 'Iowan Old Style', 'Palatino Linotype', 'Book Antiqua', 'Georgia', serif;
+  }
+
+  html { font-size: 16px; -webkit-font-smoothing: antialiased; }
+
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: var(--font-body);
+    line-height: 1.6;
+    min-height: 100vh;
+  }
+
+  .container {
+    width: var(--max-w);
+    margin: 0 auto;
+    padding: 0 clamp(1rem, 3vw, 2rem);
+  }
+
+  /* ---- NAV ---- */
+  nav {
+    padding: 1.5rem 0 0.75rem;
+    font-family: var(--font);
+    font-size: 0.8rem;
+    letter-spacing: 0.02em;
+  }
+  nav a {
+    color: var(--accent);
+    text-decoration: none;
+    border-bottom: 1px solid transparent;
+    transition: border-color 0.2s;
+  }
+  nav a:hover { border-bottom-color: var(--accent); }
+
+  /* ---- HERO ---- */
+  .hero {
+    padding: 3rem 0 2rem;
+    border-bottom: 2px solid var(--fg);
+    margin-bottom: 2rem;
+    position: relative;
+  }
+  .hero-badge {
+    display: inline-block;
+    font-family: var(--font);
+    font-size: 0.7rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    background: var(--accent);
+    color: #fff;
+    padding: 0.25em 0.75em;
+    border-radius: 2px;
+    margin-bottom: 1rem;
+  }
+  .hero h1 {
+    font-family: var(--font);
+    font-weight: 700;
+    font-size: clamp(1.4rem, 3.5vw, 2.2rem);
+    line-height: 1.2;
+    letter-spacing: -0.02em;
+    max-width: 28ch;
+    margin-bottom: 1rem;
+  }
+  .hero-sub {
+    font-size: clamp(0.95rem, 1.8vw, 1.15rem);
+    color: var(--muted);
+    max-width: 56ch;
+    line-height: 1.55;
+  }
+  .hero-meta {
+    margin-top: 1.25rem;
+    font-family: var(--font);
+    font-size: 0.75rem;
+    color: var(--muted);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1.5rem;
+  }
+  .hero-meta span { white-space: nowrap; }
+
+  /* ---- ASSET ROW ---- */
+  .asset-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
+    gap: 1.25rem;
+    margin-bottom: 3rem;
+  }
+  .asset-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1.5rem;
+    display: flex;
+    flex-direction: column;
+    position: relative;
+    overflow: hidden;
+    transition: border-color 0.2s;
+  }
+  .asset-card:hover { border-color: var(--accent); }
+  .asset-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 3px;
+  }
+  .asset-card--metric::before { background: var(--accent); }
+  .asset-card--why::before { background: var(--fg); }
+  .asset-card--edge::before { background: var(--danger); }
+
+  .asset-label {
+    font-family: var(--font);
+    font-size: 0.65rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 0.75rem;
+  }
+  .asset-card--metric .asset-value {
+    font-family: var(--font);
+    font-size: clamp(1.8rem, 4vw, 2.6rem);
+    font-weight: 700;
+    color: var(--accent);
+    line-height: 1.15;
+    margin-bottom: 0.35rem;
+  }
+  .asset-detail {
+    font-size: 0.85rem;
+    color: var(--muted);
+    line-height: 1.45;
+  }
+  .asset-detail strong { color: var(--fg); font-weight: 600; }
+
+  .asset-card--why .asset-value,
+  .asset-card--edge .asset-value {
+    font-size: 1rem;
+    line-height: 1.55;
+    color: var(--fg);
+  }
+  .asset-card--edge .asset-value { color: #7F1D1D; }
+
+  /* ---- BODY GRID ---- */
+  .body-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1.5rem;
+    margin-bottom: 3rem;
+  }
+  @media (max-width: 700px) {
+    .body-grid { grid-template-columns: 1fr; }
+  }
+  .body-grid .full-width { grid-column: 1 / -1; }
+
+  .section-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1.5rem;
+  }
+  .section-card h2 {
+    font-family: var(--font);
+    font-size: 0.7rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 1rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid var(--border);
+  }
+  .section-card h3 {
+    font-family: var(--font);
+    font-size: 0.8rem;
+    font-weight: 600;
+    margin-top: 1rem;
+    margin-bottom: 0.35rem;
+    color: var(--fg);
+  }
+  .section-card h3:first-of-type { margin-top: 0; }
+
+  .section-card p,
+  .section-card li {
+    font-size: 0.9rem;
+    line-height: 1.55;
+    color: var(--fg);
+  }
+  .section-card ul {
+    padding-left: 1.1em;
+    list-style: none;
+  }
+  .section-card ul li { position: relative; }
+  .section-card ul li::before {
+    content: '→';
+    position: absolute;
+    left: -1.1em;
+    color: var(--accent);
+    font-size: 0.8rem;
+  }
+  .section-card ol {
+    padding-left: 1.25em;
+  }
+  .section-card ol li {
+    margin-bottom: 0.4rem;
+    padding-left: 0.25em;
+  }
+  .section-card ol li::marker {
+    font-family: var(--font);
+    color: var(--accent);
+    font-weight: 700;
+  }
+
+  /* ---- RESULTS TABLE ---- */
+  .results-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-family: var(--font);
+    font-size: 0.72rem;
+    margin-top: 0.5rem;
+  }
+  .results-table th {
+    text-align: left;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    padding: 0.5em 0.75em;
+    border-bottom: 2px solid var(--fg);
+    color: var(--muted);
+    font-size: 0.65rem;
+  }
+  .results-table td {
+    padding: 0.5em 0.75em;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  .results-table tr:last-child td { border-bottom: none; }
+  .results-table .highlight {
+    background: var(--accent-light);
+    font-weight: 700;
+    color: var(--accent);
+  }
+  .results-table .pde-label {
+    font-weight: 600;
+    white-space: nowrap;
+  }
+
+  /* ---- STRENGTHS / LIMITATIONS SPLIT ---- */
+  .split-card {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0;
+  }
+  .split-card .half {
+    padding: 0 1.25rem;
+  }
+  .split-card .half:first-child { padding-left: 0; }
+  .split-card .half:last-child { padding-right: 0; }
+  .split-card .half h3 { color: var(--accent); }
+  .split-card .half:last-child h3 { color: var(--danger); }
+  .split-card .divider {
+    width: 1px;
+    background: var(--border);
+    margin: 0 0.25rem;
+  }
+  @media (max-width: 700px) {
+    .split-card {
+      grid-template-columns: 1fr;
+    }
+    .split-card .divider { display: none; }
+    .split-card .half { padding: 0.75rem 0; }
+  }
+
+  /* ---- FOOTER ---- */
+  .paper-footer {
+    border-top: 2px solid var(--fg);
+    padding: 1.5rem 0;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 1rem;
+    margin-bottom: 2rem;
+  }
+  .paper-footer a {
+    font-family: var(--font);
+    font-size: 0.8rem;
+    color: var(--accent);
+    text-decoration: none;
+    border-bottom: 1px solid transparent;
+    transition: border-color 0.2s;
+  }
+  .paper-footer a:hover { border-bottom-color: var(--accent); }
+  .paper-footer .cite-id {
+    font-family: var(--font);
+    font-size: 0.7rem;
+    color: var(--muted);
+  }
+
+  /* ---- TAG PILLS ---- */
+  .tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    margin-top: 0.75rem;
+  }
+  .tag {
+    font-family: var(--font);
+    font-size: 0.6rem;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    border: 1px solid var(--border);
+    padding: 0.2em 0.6em;
+    border-radius: 2px;
+    color: var(--muted);
+  }
+
+  /* ---- ANIMATIONS ---- */
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(12px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  .hero            { animation: fadeUp 0.5s ease-out both; }
+  .asset-row       { animation: fadeUp 0.5s ease-out 0.1s both; }
+  .body-grid       { animation: fadeUp 0.5s ease-out 0.2s both; }
+  .paper-footer    { animation: fadeUp 0.5s ease-out 0.3s both; }
+  @media (prefers-reduced-motion: reduce) {
+    .hero, .asset-row, .body-grid, .paper-footer {
+      animation: none;
+    }
+  }
+</style>
+</head>
+<body>
+
+<nav class="container">
+  <a href="./index.html">↩ Today's digest</a>
+</nav>
+
+<!-- ============ HERO ============ -->
+<header class="hero container">
+  <div class="hero-badge">ICML 2026</div>
+  <h1>CAML fixes the loss valley at the root of PINN failure</h1>
+  <p class="hero-sub">
+    PINN gradient pathology stems from a <em>loss valley</em> — a connected manifold of global minimizers created by PDE operator non-uniqueness. CAML (Constraint-Aligned Loss with Manifold Lifting) reformulates zeroth-order terms as aligned constraints with a delay factor, collapsing the valley and aligning gradients.
+  </p>
+  <div class="hero-meta">
+    <span>Luo, Zhu, Hu, Wang, Wu, Lan, Liu, Pang</span>
+    <span>arXiv 2605.25001</span>
+    <span>2026-05-24</span>
+  </div>
+  <div class="tags">
+    <span class="tag">PINNs</span>
+    <span class="tag">PDE-solving</span>
+    <span class="tag">optimization</span>
+    <span class="tag">loss-landscape</span>
+    <span class="tag">scientific-computing</span>
+  </div>
+</header>
+
+<!-- ============ ASSET ROW ============ -->
+<section class="asset-row container" aria-label="Key findings at a glance">
+
+  <div class="asset-card asset-card--metric">
+    <div class="asset-label">Key Metric — Relative L² Error</div>
+    <div class="asset-value">1.56 × 10⁻⁴</div>
+    <div class="asset-detail">
+      Helmholtz / PirateNets — best across <strong>10 of 12</strong> configurations.
+      Next-best baseline (DB-PINN): 5.69 × 10⁻³. Convergence in <strong>201 steps</strong> vs 330.
+    </div>
+  </div>
+
+  <div class="asset-card asset-card--why">
+    <div class="asset-label">Why This Matters</div>
+    <div class="asset-value">
+      PINNs underpin scientific computing but are notoriously hard to train. CAML fixes the <em>root cause</em> of gradient pathology — not just the symptoms — making PDE solving reliably converge.
+    </div>
+  </div>
+
+  <div class="asset-card asset-card--edge">
+    <div class="asset-label">Critical Edge</div>
+    <div class="asset-value">
+      Requires zeroth-order terms in the PDE. Pure derivative-based problems may not benefit. Only validated on 2D steady-state PDEs — scaling to 3D or time-dependent regimes is unproven.
+    </div>
+  </div>
+
+</section>
+
+<!-- ============ BODY GRID ============ -->
+<main class="body-grid container">
+
+  <!-- METHODOLOGY — full width -->
+  <div class="section-card full-width">
+    <h2>Methodology</h2>
+    <h3>1. Loss Valley Theory</h3>
+    <p>
+      Theorem 4.1 proves that PDE operator non-uniqueness creates a connected manifold of zero-residual minimizers in function space. This maps to a highly distorted non-convex manifold in parameter space — the "loss valley" — with Hessian condition numbers exceeding 10²². The optimizer enters the valley (Phase I) but then struggles to navigate along it (Phase II) due to gradient conflict between PDE residual and boundary conditions.
+    </p>
+    <h3>2. Aligned Constraints</h3>
+    <p>
+      A learnable additive constant <em>c</em> is introduced into all zeroth-order terms of both the PDE residual and boundary conditions. This converts the problem into a controlled ill-posed formulation that enlarges the intersection between admissible solution sets. For linear zeroth-order terms, <em>c</em> has a closed-form solution; for nonlinear terms, Newton's method or gradient descent is used at each step.
+    </p>
+    <h3>3. Delay Factor</h3>
+    <p>
+      A piecewise-linear schedule λ(t) gates the PDE residual loss: zeroed initially, then ramped linearly to 1. This lets the optimizer first approach the boundary-admissible affine subspace before entering the loss valley, shortening the optimization path.
+    </p>
+  </div>
+
+  <!-- RESULTS — full width -->
+  <div class="section-card full-width">
+    <h2>Results</h2>
+    <table class="results-table">
+      <thead>
+        <tr>
+          <th>PDE</th>
+          <th>Architecture</th>
+          <th>CAML L₂ Error</th>
+          <th>Best Baseline L²</th>
+          <th>CAML Steps</th>
+          <th>Best Baseline Steps</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="pde-label">Heat</td><td>MLP</td>
+          <td class="highlight">2.41 × 10⁻⁵</td><td>1.87 × 10⁻⁴</td>
+          <td class="highlight">126</td><td>204</td>
+        </tr>
+        <tr>
+          <td class="pde-label">Poisson</td><td>MLP</td>
+          <td class="highlight">8.73 × 10⁻⁶</td><td>3.12 × 10⁻⁵</td>
+          <td class="highlight">98</td><td>187</td>
+        </tr>
+        <tr>
+          <td class="pde-label">Navier-Stokes</td><td>PirateNets</td>
+          <td class="highlight">3.24 × 10⁻²</td><td>fail</td>
+          <td class="highlight">—</td><td>—</td>
+        </tr>
+        <tr>
+          <td class="pde-label">Helmholtz</td><td>PirateNets</td>
+          <td class="highlight">1.56 × 10⁻⁴</td><td>5.69 × 10⁻³</td>
+          <td class="highlight">201</td><td>330</td>
+        </tr>
+        <tr>
+          <td class="pde-label">Helmholtz</td><td>MLP</td>
+          <td class="highlight">3.28 × 10⁻⁴</td><td>2.14 × 10⁻²</td>
+          <td class="highlight">201</td><td>330</td>
+        </tr>
+      </tbody>
+    </table>
+    <p style="margin-top:0.75rem; font-size:0.8rem; color:var(--muted);">
+      Selected highlights from 12 configurations (4 PDEs × 3 architectures). CAML best in 10/12. Full results in the paper.
+    </p>
+  </div>
+
+  <!-- STRENGTHS & LIMITATIONS -->
+  <div class="section-card full-width">
+    <h2>Strengths &amp; Limitations</h2>
+    <div class="split-card">
+      <div class="half">
+        <h3>Strengths</h3>
+        <ul>
+          <li>First rigorous geometric characterization of PINN gradient pathology</li>
+          <li>Elegant — a single scalar <em>c</em> enlarges the admissible set without changing architecture</li>
+          <li>Consistent gains across 4 PDE types, 3 architectures, 5 baselines</li>
+          <li>Architecture-agnostic; composable with other PINN improvements</li>
+          <li>Open-sourced code; published at ICML 2026</li>
+        </ul>
+      </div>
+      <div class="divider"></div>
+      <div class="half">
+        <h3>Limitations</h3>
+        <ul>
+          <li>Requires zeroth-order terms — pure derivative PDEs may not benefit</li>
+          <li>Delay schedule introduces two tuning hyperparameters (t<sub>d</sub>, t<sub>r</sub>)</li>
+          <li>Only 2D steady-state problems tested; no 3D or time-dependent evidence</li>
+          <li>Auxiliary <em>c</em> optimization overhead not benchmarked</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- QUESTIONS -->
+  <div class="section-card full-width">
+    <h2>Open Questions</h2>
+    <ol>
+      <li>How does CAML scale to time-dependent PDEs where the loss valley structure may differ?</li>
+      <li>Can the aligned constraint idea extend beyond additive constants to multiplicative or affine invariances?</li>
+      <li>What is the per-step overhead of the auxiliary <em>c</em> optimization for nonlinear PDEs?</li>
+      <li>How does CAML interact with operator-learning architectures (FNO, DeepONet)?</li>
+      <li>Is there a theoretical bound on the condition-number improvement from aligned constraints?</li>
+    </ol>
+  </div>
+
+</main>
+
+<!-- ============ FOOTER ============ -->
+<footer class="paper-footer container">
+  <a href="2605.25001.html">↗ Markdown source</a>
+  <a href="https://arxiv.org/abs/2605.25001">↗ arXiv</a>
+  <a href="https://github.com/YichenLuo-0/CAML">↗ Code</a>
+  <span class="cite-id">2605.25001</span>
+</footer>
+
+</body>
+</html>

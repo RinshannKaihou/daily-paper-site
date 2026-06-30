@@ -1,0 +1,707 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LPP — Latent Performance Profiling of Large Language Models</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Source+Sans+3:ital,wght@0,300;0,400;0,600;0,700;0,900;1,400&display=swap');
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg: #0a0c10;
+  --bg-raised: #12151c;
+  --bg-card: #181c26;
+  --fg: #e8eaf0;
+  --fg-muted: #8a8f9e;
+  --fg-dim: #555a6a;
+  --accent: #00e09e;
+  --accent-dim: rgba(0, 224, 158, 0.12);
+  --accent2: #ff6b3d;
+  --accent2-dim: rgba(255, 107, 61, 0.10);
+  --accent3: #5e9eff;
+  --accent3-dim: rgba(94, 158, 255, 0.10);
+  --border: rgba(255,255,255,0.06);
+  --border-accent: rgba(0, 224, 158, 0.25);
+  --mono: 'Space Mono', monospace;
+  --sans: 'Source Sans 3', system-ui, sans-serif;
+  --radius: 6px;
+}
+
+html { font-size: 16px; scroll-behavior: smooth; }
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--sans);
+  line-height: 1.55;
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+/* === NOISE OVERLAY === */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");
+  pointer-events: none;
+  z-index: 9999;
+}
+
+/* === NAV === */
+nav {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 32px;
+  background: rgba(10, 12, 16, 0.85);
+  backdrop-filter: blur(16px);
+  border-bottom: 1px solid var(--border);
+  font-family: var(--mono);
+  font-size: 0.75rem;
+}
+nav .nav-left { display: flex; gap: 20px; align-items: center; }
+nav .tag {
+  background: var(--accent-dim);
+  color: var(--accent);
+  padding: 3px 10px;
+  border-radius: 3px;
+  letter-spacing: 0.05em;
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  font-weight: 700;
+}
+nav .arxiv-id { color: var(--fg-muted); }
+nav .nav-right { display: flex; gap: 16px; }
+nav a {
+  color: var(--fg-muted);
+  text-decoration: none;
+  transition: color 0.2s;
+}
+nav a:hover { color: var(--accent); }
+
+/* === HERO === */
+.hero {
+  position: relative;
+  padding: 80px 32px 48px;
+  max-width: 1280px;
+  margin: 0 auto;
+  overflow: hidden;
+}
+.hero::before {
+  content: '';
+  position: absolute;
+  top: -120px;
+  left: -100px;
+  width: 500px;
+  height: 500px;
+  background: radial-gradient(circle, rgba(0,224,158,0.08) 0%, transparent 70%);
+  pointer-events: none;
+}
+.hero::after {
+  content: '';
+  position: absolute;
+  bottom: -80px;
+  right: -80px;
+  width: 400px;
+  height: 400px;
+  background: radial-gradient(circle, rgba(255,107,61,0.05) 0%, transparent 70%);
+  pointer-events: none;
+}
+.hero-label {
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 16px;
+  opacity: 0;
+  animation: fadeUp 0.6s ease forwards 0.1s;
+}
+.hero h1 {
+  font-size: clamp(2rem, 4.5vw, 3.4rem);
+  font-weight: 900;
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+  max-width: 900px;
+  margin-bottom: 20px;
+  opacity: 0;
+  animation: fadeUp 0.6s ease forwards 0.2s;
+}
+.hero h1 em {
+  font-style: normal;
+  color: var(--accent);
+  position: relative;
+}
+.hero-sub {
+  font-size: 1.15rem;
+  font-weight: 300;
+  color: var(--fg-muted);
+  max-width: 680px;
+  line-height: 1.6;
+  opacity: 0;
+  animation: fadeUp 0.6s ease forwards 0.35s;
+}
+.hero-sub strong { color: var(--fg); font-weight: 600; }
+.hero-meta {
+  margin-top: 24px;
+  display: flex;
+  gap: 24px;
+  flex-wrap: wrap;
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  color: var(--fg-dim);
+  opacity: 0;
+  animation: fadeUp 0.6s ease forwards 0.5s;
+}
+.hero-meta span { display: flex; align-items: center; gap: 6px; }
+.dot { width: 5px; height: 5px; border-radius: 50%; display: inline-block; }
+.dot-green { background: var(--accent); }
+.dot-orange { background: var(--accent2); }
+.dot-blue { background: var(--accent3); }
+
+/* === ASSET ROW === */
+.asset-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 16px;
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 0 32px 48px;
+}
+.asset-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 28px 24px;
+  position: relative;
+  overflow: hidden;
+  opacity: 0;
+  animation: fadeUp 0.5s ease forwards;
+}
+.asset-card:nth-child(1) { animation-delay: 0.5s; }
+.asset-card:nth-child(2) { animation-delay: 0.6s; }
+.asset-card:nth-child(3) { animation-delay: 0.7s; }
+.asset-card:nth-child(4) { animation-delay: 0.8s; }
+
+.asset-card .card-icon {
+  font-family: var(--mono);
+  font-size: 0.6rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  margin-bottom: 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.asset-card .card-icon .bar {
+  width: 18px;
+  height: 2px;
+  border-radius: 1px;
+}
+.bar-green { background: var(--accent); }
+.bar-orange { background: var(--accent2); }
+.bar-blue { background: var(--accent3); }
+.bar-white { background: var(--fg); }
+
+.asset-card .card-value {
+  font-size: 2.6rem;
+  font-weight: 900;
+  line-height: 1;
+  margin-bottom: 8px;
+  letter-spacing: -0.03em;
+}
+.asset-card .card-desc {
+  font-size: 0.88rem;
+  color: var(--fg-muted);
+  line-height: 1.5;
+}
+.asset-card .card-desc strong { color: var(--fg); font-weight: 600; }
+
+.asset-card.green .card-icon { color: var(--accent); }
+.asset-card.green .card-value { color: var(--accent); }
+.asset-card.green { border-color: var(--border-accent); }
+
+.asset-card.orange .card-icon { color: var(--accent2); }
+.asset-card.orange .card-value { color: var(--accent2); }
+
+.asset-card.blue .card-icon { color: var(--accent3); }
+.asset-card.blue .card-value { color: var(--accent3); }
+
+.asset-card.white .card-icon { color: var(--fg-muted); }
+.asset-card.white .card-value { color: var(--fg); }
+
+/* === BODY GRID === */
+.body-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 0 32px 80px;
+}
+@media (max-width: 860px) {
+  .body-grid { grid-template-columns: 1fr; }
+}
+
+.section {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 28px 24px;
+  opacity: 0;
+  animation: fadeUp 0.5s ease forwards 0.9s;
+}
+.section:nth-child(2) { animation-delay: 1.0s; }
+.section:nth-child(3) { animation-delay: 1.1s; }
+.section:nth-child(4) { animation-delay: 1.2s; }
+.section:nth-child(5) { animation-delay: 1.3s; }
+.section:nth-child(6) { animation-delay: 1.4s; }
+
+.section.full-width {
+  grid-column: 1 / -1;
+}
+
+.section h2 {
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--fg-muted);
+  margin-bottom: 16px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.section h2::before {
+  content: '';
+  width: 3px;
+  height: 12px;
+  background: var(--accent);
+  border-radius: 1px;
+  flex-shrink: 0;
+}
+
+.section h3 {
+  font-size: 1.05rem;
+  font-weight: 700;
+  margin-bottom: 8px;
+  color: var(--fg);
+}
+
+.section p, .section li {
+  font-size: 0.88rem;
+  color: var(--fg-muted);
+  line-height: 1.6;
+}
+.section strong { color: var(--fg); font-weight: 600; }
+
+.section ul {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.section ul li {
+  padding-left: 18px;
+  position: relative;
+}
+.section ul li::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 8px;
+  width: 6px;
+  height: 6px;
+  border-radius: 1px;
+  background: var(--fg-dim);
+  transform: rotate(45deg);
+}
+
+/* === HOURGLASS VIS === */
+.hourglass-vis {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 32px;
+  margin: 20px 0;
+  flex-wrap: wrap;
+}
+.hourglass-svg { flex-shrink: 0; }
+.hourglass-caption {
+  max-width: 360px;
+  font-size: 0.85rem;
+  color: var(--fg-muted);
+  line-height: 1.6;
+}
+.hourglass-caption strong { color: var(--fg); }
+
+/* === METRIC CARDS === */
+.metric-row {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin-top: 14px;
+}
+@media (max-width: 600px) {
+  .metric-row { grid-template-columns: 1fr; }
+}
+.metric-box {
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 16px 14px;
+}
+.metric-box .metric-name {
+  font-family: var(--mono);
+  font-size: 0.65rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--fg-dim);
+  margin-bottom: 6px;
+}
+.metric-box .metric-formula {
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  color: var(--accent);
+  margin-bottom: 6px;
+}
+.metric-box .metric-note {
+  font-size: 0.8rem;
+  color: var(--fg-muted);
+  line-height: 1.45;
+}
+
+/* === MODEL COMPARISON TABLE === */
+.comp-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8rem;
+  margin-top: 12px;
+}
+.comp-table th {
+  font-family: var(--mono);
+  font-size: 0.62rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--fg-dim);
+  text-align: left;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+}
+.comp-table td {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  color: var(--fg-muted);
+}
+.comp-table td:first-child {
+  color: var(--fg);
+  font-weight: 600;
+}
+.comp-table .highlight { color: var(--accent); font-weight: 700; }
+.comp-table .low { color: var(--accent2); }
+
+/* === CALLOUT === */
+.callout {
+  background: var(--accent2-dim);
+  border-left: 3px solid var(--accent2);
+  border-radius: 0 var(--radius) var(--radius) 0;
+  padding: 16px 20px;
+  margin-top: 14px;
+  font-size: 0.85rem;
+  color: var(--fg-muted);
+  line-height: 1.55;
+}
+.callout strong { color: var(--accent2); }
+
+.callout.green {
+  background: var(--accent-dim);
+  border-left-color: var(--accent);
+}
+.callout.green strong { color: var(--accent); }
+
+.callout.blue {
+  background: var(--accent3-dim);
+  border-left-color: var(--accent3);
+}
+.callout.blue strong { color: var(--accent3); }
+
+/* === AUTHORS === */
+.authors-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+.author-chip {
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 4px 10px;
+  font-size: 0.75rem;
+  color: var(--fg-muted);
+  font-family: var(--mono);
+}
+
+/* === ANIMATIONS === */
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(18px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* === RESPONSIVE === */
+@media (max-width: 640px) {
+  nav { padding: 10px 16px; }
+  .hero { padding: 48px 16px 32px; }
+  .asset-row { padding: 0 16px 32px; }
+  .body-grid { padding: 0 16px 60px; }
+  .asset-card .card-value { font-size: 2rem; }
+  .hourglass-vis { flex-direction: column; gap: 16px; }
+}
+
+/* === REDUCED MOTION === */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}
+</style>
+</head>
+<body>
+
+<!-- NAV -->
+<nav>
+  <div class="nav-left">
+    <span class="tag">arxiv daily</span>
+    <span class="arxiv-id">2605.30018</span>
+  </div>
+  <div class="nav-right">
+    <a href="./index.html">Index</a>
+    <a href="2605.30018.html">Markdown</a>
+    <a href="https://arxiv.org/abs/2605.30018" target="_blank" rel="noopener">arxiv.org</a>
+  </div>
+</nav>
+
+<!-- HERO -->
+<header class="hero">
+  <div class="hero-label">Latent Performance Profiling</div>
+  <h1>
+    Same benchmark score,<br>
+    <em>completely different brain.</em>
+  </h1>
+  <p class="hero-sub">
+    LPP extracts <strong>3 intrinsic metrics</strong> from hidden-layer activations of 8 LLMs (0.5B&ndash;14B) and reveals that models with near-identical MMLU-PRO/BBH/IFEval rankings use <strong>fundamentally different internal strategies</strong> &mdash; from compact low-dimensional subspaces to diffuse high-dimensional representations.
+  </p>
+  <div class="hero-meta">
+    <span><span class="dot dot-green"></span>8 models, 3 families</span>
+    <span><span class="dot dot-orange"></span>28&times; parameter range</span>
+    <span><span class="dot dot-blue"></span>2 synthetic diagnostic tasks</span>
+    <span>27 pages &middot; 2026-05-28</span>
+  </div>
+</header>
+
+<!-- ASSET ROW -->
+<div class="asset-row">
+
+  <!-- KEY FINDING -->
+  <div class="asset-card green">
+    <div class="card-icon"><span class="bar bar-green"></span> Key Finding</div>
+    <div class="card-value" style="font-size:1.4rem; line-height:1.25;">
+      Benchmark rank reveals nothing about internal computation.
+    </div>
+    <p class="card-desc">
+      Models with matching MMLU-PRO/BBH scores diverge sharply in uncertainty calibration, representational dimensionality, and variance distribution. <strong>Spearman rho &asymp; &minus;0.75 to &minus;0.32</strong>, p &gt; 0.1.
+    </p>
+  </div>
+
+  <!-- KEY METRIC -->
+  <div class="asset-card orange">
+    <div class="card-icon"><span class="bar bar-orange"></span> Key Metric</div>
+    <div class="card-value">3 scalars</div>
+    <p class="card-desc">
+      <strong>Minimum entropy</strong> (uncertainty floor), <strong>Effective Rank</strong> (active dimensions), <strong>Participation Ratio</strong> (variance evenness) &mdash; computed from <strong>100 forward passes</strong> on Alpaca prompts, single last-layer extraction.
+    </p>
+  </div>
+
+  <!-- WHY THIS MATTERS -->
+  <div class="asset-card blue">
+    <div class="card-icon"><span class="bar bar-blue"></span> Why This Matters</div>
+    <div class="card-value" style="font-size:1.3rem; line-height:1.25;">
+      Model selection is flying blind.
+    </div>
+    <p class="card-desc">
+      If two models score identically on benchmarks but one has <strong>poorly calibrated uncertainty</strong> and the other uses <strong>efficient representations</strong>, your deployment outcome depends on the difference you can&rsquo;t see.
+    </p>
+  </div>
+
+  <!-- CRITICAL EDGE -->
+  <div class="asset-card white">
+    <div class="card-icon"><span class="bar bar-white"></span> Critical Edge</div>
+    <div class="card-value" style="font-size:1.3rem; line-height:1.25;">
+      N=8 and circular task design.
+    </div>
+    <p class="card-desc">
+      All correlation analyses run on only <strong>8 models</strong>. Synthetic tasks (AR, SPC) were designed post-hoc to align with LPP metrics &mdash; <strong>risking confirmation of what was built in</strong>. No comparison to existing probing methods.
+    </p>
+  </div>
+
+</div>
+
+<!-- BODY GRID -->
+<div class="body-grid">
+
+  <!-- THE THREE METRICS -->
+  <section class="section full-width" style="animation-delay:0.9s">
+    <h2>The Three Latent Metrics</h2>
+    <div class="metric-row">
+      <div class="metric-box">
+        <div class="metric-name">Minimum Entropy</div>
+        <div class="metric-formula">H = &minus;&sum; p(v) log p(v)</div>
+        <div class="metric-note">Uncertainty floor across tokens. <strong>Higher floor</strong> = persistent uncertainty. <strong>Lower floor</strong> = well-calibrated confidence.</div>
+      </div>
+      <div class="metric-box">
+        <div class="metric-name">Effective Rank (ER)</div>
+        <div class="metric-formula">ER = exp(&minus;&sum; &sigma;&#x0303; log &sigma;&#x0303;)</div>
+        <div class="metric-note">Active dimensionality of hidden representations. Counts how many singular values of the covariance matrix are genuinely contributing.</div>
+      </div>
+      <div class="metric-box">
+        <div class="metric-name">Participation Ratio (PR)</div>
+        <div class="metric-formula">PR = (&sum;&lambda;)&sup2; / &sum;&lambda;&sup2;</div>
+        <div class="metric-note">Variance distribution evenness. <strong>Low PR</strong> = variance concentrated in few dimensions. <strong>High PR</strong> = diffuse spread.</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- HOURGLASS STRUCTURE -->
+  <section class="section full-width" style="animation-delay:1.0s">
+    <h2>Universal Hourglass Structure</h2>
+    <div class="hourglass-vis">
+      <svg class="hourglass-svg" width="200" height="260" viewBox="0 0 200 260">
+        <!-- Layer bars - wide at top and bottom, narrow in middle -->
+        <rect x="10" y="10" width="180" height="18" rx="3" fill="rgba(0,224,158,0.35)"/>
+        <rect x="25" y="38" width="150" height="18" rx="3" fill="rgba(0,224,158,0.30)"/>
+        <rect x="40" y="66" width="120" height="18" rx="3" fill="rgba(0,224,158,0.25)"/>
+        <rect x="55" y="94" width="90" height="18" rx="3" fill="rgba(0,224,158,0.20)"/>
+        <rect x="65" y="122" width="70" height="18" rx="3" fill="rgba(0,224,158,0.15)"/>
+        <rect x="60" y="150" width="80" height="18" rx="3" fill="rgba(0,224,158,0.18)"/>
+        <rect x="48" y="178" width="104" height="18" rx="3" fill="rgba(0,224,158,0.23)"/>
+        <rect x="35" y="206" width="130" height="18" rx="3" fill="rgba(0,224,158,0.28)"/>
+        <rect x="20" y="234" width="160" height="18" rx="3" fill="rgba(0,224,158,0.33)"/>
+        <!-- Labels -->
+        <text x="100" y="6" text-anchor="middle" fill="#8a8f9e" font-size="9" font-family="'Space Mono', monospace">HIGH ENTROPY + DIMENSIONALITY</text>
+        <text x="100" y="256" text-anchor="middle" fill="#8a8f9e" font-size="9" font-family="'Space Mono', monospace">HIGH ENTROPY + DIMENSIONALITY</text>
+        <text x="100" y="143" text-anchor="middle" fill="#555a6a" font-size="8" font-family="'Space Mono', monospace">COMPRESSED BOTTLENECK</text>
+        <!-- Connecting outline -->
+        <path d="M10,28 Q10,131 65,131 Q10,131 10,234" stroke="rgba(0,224,158,0.12)" stroke-width="1" fill="none"/>
+        <path d="M190,28 Q190,131 135,131 Q190,131 190,234" stroke="rgba(0,224,158,0.12)" stroke-width="1" fill="none"/>
+      </svg>
+      <div class="hourglass-caption">
+        <strong>Shallow and deep layers</strong> exhibit high entropy and high dimensionality. <strong>Middle layers</strong> form a compressed bottleneck &mdash; across all 8 models, all 3 families, independent of scale or training data. This &ldquo;hourglass&rdquo; is the most robust architectural finding in the paper.<br><br>
+        Architecture family, not model size, drives clustering behavior: all LLaMA variants share similar entropy dynamics regardless of 3B vs 8B; Qwen and Mistral form separate groups.
+      </div>
+    </div>
+  </section>
+
+  <!-- MODEL COMPARISON -->
+  <section class="section" style="animation-delay:1.1s">
+    <h2>Latent Profiles Diverge</h2>
+    <p>Qwen-7B and Mistral-7B achieve comparable BBH accuracy but occupy opposite ends of the latent spectrum:</p>
+    <table class="comp-table">
+      <thead>
+        <tr><th>Property</th><th>Qwen-7B</th><th>Mistral-7B</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>PR (variance)</td><td class="highlight">Very low</td><td class="low">High</td></tr>
+        <tr><td>ER (dimensionality)</td><td class="highlight">Compact</td><td class="low">Diffuse</td></tr>
+        <tr><td>Subspace</td><td class="highlight">Low-dim</td><td class="low">High-dim</td></tr>
+        <tr><td>BBH accuracy</td><td colspan="2" style="color:var(--fg); text-align:center;">Comparable</td></tr>
+      </tbody>
+    </table>
+    <p style="margin-top:10px;">Meanwhile, Qwen-3B <strong>outperforms Mistral-7B</strong> on IFEval (55% vs 45%) with less than half the parameters, and LLaMA-8B beats LLaMA-3B by only 0.2pp on IFEval despite being 2.6&times; larger.</p>
+  </section>
+
+  <!-- SYNTHETIC TASKS -->
+  <section class="section" style="animation-delay:1.2s">
+    <h2>Diagnostic Tasks Validate LPP</h2>
+    <p>Two synthetic tasks, each with 100 samples, designed to isolate specific latent properties:</p>
+    <ul>
+      <li><strong>Ambiguous Reasoning (AR)</strong> &mdash; lexical ambiguity + disambiguating cue. Tests entropy calibration. AR accuracy <strong>strongly negatively correlates</strong> with minimum entropy.</li>
+      <li><strong>Symbolic Pattern Completion (SPC)</strong> &mdash; synthetic sequences with hidden rules (alternating/mirrored). Tests representational compression. SPC accuracy <strong>negatively correlates</strong> with both PR and ER.</li>
+    </ul>
+    <div class="callout green">
+      <strong>Key result:</strong> Mistral-7B achieves the highest SPC accuracy despite not topping any traditional benchmark. AR and SPC are largely uncorrelated with each other, confirming they probe orthogonal dimensions.
+    </div>
+  </section>
+
+  <!-- STRENGTHS -->
+  <section class="section" style="animation-delay:1.3s">
+    <h2>Strengths</h2>
+    <ul>
+      <li>Addresses a <strong>genuine problem</strong>: benchmarks are poor proxies for reliability.</li>
+      <li>Three metrics are <strong>formally defined, interpretable, lightweight</strong> (single forward pass, 100 prompts).</li>
+      <li>Hourglass structure is a <strong>genuine architectural insight</strong> consistent across families.</li>
+      <li>Architecture-family clustering (not size) is <strong>practically actionable</strong>.</li>
+      <li>Stability analyses across datasets, sample sizes, and context lengths are thorough.</li>
+      <li>Framework is <strong>complementary to benchmarks</strong>, not a replacement.</li>
+    </ul>
+  </section>
+
+  <!-- LIMITATIONS -->
+  <section class="section" style="animation-delay:1.4s">
+    <h2>Limitations &amp; Risks</h2>
+    <ul>
+      <li><strong>N=8</strong> for all correlations &mdash; statistical power is inherently limited.</li>
+      <li>Synthetic tasks designed <strong>post-hoc to align with LPP</strong> &mdash; circularity risk.</li>
+      <li><strong>No comparison</strong> to existing probing literature (linear probing, representation engineering).</li>
+      <li>Only <strong>open-source models with accessible hidden states</strong>; API-only models restricted to entropy only.</li>
+      <li>No models above <strong>14B parameters</strong>; no MoE architectures.</li>
+      <li>Link between latent profiles and <strong>real-world deployment outcomes</strong> is theoretical, not empirical.</li>
+      <li><strong>English-only</strong>; cross-lingual generalization unknown.</li>
+    </ul>
+    <div class="callout">
+      <strong>The core tension:</strong> LPP claims to reveal what benchmarks miss, but validates itself against synthetic tasks designed to confirm its own metrics. The framework is compelling; the evidence base is thin.
+    </div>
+  </section>
+
+  <!-- AUTHORS & OPEN QUESTIONS -->
+  <section class="section full-width" style="animation-delay:1.5s">
+    <h2>Open Questions</h2>
+    <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+      <ul>
+        <li>Would LPP metrics survive <strong>quantization (4-bit/8-bit)</strong>, fine-tuning, or RLHF? Could they detect model degradation?</li>
+        <li>Can LPP metrics <strong>predict real-world failures</strong> (hallucination rates, safety violations) prospectively?</li>
+        <li>How do profiles change <strong>during training</strong> &mdash; could entropy/ER/PR serve as training progress signals?</li>
+      </ul>
+      <ul>
+        <li>Would <strong>MoE models</strong> (Mixtral, DeepSeek-MoE) show qualitatively different profiles given conditional computation?</li>
+        <li>What is the <strong>minimum layer set</strong> for reliable LPP estimation?</li>
+        <li>Can the hourglass structure be linked to <strong>information-theoretic</strong> or optimization properties of transformer training?</li>
+      </ul>
+    </div>
+    <div style="margin-top:20px;">
+      <p style="font-family:var(--mono); font-size:0.65rem; letter-spacing:0.08em; text-transform:uppercase; color:var(--fg-dim); margin-bottom:8px;">Authors</p>
+      <div class="authors-grid">
+        <span class="author-chip">T. Chakraborty</span>
+        <span class="author-chip">A. Sengupta</span>
+        <span class="author-chip">S. Bhattacharya</span>
+        <span class="author-chip">P. P. Chakrabarti</span>
+        <span class="author-chip">A. Chakrabarti</span>
+        <span class="author-chip">S. Chakraborty</span>
+        <span class="author-chip">P. P. Das</span>
+        <span class="author-chip">L. Dey</span>
+        <span class="author-chip">R. Singh</span>
+        <span class="author-chip">M. Vatsa</span>
+      </div>
+      <p style="margin-top:8px; font-size:0.78rem; color:var(--fg-dim);">IIIT Delhi &middot; IIT Kharagpur &middot; IIT Bombay &middot; IIT Jodhpur &middot; University of Calcutta &middot; Ashoka University &middot; Hewlett Packard Enterprise</p>
+    </div>
+  </section>
+
+</div>
+
+</body>
+</html>

@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>The Expressive Power of Low Precision Softmax Transformers with (Summarized) Chain-of-Thought</title>
+<style>
+:root { --paper:#fafafa; --ink:#1a1a1a; --muted:#555; --accent:#1a5276; --line:#ddd; --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif; --serif:Georgia,"Noto Serif SC",serif; }
+body { font-family:var(--serif); background:var(--paper); color:var(--ink); line-height:1.6; margin:0; padding:0; }
+.container { max-width:min(95vw, 760px); margin:0 auto; padding:28px 20px 60px; }
+.topnav { position:fixed; top:12px; left:14px; z-index:50; font-family:var(--sans); font-size:.75rem; background:var(--paper); border:1px solid var(--line); padding:5px 10px; border-radius:999px; }
+.topnav a { color:var(--muted); text-decoration:none; font-weight:600; }
+.topnav a:hover { color:var(--accent); }
+h1 { font-size:1.6rem; margin:2.2rem 0 1rem; border-bottom:2px solid var(--accent); padding-bottom:.3rem; }
+h2 { font-size:1.3rem; margin:1.8rem 0 .8rem; color:var(--accent); }
+h3 { font-size:1.1rem; margin:1.4rem 0 .6rem; }
+p { margin:.8rem 0; }
+.authors { font-style:italic; color:var(--muted); margin-top:-.4rem; }
+.meta { font-family:var(--sans); font-size:.82rem; color:var(--muted); margin:.2rem 0; }
+a { color:var(--accent); text-decoration:none; }
+a:hover { text-decoration:underline; }
+blockquote { border-left:3px solid var(--accent); margin:1rem 0; padding:.2rem 0 .2rem 1rem; color:var(--muted); font-style:italic; }
+code { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; background:#f0f0f0; padding:2px 5px; border-radius:3px; font-size:.9em; }
+pre { background:#f5f5f5; padding:14px; overflow-x:auto; border-radius:4px; border:1px solid var(--line); }
+pre code { background:transparent; padding:0; }
+ul,ol { margin:.6rem 0; padding-left:1.5rem; }
+li { margin:.25rem 0; }
+table { border-collapse:collapse; width:100%; margin:1rem 0; font-family:var(--sans); font-size:.9rem; }
+th,td { border:1px solid var(--line); padding:6px 10px; text-align:left; }
+th { background:#f0f0f0; }
+hr { border:none; border-top:1px solid var(--line); margin:1.5rem 0; }
+.note { font-family:var(--sans); font-size:.78rem; color:var(--muted); border-top:1px solid var(--line); margin-top:2rem; padding-top:1rem; }
+@media (max-width: 600px) { .container { padding:22px 14px 40px; } h1 { font-size:1.35rem; } }
+</style>
+</head>
+<body>
+<div class="topnav"><a href="./index.html">← Today's digest</a></div>
+<div class="container">
+<h1>The Expressive Power of Low Precision Softmax Transformers with (Summarized) Chain-of-Thought</h1>
+<p class="meta">arXiv: 2605.18079</p>
+<p class="meta">Date: 2026-05-18</p>
+<p class="meta"><a href="https://arxiv.org/abs/2605.18079">https://arxiv.org/abs/2605.18079</a></p>
+<blockquote><strong>一句话总结：</strong> 本文证明使用softmax注意力、低精度激活值（bfloat16级别）且深度和宽度按上下文长度对数增长的Transformer解码器，可以通过Chain-of-Thought模拟图灵机；使用Summarized CoT时模型规模仅需按空间界而非时间界对数缩放，实验表明增加模型规模比增加精度更能改善长上下文推理能力。</blockquote>
+<blockquote><strong>TL;DR:</strong> This paper proves that standard softmax transformer decoders with low-precision rounding (bfloat16-level) and logarithmic depth/width can simulate Turing machines via CoT, and more efficiently via Summarized CoT where model size scales logarithmically in space rather than time. Sudoku experiments confirm that scaling model size improves long-context reasoning while increasing precision from 16-bit to 32-bit has negligible effect.</blockquote>
+<h2>核心贡献</h2>
+<ul>
+<li>证明了使用softmax注意力、激活值和注意力权重舍入的Transformer解码器在深度和宽度对数增长时，可以通过CoT模拟图灵机，填补了理论模型与实际模型之间的差距。</li>
+<li>提出了一种从hardmax到softmax的转换方法：构造具有三元激活值（{−1, 0, 1}）和良好分离注意力分数的hardmax Transformer，再通过适度的query/key缩放因子转换为等价的softmax Transformer。</li>
+<li>证明使用Summarized CoT时，模型规模仅需按图灵机的空间界（而非时间界）对数缩放，效率显著提升。</li>
+<li>实验验证了理论预测：在Sudoku推理任务上，增加模型深度有效延长CoT的有效上下文长度，而将精度从bfloat16提升到fp32几乎没有效果。</li>
+</ul>
+<h2>Key Contributions</h2>
+<ul>
+<li>Proves Turing completeness of standard softmax transformers with activation and attention weight rounding at sub-logarithmic precision (constant mantissa bits, O(log log log) exponent bits for activations), where depth and width scale logarithmically with context length.</li>
+<li>Develops a construction pipeline: hardmax transformers with ternary activations and well-separated attention scores → softmax conversion via moderate scaling factor c = O((log l)^(3/4)) → validated with additional denoising MLPs to handle rounding errors in attention weights.</li>
+<li>Shows Summarized CoT (SCoT) enables model size to scale logarithmically in a space bound rather than a time bound, with maximum segment length O(s_M(w)) — a significant efficiency improvement for space-bounded computations.</li>
+<li>Demonstrates that bfloat16 precision suffices for the constructions up to context sizes of ~10^38, while prior log-precision constructions can break at small context lengths even at 32-bit precision.</li>
+<li>Provides empirical evidence on Sudoku reasoning that scaling model size (depth 6→8) improves long-context CoT performance, while scaling precision (bfloat16→fp32) has negligible effect — consistent with the paper's theoretical predictions and inconsistent with prior high-precision results.</li>
+<li>Shows SCoT models generalize from easy to ultra-hard Sudokus: a model trained on CoT length ≤ 2^12 solves 92/100 hardest test puzzles requiring 1–9 million CoT tokens.</li>
+</ul>
+<h2>Methodology</h2>
+<p>The paper follows a two-stage construction approach:</p>
+<ol>
+<li><strong>Hardmax Transformer Construction (Section 3):</strong> The authors construct hardmax transformers with ternary weights and activations ({−1, 0, 1}) that simulate Turing machines. The representations are divided into registers encoding positions (binary), states, symbols, and flags. Attention heads extract specific registers from previous tokens, while MLPs perform operations like copying, incrementing, and decrementing binary values. A novel head-position reconstruction technique and binary search for finding the latest matching token are used. Three constructions are provided: regular language recognition (Proposition 3.1), CoT Turing machine simulation (Theorem 3.2), and SCoT Turing machine simulation (Theorem 3.3).</li>
+</ol>
+<ol>
+<li><strong>Softmax Conversion with Rounding (Section 4):</strong> The hardmax constructions are converted to softmax by scaling query/key projections by a factor c. The error between softmax and hardmax is bounded by 2ne^{-β} where β is the attention score separation. Since ternary queries/keys guarantee minimum separation of 1/√d_k, moderate scaling suffices. For attention weight rounding, additional denoising MLPs are added that map perturbed activations back to correct ternary values via a piecewise linear function (Figure 4). Each original layer is replaced by 2 layers in the softmax variant.</li>
+</ol>
+<ol>
+<li><strong>Empirical Validation (Section 5):</strong> Small transformers are trained to imitate a depth-first search solver on the sudoku-extreme dataset. CoT and SCoT models of varying depths and precisions are compared on puzzles grouped by required CoT length.</li>
+</ol>
+<h2>Results & Highlights</h2>
+<ul>
+<li><strong>Precision requirements:</strong> Activations need only constant mantissa bits and O(log log log n̂/t̂/ŝ) exponent bits. Attention weights need O(log log t̂/ŝ) exponent bits and ≥4 mantissa bits. bfloat16 suffices up to context sizes ~10^38.</li>
+<li><strong>SCoT efficiency:</strong> For SCoT, depth and width are O(log ŝ) (space bound), compared to O(log t̂) (time bound) for standard CoT. This is a significant improvement since ŝ can be much smaller than t̂.</li>
+<li><strong>Scaling factor:</strong> The required query/key scaling factor is c = O((log l)^(3/4)), much more moderate than the polynomial-in-context-length scaling that prior high-precision constructions would require.</li>
+<li><strong>Sudoku CoT results:</strong> A depth-6 model (d=512, 8 heads) trained with SCoT achieves 99.5% accuracy. The same model size with CoT fails on puzzles requiring >2^12 CoT tokens. Increasing depth to 8 fixes the CoT failure; increasing precision to fp32 does not.</li>
+<li><strong>SCoT generalization:</strong> A d=768, L=12 SCoT model trained on puzzles with CoT length ≤ 2^12 achieves 99.96% overall accuracy and solves 92/100 hardest puzzles (1–9M CoT tokens required).</li>
+</ul>
+<h2>Authors & Credibility</h2>
+<ul>
+<li><strong>Moritz Brösamle</strong> and <strong>Stephan Eckstein</strong> are from the Department of Mathematics, University of Tübingen, Germany.</li>
+<li>The paper is published in the <strong>Proceedings of ICML 2026</strong> (43rd ICML, Seoul, PMLR 306), a top-tier ML venue.</li>
+<li>Supported by German Research Foundation (DFG) through Project 553088969 and the Cluster of Excellence "Machine Learning — New Perspectives for Science" (EXC 2064/1).</li>
+<li>Code is publicly available at https://github.com/moritzbroe/transformer-expressivity.</li>
+<li>The correctness of constructions is verified by compiling Turing machines into PyTorch transformers and testing on random Turing machines.</li>
+</ul>
+<h2>Critical Assessment</h2>
+<ul>
+<li><strong>Novelty (High):</strong> This is the first work to show Turing completeness of softmax transformers with realistic precision (bfloat16-level) and moderate parameter magnitudes. The ternary-activation intermediate construction and the denoising-MLP technique for handling attention weight rounding are novel technical contributions.</li>
+<li><strong>Rigor (High):</strong> All constructions come with explicit constant bounds, complete proofs in appendices, and mechanically verified implementations. The distinction between O_M(·) and O(·) notation is carefully maintained.</li>
+<li><strong>Reproducibility (High):</strong> Public code repository, detailed experimental setup in appendices, and explicit asymptotic bounds with constants.</li>
+<li><strong>Significance (Moderate-High):</strong> Substantially narrows the gap between theoretical expressivity results and practical transformer models. The key insight — that ternary activations enable efficient error correction under rounding — is both elegant and practically relevant. However, the results are purely existential (expressivity, not learnability), and the logarithmic scaling of depth/width still deviates from fixed-size practical models.</li>
+<li><strong>Red flags:</strong> The empirical evaluation is limited to a single task (Sudoku) with a single algorithm (DFS backtracking). The claim that "expressivity results for softmax transformers with rounding give better qualitative predictions about learnability" is somewhat overstated given this limited evidence. The constructions are not intended to be learned by gradient descent — they are hand-crafted, and the gap between expressivity and learnability remains large.</li>
+</ul>
+<h2>Strengths</h2>
+<ul>
+<li>First rigorous proof that practical softmax transformers with bfloat16-level precision are Turing complete, using parameter magnitudes and precision that are realistic.</li>
+<li>The SCoT result showing model size scales logarithmically in space (not time) is a meaningful efficiency improvement with clear practical implications for long-reasoning tasks.</li>
+<li>Clean construction pipeline (hardmax with ternary activations → softmax conversion → denoising MLPs) that is modular and well-organized.</li>
+<li>Excellent comparison table (Table 1) situating the results among prior work.</li>
+<li>The Sudoku experiments, while limited, provide a compelling illustration of the theory-practice alignment.</li>
+<li>The observation that SCoT enables constant-space generalization to ultra-hard puzzles is practically interesting.</li>
+</ul>
+<h2>Limitations</h2>
+<ul>
+<li>The constructions are purely existential — there is no guarantee that gradient descent can find these solutions. The authors acknowledge this but the gap between expressivity and learnability remains the elephant in the room.</li>
+<li>Depth and width still grow logarithmically with context length, whereas practical models have fixed architecture. The claim of "more realistic" models is relative to prior work, not absolute.</li>
+<li>Empirical evaluation is limited to one task (Sudoku) and one algorithm (DFS). Whether the predictions generalize to other reasoning tasks is unknown.</li>
+<li>The ternary activation assumption, while enabling the elegant denoising-MLP technique, may not be representative of how trained transformers actually encode information.</li>
+<li>The hardmax→softmax conversion doubles the number of layers, which weakens the efficiency claims somewhat.</li>
+</ul>
+<h2>Relevance</h2>
+<p>本文与"Computation Reliability & Precision Errors"和"ML Reliability & Mathematical Foundations"两个研究兴趣高度相关。它严格分析了低精度浮点（bfloat16级别）对Transformer表达能力的影响，证明了舍入误差在实际精度下不会损害图灵完备性，为理解实际训练中混合精度的可靠性提供了理论基础。此外，关于模型规模缩放比精度缩放更有效的实验结论，对LLM训练实践具有直接指导意义。</p>
+<h2>Questions for Further Exploration</h2>
+<ol>
+<li>Can the ternary-activation constructions be relaxed to allow a larger but still bounded set of activation values, which might be more representative of learned representations?</li>
+<li>Does the logarithmic depth/width scaling represent a fundamental lower bound, or can fixed-size softmax transformers with rounding also be Turing complete under some formulation?</li>
+<li>How do the theoretical predictions translate to more diverse reasoning tasks beyond Sudoku (e.g., mathematical proof, code generation, planning)?</li>
+<li>Can the denoising-MLP technique be adapted to work with quantized weight formats (e.g., INT8, FP4) commonly used in inference?</li>
+<li>What is the relationship between the construction's effective attention sparsity (1-sparse) and practical sparse attention methods like FlashAttention — could sparse attention implementations inherently preserve expressivity?</li>
+</ol>
+<p class="note">Generated from Markdown summary. Full paper: <a href="https://arxiv.org/abs/2605.18079">arXiv:2605.18079</a></p>
+</div>
+</body>
+</html>

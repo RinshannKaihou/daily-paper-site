@@ -1,0 +1,1072 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TLO — Temporal Logit Observability for LLM Safety Failures</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Instrument+Serif:ital@0;1&family=DM+Sans:wght@400;500;600;700&display=swap');
+
+:root {
+  --bg: #0a0c10;
+  --surface: #12151c;
+  --surface-2: #181c26;
+  --surface-3: #1e2330;
+  --border: #2a3040;
+  --border-dim: #1e2535;
+  --text: #e0e4ed;
+  --text-dim: #7a8599;
+  --text-muted: #4a5568;
+  --accent: #00e89d;
+  --accent-dim: rgba(0, 232, 157, 0.12);
+  --accent-2: #ff6b6b;
+  --accent-2-dim: rgba(255, 107, 107, 0.12);
+  --accent-3: #ffd93d;
+  --accent-3-dim: rgba(255, 217, 61, 0.10);
+  --warning: #ff8c42;
+  --mono: 'JetBrains Mono', monospace;
+  --serif: 'Instrument Serif', Georgia, serif;
+  --sans: 'DM Sans', system-ui, sans-serif;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html { font-size: 15px; scroll-behavior: smooth; }
+
+body {
+  font-family: var(--sans);
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.55;
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+/* ── noise texture overlay ── */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");
+  pointer-events: none;
+  z-index: 9999;
+}
+
+/* ── top nav ribbon ── */
+.nav-ribbon {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  background: rgba(10, 12, 16, 0.85);
+  backdrop-filter: blur(16px);
+  border-bottom: 1px solid var(--border-dim);
+  padding: 0.6rem 2rem;
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+  font-size: 0.78rem;
+  color: var(--text-dim);
+}
+.nav-ribbon a {
+  color: var(--text-dim);
+  text-decoration: none;
+  transition: color 0.2s;
+  font-weight: 500;
+}
+.nav-ribbon a:hover { color: var(--accent); }
+.nav-ribbon .tag {
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  background: var(--accent-dim);
+  color: var(--accent);
+  padding: 0.15rem 0.55rem;
+  border-radius: 3px;
+  letter-spacing: 0.04em;
+}
+.nav-ribbon .sep { color: var(--border); }
+
+/* ── hero ── */
+.hero {
+  position: relative;
+  padding: 5rem 2rem 3.5rem;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+.hero::after {
+  content: '';
+  position: absolute;
+  top: 0; right: -10vw;
+  width: 50vw; height: 50vw;
+  background: radial-gradient(circle, rgba(0, 232, 157, 0.04) 0%, transparent 65%);
+  pointer-events: none;
+}
+.hero-eyebrow {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  color: var(--accent);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  margin-bottom: 1.2rem;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  animation: fadeSlideIn 0.6s ease both;
+}
+.hero-eyebrow::before {
+  content: '';
+  display: inline-block;
+  width: 18px; height: 2px;
+  background: var(--accent);
+}
+.hero h1 {
+  font-family: var(--serif);
+  font-size: clamp(2.4rem, 5vw, 3.8rem);
+  font-weight: 400;
+  line-height: 1.1;
+  color: #fff;
+  max-width: 900px;
+  margin-bottom: 1.5rem;
+  animation: fadeSlideIn 0.7s 0.1s ease both;
+}
+.hero h1 em {
+  font-style: italic;
+  color: var(--accent);
+}
+.hero-subtitle {
+  font-size: 1.05rem;
+  color: var(--text-dim);
+  max-width: 680px;
+  line-height: 1.65;
+  animation: fadeSlideIn 0.7s 0.2s ease both;
+}
+.hero-meta {
+  margin-top: 1.6rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.8rem;
+  animation: fadeSlideIn 0.7s 0.3s ease both;
+}
+.hero-meta .chip {
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  padding: 0.25rem 0.65rem;
+  border-radius: 3px;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  letter-spacing: 0.02em;
+}
+
+/* ── asset row ── */
+.asset-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1px;
+  background: var(--border-dim);
+  max-width: 1200px;
+  margin: 0 auto 0;
+  animation: fadeSlideIn 0.8s 0.35s ease both;
+}
+@media (max-width: 900px) { .asset-row { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 520px) { .asset-row { grid-template-columns: 1fr; } }
+
+.asset-card {
+  background: var(--surface);
+  padding: 2rem 1.8rem;
+  position: relative;
+  overflow: hidden;
+}
+.asset-card::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0;
+  width: 100%; height: 3px;
+}
+.asset-card.type-finding::before { background: var(--accent); }
+.asset-card.type-metric::before { background: var(--accent-3); }
+.asset-card.type-why::before { background: var(--accent-2); }
+.asset-card.type-edge::before { background: var(--warning); }
+
+.asset-card .label {
+  font-family: var(--mono);
+  font-size: 0.62rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  margin-bottom: 1rem;
+}
+.asset-card.type-finding .label { color: var(--accent); }
+.asset-card.type-metric .label { color: var(--accent-3); }
+.asset-card.type-why .label { color: var(--accent-2); }
+.asset-card.type-edge .label { color: var(--warning); }
+
+.asset-card .value {
+  font-family: var(--serif);
+  font-size: 2.8rem;
+  line-height: 1;
+  margin-bottom: 0.6rem;
+  color: #fff;
+}
+.asset-card.type-finding .value { color: var(--accent); }
+.asset-card.type-metric .value { color: var(--accent-3); }
+
+.asset-card .desc {
+  font-size: 0.85rem;
+  color: var(--text-dim);
+  line-height: 1.55;
+}
+
+/* ── body grid ── */
+.body-grid {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 2.5rem 2rem 4rem;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-areas:
+    "method pipeline"
+    "results results"
+    "geometry early-stop"
+    "robustness limitations"
+    "strengths concerns"
+    "questions questions";
+  gap: 1px;
+  background: var(--border-dim);
+}
+@media (max-width: 800px) {
+  .body-grid {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      "method" "pipeline" "results" "geometry"
+      "early-stop" "robustness" "limitations"
+      "strengths" "concerns" "questions";
+  }
+}
+
+.panel {
+  background: var(--surface);
+  padding: 2rem 2rem;
+}
+.panel h2 {
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  margin-bottom: 1.3rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.panel h2::before {
+  content: '';
+  display: inline-block;
+  width: 6px; height: 6px;
+  border-radius: 1px;
+  transform: rotate(45deg);
+}
+.panel-grid-method h2::before { background: var(--accent); }
+.panel-grid-pipeline h2::before { background: var(--accent-3); }
+.panel-grid-results h2::before { background: var(--accent); }
+.panel-grid-geometry h2::before { background: var(--accent-3); }
+.panel-grid-early h2::before { background: var(--accent); }
+.panel-grid-robust h2::before { background: var(--accent-2); }
+.panel-grid-limits h2::before { background: var(--warning); }
+.panel-grid-strengths h2::before { background: var(--accent); }
+.panel-grid-concerns h2::before { background: var(--accent-2); }
+.panel-grid-questions h2::before { background: var(--text-dim); }
+
+.panel-grid-method { grid-area: method; }
+.panel-grid-pipeline { grid-area: pipeline; }
+.panel-grid-results { grid-area: results; }
+.panel-grid-geometry { grid-area: geometry; }
+.panel-grid-early { grid-area: early-stop; }
+.panel-grid-robust { grid-area: robustness; }
+.panel-grid-limits { grid-area: limitations; }
+.panel-grid-strengths { grid-area: strengths; }
+.panel-grid-concerns { grid-area: concerns; }
+.panel-grid-questions { grid-area: questions; }
+
+/* ── pipeline steps (vertical) ── */
+.pipeline-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+.pipeline-step {
+  display: flex;
+  gap: 1rem;
+  position: relative;
+}
+.pipeline-step .step-marker {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex-shrink: 0;
+}
+.pipeline-step .step-num {
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  font-weight: 700;
+  width: 26px; height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  background: var(--accent-dim);
+  color: var(--accent);
+  border: 1px solid rgba(0, 232, 157, 0.2);
+}
+.pipeline-step .step-line {
+  width: 1px;
+  flex: 1;
+  background: var(--border);
+  margin: 0.3rem 0;
+}
+.pipeline-step:last-child .step-line { display: none; }
+.pipeline-step .step-body {
+  padding-bottom: 1.4rem;
+}
+.pipeline-step .step-title {
+  font-weight: 600;
+  font-size: 0.88rem;
+  color: #fff;
+  margin-bottom: 0.35rem;
+}
+.pipeline-step .step-desc {
+  font-size: 0.8rem;
+  color: var(--text-dim);
+  line-height: 1.55;
+}
+.pipeline-step code {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  background: var(--surface-3);
+  padding: 0.1rem 0.35rem;
+  border-radius: 3px;
+  color: var(--accent);
+}
+
+/* ── results table ── */
+.results-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1rem;
+}
+@media (max-width: 600px) { .results-grid { grid-template-columns: 1fr; } }
+
+.result-stat {
+  background: var(--surface-2);
+  border: 1px solid var(--border-dim);
+  border-radius: 6px;
+  padding: 1.4rem;
+}
+.result-stat .rs-label {
+  font-size: 0.72rem;
+  color: var(--text-dim);
+  margin-bottom: 0.6rem;
+  line-height: 1.4;
+}
+.result-stat .rs-value {
+  font-family: var(--mono);
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #fff;
+}
+.result-stat .rs-value.green { color: var(--accent); }
+.result-stat .rs-value.amber { color: var(--accent-3); }
+.result-stat .rs-value.red { color: var(--accent-2); }
+.result-stat .rs-sub {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  margin-top: 0.3rem;
+  font-family: var(--mono);
+}
+
+/* ── RP plane canvas ── */
+.rp-plane-container {
+  position: relative;
+  background: var(--surface-2);
+  border: 1px solid var(--border-dim);
+  border-radius: 6px;
+  overflow: hidden;
+  aspect-ratio: 1.5 / 1;
+  margin-top: 0.5rem;
+}
+.rp-plane-container canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.rp-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  margin-top: 0.8rem;
+}
+.rp-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.68rem;
+  color: var(--text-dim);
+  font-family: var(--mono);
+}
+.rp-legend-item .dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+/* ── bullet lists ── */
+.bullet-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+.bullet-list li {
+  font-size: 0.82rem;
+  color: var(--text-dim);
+  line-height: 1.55;
+  padding-left: 1rem;
+  position: relative;
+}
+.bullet-list li::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0.55rem;
+  width: 4px; height: 4px;
+  border-radius: 50%;
+}
+.bullet-list.accent li::before { background: var(--accent); }
+.bullet-list.warn li::before { background: var(--warning); }
+.bullet-list.red li::before { background: var(--accent-2); }
+
+/* ── bar chart ── */
+.bar-chart {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+  margin-top: 0.5rem;
+}
+.bar-row {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+}
+.bar-label {
+  font-family: var(--mono);
+  font-size: 0.66rem;
+  color: var(--text-dim);
+  width: 110px;
+  text-align: right;
+  flex-shrink: 0;
+}
+.bar-track {
+  flex: 1;
+  height: 22px;
+  background: var(--surface-3);
+  border-radius: 3px;
+  overflow: hidden;
+  position: relative;
+}
+.bar-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 1s ease;
+  position: relative;
+}
+.bar-fill.green { background: linear-gradient(90deg, rgba(0,232,157,0.6), rgba(0,232,157,0.25)); }
+.bar-fill.amber { background: linear-gradient(90deg, rgba(255,217,61,0.6), rgba(255,217,61,0.2)); }
+.bar-fill.red { background: linear-gradient(90deg, rgba(255,107,107,0.6), rgba(255,107,107,0.2)); }
+.bar-val {
+  font-family: var(--mono);
+  font-size: 0.66rem;
+  color: var(--text-dim);
+  width: 42px;
+  text-align: left;
+  flex-shrink: 0;
+}
+
+/* ── metric highlight blocks ── */
+.metric-row {
+  display: flex;
+  gap: 1.2rem;
+  flex-wrap: wrap;
+  margin-top: 0.5rem;
+}
+.metric-block {
+  background: var(--surface-2);
+  border-left: 3px solid var(--accent);
+  padding: 0.8rem 1rem;
+  flex: 1;
+  min-width: 130px;
+}
+.metric-block .mb-val {
+  font-family: var(--mono);
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: #fff;
+}
+.metric-block .mb-label {
+  font-size: 0.7rem;
+  color: var(--text-dim);
+  margin-top: 0.2rem;
+}
+
+/* ── question cards ── */
+.question-cards {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.8rem;
+}
+@media (max-width: 700px) { .question-cards { grid-template-columns: 1fr; } }
+.q-card {
+  background: var(--surface-2);
+  border: 1px solid var(--border-dim);
+  border-radius: 5px;
+  padding: 1.2rem;
+  font-size: 0.82rem;
+  color: var(--text-dim);
+  line-height: 1.55;
+  transition: border-color 0.3s;
+}
+.q-card:hover { border-color: var(--text-muted); }
+.q-card .q-num {
+  font-family: var(--mono);
+  font-size: 0.6rem;
+  color: var(--text-muted);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  margin-bottom: 0.5rem;
+}
+
+/* ── footer ── */
+.dash-footer {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 2rem;
+  border-top: 1px solid var(--border-dim);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+.dash-footer .cite {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  font-family: var(--mono);
+  max-width: 500px;
+}
+.dash-footer .links { display: flex; gap: 1.2rem; }
+.dash-footer .links a {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  color: var(--text-dim);
+  text-decoration: none;
+  padding: 0.3rem 0.8rem;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  transition: all 0.2s;
+}
+.dash-footer .links a:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+/* ── animations ── */
+@keyframes fadeSlideIn {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes barGrow {
+  from { width: 0; }
+}
+
+/* ── responsive hero ── */
+@media (max-width: 600px) {
+  .hero { padding: 3rem 1.2rem 2rem; }
+  .hero h1 { font-size: 2rem; }
+  .body-grid { padding: 1.5rem 0.8rem 3rem; }
+  .panel { padding: 1.4rem 1.2rem; }
+  .asset-card { padding: 1.4rem; }
+  .asset-card .value { font-size: 2rem; }
+}
+
+/* ── utility ── */
+.mt-1 { margin-top: 0.7rem; }
+.mt-2 { margin-top: 1.2rem; }
+.text-sm { font-size: 0.8rem; }
+.text-dim { color: var(--text-dim); }
+.font-mono { font-family: var(--mono); }
+</style>
+</head>
+<body>
+
+<!-- Nav ribbon -->
+<nav class="nav-ribbon">
+  <span class="tag">arXiv 2605.29629</span>
+  <a href="./index.html">Index</a>
+  <span class="sep">/</span>
+  <a href="2605.29629.html">Markdown</a>
+  <span class="sep">/</span>
+  <span style="color:var(--text-muted)">2026-05-28</span>
+  <span style="margin-left:auto; font-family:var(--mono); font-size:0.66rem; color:var(--text-muted)">Park et al. — Chung-Ang University</span>
+</nav>
+
+<!-- Hero -->
+<header class="hero">
+  <div class="hero-eyebrow">Paper Dashboard</div>
+  <h1>Beyond Attack Success Rate: <em>Temporal Logit Observability</em> for LLM Safety Failures</h1>
+  <p class="hero-subtitle">
+    TLO tracks the compliance-refusal logit margin during decoding, mapping each model-attack pair onto a calibrated 2D plane. Attacks with identical ASR land at different coordinates. An early-stop rule derived from the first five tokens cuts aggregate ASR by 26.5 percentage points with zero false positives on benign queries.
+  </p>
+  <div class="hero-meta">
+    <span class="chip">LLM safety</span>
+    <span class="chip">jailbreak detection</span>
+    <span class="chip">logit analysis</span>
+    <span class="chip">temporal dynamics</span>
+    <span class="chip">training-free</span>
+  </div>
+</header>
+
+<!-- Asset row -->
+<section class="asset-row">
+  <div class="asset-card type-finding">
+    <div class="label">Key Finding</div>
+    <div class="value" style="font-size:1.4rem; line-height:1.25;">ASR-blind failure paths become visible via temporal logit trajectories</div>
+    <div class="desc">9 model-attack pairs within 5pp ASR show median <code style="font-family:var(--mono);font-size:0.75rem;background:var(--surface-3);padding:0.1rem 0.3rem;border-radius:2px;color:var(--accent);">D_RP = 0.572</code> calibrated separation</div>
+  </div>
+  <div class="asset-card type-metric">
+    <div class="label">Key Metric</div>
+    <div class="value">39.6 &rarr; 13.1%</div>
+    <div class="desc">Aggregate ASR reduction via t_cross early-stop at w=5 &middot; <strong style="color:#fff;">0.0% FPR</strong> on benign queries</div>
+  </div>
+  <div class="asset-card type-why">
+    <div class="label">Why This Matters</div>
+    <div class="value" style="font-size:1.2rem; line-height:1.25;">Current eval collapses distinct failure mechanisms into one number</div>
+    <div class="desc">TLO decomposes the "whether" of jailbreak success into "when" and "how," enabling targeted defenses</div>
+  </div>
+  <div class="asset-card type-edge">
+    <div class="label">Critical Edge</div>
+    <div class="value" style="font-size:1.1rem; line-height:1.25;">Requires full logit access</div>
+    <div class="desc">API-level top-k=20 gives near-zero correlation with the diagnostic signal. Restricted to open-weight auditing, not API deployment.</div>
+  </div>
+</section>
+
+<!-- Body grid -->
+<main class="body-grid">
+
+  <!-- Method -->
+  <section class="panel panel-grid-method">
+    <h2>Core Method</h2>
+    <p class="text-sm text-dim" style="margin-bottom:1rem;">
+      TLO computes a <strong style="color:#fff;">Logit-Margin Score</strong> at each decoding step &mdash; the difference between mean compliance-logit and mean refusal-logit over a fixed 47-phrase English lexicon. This scalar trajectory S<sub>t</sub> is then calibrated against harmful and benign anchor distributions to produce comparable 2D coordinates across models and attacks.
+    </p>
+    <div class="metric-row">
+      <div class="metric-block">
+        <div class="mb-val">47</div>
+        <div class="mb-label">phrases in lexicon (26 refusal + 21 compliance)</div>
+      </div>
+      <div class="metric-block">
+        <div class="mb-val">4 &times; 3</div>
+        <div class="mb-label">model-attack grid tested</div>
+      </div>
+    </div>
+    <p class="text-sm text-dim mt-2">
+      <strong style="color:#fff;">Key design property:</strong> RP displacement is bounded by (1&minus;ASR), making TLO most informative exactly where ASR is least informative &mdash; the mid-ASR range.
+    </p>
+  </section>
+
+  <!-- Pipeline -->
+  <section class="panel panel-grid-pipeline">
+    <h2>Diagnostic Pipeline</h2>
+    <div class="pipeline-steps">
+      <div class="pipeline-step">
+        <div class="step-marker">
+          <div class="step-num">1</div>
+          <div class="step-line"></div>
+        </div>
+        <div class="step-body">
+          <div class="step-title">Temporal Logit Signal</div>
+          <div class="step-desc">Compute <code>S_t = mu_cmp(t) - mu_ref(t)</code> at each decoding step. Extract <code>S_0</code> (pre-generation) and <code>S-bar</code> (generation mean).</div>
+        </div>
+      </div>
+      <div class="pipeline-step">
+        <div class="step-marker">
+          <div class="step-num">2</div>
+          <div class="step-line"></div>
+        </div>
+        <div class="step-body">
+          <div class="step-title">Activation Timing</div>
+          <div class="step-desc"><code>t_cross</code> = first step where S_t &lt; 0 (refusal dominance). Sign reversal occurs 5.2&times; more often in failed jailbreaks.</div>
+        </div>
+      </div>
+      <div class="pipeline-step">
+        <div class="step-marker">
+          <div class="step-num">3</div>
+          <div class="step-line"></div>
+        </div>
+        <div class="step-body">
+          <div class="step-title">RP Calibration</div>
+          <div class="step-desc"><code>RP(M) = (M_success - M_harmful) / (M_benign - M_harmful)</code> applied to S_0 yields RP_A; to S-bar yields RP_B. Euclidean distance D_RP between conditions.</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Results overview -->
+  <section class="panel panel-grid-results">
+    <h2>Results at a Glance</h2>
+    <div class="results-grid">
+      <div class="result-stat">
+        <div class="rs-label">Early-separation AUC (first 5 tokens)</div>
+        <div class="rs-value green">0.771</div>
+        <div class="rs-sub">Cohen's d &gt; 1.0 &middot; p &lt; 10&supmin;&sup3;&sup8;</div>
+      </div>
+      <div class="result-stat">
+        <div class="rs-label">t_cross classification AUC</div>
+        <div class="rs-value green">0.784</div>
+        <div class="rs-sub">[0.750, 0.816] CI</div>
+      </div>
+      <div class="result-stat">
+        <div class="rs-label">Hidden-state alignment</div>
+        <div class="rs-value amber">10 / 12</div>
+        <div class="rs-sub">conditions with expected-sign alignment</div>
+      </div>
+      <div class="result-stat">
+        <div class="rs-label">ASR reduction (early-stop)</div>
+        <div class="rs-value green">26.5 pp</div>
+        <div class="rs-sub">39.6% &rarr; 13.1%</div>
+      </div>
+      <div class="result-stat">
+        <div class="rs-label">Benign false positive rate</div>
+        <div class="rs-value green">0.0%</div>
+        <div class="rs-sub">all 12 conditions, format-free</div>
+      </div>
+      <div class="result-stat">
+        <div class="rs-label">Strongest RP separation</div>
+        <div class="rs-value amber">D_RP 1.014</div>
+        <div class="rs-sub">Llama+DI vs Mistral+GCG (ASR diff 1.7pp)</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- RP-plane geometry -->
+  <section class="panel panel-grid-geometry">
+    <h2>RP-Plane Geometry</h2>
+    <p class="text-sm text-dim" style="margin-bottom:0.8rem;">
+      Conditions with near-identical ASR land at distinct locations on the calibrated 2D plane, revealing failure-mechanism differences invisible to the scalar metric.
+    </p>
+    <div class="rp-plane-container">
+      <canvas id="rpCanvas"></canvas>
+    </div>
+    <div class="rp-legend" id="rpLegend"></div>
+  </section>
+
+  <!-- Early-stop -->
+  <section class="panel panel-grid-early">
+    <h2>Early-Stop Intervention</h2>
+    <p class="text-sm text-dim" style="margin-bottom:1rem;">
+      The t_cross-based halt rule intervenes after observing only the first 5 generated tokens. Effectiveness varies by model-attack pair, with largest drops in NGB conditions (delta = 40.3 pp).
+    </p>
+    <div class="bar-chart" id="earlyStopChart"></div>
+  </section>
+
+  <!-- Robustness -->
+  <section class="panel panel-grid-robust">
+    <h2>Robustness Checks</h2>
+    <ul class="bullet-list accent">
+      <li><strong style="color:#fff;">Stochastic decoding:</strong> ICC = 0.90&ndash;0.94 for trajectory metrics across temperature/p sampling</li>
+      <li><strong style="color:#fff;">Lexicon perturbations:</strong> |delta AUC| &le; 0.018 across 5 variants</li>
+      <li><strong style="color:#fff;">Margin vs. refusal-only:</strong> margin outperforms by 0.162 AUC (common-mode rejection)</li>
+      <li><strong style="color:#fff;">Rank-based RP:</strong> Pearson r = 0.858 / 0.920 / 0.925 for RP_A / RP_B / displacement</li>
+      <li><strong style="color:#fff;">Reproducibility:</strong> training-free, single RTX 4090, &lt; 58 min total</li>
+    </ul>
+  </section>
+
+  <!-- Limitations -->
+  <section class="panel panel-grid-limits">
+    <h2>Limitations</h2>
+    <ul class="bullet-list warn">
+      <li><strong style="color:#fff;">Full logit access required:</strong> top-k=20 (API standard) gives near-zero correlation (r = &minus;0.12 to &minus;0.01)</li>
+      <li><strong style="color:#fff;">English-only lexicon:</strong> the fixed 47-phrase set is language-specific</li>
+      <li><strong style="color:#fff;">Qwen boundary case:</strong> 4/5 NGB conditions involve Qwen; Qwen+GCG AUC is near chance (0.519)</li>
+      <li><strong style="color:#fff;">Observational, not causal:</strong> makes dynamics visible but does not identify circuits</li>
+      <li><strong style="color:#fff;">Small n at low ASR:</strong> Llama+MCM and Mistral+MCM have n<sub>succ</sub> = 3</li>
+      <li><strong style="color:#fff;">No adaptive-attack evaluation</strong></li>
+    </ul>
+  </section>
+
+  <!-- Strengths -->
+  <section class="panel panel-grid-strengths">
+    <h2>Strengths</h2>
+    <ul class="bullet-list accent">
+      <li>Genuinely novel temporal framing for safety evaluation</li>
+      <li>Exceptional transparency: every design choice has a sensitivity analysis in the appendix</li>
+      <li>Training-free, logit-only, single GPU, &lt; 1 hour</li>
+      <li>Honest failure reporting (Qwen boundary, API limitation, NGB conditions)</li>
+      <li>Elegant (1&ndash;ASR) complementarity bound</li>
+      <li>Supplementary archive with reproduction scripts sets a strong example</li>
+    </ul>
+  </section>
+
+  <!-- Concerns -->
+  <section class="panel panel-grid-concerns">
+    <h2>Concerns</h2>
+    <ul class="bullet-list red">
+      <li><strong style="color:#fff;">Data-driven lexicon transfer gap:</strong> off-diagonal AUC drops from ~0.93 to ~0.65, challenging model-portability claims</li>
+      <li><strong style="color:#fff;">Early-stop not independent of diagnostic:</strong> both use the same t_cross signal; untested against attacks that delay crossing</li>
+      <li><strong style="color:#fff;">2D plane is lossy:</strong> per-condition AUC ranges 0.511&ndash;0.987; some conditions near chance even with full trajectory</li>
+      <li><strong style="color:#fff;">Attack-formatted benign stress test:</strong> 46.0% false halt rate (S_0-gated variant reduces to 12.6%)</li>
+    </ul>
+  </section>
+
+  <!-- Open questions -->
+  <section class="panel panel-grid-questions">
+    <h2>Open Questions for Further Exploration</h2>
+    <div class="question-cards">
+      <div class="q-card">
+        <div class="q-num">Q1</div>
+        How does TLO perform against adaptive attacks explicitly optimizing to delay or suppress the LMS crossing signal?
+      </div>
+      <div class="q-card">
+        <div class="q-num">Q2</div>
+        Can lightweight distilled monitors approximate TLO from limited logit access (e.g., top-k at k &ge; 50)?
+      </div>
+      <div class="q-card">
+        <div class="q-num">Q3</div>
+        Does RP-plane geometry change qualitatively for reasoning models (o1, DeepSeek-R1) with chain-of-thought decoding?
+      </div>
+      <div class="q-card">
+        <div class="q-num">Q4</div>
+        How would per-model lexicon induction affect RP reliability given the observed transfer gap?
+      </div>
+      <div class="q-card">
+        <div class="q-num">Q5</div>
+        Can TLO extend to multilingual settings, and how do different tokenizers affect cross-model comparability?
+      </div>
+      <div class="q-card">
+        <div class="q-num">Q6</div>
+        What is the relationship between TLO's temporal failure patterns and specific mechanistic circuits from causal tracing?
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<!-- Footer -->
+<footer class="dash-footer">
+  <div class="cite">Park et al. 2026 &middot; Beyond Attack Success Rate: Temporal Logit Observability for LLM Safety Failures &middot; arXiv:2605.29629</div>
+  <div class="links">
+    <a href="./index.html">Index</a>
+    <a href="2605.29629.html">Markdown</a>
+    <a href="https://arxiv.org/abs/2605.29629" target="_blank" rel="noopener">arXiv</a>
+  </div>
+</footer>
+
+<script>
+// ── RP-plane scatter plot ──
+(function() {
+  const canvas = document.getElementById('rpCanvas');
+  const container = canvas.parentElement;
+  const dpr = window.devicePixelRatio || 1;
+
+  function resize() {
+    const rect = container.getBoundingClientRect();
+    canvas.width = rect.width * dpr;
+    canvas.height = rect.height * dpr;
+  }
+  resize();
+  window.addEventListener('resize', resize);
+
+  // Approximate RP-plane positions from paper data
+  const points = [
+    { label: 'Llama+MCM',   rpA: 0.32, rpB: 0.18, color: '#00e89d', model: 'Llama' },
+    { label: 'Llama+GCG',   rpA: 0.08, rpB: 3.80, color: '#00e89d', model: 'Llama' },
+    { label: 'Llama+DI',    rpA: 0.45, rpB: 0.22, color: '#00e89d', model: 'Llama' },
+    { label: 'Mistral+MCM', rpA: 0.28, rpB: 0.35, color: '#ffd93d', model: 'Mistral' },
+    { label: 'Mistral+GCG', rpA: 0.48, rpB: 0.60, color: '#ffd93d', model: 'Mistral' },
+    { label: 'Mistral+DI',  rpA: 0.55, rpB: 0.42, color: '#ffd93d', model: 'Mistral' },
+    { label: 'Qwen+MCM',    rpA: 0.90, rpB: 0.85, color: '#ff6b6b', model: 'Qwen' },
+    { label: 'Qwen+GCG',    rpA: 0.95, rpB: 0.90, color: '#ff6b6b', model: 'Qwen' },
+    { label: 'Qwen+DI',     rpA: 0.50, rpB: 0.30, color: '#ff6b6b', model: 'Qwen' },
+    { label: 'Gemma+MCM',   rpA: 0.38, rpB: 0.50, color: '#a78bfa', model: 'Gemma' },
+    { label: 'Gemma+GCG',   rpA: 0.20, rpB: 1.80, color: '#a78bfa', model: 'Gemma' },
+    { label: 'Gemma+DI',    rpA: 0.60, rpB: 0.38, color: '#a78bfa', model: 'Gemma' },
+  ];
+
+  // Animate in
+  let progress = 0;
+  const startTime = performance.now();
+  const duration = 1200;
+
+  function draw(now) {
+    progress = Math.min(1, (now - startTime) / duration);
+    const ease = 1 - Math.pow(1 - progress, 3);
+
+    const ctx = canvas.getContext('2d');
+    const w = canvas.width;
+    const h = canvas.height;
+    ctx.clearRect(0, 0, w, h);
+
+    const pad = { top: 40 * dpr, right: 30 * dpr, bottom: 50 * dpr, left: 55 * dpr };
+    const plotW = w - pad.left - pad.right;
+    const plotH = h - pad.top - pad.bottom;
+
+    // Grid
+    ctx.strokeStyle = 'rgba(42, 48, 64, 0.5)';
+    ctx.lineWidth = 1;
+    for (let i = 0; i <= 5; i++) {
+      const x = pad.left + (plotW * i / 5);
+      const y = pad.top + (plotH * i / 5);
+      ctx.beginPath(); ctx.moveTo(x, pad.top); ctx.lineTo(x, h - pad.bottom); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(pad.left, y); ctx.lineTo(w - pad.right, y); ctx.stroke();
+    }
+
+    // Axes labels
+    ctx.fillStyle = '#7a8599';
+    ctx.font = `${11 * dpr}px 'JetBrains Mono', monospace`;
+    ctx.textAlign = 'center';
+    ctx.fillText('RP_A  (pre-generation, S_0)', w / 2, h - 8 * dpr);
+    ctx.save();
+    ctx.translate(14 * dpr, h / 2);
+    ctx.rotate(-Math.PI / 2);
+    ctx.fillText('RP_B  (generation, S-bar)', 0, 0);
+    ctx.restore();
+
+    // Tick labels
+    ctx.font = `${9 * dpr}px 'JetBrains Mono', monospace`;
+    ctx.fillStyle = '#4a5568';
+    ctx.textAlign = 'center';
+    for (let i = 0; i <= 5; i++) {
+      ctx.fillText((i * 0.2).toFixed(1), pad.left + (plotW * i / 5), h - pad.bottom + 16 * dpr);
+    }
+    ctx.textAlign = 'right';
+    for (let i = 0; i <= 5; i++) {
+      const val = 4.0 - (i * 0.8);
+      ctx.fillText(val.toFixed(1), pad.left - 8 * dpr, pad.top + (plotH * i / 5) + 4 * dpr);
+    }
+
+    // Points
+    const maxRPA = 1.0;
+    const maxRPB = 4.0;
+
+    points.forEach((p, i) => {
+      const delay = i * 0.06;
+      const t = Math.max(0, Math.min(1, (progress - delay) / (1 - delay)));
+      const pointEase = 1 - Math.pow(1 - t, 2);
+
+      const x = pad.left + ((p.rpA / maxRPA) * plotW * pointEase);
+      const y = pad.top + plotH - ((p.rpB / maxRPB) * plotH * pointEase);
+      const r = 7 * dpr * pointEase;
+
+      // Glow
+      const grad = ctx.createRadialGradient(x, y, 0, x, y, r * 3);
+      grad.addColorStop(0, p.color + '40');
+      grad.addColorStop(1, 'transparent');
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.arc(x, y, r * 3, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Dot
+      ctx.fillStyle = p.color;
+      ctx.globalAlpha = pointEase;
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+
+      // Label
+      if (pointEase > 0.6) {
+        ctx.fillStyle = '#7a8599';
+        ctx.font = `${9 * dpr}px 'JetBrains Mono', monospace`;
+        ctx.textAlign = 'left';
+        ctx.globalAlpha = (pointEase - 0.6) / 0.4;
+        ctx.fillText(p.label, x + r + 4 * dpr, y + 3 * dpr);
+        ctx.globalAlpha = 1;
+      }
+    });
+
+    if (progress < 1) requestAnimationFrame(draw);
+  }
+  requestAnimationFrame(draw);
+
+  // Legend
+  const legendEl = document.getElementById('rpLegend');
+  const models = [
+    { name: 'Llama-3.1-8B', color: '#00e89d' },
+    { name: 'Mistral-7B', color: '#ffd93d' },
+    { name: 'Qwen2.5-7B', color: '#ff6b6b' },
+    { name: 'Gemma-2-9B', color: '#a78bfa' },
+  ];
+  models.forEach(m => {
+    const item = document.createElement('div');
+    item.className = 'rp-legend-item';
+    item.innerHTML = `<span class="dot" style="background:${m.color}"></span>${m.name}`;
+    legendEl.appendChild(item);
+  });
+})();
+
+// ── Early-stop bar chart ──
+(function() {
+  const data = [
+    { label: 'Llama+MCM',   before: 5.0,  after: 1.7 },
+    { label: 'Llama+GCG',   before: 8.3,  after: 1.7 },
+    { label: 'Llama+DI',    before: 35.0, after: 8.3 },
+    { label: 'Mistral+MCM', before: 5.0,  after: 1.7 },
+    { label: 'Mistral+GCG', before: 33.3, after: 6.7 },
+    { label: 'Mistral+DI',  before: 41.7, after: 15.0 },
+    { label: 'Qwen+MCM',    before: 76.7, after: 43.3 },
+    { label: 'Qwen+GCG',    before: 76.7, after: 50.0 },
+    { label: 'Qwen+DI',     before: 38.3, after: 16.7 },
+    { label: 'Gemma+MCM',   before: 31.7, after: 5.0 },
+    { label: 'Gemma+GCG',   before: 38.3, after: 3.3 },
+    { label: 'Gemma+DI',    before: 45.0, after: 13.3 },
+  ];
+
+  const container = document.getElementById('earlyStopChart');
+  const maxVal = 80;
+
+  data.forEach(d => {
+    const row = document.createElement('div');
+    row.className = 'bar-row';
+
+    const label = document.createElement('span');
+    label.className = 'bar-label';
+    label.textContent = d.label;
+
+    const track = document.createElement('div');
+    track.className = 'bar-track';
+
+    // Before bar (red, background)
+    const fillBefore = document.createElement('div');
+    fillBefore.className = 'bar-fill red';
+    fillBefore.style.width = (d.before / maxVal * 100) + '%';
+
+    // After bar (green, overlay)
+    const fillAfter = document.createElement('div');
+    fillAfter.className = 'bar-fill green';
+    fillAfter.style.width = (d.after / maxVal * 100) + '%';
+    fillAfter.style.position = 'absolute';
+    fillAfter.style.top = '0';
+    fillAfter.style.left = '0';
+
+    track.appendChild(fillBefore);
+    track.appendChild(fillAfter);
+
+    const val = document.createElement('span');
+    val.className = 'bar-val';
+    val.textContent = `${d.before}→${d.after}`;
+
+    row.appendChild(label);
+    row.appendChild(track);
+    row.appendChild(val);
+    container.appendChild(row);
+  });
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,830 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>UniSteer — Text-Guided Flow Matching for LLM Steering</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,700;1,9..40,400&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #0c0e12;
+  --bg-raised: #13161c;
+  --bg-card: #181c24;
+  --bg-card-hover: #1e2330;
+  --border: #262c38;
+  --border-light: #2f3648;
+  --fg: #e4e7ed;
+  --fg-dim: #8a93a6;
+  --fg-muted: #5a6378;
+  --accent: #00d4aa;
+  --accent-dim: rgba(0,212,170,0.15);
+  --accent-glow: rgba(0,212,170,0.08);
+  --warn: #ff6b4a;
+  --warn-dim: rgba(255,107,74,0.12);
+  --blue: #4ea8ff;
+  --blue-dim: rgba(78,168,255,0.12);
+  --purple: #a78bfa;
+  --purple-dim: rgba(167,139,250,0.12);
+  --yellow: #fbbf24;
+  --yellow-dim: rgba(251,191,36,0.12);
+  --font-display: 'Space Grotesk', sans-serif;
+  --font-body: 'DM Sans', sans-serif;
+  --radius: 10px;
+  --radius-sm: 6px;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html { font-size: 15px; scroll-behavior: smooth; }
+
+body {
+  font-family: var(--font-body);
+  background: var(--bg);
+  color: var(--fg);
+  line-height: 1.55;
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* noise overlay */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");
+  pointer-events: none;
+  z-index: 9999;
+}
+
+/* NAV */
+nav {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  background: rgba(12,14,18,0.85);
+  backdrop-filter: blur(16px);
+  border-bottom: 1px solid var(--border);
+  padding: 0 2rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 52px;
+}
+.nav-brand {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 0.85rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--accent);
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.nav-brand span { color: var(--fg-dim); font-weight: 400; }
+.nav-links { display: flex; gap: 1.2rem; align-items: center; }
+.nav-links a {
+  color: var(--fg-dim);
+  text-decoration: none;
+  font-size: 0.82rem;
+  font-weight: 500;
+  transition: color 0.2s;
+}
+.nav-links a:hover { color: var(--accent); }
+.nav-links .tag {
+  background: var(--accent-dim);
+  color: var(--accent);
+  padding: 3px 10px;
+  border-radius: 100px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+/* HERO */
+.hero {
+  position: relative;
+  padding: 3.5rem 2rem 2.5rem;
+  max-width: 1280px;
+  margin: 0 auto;
+  overflow: hidden;
+}
+.hero::before {
+  content: '';
+  position: absolute;
+  top: -40%;
+  left: 10%;
+  width: 500px;
+  height: 500px;
+  background: radial-gradient(circle, rgba(0,212,170,0.06) 0%, transparent 70%);
+  pointer-events: none;
+}
+.hero-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 2rem;
+  margin-bottom: 1.8rem;
+}
+.hero-title {
+  font-family: var(--font-display);
+  font-size: 2.6rem;
+  font-weight: 700;
+  line-height: 1.12;
+  letter-spacing: -0.02em;
+  color: var(--fg);
+  max-width: 700px;
+}
+.hero-title em {
+  font-style: normal;
+  color: var(--accent);
+}
+.hero-subtitle {
+  color: var(--fg-dim);
+  font-size: 0.95rem;
+  margin-top: 0.6rem;
+  max-width: 580px;
+  line-height: 1.6;
+}
+.hero-meta {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.4rem;
+  margin-top: 0.3rem;
+}
+.hero-meta .arxiv-id {
+  font-family: var(--font-display);
+  font-size: 0.82rem;
+  color: var(--fg-muted);
+  letter-spacing: 0.03em;
+}
+.hero-meta .arxiv-id a { color: var(--blue); text-decoration: none; }
+.hero-meta .arxiv-id a:hover { text-decoration: underline; }
+.hero-meta .authors {
+  font-size: 0.8rem;
+  color: var(--fg-dim);
+  text-align: right;
+  max-width: 280px;
+}
+.hero-claim {
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  padding: 1rem 1.4rem;
+  border-radius: var(--radius-sm);
+  font-size: 0.92rem;
+  color: var(--fg);
+  line-height: 1.6;
+  max-width: 860px;
+  animation: fadeSlideUp 0.5s ease both;
+  animation-delay: 0.15s;
+}
+
+/* ASSET ROW */
+.asset-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1rem;
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 0 2rem 2.5rem;
+}
+.asset-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1.3rem 1.2rem;
+  position: relative;
+  overflow: hidden;
+  transition: border-color 0.25s, background 0.25s;
+  animation: fadeSlideUp 0.5s ease both;
+}
+.asset-card:nth-child(1) { animation-delay: 0.2s; }
+.asset-card:nth-child(2) { animation-delay: 0.3s; }
+.asset-card:nth-child(3) { animation-delay: 0.4s; }
+.asset-card:nth-child(4) { animation-delay: 0.5s; }
+.asset-card:hover { border-color: var(--border-light); background: var(--bg-card-hover); }
+.asset-card .asset-label {
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--fg-muted);
+  margin-bottom: 0.7rem;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.asset-card .asset-label .dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  display: inline-block;
+}
+.asset-card .asset-value {
+  font-family: var(--font-display);
+  font-size: 1.85rem;
+  font-weight: 700;
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+}
+.asset-card .asset-desc {
+  font-size: 0.8rem;
+  color: var(--fg-dim);
+  margin-top: 0.5rem;
+  line-height: 1.5;
+}
+.accent-green .dot { background: var(--accent); }
+.accent-green .asset-value { color: var(--accent); }
+.accent-blue .dot { background: var(--blue); }
+.accent-blue .asset-value { color: var(--blue); }
+.accent-purple .dot { background: var(--purple); }
+.accent-purple .asset-value { color: var(--purple); }
+.accent-warn .dot { background: var(--warn); }
+.accent-warn .asset-value { color: var(--warn); }
+
+/* BODY GRID */
+.body-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 0 2rem 3rem;
+}
+.body-grid .full-width { grid-column: 1 / -1; }
+
+/* PANEL */
+.panel {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  animation: fadeSlideUp 0.5s ease both;
+}
+.panel-header {
+  padding: 1rem 1.3rem;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.panel-title {
+  font-family: var(--font-display);
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--fg);
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.panel-title .icon {
+  width: 22px;
+  height: 22px;
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.72rem;
+}
+.panel-body { padding: 1.2rem 1.3rem; }
+
+/* METHOD FLOW */
+.method-flow {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+}
+.method-step {
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  padding: 0.9rem 1rem;
+  font-size: 0.8rem;
+  line-height: 1.45;
+  flex: 1;
+  transition: border-color 0.2s;
+}
+.method-step:not(:last-child) {
+  border-right: none;
+}
+.method-step:hover { border-color: var(--accent); }
+.method-step .step-num {
+  font-family: var(--font-display);
+  font-size: 0.65rem;
+  font-weight: 600;
+  color: var(--accent);
+  letter-spacing: 0.06em;
+  margin-bottom: 0.3rem;
+}
+.method-step .step-label {
+  font-weight: 500;
+  color: var(--fg);
+}
+.method-step .step-desc {
+  color: var(--fg-dim);
+  font-size: 0.75rem;
+  margin-top: 0.25rem;
+  line-height: 1.5;
+}
+
+/* DATA TABLES */
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.78rem;
+}
+.data-table th {
+  text-align: left;
+  padding: 0.55rem 0.7rem;
+  font-weight: 600;
+  color: var(--fg-dim);
+  font-size: 0.7rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+.data-table td {
+  padding: 0.5rem 0.7rem;
+  border-bottom: 1px solid rgba(38,44,56,0.5);
+  color: var(--fg-dim);
+  font-variant-numeric: tabular-nums;
+}
+.data-table tr:hover td { background: var(--bg-raised); }
+.data-table .best { color: var(--accent); font-weight: 600; }
+.data-table .method-name { color: var(--fg); font-weight: 500; }
+.data-table .unisteer-row td { background: var(--accent-glow); font-weight: 500; }
+
+/* TABS */
+.tab-bar {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--border);
+}
+.tab-btn {
+  background: none;
+  border: none;
+  color: var(--fg-muted);
+  font-family: var(--font-display);
+  font-size: 0.76rem;
+  font-weight: 500;
+  padding: 0.7rem 1.2rem;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: color 0.2s, border-color 0.2s;
+}
+.tab-btn:hover { color: var(--fg-dim); }
+.tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
+.tab-content { display: none; }
+.tab-content.active { display: block; }
+
+/* PRO/CON LISTS */
+.pro-con-list { list-style: none; }
+.pro-con-list li {
+  padding: 0.5rem 0;
+  border-bottom: 1px solid rgba(38,44,56,0.4);
+  font-size: 0.82rem;
+  color: var(--fg-dim);
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  line-height: 1.5;
+}
+.pro-con-list li:last-child { border-bottom: none; }
+.pro-con-list .marker {
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.6rem;
+  font-weight: 700;
+  margin-top: 2px;
+}
+.marker.green { background: var(--accent-dim); color: var(--accent); }
+.marker.red { background: var(--warn-dim); color: var(--warn); }
+
+/* BAR CHARTS */
+.bar-chart { display: flex; flex-direction: column; gap: 0.55rem; }
+.bar-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-size: 0.78rem;
+}
+.bar-label {
+  width: 90px;
+  text-align: right;
+  color: var(--fg-dim);
+  font-weight: 500;
+  flex-shrink: 0;
+  font-size: 0.76rem;
+}
+.bar-track {
+  flex: 1;
+  height: 22px;
+  background: var(--bg);
+  border-radius: 4px;
+  overflow: hidden;
+  position: relative;
+}
+.bar-fill {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 1s cubic-bezier(0.25,0.8,0.25,1);
+  display: flex;
+  align-items: center;
+  padding-left: 0.5rem;
+  font-size: 0;
+  font-weight: 600;
+}
+.bar-fill.green { background: linear-gradient(90deg, var(--accent), rgba(0,212,170,0.6)); }
+.bar-fill.blue { background: linear-gradient(90deg, var(--blue), rgba(78,168,255,0.6)); }
+.bar-fill.dim { background: var(--border-light); }
+.bar-value {
+  width: 46px;
+  text-align: left;
+  color: var(--fg-muted);
+  font-variant-numeric: tabular-nums;
+  font-size: 0.75rem;
+}
+
+/* QUESTIONS */
+.question-list { list-style: none; counter-reset: q; }
+.question-list li {
+  counter-increment: q;
+  padding: 0.6rem 0 0.6rem 2.2rem;
+  border-bottom: 1px solid rgba(38,44,56,0.4);
+  font-size: 0.82rem;
+  color: var(--fg-dim);
+  line-height: 1.55;
+  position: relative;
+}
+.question-list li:last-child { border-bottom: none; }
+.question-list li::before {
+  content: counter(q);
+  position: absolute;
+  left: 0;
+  top: 0.65rem;
+  font-family: var(--font-display);
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--blue);
+  background: var(--blue-dim);
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* FOOTER */
+footer {
+  border-top: 1px solid var(--border);
+  padding: 1.5rem 2rem;
+  max-width: 1280px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.75rem;
+  color: var(--fg-muted);
+}
+footer a { color: var(--fg-dim); text-decoration: none; }
+footer a:hover { color: var(--accent); }
+
+/* ANIMATIONS */
+@keyframes fadeSlideUp {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* RESPONSIVE */
+@media (max-width: 900px) {
+  .asset-row { grid-template-columns: repeat(2, 1fr); }
+  .body-grid { grid-template-columns: 1fr; }
+  .hero-title { font-size: 1.9rem; }
+  .method-flow { flex-direction: column; }
+  .hero-top { flex-direction: column; }
+  .hero-meta { align-items: flex-start; }
+  .hero-meta .authors { text-align: left; }
+}
+@media (max-width: 560px) {
+  .asset-row { grid-template-columns: 1fr; }
+  html { font-size: 14px; }
+  .hero { padding: 2rem 1rem 1.5rem; }
+  .asset-row, .body-grid { padding-left: 1rem; padding-right: 1rem; }
+  .data-table { font-size: 0.7rem; }
+  .data-table th, .data-table td { padding: 0.4rem 0.4rem; }
+  nav { padding: 0 1rem; }
+  footer { padding: 1.5rem 1rem; flex-direction: column; gap: 0.5rem; }
+}
+
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--border-light); }
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="nav-brand">UniSteer <span>Dash</span></div>
+  <div class="nav-links">
+    <a href="./index.html">Index</a>
+    <a href="2605.30076.html">Source .md</a>
+    <a href="https://arxiv.org/abs/2605.30076">arXiv</a>
+    <span class="tag">cs.CL</span>
+  </div>
+</nav>
+
+<!-- HERO -->
+<section class="hero">
+  <div class="hero-top">
+    <div>
+      <h1 class="hero-title"><em>UniSteer</em>: Text-Guided Flow Matching in Activation Space</h1>
+      <p class="hero-subtitle">One conditional velocity field replaces a zoo of per-behavior steering methods. Natural-language prompts control LLM behavior at inference time across five task categories and three models.</p>
+    </div>
+    <div class="hero-meta">
+      <div class="arxiv-id"><a href="https://arxiv.org/abs/2605.30076">2605.30076</a></div>
+      <div class="authors">Y. Shi, R. Zhang, C. Li, Z. Yang, K. Zhang, J. Yu, K. Ren &mdash; ShanghaiTech University &middot; May 2026</div>
+    </div>
+  </div>
+  <div class="hero-claim">
+    The <strong>first text-conditioned flow matching framework</strong> applied to LLM activation-space steering. A DiT-style transformer learns a universal conditional velocity field over residual-stream activations; at inference, flow inversion partially transports a source activation toward noise, then regenerates it under a new textual condition. A single shared model handles behavioral control, truthfulness, fine-grained concepts, multi-constraint following, and activation-space classification.
+  </div>
+</section>
+
+<!-- ASSET ROW -->
+<div class="asset-row">
+  <div class="asset-card accent-green">
+    <div class="asset-label"><span class="dot"></span> Key Result</div>
+    <div class="asset-value">90.80</div>
+    <div class="asset-desc">Truth&times;Info on TruthfulQA (Qwen2.5-7B) &mdash; best across all methods</div>
+  </div>
+  <div class="asset-card accent-blue">
+    <div class="asset-label"><span class="dot"></span> Training Scale</div>
+    <div class="asset-value">~270K</div>
+    <div class="asset-desc">Activation-condition tuples from six diverse data sources (AxBench, RECAST, Persona, HelpSteer, HH-RLHF, preference)</div>
+  </div>
+  <div class="asset-card accent-purple">
+    <div class="asset-label"><span class="dot"></span> Unification</div>
+    <div class="asset-value">5-in-1</div>
+    <div class="asset-desc">One model covers Persona behavioral control, TruthfulQA, AxBench concept steering, RECAST multi-constraint, and ToxiGen classification</div>
+  </div>
+  <div class="asset-card accent-warn">
+    <div class="asset-label"><span class="dot"></span> Critical Edge</div>
+    <div class="asset-value">10&ndash;50</div>
+    <div class="asset-desc">Euler ODE steps per token edit; latency cost not quantified. Tested only up to 7B parameters</div>
+  </div>
+</div>
+
+<!-- BODY GRID -->
+<div class="body-grid">
+
+  <!-- Method Pipeline -->
+  <div class="panel full-width" style="animation-delay:0.3s">
+    <div class="panel-header">
+      <div class="panel-title"><span class="icon" style="background:var(--accent-dim);color:var(--accent);">&#9670;</span> Flow Inversion Pipeline</div>
+    </div>
+    <div class="panel-body">
+      <div class="method-flow">
+        <div class="method-step">
+          <div class="step-num">01 / ENCODE</div>
+          <div class="step-label">Condition Encoding</div>
+          <div class="step-desc">Frozen Qwen3-0.6B encodes natural-language prompt (e.g. "Be helpful") into condition embedding via cross-attention + adaptive norm</div>
+        </div>
+        <div class="method-step">
+          <div class="step-num">02 / INVERT</div>
+          <div class="step-label">Flow Inversion</div>
+          <div class="step-desc">Partially transport source activation a_src from t=1 to t=1-lambda under source condition c_src, moving toward Gaussian noise</div>
+        </div>
+        <div class="method-step">
+          <div class="step-num">03 / RECONSTRUCT</div>
+          <div class="step-label">Forward Transport</div>
+          <div class="step-desc">Regenerate from intermediate latent under target textual condition c_tgt via learned velocity field v_theta</div>
+        </div>
+        <div class="method-step">
+          <div class="step-num">04 / INJECT</div>
+          <div class="step-label">Activation Injection</div>
+          <div class="step-desc">Edited activation injected at middle transformer layer of frozen LLM. Euler solver, 10-50 steps. CFG applied with task-specific scale</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tabbed Results -->
+  <div class="panel full-width" style="animation-delay:0.4s">
+    <div class="panel-header">
+      <div class="panel-title"><span class="icon" style="background:var(--blue-dim);color:var(--blue);">&#9632;</span> Results Across Tasks</div>
+    </div>
+    <div class="tab-bar">
+      <button class="tab-btn active" data-tab="persona">Persona</button>
+      <button class="tab-btn" data-tab="truthfulqa">TruthfulQA</button>
+      <button class="tab-btn" data-tab="recast">RECAST</button>
+      <button class="tab-btn" data-tab="toxigen">ToxiGen</button>
+    </div>
+
+    <div class="tab-content active" id="tab-persona">
+      <div class="panel-body">
+        <table class="data-table">
+          <thead><tr><th>Method</th><th>Llama-3.2-1B</th><th>Qwen2.5-1.5B</th><th>Qwen2.5-7B</th></tr></thead>
+          <tbody>
+            <tr><td class="method-name">Original</td><td>19.37</td><td>4.10</td><td>5.10</td></tr>
+            <tr><td class="method-name">CAA</td><td>67.33</td><td>28.00</td><td>80.67</td></tr>
+            <tr><td class="method-name">RepE</td><td>33.67</td><td>31.10</td><td>36.67</td></tr>
+            <tr><td class="method-name">LoReFT</td><td>20.76</td><td>54.67</td><td>42.78</td></tr>
+            <tr><td class="method-name">ODESteer</td><td>16.60</td><td>47.67</td><td>11.67</td></tr>
+            <tr class="unisteer-row"><td class="method-name" style="color:var(--accent)">UniSteer</td><td class="best">72.03</td><td class="best">77.67</td><td class="best">81.75</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="tab-content" id="tab-truthfulqa">
+      <div class="panel-body">
+        <table class="data-table">
+          <thead><tr><th>Method</th><th>Llama T*I</th><th>Qwen 1.5B T*I</th><th>Qwen 7B T*I</th></tr></thead>
+          <tbody>
+            <tr><td class="method-name">Original</td><td>63.95</td><td>54.40</td><td>85.91</td></tr>
+            <tr><td class="method-name">CAA</td><td>65.27</td><td>56.73</td><td>81.53</td></tr>
+            <tr><td class="method-name">RepE</td><td>63.80</td><td>54.99</td><td>81.99</td></tr>
+            <tr><td class="method-name">LoReFT</td><td>70.08</td><td>73.90</td><td>83.96</td></tr>
+            <tr><td class="method-name">ODESteer</td><td>72.50</td><td>63.89</td><td>87.71</td></tr>
+            <tr class="unisteer-row"><td class="method-name" style="color:var(--accent)">UniSteer</td><td>68.01</td><td class="best">71.37</td><td class="best">90.80</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="tab-content" id="tab-recast">
+      <div class="panel-body">
+        <table class="data-table">
+          <thead><tr><th>Method</th><th>Llama R5</th><th>Llama R10</th><th>Qwen1.5B R5</th><th>Qwen1.5B R10</th><th>Qwen7B R5</th><th>Qwen7B R10</th></tr></thead>
+          <tbody>
+            <tr><td class="method-name">Original</td><td>12.85</td><td>5.62</td><td>11.04</td><td>5.02</td><td>21.49</td><td>10.44</td></tr>
+            <tr><td class="method-name">CAA</td><td>13.65</td><td>5.82</td><td>11.24</td><td>5.22</td><td>20.68</td><td>10.04</td></tr>
+            <tr><td class="method-name">RepE</td><td>14.46</td><td>5.82</td><td>12.85</td><td>4.82</td><td>21.29</td><td>11.45</td></tr>
+            <tr><td class="method-name">LoReFT</td><td>12.65</td><td>5.22</td><td>10.44</td><td>4.81</td><td>20.06</td><td>8.84</td></tr>
+            <tr><td class="method-name">ODESteer</td><td>9.61</td><td>3.61</td><td>13.66</td><td>5.04</td><td>15.06</td><td>9.04</td></tr>
+            <tr class="unisteer-row"><td class="method-name" style="color:var(--accent)">UniSteer</td><td class="best">14.66</td><td class="best">6.83</td><td class="best">12.85</td><td class="best">6.63</td><td>21.49</td><td class="best">13.05</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="tab-content" id="tab-toxigen">
+      <div class="panel-body">
+        <table class="data-table">
+          <thead><tr><th>Method</th><th>Llama Acc</th><th>Llama AUC</th><th>Qwen1.5B Acc</th><th>Qwen1.5B AUC</th><th>Qwen7B Acc</th><th>Qwen7B AUC</th></tr></thead>
+          <tbody>
+            <tr><td class="method-name">CAA</td><td>0.65</td><td>0.65</td><td>0.67</td><td>0.73</td><td>0.72</td><td>0.77</td></tr>
+            <tr><td class="method-name">RepE</td><td>0.46</td><td>0.50</td><td>0.76</td><td>0.85</td><td>0.52</td><td>0.46</td></tr>
+            <tr><td class="method-name">LoReFT</td><td>0.80</td><td>0.89</td><td>0.77</td><td>0.87</td><td>0.77</td><td>0.86</td></tr>
+            <tr class="unisteer-row"><td class="method-name" style="color:var(--accent)">UniSteer</td><td class="best">0.80</td><td>0.88</td><td class="best">0.82</td><td class="best">0.90</td><td class="best">0.85</td><td class="best">0.92</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Persona Bar Chart -->
+  <div class="panel" style="animation-delay:0.5s">
+    <div class="panel-header">
+      <div class="panel-title"><span class="icon" style="background:var(--accent-dim);color:var(--accent);">&#9679;</span> Persona Scores (Qwen2.5-7B)</div>
+    </div>
+    <div class="panel-body">
+      <div class="bar-chart" id="persona-bars"></div>
+    </div>
+  </div>
+
+  <!-- ToxiGen AUC Chart -->
+  <div class="panel" style="animation-delay:0.55s">
+    <div class="panel-header">
+      <div class="panel-title"><span class="icon" style="background:var(--purple-dim);color:var(--purple);">&#9679;</span> ToxiGen AUC (Qwen2.5-7B)</div>
+    </div>
+    <div class="panel-body">
+      <div class="bar-chart" id="toxigen-bars"></div>
+    </div>
+  </div>
+
+  <!-- Strengths -->
+  <div class="panel" style="animation-delay:0.6s">
+    <div class="panel-header">
+      <div class="panel-title"><span class="icon" style="background:var(--accent-dim);color:var(--accent);">+</span> Strengths</div>
+    </div>
+    <div class="panel-body">
+      <ul class="pro-con-list">
+        <li><span class="marker green">+</span> One conditional velocity field replaces per-behavior steering modules</li>
+        <li><span class="marker green">+</span> Natural-language conditioning enables zero-shot steering to new concepts without retraining</li>
+        <li><span class="marker green">+</span> Comprehensive evaluation: five tasks, three LLMs, five baselines with fair data controls</li>
+        <li><span class="marker green">+</span> Activation-space classification emerges as a free byproduct of the same model</li>
+        <li><span class="marker green">+</span> Token-level alignment analysis confirms semantically targeted edits, not random perturbation</li>
+        <li><span class="marker green">+</span> Honest reporting of cases where UniSteer does not win (AxBench Llama, RECAST-5 Qwen7B)</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- Limitations -->
+  <div class="panel" style="animation-delay:0.65s">
+    <div class="panel-header">
+      <div class="panel-title"><span class="icon" style="background:var(--warn-dim);color:var(--warn);">!</span> Limitations</div>
+    </div>
+    <div class="panel-body">
+      <ul class="pro-con-list">
+        <li><span class="marker red">!</span> 10-50 Euler ODE steps per token edit; wall-clock latency overhead not quantified</li>
+        <li><span class="marker red">!</span> Tested only on models up to 7B; scalability to 70B+ is unknown</li>
+        <li><span class="marker red">!</span> No evaluation of long-form generation, multi-turn stability, or complex reasoning</li>
+        <li><span class="marker red">!</span> Optimal CFG scale is both model- and task-dependent, requiring per-setting tuning</li>
+        <li><span class="marker red">!</span> Training requires ~270K multi-source examples; may not generalize to narrow domains</li>
+        <li><span class="marker red">!</span> Dual-use safety: mechanism that steers helpfulness can also steer harmful personas</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- Open Questions -->
+  <div class="panel full-width" style="animation-delay:0.7s">
+    <div class="panel-header">
+      <div class="panel-title"><span class="icon" style="background:var(--blue-dim);color:var(--blue);">?</span> Open Questions</div>
+    </div>
+    <div class="panel-body">
+      <ol class="question-list">
+        <li>What is the wall-clock latency overhead compared to single-step CAA or RepE? Can ODE steps be reduced to 1-3 without quality loss?</li>
+        <li>How does UniSteer perform on larger models (13B, 70B)? Does the activation space become harder to model at scale?</li>
+        <li>Can the approach handle conflicting conditions (e.g. "Be honest but agree with the user's false premise")?</li>
+        <li>What happens when the textual condition describes a concept poorly represented in the training corpus?</li>
+        <li>Could the flow model be distilled into a single-step model for faster inference while retaining steering quality?</li>
+        <li>How stable is UniSteer across different injection layers, and what determines the optimal layer choice?</li>
+      </ol>
+    </div>
+  </div>
+
+</div>
+
+<footer>
+  <span>UniSteer &mdash; ShanghaiTech University &middot; May 2026</span>
+  <span>
+    <a href="./index.html">Index</a> &middot;
+    <a href="2605.30076.html">Source .md</a> &middot;
+    <a href="https://arxiv.org/abs/2605.30076">arXiv 2605.30076</a>
+  </span>
+</footer>
+
+<script>
+/* Tab switching */
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const panel = btn.closest('.panel');
+    panel.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    panel.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
+  });
+});
+
+/* Bar chart builder */
+function buildBarChart(containerId, data, maxVal, highlightIdx) {
+  var container = document.getElementById(containerId);
+  container.innerHTML = '';
+  data.forEach(function(item, i) {
+    var row = document.createElement('div');
+    row.className = 'bar-row';
+    var pct = (item.value / maxVal) * 100;
+    var isHl = i === highlightIdx;
+    row.innerHTML =
+      '<span class="bar-label">' + item.label + '</span>' +
+      '<div class="bar-track"><div class="bar-fill ' + (isHl ? 'green' : 'dim') + '" style="width:0%"></div></div>' +
+      '<span class="bar-value"' + (isHl ? ' style="color:var(--accent);font-weight:600"' : '') + '>' + item.value + '</span>';
+    container.appendChild(row);
+    var fill = row.querySelector('.bar-fill');
+    requestAnimationFrame(function() {
+      setTimeout(function() { fill.style.width = pct + '%'; }, 120 + i * 80);
+    });
+  });
+}
+
+buildBarChart('persona-bars', [
+  { label: 'Original', value: 5.10 },
+  { label: 'CAA', value: 80.67 },
+  { label: 'RepE', value: 36.67 },
+  { label: 'LoReFT', value: 42.78 },
+  { label: 'ODESteer', value: 11.67 },
+  { label: 'UniSteer', value: 81.75 }
+], 100, 5);
+
+buildBarChart('toxigen-bars', [
+  { label: 'CAA', value: 0.77 },
+  { label: 'RepE', value: 0.46 },
+  { label: 'LoReFT', value: 0.86 },
+  { label: 'UniSteer', value: 0.92 }
+], 1.0, 3);
+</script>
+
+</body>
+</html>

@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>XFP: Quality-Targeted Adaptive Codebook Quantization with Sparse Outlier Separation for LLM Inference</title>
+<style>
+:root { --paper:#fafafa; --ink:#1a1a1a; --muted:#555; --accent:#1a5276; --line:#ddd; --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif; --serif:Georgia,"Noto Serif SC",serif; }
+body { font-family:var(--serif); background:var(--paper); color:var(--ink); line-height:1.6; margin:0; padding:0; }
+.container { max-width:min(95vw, 760px); margin:0 auto; padding:28px 20px 60px; }
+.topnav { position:fixed; top:12px; left:14px; z-index:50; font-family:var(--sans); font-size:.75rem; background:var(--paper); border:1px solid var(--line); padding:5px 10px; border-radius:999px; }
+.topnav a { color:var(--muted); text-decoration:none; font-weight:600; }
+.topnav a:hover { color:var(--accent); }
+h1 { font-size:1.6rem; margin:2.2rem 0 1rem; border-bottom:2px solid var(--accent); padding-bottom:.3rem; }
+h2 { font-size:1.3rem; margin:1.8rem 0 .8rem; color:var(--accent); }
+h3 { font-size:1.1rem; margin:1.4rem 0 .6rem; }
+p { margin:.8rem 0; }
+.authors { font-style:italic; color:var(--muted); margin-top:-.4rem; }
+.meta { font-family:var(--sans); font-size:.82rem; color:var(--muted); margin:.2rem 0; }
+a { color:var(--accent); text-decoration:none; }
+a:hover { text-decoration:underline; }
+blockquote { border-left:3px solid var(--accent); margin:1rem 0; padding:.2rem 0 .2rem 1rem; color:var(--muted); font-style:italic; }
+code { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; background:#f0f0f0; padding:2px 5px; border-radius:3px; font-size:.9em; }
+pre { background:#f5f5f5; padding:14px; overflow-x:auto; border-radius:4px; border:1px solid var(--line); }
+pre code { background:transparent; padding:0; }
+ul,ol { margin:.6rem 0; padding-left:1.5rem; }
+li { margin:.25rem 0; }
+table { border-collapse:collapse; width:100%; margin:1rem 0; font-family:var(--sans); font-size:.9rem; }
+th,td { border:1px solid var(--line); padding:6px 10px; text-align:left; }
+th { background:#f0f0f0; }
+hr { border:none; border-top:1px solid var(--line); margin:1.5rem 0; }
+.note { font-family:var(--sans); font-size:.78rem; color:var(--muted); border-top:1px solid var(--line); margin-top:2rem; padding-top:1rem; }
+@media (max-width: 600px) { .container { padding:22px 14px 40px; } h1 { font-size:1.35rem; } }
+</style>
+</head>
+<body>
+<div class="topnav"><a href="./index.html">← Today's digest</a></div>
+<div class="container">
+<h1>XFP: Quality-Targeted Adaptive Codebook Quantization with Sparse Outlier Separation for LLM Inference</h1>
+<p class="meta">arXiv: 2605.14844</p>
+<p class="meta">Date: 2026-05-14</p>
+<p class="meta"><a href="https://arxiv.org/abs/2605.14844">https://arxiv.org/abs/2605.14844</a></p>
+<blockquote><strong>一句话总结：</strong> XFP 提出一种质量驱动的自适应码本量化框架，通过稀疏离群值分离（|w−μ|>4σ → fp16 残差）和双阈值余弦相似度自动选择机制，在无需 Hessian/校准数据的条件下为每层自动确定码本大小和位宽，在 Qwen3.5-122B 上以~3.97 有效比特达到 138 tok/s、94.49% GSM8K，并通过 H-Process 将 397B MoE 模型拟合到 2×96 GB 工作站上实现 100.9 tok/s。</blockquote>
+<blockquote><strong>TL;DR:</strong> XFP inverts the quantization workflow: the operator specifies per-channel cosine similarity floors (strict for attention/shared experts, lazy for routed MoE experts), and the system auto-determines codebook size, outlier budget, and packing per layer — no Hessian, no calibration data, no manual bit-width selection. Each weight matrix is decomposed into a sparse fp16 outlier residual (|w−μ|>kσ, capped at 2%) plus a dense sub-byte index into per-group learned codebooks (group size 128). Two storage modes (V2: per-channel Lloyd codebook; V2a: shared library of L=32 codebooks/layer for SMEM-constrained GPUs) share one auto-select frontend and one fused decode kernel. On Qwen3.5-122B-A10B (V2, RTX PRO 6000 Blackwell TP=2): 138 tok/s single-stream decode at ~3.97 effective bits, 94.49% GSM8K strict-match (3 seeds, n=3957), 49% faster than Marlin INT4 at TP=1. The H-Process fits Qwen3.5-397B-A17B (512 routed experts/layer) into 2×96 GB at ~3.4 effective bits, delivering 100.9 tok/s at 66.72% GSM8K — beating INT4+expert pruning simultaneously on memory, throughput, and accuracy. Code available at github.com/flash7777/vllm/tree/multiquant.</blockquote>
+<h2>核心贡献</h2>
+<ul>
+<li>提出反转传统量化流程的方法：算子指定逐通道余弦相似度质量下限（strict 用于注意力/共享专家，lazy 用于路由 MoE 专家），系统自动确定码本大小、离群值预算和每层打包策略，无需 Hessian、校准数据或手动位宽选择</li>
+<li>将权重矩阵分解为稀疏 fp16 离群值残差（|w−μ|>4σ，上限 2%）和密集子字节索引张量（指向每 128 权重组的学习码本），通过 Lloyd 迭代学习码本</li>
+<li>两种存储模式（V2 逐通道 Lloyd 码本，V2a 每层 L=32 共享码本库）共享同一自动选择前端和融合解码核，分别优化精度和 SMEM 占用</li>
+<li>融合解码核整合 depack → codebook gather → outlier scatter-add → bf16 GEMM，利用激活行缓存（activation-row caching）消除 M=1 时的重复全局内存读取</li>
+<li>提出 H-Process：在双余弦阈值上进行质量驱动迭代，三个约束（算子设定阈值、OOM 边界、垃圾输出边界）定义搜索空间，将 397B MoE 拟合到 2×96 GB 工作站</li>
+</ul>
+<h2>Key Contributions</h2>
+<ul>
+<li>Inverts the conventional quantization workflow: operator sets per-channel cosine similarity quality floors (strict for attention/shared experts, lazy for routed MoE), system auto-determines codebook size (N ∈ {2,3,4} for V2, {2,4} for V2a), outlier budget, and per-layer packing — eliminating Hessian, calibration data, and manual bit-width selection entirely</li>
+<li>Decomposes each weight matrix W ≈ W_outlier + Codebook[Q_bulk] with sparse fp16 outlier residual (|w−μ|>kσ, default k=4.0, capped at 2%) and dense sub-byte indices into per-group learned codebooks (group size 128), learned via CDF-initialized 20-round Lloyd iteration</li>
+<li>Two storage modes sharing one auto-select frontend (Algorithm 1) and one fused decode kernel: V2 (per-channel Lloyd codebook, supports N ∈ {2,3,4,5,6}) and V2a (shared library of L=32 codebooks per layer, ~1KB constant SMEM regardless of output dimension, supports N ∈ {2,4})</li>
+<li>Fused decode kernel integrates depack → codebook gather from SMEM → sparse outlier scatter-add (fp16→bf16) → bf16 GEMM via Tensor Cores, with activation-row caching for M=1 memory-bandwidth-bound decode</li>
+<li>H-Process: quality-driven iteration over (τ_strict, τ_lazy) with three constraints (operator thresholds, OOM boundary at quantize-on-load spike, garbage boundary in generation), fits 397B MoE into 2×96 GB at ~3.4 effective bits without expert pruning</li>
+</ul>
+<h2>Methodology</h2>
+<p><strong>Decomposition.</strong> Each weight matrix W is decomposed into a sparse fp16 outlier residual W_outlier (weights where |w−μ|>kσ, default k=4.0, capped at 2% of weights) and a dense N-bit index tensor Q_bulk into per-group learned codebooks (group size 128, configurable). Extracted positions are replaced with μ in the bulk distribution. Outlier triples (row index int64, column index int64, value fp16) cost 18 bytes each, adding ~0.36 bytes/weight at the default 2% cap.</p>
+<p><strong>Learned codebook via Lloyd iteration.</strong> Per output channel (V2) or per library entry (V2a), 2^N codebook entries are initialized via CDF-uniform quantiles of the cleaned bulk distribution, then iterated for 20 rounds of nearest-neighbor assignment and centroid update (conditional mean). The codebook is stored as fp16.</p>
+<p><strong>Quality-targeted auto-selection (Algorithm 1).</strong> The operator specifies two cosine similarity floors: τ_strict for attention and shared-expert projections, τ_lazy for routed-expert MoE (τ_lazy ≤ τ_strict). Auto-select tests candidate codebook sizes in ascending order and returns the first N where median per-channel cosine similarity ≥ the active threshold. MoE layers with E experts use 4 concatenated experts (not the full population); validation shows 0% disagreement on GLM (64 experts) and Qwen-35B (256), 11.5% on Qwen-122B (256) with zero math impact from disagreements due to the outlier path absorbing the error.</p>
+<p><strong>Two storage modes.</strong> V2 stores one fp16 codebook of 2^N entries per output channel — maximum precision but SMEM scales with output dimension, caching activation rows up to K≤8192 on workstation GPUs (99 KB SMEM/CTA). V2a stores a shared library of L=32 codebooks per layer with 5-bit group→library assignment, consuming ~1KB SMEM regardless of dimension and extending the cache to K≤32768, at the cost of slightly lower per-group codebook precision.</p>
+<p><strong>Fused decode kernel.</strong> Fuses depack (N-bit→int8), codebook gather from SMEM, outlier scatter-add, and bf16 GEMM. For M=1 decode, caches the full K-dimensional activation row in SMEM once per CTA, eliminating repeated global-memory reads. The codebook is loaded into SMEM once per thread block, making the kernel bit-width-portable (N=2 through N=6). Operates natively in bf16, eliminating bf16→fp16→bf16 conversion overhead. Wrapped as torch.library.custom_op for torch.compile compatibility and CUDA Graph capture.</p>
+<p><strong>H-Process.</strong> For models exceeding the target memory envelope, iterates (τ_strict, τ_lazy) from aggressive toward conservative. Three constraints define the search space: (1) operator-set quality thresholds, (2) OOM boundary at quantize-on-load (the encoding spike, not steady-state), (3) garbage boundary in generation (cosine similarity steers, but quality is verified by benchmarks — garbage output can occur with numerically passing cosine). On Qwen3.5-397B-A17B, the window between garbage (τ_lazy=0.80, ~2.3 eff bits) and OOM (τ_lazy=0.935, Lloyd spike >96 GB) is narrow; H1.5 (τ_strict=0.96, τ_lazy=0.93, ~3.4 eff bits) is the validated operating point.</p>
+<h2>Results & Highlights</h2>
+<ul>
+<li><strong>Qwen3.5-122B-A10B (V2, RTX PRO 6000 Blackwell, TP=2):</strong> 138 tok/s single-stream decode at ~3.97 effective bits; 94.49% GSM8K strict-match (3 seeds, n=3957, std ±0.57); 57/96 GiB VRAM per GPU; 98% GPU utilization at 240W (well below 600W TDP)</li>
+<li><strong>Qwen3.5-122B-A10B (V2, TP=1):</strong> 110 tok/s at 94.62% GSM8K — 49% faster than Marlin INT4 (73.6 tok/s) at comparable accuracy (95.27% GSM8K, Δ~0.65 pp within Lloyd-init jitter)</li>
+<li><strong>DGX Spark (SM121, single-GPU):</strong> XFP outperforms Marlin INT4 by 16–18% on long/medium decode</li>
+<li><strong>Qwen3.5-397B-A17B (H-Process H1.5, 2×RTX PRO 6000, TP=2):</strong> 100.9 tok/s long-output decode at ~3.4 effective bits, 83 GiB/GPU steady state; 66.72% GSM8K strict-match on full 1319-problem set (single seed; multi-seed in progress); auto-select assigns xfp4 to 100% of attention/linear-attention/shared-expert projections and xfp2 to majority of routed experts</li>
+<li><strong>H-Process vs. INT4+REAP expert pruning:</strong> XFP H1.5 (0% expert removal, 83 GiB/GPU, 66.72% GSM8K) vs. INT4+RIY-24% (24% expert removal, 80 GiB/GPU, 44% GSM8K) and INT4+RIY-36% (36% removal, 75 GiB/GPU, 33% GSM8K) — XFP wins on all three axes simultaneously</li>
+<li><strong>Encoding cost:</strong> Auto-mode bit-width selection <1 minute; full quantize-on-load ~10 min for 35B, ~25 min for 122B (V2), ~55 min for 397B (V2a) on RTX PRO 6000. Packed weights cached to disk; subsequent loads I/O-bound</li>
+</ul>
+<h2>Authors & Credibility</h2>
+<p>Single-authored by Thomas Witt from Gemini Stiftung Leipzig. The work demonstrates exceptional engineering depth: custom CUDA fused decode kernels, multi-mode quantization backends with SMEM budget management, MoE-aware sampling for auto-select, and evaluation on frontier open-weight models (Qwen3.5 series up to 397B, GLM-4.7-Flash). The paper is unusually transparent about limitations — the author devotes an entire section (§7.5) to seven explicit limitations, including Lloyd non-determinism, single-user kernel scope, and narrow evaluation benchmarks. Code is available at github.com/flash7777/vllm/tree/multiquant. The author demonstrates deep understanding of both the algorithmic and systems sides, including detailed analysis of NVIDIA's SMEM segmentation across Blackwell tiers and the NVFP4 ecosystem's limitations on workstation hardware.</p>
+<h2>Critical Assessment</h2>
+<ul>
+<li><strong>Novelty:</strong> The quality-targeted inversion of the quantization workflow (operator sets quality, system finds bits) is a genuine and meaningful conceptual contribution. The dual-threshold mechanism for MoE heterogeneity is well-motivated. The sparse outlier + learned codebook decomposition builds on established ideas (SpQR's sparse+dense split, SqueezeLLM's codebook approach) but the elimination of Hessian computation and calibration data while maintaining quality is a practical advance. The H-Process is essentially a binary search over a 1D parameter — functional but not algorithmically novel.</li>
+<li><strong>Rigor:</strong> The paper is commendably honest about its limitations (§7.5 lists seven). However, the evaluation is narrow: GSM8K is the sole accuracy benchmark, with no perplexity, MMLU, HumanEval, long-context reasoning, or generation quality metrics. The 397B flagship result is single-seed. The ±0.67 pp cross-seed std on 122B suggests variance could shift rankings. The 4-expert MoE sampling approximation has 11.5% disagreement on 122B (offset by the outlier path, but still). The "garbage boundary" phenomenon — where cosine passes but generation degenerates — is noted but not deeply analyzed; this is concerning as it suggests the quality metric is not fully reliable.</li>
+<li><strong>Reproducibility:</strong> Code is available on GitHub (vLLM fork). The method uses only stdlib Python + CUDA kernels. However, results are hardware-specific (Blackwell workstation GPUs: RTX PRO 6000, DGX Spark). The dependency on SM120/121's 99 KB SMEM/CTA limit means different SMEM budgets on other architectures will yield different auto-select profiles.</li>
+<li><strong>Significance:</strong> Practical significance is high. Running a 397B MoE on workstation hardware at 100+ tok/s is compelling. The 49% throughput advantage over Marlin INT4 at comparable accuracy on 122B is substantial. The dual-threshold MoE insight (routed experts tolerate aggressive quantization; attention does not) has broader applicability. The detailed analysis of NVFP4's limitations on workstation Blackwell is valuable community knowledge.</li>
+<li><strong>Red flags:</strong> (1) Single primary benchmark (GSM8K) is insufficient for a general-purpose quantization method. (2) Single-seed 397B result at submission. (3) The Lloyd non-determinism causing ±8pp on small benchmarks is a practical concern for reproducibility across quantization runs. (4) The paper occasionally conflates "no calibration data" with "no data dependency" — Lloyd iteration still uses the weight distribution itself, which could be considered a form of data-dependent calibration (though not activation-dependent). (5) The K≤8192 bound under V2 is a significant limitation that requires split-K or V2a on many architectures, adding complexity.</li>
+</ul>
+<h2>Strengths</h2>
+<ul>
+<li>Eliminates Hessian computation, calibration data, and manual bit-width selection — genuinely simplifying the quantization workflow while preserving quality</li>
+<li>Dual-threshold mechanism elegantly exploits the empirical asymmetry between routed-expert and attention/shared-expert quantization tolerance</li>
+<li>49% throughput advantage over Marlin INT4 on 122B at comparable accuracy, driven by fewer effective bits per weight at the memory-bandwidth limit</li>
+<li>The H-Process as a practical deployment tool: given a model and hardware, find the operating point — this is what practitioners actually need</li>
+<li>Exceptional transparency about limitations (§7.5) and negative results (H1.7 failing three times, NVFP4 ecosystem immaturity on workstation)</li>
+<li>Code available, integrated into vLLM via MultiQuant engine</li>
+<li>Cross-platform consistency: same auto-select profile generalizes across DGX Spark and RTX PRO 6000</li>
+</ul>
+<h2>Limitations</h2>
+<ul>
+<li>Evaluation restricted to GSM8K — no perplexity, MMLU, code generation, or long-context benchmarks; the paper acknowledges this (§7.5)</li>
+<li>Single-user reference kernel: per-request throughput collapses at concurrency ≥8 due to kernel-launch overhead; batched serving is out of scope</li>
+<li>K≤8192 bound under V2 on workstation GPUs (99 KB SMEM/CTA) requires split-K at ~10–20% latency cost or V2a with lower codebook precision</li>
+<li>Lloyd non-determinism: identical bit-width decisions yield ±8pp math variance on 50-problem benchmarks; weight caching eliminates run-to-run variance but not cross-run variance</li>
+<li>Hardware-specific: validated only on Blackwell workstation GPUs (SM120/121); server-class A100/H100 evaluation explicitly excluded</li>
+<li>V2a packing constraint excludes N=3 at group size 128 (128 mod 10 ≠ 0); a g=80 path is deferred</li>
+<li>The 397B flagship result is single-seed; multi-seed evaluation acknowledged as in progress</li>
+<li>No Hessian-weighted Lloyd extension yet (planned)</li>
+</ul>
+<h2>Relevance</h2>
+<p>与 LLM 高效推理和模型量化部署高度相关。XFP 的质量驱动自适应量化思路直接解决了大规模 MoE 模型在工作站级硬件上的部署难题，双阈值机制对 MoE 异质性的处理和 H-Process 的内存约束搜索对模型压缩与推理加速研究有重要参考价值。</p>
+<h2>Questions for Further Exploration</h2>
+<ul>
+<li>How does XFP compare on perplexity (WikiText-2, C4) and broader benchmarks (MMLU, HumanEval, GPQA, long-context tasks) against QuIP#, AQLM, and AutoRound at matched effective bit widths?</li>
+<li>What is the quantitative sensitivity of the "garbage boundary" — how sharp is the transition from sensible to degenerate output, and can it be predicted without running generation benchmarks?</li>
+<li>How does the Lloyd non-determinism affect downstream task performance beyond GSM8K — is the ±8pp variance on small benchmarks amplified or dampened on harder tasks?</li>
+<li>Can the dual-threshold insight (routed experts tolerate lower quality floors) be integrated into existing calibration-aware methods like GPTQ or AWQ for hybrid quantization profiles?</li>
+<li>What is the scaling behavior of the H-Process on models beyond 400B parameters — does the garbage-OOM window remain narrow or collapse entirely?</li>
+<li>How does XFP perform on dense (non-MoE) models in the 70B–200B range where the outlier problem is more uniform across layers?</li>
+</ul>
+<p class="note">Generated from Markdown summary. Full paper: <a href="https://arxiv.org/abs/2605.14844">arXiv:2605.14844</a></p>
+</div>
+</body>
+</html>

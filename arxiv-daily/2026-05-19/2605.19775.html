@@ -1,0 +1,608 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>2605.19775 — Inference Scaling for LLMs</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --accent: #C2410C;
+  --accent-light: #FFF7ED;
+  --accent-mid: #FDBA74;
+  --bg: #FAFAF9;
+  --surface: #FFFFFF;
+  --ink: #1C1917;
+  --ink2: #57534E;
+  --ink3: #A8A29E;
+  --border: #E7E5E4;
+  --radius: 6px;
+  --font: "SF Mono", "Menlo", "Consolas", "Liberation Mono", monospace;
+  --sans: "SF Pro Text", "Inter", -apple-system, "Segoe UI", sans-serif;
+}
+
+html { font-size: 15px; -webkit-font-smoothing: antialiased; }
+body { font-family: var(--sans); background: var(--bg); color: var(--ink); line-height: 1.55; }
+
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+code, .mono { font-family: var(--font); font-size: 0.88em; }
+
+/* ── Top Nav ── */
+.nav {
+  position: sticky; top: 0; z-index: 100;
+  background: var(--surface); border-bottom: 1px solid var(--border);
+  padding: 0.5rem 1.5rem; display: flex; align-items: center; gap: 1rem;
+  font-size: 0.8rem; color: var(--ink3);
+}
+.nav a { font-weight: 600; }
+.nav .sep { color: var(--border); }
+
+/* ── Hero ── */
+.hero {
+  max-width: 1200px; margin: 0 auto;
+  padding: 2rem 1.5rem 0;
+}
+.hero-top {
+  display: flex; justify-content: space-between; align-items: flex-start;
+  gap: 2rem; flex-wrap: wrap;
+}
+.hero-title { flex: 1 1 480px; }
+.hero-title h1 {
+  font-size: 1.7rem; font-weight: 800; line-height: 1.2;
+  letter-spacing: -0.02em; color: var(--ink);
+}
+.hero-title .meta {
+  margin-top: 0.6rem; font-size: 0.82rem; color: var(--ink3);
+  display: flex; flex-wrap: wrap; gap: 0.5rem 1.2rem; align-items: center;
+}
+.hero-title .meta .tag {
+  background: var(--accent-light); color: var(--accent);
+  padding: 0.15rem 0.5rem; border-radius: 3px; font-weight: 600;
+  font-family: var(--font); font-size: 0.75rem;
+}
+.hero-arxiv {
+  flex: 0 0 auto; font-family: var(--font); font-size: 0.82rem;
+  background: var(--surface); border: 1px solid var(--border);
+  padding: 0.6rem 1rem; border-radius: var(--radius);
+  display: flex; flex-direction: column; gap: 0.25rem;
+}
+.hero-arxiv .id { font-size: 1.1rem; font-weight: 700; color: var(--accent); }
+
+/* ── Assets Row (4 KPI cards) ── */
+.assets {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem;
+  margin-top: 1.5rem;
+}
+.asset-card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 1rem 1.1rem;
+  border-top: 3px solid var(--accent);
+  display: flex; flex-direction: column; gap: 0.4rem;
+}
+.asset-card .label {
+  font-family: var(--font); font-size: 0.68rem; text-transform: uppercase;
+  letter-spacing: 0.08em; color: var(--ink3); font-weight: 700;
+}
+.asset-card .value {
+  font-size: 0.92rem; font-weight: 600; line-height: 1.4; color: var(--ink);
+}
+.asset-card .value .hl { color: var(--accent); }
+
+/* ── Body Grid ── */
+.body-grid {
+  max-width: 1200px; margin: 1.8rem auto 0;
+  padding: 0 1.5rem 3rem;
+  display: grid;
+  grid-template-columns: repeat(12, 1fr);
+  grid-template-rows: auto;
+  gap: 1rem;
+}
+
+.panel {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 1.1rem 1.2rem;
+  overflow: hidden;
+}
+.panel h2 {
+  font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.08em;
+  color: var(--ink3); font-weight: 700; margin-bottom: 0.7rem;
+  font-family: var(--font);
+  padding-bottom: 0.4rem; border-bottom: 1px solid var(--border);
+}
+.panel h3 { font-size: 0.88rem; font-weight: 700; margin-bottom: 0.4rem; }
+.panel p, .panel li { font-size: 0.86rem; color: var(--ink2); line-height: 1.55; }
+.panel ul { padding-left: 1rem; }
+
+/* ── Panel placements ── */
+.p-trap       { grid-column: 1 / 7;  grid-row: 1; }
+.p-crossover  { grid-column: 7 / 13; grid-row: 1; }
+.p-models     { grid-column: 1 / 5;  grid-row: 2; }
+.p-frontier   { grid-column: 5 / 9;  grid-row: 2; }
+.p-phases     { grid-column: 9 / 13; grid-row: 2; }
+.p-method     { grid-column: 1 / 5;  grid-row: 3; }
+.p-assess     { grid-column: 5 / 9;  grid-row: 3; }
+.p-strengths  { grid-column: 9 / 13; grid-row: 3; }
+.p-limit      { grid-column: 1 / 7;  grid-row: 4; }
+.p-questions  { grid-column: 7 / 13; grid-row: 4; }
+
+/* ── SVG Chart Helpers ── */
+.bar-chart { width: 100%; }
+.bar-row { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.45rem; }
+.bar-row .bar-label { flex: 0 0 60px; font-size: 0.72rem; font-family: var(--font); color: var(--ink2); text-align: right; }
+.bar-row .bar-track { flex: 1; height: 18px; background: var(--accent-light); border-radius: 3px; position: relative; overflow: hidden; }
+.bar-row .bar-fill { height: 100%; border-radius: 3px; background: var(--accent); transition: width 0.6s ease; }
+.bar-row .bar-val { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); font-size: 0.65rem; font-family: var(--font); color: var(--surface); font-weight: 700; }
+.bar-row .bar-val.outside { right: auto; left: calc(100% + 6px); color: var(--ink2); }
+
+/* ── Speedup Viz ── */
+.speedup-row { display: flex; align-items: baseline; gap: 0.8rem; margin-bottom: 0.5rem; }
+.speedup-row .name { flex: 0 0 100px; font-size: 0.78rem; font-family: var(--font); color: var(--ink2); }
+.speedup-row .dots { display: flex; gap: 3px; flex-wrap: wrap; }
+.speedup-row .dot { width: 10px; height: 10px; border-radius: 2px; background: var(--accent-mid); }
+.speedup-row .dot.filled { background: var(--accent); }
+
+/* ── Frontier Compare ── */
+.compare-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.6rem; }
+.compare-cell {
+  background: var(--accent-light); border-radius: var(--radius);
+  padding: 0.6rem 0.8rem;
+}
+.compare-cell .model { font-size: 0.72rem; font-family: var(--font); color: var(--ink3); font-weight: 700; text-transform: uppercase; }
+.compare-cell .config { font-size: 1.05rem; font-weight: 800; color: var(--accent); margin: 0.2rem 0; }
+.compare-cell .time { font-size: 0.82rem; color: var(--ink2); }
+.compare-cell .why { font-size: 0.72rem; color: var(--ink3); margin-top: 0.2rem; }
+
+/* ── Radar Bars (Critical Assessment) ── */
+.radar-bars { display: flex; flex-direction: column; gap: 0.55rem; }
+.radar-row { display: flex; align-items: center; gap: 0.6rem; }
+.radar-row .rlabel { flex: 0 0 90px; font-size: 0.72rem; font-family: var(--font); color: var(--ink2); }
+.radar-row .rtrack { flex: 1; height: 8px; background: var(--accent-light); border-radius: 4px; overflow: hidden; }
+.radar-row .rfill { height: 100%; background: var(--accent); border-radius: 4px; }
+
+/* ── Phase Diagram ── */
+.phase-row { display: flex; gap: 0.6rem; margin-bottom: 0.6rem; }
+.phase-box {
+  flex: 1; padding: 0.6rem 0.7rem; border-radius: var(--radius);
+  border: 1px solid var(--border);
+}
+.phase-box.pf { border-left: 3px solid var(--accent); }
+.phase-box.dc { border-left: 3px solid var(--ink3); }
+.phase-box .pname { font-size: 0.72rem; font-weight: 700; font-family: var(--font); margin-bottom: 0.15rem; }
+.phase-box .pdetail { font-size: 0.75rem; color: var(--ink3); }
+
+/* ── Authors chip ── */
+.authors { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-top: 0.5rem; }
+.author-chip {
+  font-size: 0.72rem; background: var(--accent-light); color: var(--accent);
+  padding: 0.15rem 0.55rem; border-radius: 10px; font-weight: 600;
+}
+
+/* ── Question list ── */
+.q-list { counter-reset: q; list-style: none; padding: 0; }
+.q-list li {
+  counter-increment: q; font-size: 0.82rem; color: var(--ink2);
+  margin-bottom: 0.55rem; padding-left: 1.8rem; position: relative;
+  line-height: 1.5;
+}
+.q-list li::before {
+  content: counter(q); position: absolute; left: 0;
+  font-family: var(--font); font-weight: 700; font-size: 0.72rem;
+  color: var(--accent); background: var(--accent-light);
+  width: 1.3rem; height: 1.3rem; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  top: 0.1rem;
+}
+
+/* ── Footer ── */
+.footer {
+  max-width: 1200px; margin: 0 auto;
+  padding: 1rem 1.5rem 2rem;
+  border-top: 1px solid var(--border);
+  display: flex; justify-content: space-between; align-items: center;
+  font-size: 0.78rem; color: var(--ink3);
+}
+
+/* ── Responsive ── */
+@media (max-width: 900px) {
+  .assets { grid-template-columns: repeat(2, 1fr); }
+  .body-grid { display: flex; flex-direction: column; }
+  .p-trap, .p-crossover, .p-models, .p-frontier, .p-phases,
+  .p-method, .p-assess, .p-strengths, .p-limit, .p-questions {
+    grid-column: 1 / -1;
+  }
+  .hero-top { flex-direction: column; }
+}
+@media (max-width: 520px) {
+  .assets { grid-template-columns: 1fr; }
+  .compare-grid { grid-template-columns: 1fr; }
+  html { font-size: 14px; }
+}
+
+/* ── Tab system ── */
+.tab-group { display: flex; gap: 0; margin-bottom: 0.7rem; }
+.tab-btn {
+  font-family: var(--font); font-size: 0.68rem; text-transform: uppercase;
+  letter-spacing: 0.05em; padding: 0.35rem 0.7rem; cursor: pointer;
+  background: none; border: 1px solid var(--border); color: var(--ink3);
+  font-weight: 700; transition: all 0.15s;
+}
+.tab-btn:first-child { border-radius: var(--radius) 0 0 var(--radius); }
+.tab-btn:last-child { border-radius: 0 var(--radius) var(--radius) 0; }
+.tab-btn:not(:first-child) { border-left: none; }
+.tab-btn.active { background: var(--accent); color: var(--surface); border-color: var(--accent); }
+.tab-content { display: none; }
+.tab-content.active { display: block; }
+
+/* ── Tooltip ── */
+.tip { position: relative; cursor: help; border-bottom: 1px dashed var(--ink3); }
+.tip:hover::after {
+  content: attr(data-tip); position: absolute; bottom: 120%; left: 50%;
+  transform: translateX(-50%); background: var(--ink); color: var(--surface);
+  font-size: 0.72rem; padding: 0.3rem 0.6rem; border-radius: 4px;
+  white-space: nowrap; z-index: 10; pointer-events: none;
+}
+
+/* ── KV growth viz ── */
+.kv-viz { display: flex; align-items: flex-end; gap: 2px; height: 60px; margin: 0.6rem 0; }
+.kv-bar { width: 14px; background: var(--accent-mid); border-radius: 2px 2px 0 0; transition: height 0.4s; }
+.kv-bar.saturated { background: var(--accent); }
+.kv-labels { display: flex; gap: 0; margin-top: 0.2rem; }
+.kv-labels span { width: 16px; text-align: center; font-size: 0.55rem; font-family: var(--font); color: var(--ink3); }
+</style>
+</head>
+<body>
+
+<!-- ═══ Top Nav ═══ -->
+<nav class="nav">
+  <a href="./index.html">&larr; Index</a>
+  <span class="sep">|</span>
+  <span>arxiv-daily / 2026-05-19</span>
+</nav>
+
+<!-- ═══ Hero ═══ -->
+<header class="hero">
+  <div class="hero-top">
+    <div class="hero-title">
+      <h1>Understanding Inference Scaling for LLMs:<br>Bottlenecks, Trade-offs, and Performance Principles</h1>
+      <div class="meta">
+        <span>Arif, Maurya, Vazhkudai &amp; Nicolae</span>
+        <span>&middot;</span>
+        <span>Argonne / UIUC</span>
+        <span>&middot;</span>
+        <span class="tag">cs.DC</span>
+        <span class="tag">cs.PF</span>
+        <span class="tag">llm-inference</span>
+      </div>
+      <div class="authors">
+        <span class="author-chip">Moiz Arif</span>
+        <span class="author-chip">Avinash Maurya</span>
+        <span class="author-chip">Sudharshan Vazhkudai</span>
+        <span class="author-chip">Bogdan Nicolae</span>
+      </div>
+    </div>
+    <div class="hero-arxiv">
+      <span class="id">2605.19775</span>
+      <a href="https://arxiv.org/abs/2605.19775">arxiv.org/abs/2605.19775 &rarr;</a>
+    </div>
+  </div>
+
+  <!-- ── Assets Row ── -->
+  <div class="assets">
+    <div class="asset-card">
+      <span class="label">Key Finding</span>
+      <span class="value">The <span class="hl">Capacity Trap</span>: long CoT reasoning causes KV-cache to saturate HBM, triggering preemption and throughput collapse &mdash; data parallelism cannot rescue it.</span>
+    </div>
+    <div class="asset-card">
+      <span class="label">Key Metric</span>
+      <span class="value">TP achieves <span class="hl">6.15&times;</span> speedup vs DP's 4.9&times; at 32B; hybrid DP=4+TP=2 yields <span class="hl">484s</span> vs 686s pure TP.</span>
+    </div>
+    <div class="asset-card">
+      <span class="label">Why This Matters</span>
+      <span class="value">Directly actionable <span class="hl">parallelism decision framework</span> for deploying reasoning models: model size &rarr; DP / TP / PP choice for inference cluster sizing.</span>
+    </div>
+    <div class="asset-card">
+      <span class="label">Critical Edge</span>
+      <span class="value">Single engine (vLLM) on <span class="hl">H200 only</span>; no quantization evaluated; no multi-node beyond 8 GPUs; crossover points shift with next-gen hardware.</span>
+    </div>
+  </div>
+</header>
+
+<!-- ═══ Body Grid ═══ -->
+<section class="body-grid">
+
+  <!-- ── Capacity Trap ── -->
+  <article class="panel p-trap">
+    <h2>The Capacity Trap</h2>
+    <p>Reasoning workloads generate long Chain-of-Thought sequences, causing KV-cache to grow linearly and saturate HBM. Once full, the scheduler must <strong>preempt running requests</strong> and recompute &mdash; throughput collapses instead of scaling with concurrency.</p>
+    <div class="kv-viz" id="kvViz"></div>
+    <div class="kv-labels" id="kvLabels"></div>
+    <p style="font-size:0.72rem;color:var(--ink3);margin-top:0.3rem;font-family:var(--font)">KV-cache utilization as batch grows &mdash; red bars = saturated, triggering preemption</p>
+    <div style="margin-top:0.7rem">
+      <div class="bar-row">
+        <span class="bar-label">1K seq</span>
+        <div class="bar-track"><div class="bar-fill" style="width:45%"></div><span class="bar-val outside" style="left:47%;color:var(--ink2)">45%</span></div>
+      </div>
+      <div class="bar-row">
+        <span class="bar-label">2K seq</span>
+        <div class="bar-track"><div class="bar-fill" style="width:72%"></div><span class="bar-val outside" style="left:74%;color:var(--ink2)">72%</span></div>
+      </div>
+      <div class="bar-row">
+        <span class="bar-label">5K seq</span>
+        <div class="bar-track"><div class="bar-fill" style="width:93%"></div><span class="bar-val outside" style="left:95%;color:var(--ink2)">93%</span></div>
+      </div>
+      <div class="bar-row">
+        <span class="bar-label">10K seq</span>
+        <div class="bar-track"><div class="bar-fill" style="width:100%;background:#DC2626"></div><span class="bar-val">100%</span></div>
+      </div>
+    </div>
+    <p style="font-size:0.72rem;color:var(--ink3);margin-top:0.4rem;font-family:var(--font)">DeepSeek-8B on single H200 &mdash; optimal E2E latency at ~2K sequences</p>
+  </article>
+
+  <!-- ── DP→TP Crossover ── -->
+  <article class="panel p-crossover">
+    <h2>DP &rarr; TP Crossover at ~32B</h2>
+    <p>DP replicates weights per GPU, leaving less room for KV-cache. TP shards the model, <strong>freeing ~133 GB</strong> per GPU vs ~77 GB under DP for the 32B model.</p>
+    <div style="margin-top:0.6rem">
+      <h3 style="font-size:0.78rem;color:var(--ink3)">Speedup on 8&times; H200 (32B model)</h3>
+      <div class="speedup-row" style="margin-top:0.4rem">
+        <span class="name">DP=8</span>
+        <div class="dots" id="dotsDP"></div>
+        <span class="mono" style="font-size:0.72rem;color:var(--ink2)">4.9&times;</span>
+      </div>
+      <div class="speedup-row">
+        <span class="name">TP=8</span>
+        <div class="dots" id="dotsTP"></div>
+        <span class="mono" style="font-size:0.72rem;color:var(--ink2)">6.15&times;</span>
+      </div>
+      <div class="speedup-row">
+        <span class="name" style="color:var(--accent);font-weight:700">DP4+TP2</span>
+        <div class="dots" id="dotsHybrid"></div>
+        <span class="mono" style="font-size:0.72rem;color:var(--accent);font-weight:700">best</span>
+      </div>
+    </div>
+    <div style="margin-top:0.8rem;border-top:1px solid var(--border);padding-top:0.6rem">
+      <h3 style="font-size:0.78rem;color:var(--ink3)">E2E Latency Comparison (32B, 8 GPUs)</h3>
+      <div class="bar-row" style="margin-top:0.3rem">
+        <span class="bar-label">TP only</span>
+        <div class="bar-track"><div class="bar-fill" style="width:100%"></div><span class="bar-val">686s</span></div>
+      </div>
+      <div class="bar-row">
+        <span class="bar-label" style="color:var(--accent);font-weight:700">DP4+TP2</span>
+        <div class="bar-track"><div class="bar-fill" style="width:70.6%"></div><span class="bar-val">484s</span></div>
+      </div>
+    </div>
+    <p style="font-size:0.72rem;color:var(--ink3);margin-top:0.5rem">Below 14B: DP wins. At 32B: TP frees KV headroom. Hybrid DP=4+TP=2 = sweet spot.</p>
+  </article>
+
+  <!-- ── Model Inventory ── -->
+  <article class="panel p-models">
+    <h2>Models Evaluated</h2>
+    <table style="width:100%;font-size:0.78rem;border-collapse:collapse">
+      <thead>
+        <tr style="border-bottom:1px solid var(--border)">
+          <th style="text-align:left;padding:0.25rem 0;font-weight:700;color:var(--ink3);font-family:var(--font);font-size:0.68rem">MODEL</th>
+          <th style="text-align:right;padding:0.25rem 0;font-weight:700;color:var(--ink3);font-family:var(--font);font-size:0.68rem">PARAMS</th>
+          <th style="text-align:right;padding:0.25rem 0;font-weight:700;color:var(--ink3);font-family:var(--font);font-size:0.68rem">TYPE</th>
+        </tr>
+      </thead>
+      <tbody id="modelTable"></tbody>
+    </table>
+  </article>
+
+  <!-- ── Frontier Divergence ── -->
+  <article class="panel p-frontier">
+    <h2>Frontier Divergence</h2>
+    <div class="compare-grid">
+      <div class="compare-cell">
+        <div class="model">Llama-405B (dense)</div>
+        <div class="config">TP=8</div>
+        <div class="time">986s</div>
+        <div class="why">Interconnect / bandwidth-bound</div>
+      </div>
+      <div class="compare-cell">
+        <div class="model">DeepSeek-R1-671B (MoE)</div>
+        <div class="config">PP=4 + TP=2</div>
+        <div class="time">1,663s</div>
+        <div class="why">Routing sync latency-bound</div>
+      </div>
+      <div class="compare-cell" style="opacity:0.5">
+        <div class="model">Llama-405B</div>
+        <div class="config">PP=8</div>
+        <div class="time">7,537s</div>
+        <div class="why">Pipeline stalls</div>
+      </div>
+      <div class="compare-cell" style="opacity:0.5">
+        <div class="model">DeepSeek-R1-671B</div>
+        <div class="config">TP=8</div>
+        <div class="time">2,047s</div>
+        <div class="why">All-reduce bottleneck</div>
+      </div>
+    </div>
+    <p style="font-size:0.72rem;color:var(--ink3);margin-top:0.5rem">PP=8 catastrophic for both architectures. Dense &ne; Sparse optimal strategy.</p>
+  </article>
+
+  <!-- ── Prefill / Decode ── -->
+  <article class="panel p-phases">
+    <h2>Prefill vs Decode</h2>
+    <div class="phase-row">
+      <div class="phase-box pf">
+        <div class="pname">Prefill</div>
+        <div class="pdetail"><strong>Compute-bound</strong></div>
+        <div class="pdetail">HBM BW ~20-30%</div>
+        <div class="pdetail">Bulk of FLOPs</div>
+      </div>
+      <div class="phase-box dc">
+        <div class="pname">Decode</div>
+        <div class="pdetail"><strong>Memory BW-bound</strong></div>
+        <div class="pdetail">HBM BW ~85%</div>
+        <div class="pdetail">Most wall-clock time</div>
+      </div>
+    </div>
+    <div class="bar-row">
+      <span class="bar-label" style="flex:0 0 48px">8B</span>
+      <div class="bar-track"><div class="bar-fill" style="width:85%"></div><span class="bar-val">~85%</span></div>
+    </div>
+    <div style="font-size:0.65rem;font-family:var(--font);color:var(--ink3);margin-bottom:0.3rem">HBM BW utilization (small model)</div>
+    <div class="bar-row">
+      <span class="bar-label" style="flex:0 0 48px">671B</span>
+      <div class="bar-track"><div class="bar-fill" style="width:55%"></div><span class="bar-val outside" style="left:57%;color:var(--ink2)">~55%</span></div>
+    </div>
+    <div style="font-size:0.65rem;font-family:var(--font);color:var(--ink3)">HBM BW utilization (MoE frontier) &mdash; sync overhead, not bandwidth</div>
+  </article>
+
+  <!-- ── Methodology ── -->
+  <article class="panel p-method">
+    <h2>Methodology</h2>
+    <ul style="font-size:0.82rem">
+      <li>Engine: <strong>vLLM</strong></li>
+      <li>Hardware: <strong>NVIDIA H200</strong> (141 GB HBM), 1-8 GPUs</li>
+      <li>Data: Meta Natural Reasoning (1.15M questions, 100K sample)</li>
+      <li>Strategies: DP, TP, PP, and hybrids on fixed 8-GPU budget</li>
+      <li>Batch: 500 &ndash; 10K sequences</li>
+      <li>Telemetry: vLLM metrics + NVIDIA-SMI</li>
+    </ul>
+    <div style="margin-top:0.7rem;font-size:0.72rem;color:var(--ink3);border-top:1px solid var(--border);padding-top:0.5rem">
+      <strong>MLA insight:</strong> Despite 10&times; more params than 70B, DeepSeek-R1's KV-cache is moderate thanks to Multi-Head Latent Attention compression.
+    </div>
+  </article>
+
+  <!-- ── Critical Assessment ── -->
+  <article class="panel p-assess">
+    <h2>Critical Assessment</h2>
+    <div class="radar-bars">
+      <div class="radar-row">
+        <span class="rlabel">Novelty</span>
+        <div class="rtrack"><div class="rfill" style="width:62%"></div></div>
+        <span style="font-size:0.68rem;font-family:var(--font);color:var(--ink3)">Moderate</span>
+      </div>
+      <div class="radar-row">
+        <span class="rlabel">Rigor</span>
+        <div class="rtrack"><div class="rfill" style="width:88%"></div></div>
+        <span style="font-size:0.68rem;font-family:var(--font);color:var(--ink3)">Strong</span>
+      </div>
+      <div class="radar-row">
+        <span class="rlabel">Reproducibility</span>
+        <div class="rtrack"><div class="rfill" style="width:60%"></div></div>
+        <span style="font-size:0.68rem;font-family:var(--font);color:var(--ink3)">Moderate</span>
+      </div>
+      <div class="radar-row">
+        <span class="rlabel">Significance</span>
+        <div class="rtrack"><div class="rfill" style="width:82%"></div></div>
+        <span style="font-size:0.68rem;font-family:var(--font);color:var(--ink3)">High</span>
+      </div>
+    </div>
+    <div class="tab-group" style="margin-top:0.8rem">
+      <button class="tab-btn active" onclick="showTab(event,'tab-why')">Why These Scores</button>
+      <button class="tab-btn" onclick="showTab(event,'tab-redflags')">Red Flags</button>
+    </div>
+    <div class="tab-content active" id="tab-why">
+      <p style="font-size:0.78rem;color:var(--ink2)">Individual observations (KV saturation, TP vs DP) are known, but the systematic 8B&ndash;671B cross-model characterization with exact crossover quantification is novel. Experiments are well-controlled with real reasoning data.</p>
+    </div>
+    <div class="tab-content" id="tab-redflags">
+      <p style="font-size:0.78rem;color:var(--ink2)">Only vLLM tested (Sarathi/Orca may shift results). Hardware-specific to H200's 141 GB. Discussion on CXL/HBF is speculative without experiments.</p>
+    </div>
+  </article>
+
+  <!-- ── Strengths ── -->
+  <article class="panel p-strengths">
+    <h2>Strengths</h2>
+    <ul style="font-size:0.82rem">
+      <li>Systematic 8B &ndash; 671B evaluation with consistent hardware</li>
+      <li>Actionable crossover points and optimal configs per architecture</li>
+      <li>Multi-dimensional telemetry for causal bottleneck attribution</li>
+      <li>Prefill/decode divergence motivates disaggregated inference</li>
+    </ul>
+  </article>
+
+  <!-- ── Limitations ── -->
+  <article class="panel p-limit">
+    <h2>Limitations</h2>
+    <ul style="font-size:0.82rem">
+      <li>Single inference engine (vLLM) &mdash; chunked-prefill schedulers may shift results</li>
+      <li>H200-specific; B200's 192 GB HBM would move the capacity trap thresholds</li>
+      <li>No quantization (FP8/INT4) &mdash; would change KV-cache sizing significantly</li>
+      <li>Max 8 GPUs &mdash; frontier models in production need multi-node serving</li>
+      <li>No streaming/interactive SLAs or speculative decoding evaluation</li>
+      <li>Hardware disaggregation discussion lacks experimental backing</li>
+    </ul>
+  </article>
+
+  <!-- ── Questions ── -->
+  <article class="panel p-questions">
+    <h2>Questions for Further Exploration</h2>
+    <ol class="q-list">
+      <li>How do quantization techniques (FP8, INT4 KV-cache) shift the capacity trap thresholds and DP-to-TP crossover points?</li>
+      <li>Would a KV-cache-aware admission controller estimating future KV growth at request arrival time eliminate the reasoning cliff?</li>
+      <li>How do findings generalize to multi-node inference (64+ GPUs) where inter-node NVLink bandwidth dominates?</li>
+      <li>Can speculative decoding with small draft models mitigate the bandwidth-bound decode phase?</li>
+      <li>How does MLA compression compare to GQA under identical serving conditions?</li>
+    </ol>
+  </article>
+
+</section>
+
+<!-- ═══ Footer ═══ -->
+<footer class="footer">
+  <span>2026-05-19 &middot; Argonne National Laboratory / UIUC</span>
+  <a href="2605.19775.html">View Markdown Summary &rarr;</a>
+</footer>
+
+<script>
+(function() {
+  var models = [
+    { name: "DeepSeek-8B",   params: "8B",   type: "Dense" },
+    { name: "DeepSeek-14B",  params: "14B",  type: "Dense" },
+    { name: "DeepSeek-32B",  params: "32B",  type: "Dense" },
+    { name: "DeepSeek-70B",  params: "70B",  type: "Dense" },
+    { name: "Llama-405B",    params: "405B", type: "Dense" },
+    { name: "DeepSeek-R1",   params: "671B", type: "MoE+MLA" }
+  ];
+  var tbody = document.getElementById("modelTable");
+  models.forEach(function(m, i) {
+    var tr = document.createElement("tr");
+    tr.style.borderBottom = "1px solid var(--border)";
+    var highlight = (m.params === "32B") ? 'color:var(--accent);font-weight:700;' : '';
+    tr.innerHTML = '<td style="padding:0.3rem 0;' + highlight + '">' + m.name + '</td>'
+      + '<td style="text-align:right;padding:0.3rem 0;font-family:var(--font);' + highlight + '">' + m.params + '</td>'
+      + '<td style="text-align:right;padding:0.3rem 0;font-size:0.72rem;color:var(--ink3)">' + m.type + '</td>';
+    tbody.appendChild(tr);
+  });
+
+  function makeDots(id, filled, total) {
+    var el = document.getElementById(id);
+    for (var i = 0; i < total; i++) {
+      var d = document.createElement("span");
+      d.className = "dot" + (i < filled ? " filled" : "");
+      el.appendChild(d);
+    }
+  }
+  makeDots("dotsDP", 5, 7);
+  makeDots("dotsTP", 6, 7);
+  makeDots("dotsHybrid", 7, 7);
+
+  var kvData = [20, 30, 42, 55, 68, 78, 88, 95, 98, 100, 100, 100];
+  var kvViz = document.getElementById("kvViz");
+  var kvLabels = document.getElementById("kvLabels");
+  kvData.forEach(function(v, i) {
+    var bar = document.createElement("div");
+    bar.className = "kv-bar" + (v >= 95 ? " saturated" : "");
+    bar.style.height = (v * 0.6) + "px";
+    kvViz.appendChild(bar);
+    var lbl = document.createElement("span");
+    lbl.textContent = (i + 1);
+    kvLabels.appendChild(lbl);
+  });
+})();
+
+function showTab(e, id) {
+  var parent = e.target.closest(".panel");
+  parent.querySelectorAll(".tab-btn").forEach(function(b) { b.classList.remove("active"); });
+  parent.querySelectorAll(".tab-content").forEach(function(c) { c.classList.remove("active"); });
+  e.target.classList.add("active");
+  document.getElementById(id).classList.add("active");
+}
+</script>
+</body>
+</html>

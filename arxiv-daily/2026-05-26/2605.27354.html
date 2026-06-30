@@ -1,0 +1,522 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SAERL — Guiding LLM Post-training with Model Internals</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@300;400;600;700&display=swap');
+
+  :root {
+    --accent: #0e7c6b;
+    --accent-light: #e6f5f2;
+    --accent-dark: #06574a;
+    --edge: #b91c1c;
+    --edge-light: #fef2f2;
+    --bg: #fafaf8;
+    --fg: #1a1a1a;
+    --muted: #6b7280;
+    --border: #e0ddd8;
+    --card-bg: #ffffff;
+    --mono: 'IBM Plex Mono', monospace;
+    --sans: 'IBM Plex Sans', system-ui, sans-serif;
+    --display: 'DM Serif Display', Georgia, serif;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    font-family: var(--sans);
+    background: var(--bg);
+    color: var(--fg);
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .shell {
+    width: min(95vw, 1100px);
+    margin: 0 auto;
+    padding: 0 1rem;
+  }
+
+  /* ——— NAV ——— */
+  nav {
+    padding: 1.25rem 0;
+    border-bottom: 1px solid var(--border);
+  }
+  nav a {
+    font-family: var(--mono);
+    font-size: 0.8rem;
+    color: var(--muted);
+    text-decoration: none;
+    letter-spacing: 0.02em;
+    transition: color 0.15s;
+  }
+  nav a:hover { color: var(--accent); }
+
+  /* ——— HERO ——— */
+  .hero {
+    padding: 3rem 0 2.5rem;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 2rem;
+    border-bottom: 2px solid var(--fg);
+  }
+  .hero-title {
+    grid-column: 1 / -1;
+  }
+  .hero-title h1 {
+    font-family: var(--display);
+    font-size: clamp(1.75rem, 4vw, 2.6rem);
+    font-weight: 400;
+    line-height: 1.2;
+    letter-spacing: -0.01em;
+  }
+  .hero-title h1 a {
+    color: var(--fg);
+    text-decoration: none;
+    border-bottom: 2px solid var(--accent);
+    transition: border-color 0.2s;
+  }
+  .hero-title h1 a:hover {
+    border-color: var(--fg);
+  }
+  .hero-title .authors {
+    margin-top: 0.5rem;
+    font-size: 0.85rem;
+    color: var(--muted);
+  }
+  .hero-title .authors strong {
+    color: var(--fg);
+    font-weight: 600;
+  }
+  .hero-title .tag-row {
+    margin-top: 0.75rem;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+  }
+  .tag {
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    padding: 0.2rem 0.55rem;
+    background: var(--accent-light);
+    color: var(--accent-dark);
+    border: 1px solid var(--accent);
+    letter-spacing: 0.02em;
+  }
+
+  /* KEY FINDING — large callout */
+  .key-finding {
+    grid-column: 1 / -1;
+    font-family: var(--display);
+    font-size: clamp(1.15rem, 2.5vw, 1.45rem);
+    line-height: 1.45;
+    color: var(--fg);
+    padding: 1.25rem 0;
+    border-left: 4px solid var(--accent);
+    padding-left: 1.25rem;
+  }
+
+  /* ASSET CARDS */
+  .asset-grid {
+    grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 1.25rem;
+  }
+  .asset-card {
+    padding: 1.25rem;
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+  }
+  .asset-card .label {
+    font-family: var(--mono);
+    font-size: 0.65rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--muted);
+    margin-bottom: 0.5rem;
+  }
+  .asset-card .value {
+    font-family: var(--display);
+    font-size: 2.4rem;
+    line-height: 1.1;
+    color: var(--accent);
+  }
+  .asset-card .value span.unit {
+    font-size: 1rem;
+    font-family: var(--mono);
+    color: var(--muted);
+  }
+  .asset-card.edge-card .value {
+    color: var(--edge);
+    font-size: 0.95rem;
+    font-family: var(--sans);
+    font-weight: 600;
+    line-height: 1.4;
+  }
+  .asset-card.edge-card {
+    border-color: var(--edge);
+    background: var(--edge-light);
+  }
+  .asset-card.why-card .value {
+    font-size: 0.92rem;
+    font-family: var(--sans);
+    font-weight: 400;
+    line-height: 1.5;
+    color: var(--fg);
+  }
+  .asset-card.why-card {
+    border-color: var(--accent);
+    background: var(--accent-light);
+  }
+
+  /* ——— BODY GRID ——— */
+  .body-grid {
+    padding: 2.5rem 0;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 2rem;
+  }
+  .section-card {
+    padding: 1.5rem;
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+  }
+  .section-card.full-width {
+    grid-column: 1 / -1;
+  }
+  .section-card h2 {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--accent);
+    margin-bottom: 1rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid var(--border);
+  }
+  .section-card ul {
+    list-style: none;
+    padding: 0;
+  }
+  .section-card li {
+    padding: 0.4rem 0;
+    font-size: 0.9rem;
+    line-height: 1.55;
+    position: relative;
+    padding-left: 1rem;
+  }
+  .section-card li::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0.75rem;
+    width: 5px;
+    height: 5px;
+    background: var(--accent);
+    border-radius: 50%;
+  }
+  .section-card.strengths li::before { background: var(--accent); }
+  .section-card.limitations li::before { background: var(--edge); }
+
+  /* Methodology diagram row */
+  .method-flow {
+    display: flex;
+    gap: 0.75rem;
+    margin-top: 0.75rem;
+    flex-wrap: wrap;
+  }
+  .method-step {
+    flex: 1;
+    min-width: 140px;
+    padding: 0.75rem;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    font-size: 0.82rem;
+    line-height: 1.45;
+  }
+  .method-step .step-num {
+    font-family: var(--mono);
+    font-size: 0.65rem;
+    color: var(--accent);
+    font-weight: 600;
+    margin-bottom: 0.3rem;
+  }
+  .method-step strong {
+    display: block;
+    font-size: 0.85rem;
+    margin-bottom: 0.2rem;
+  }
+
+  /* Questions */
+  .questions-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.75rem;
+    list-style: none;
+    padding: 0;
+  }
+  .questions-grid li {
+    padding: 0.75rem;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    font-size: 0.85rem;
+    line-height: 1.5;
+    position: relative;
+    padding-left: 2rem;
+  }
+  .questions-grid li::before {
+    content: '?';
+    position: absolute;
+    left: 0.6rem;
+    top: 0.65rem;
+    font-family: var(--display);
+    font-size: 1.1rem;
+    color: var(--accent);
+  }
+
+  /* Results highlight row */
+  .results-row {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1rem;
+    margin-bottom: 0.75rem;
+  }
+  .result-item {
+    text-align: center;
+    padding: 1rem;
+    border: 1px solid var(--border);
+    background: var(--bg);
+  }
+  .result-item .num {
+    font-family: var(--display);
+    font-size: 2rem;
+    color: var(--accent);
+    line-height: 1;
+  }
+  .result-item .desc {
+    font-size: 0.78rem;
+    color: var(--muted);
+    margin-top: 0.35rem;
+    line-height: 1.35;
+  }
+
+  /* ——— FOOTER ——— */
+  footer {
+    padding: 1.5rem 0;
+    border-top: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+  footer a {
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    color: var(--accent);
+    text-decoration: none;
+    border-bottom: 1px solid var(--border);
+    transition: border-color 0.15s;
+  }
+  footer a:hover {
+    border-color: var(--accent);
+  }
+  footer .note {
+    font-size: 0.72rem;
+    color: var(--muted);
+  }
+
+  /* ——— RESPONSIVE ——— */
+  @media (max-width: 720px) {
+    .hero {
+      grid-template-columns: 1fr;
+      padding: 2rem 0 1.5rem;
+    }
+    .asset-grid {
+      grid-template-columns: 1fr;
+    }
+    .asset-card .value { font-size: 1.8rem; }
+    .body-grid {
+      grid-template-columns: 1fr;
+    }
+    .results-row {
+      grid-template-columns: 1fr;
+    }
+    .questions-grid {
+      grid-template-columns: 1fr;
+    }
+    .method-flow {
+      flex-direction: column;
+    }
+  }
+
+  /* ——— REVEAL ANIMATION ——— */
+  .reveal {
+    opacity: 0;
+    transform: translateY(12px);
+    transition: opacity 0.5s ease, transform 0.5s ease;
+  }
+  .reveal.visible {
+    opacity: 1;
+    transform: translateY(0);
+  }
+</style>
+</head>
+<body>
+
+<div class="shell">
+
+  <nav>
+    <a href="./index.html">&larr; Today's digest</a>
+  </nav>
+
+  <!-- ═══ HERO BAND ═══ -->
+  <section class="hero reveal">
+    <div class="hero-title">
+      <h1><a href="https://arxiv.org/abs/2605.27354">Guiding LLM Post-training Data Engineering with Model Internals from Sparse Autoencoders</a></h1>
+      <div class="authors"><strong>Yi Jing, Zao Dai, Jinwu Hu, Zijun Yao, Lei Hou, Juanzi Li, Xiaozhi Wang</strong> &mdash; Tsinghua University</div>
+      <div class="tag-row">
+        <span class="tag">sparse-autoencoder</span>
+        <span class="tag">post-training</span>
+        <span class="tag">reinforcement-learning</span>
+        <span class="tag">data-engineering</span>
+        <span class="tag">mechanistic-interpretability</span>
+      </div>
+    </div>
+
+    <div class="key-finding">
+      SAERL uses Sparse Autoencoder internals to guide post-training data selection, boosting Qwen2.5-Math-1.5B accuracy by 3&percnt; while cutting training steps 20&percnt;.
+    </div>
+
+    <div class="asset-grid">
+      <div class="asset-card">
+        <div class="label">Key Metric</div>
+        <div class="value">+3<span class="unit">pp accuracy</span></div>
+        <div class="label" style="margin-top:0.4rem;">also</div>
+        <div class="value" style="font-size:1.8rem;">&minus;20<span class="unit">% steps</span></div>
+      </div>
+      <div class="asset-card why-card">
+        <div class="label">Why This Matters</div>
+        <div class="value">First framework bridging mechanistic interpretability and practical data engineering&mdash;making RL post-training more efficient and principled.</div>
+      </div>
+      <div class="asset-card edge-card">
+        <div class="label">Critical Edge</div>
+        <div class="value">Evaluated only on Qwen2.5-Math-1.5B&mdash;generalization to larger models and non-math domains remains unproven.</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══ BODY GRID ═══ -->
+  <div class="body-grid">
+
+    <!-- METHODOLOGY -->
+    <section class="section-card full-width reveal">
+      <h2>Methodology</h2>
+      <p style="font-size:0.9rem;line-height:1.55;margin-bottom:0.75rem;">SAERL extracts model-internal signals via Sparse Autoencoders and operationalizes them into three data engineering levers applied on top of GRPO reinforcement learning.</p>
+      <div class="method-flow">
+        <div class="method-step">
+          <div class="step-num">01</div>
+          <strong>Diversity</strong>
+          Clusters data in SAE latent space to ensure moderate batch mixing during RL training.
+        </div>
+        <div class="method-step">
+          <div class="step-num">02</div>
+          <strong>Difficulty</strong>
+          Derives a difficulty proxy from activation patterns to construct an easy-to-hard curriculum.
+        </div>
+        <div class="method-step">
+          <div class="step-num">03</div>
+          <strong>Quality</strong>
+          Trains a quality probe on SAE features to filter low-quality training samples.
+        </div>
+      </div>
+    </section>
+
+    <!-- RESULTS -->
+    <section class="section-card full-width reveal">
+      <h2>Results &amp; Highlights</h2>
+      <div class="results-row">
+        <div class="result-item">
+          <div class="num">+3.00%</div>
+          <div class="desc">average accuracy over vanilla GRPO on Qwen2.5-Math-1.5B</div>
+        </div>
+        <div class="result-item">
+          <div class="num">&minus;20%</div>
+          <div class="desc">fewer training steps to reach target accuracy</div>
+        </div>
+        <div class="result-item">
+          <div class="num">SAE&nearr;</div>
+          <div class="desc">transfers across model families and scales as a reusable tool</div>
+        </div>
+      </div>
+      <ul>
+        <li>Consistent gains across different model scales and RL algorithms</li>
+        <li>Model internals demonstrated as a practical signal source for data engineering</li>
+      </ul>
+    </section>
+
+    <!-- STRENGTHS / LIMITATIONS — side by side -->
+    <section class="section-card strengths reveal">
+      <h2>Strengths</h2>
+      <ul>
+        <li>Novel bridge between mechanistic interpretability and practical data engineering</li>
+        <li>Three well-motivated data properties with concrete operationalizations</li>
+        <li>Demonstrated efficiency gains (20% fewer steps)</li>
+        <li>Cross-model transferability of SAE features is practically valuable</li>
+      </ul>
+    </section>
+
+    <section class="section-card limitations reveal">
+      <h2>Limitations</h2>
+      <ul>
+        <li>Evaluation focused on math reasoning with relatively small models</li>
+        <li>SAE quality and training cost not discussed in the abstract</li>
+        <li>Unclear how the framework scales to larger models or non-math domains</li>
+        <li>Dependency on SAE quality&mdash;noisy SAEs could degrade performance</li>
+      </ul>
+    </section>
+
+    <!-- QUESTIONS -->
+    <section class="section-card full-width reveal">
+      <h2>Questions for Further Exploration</h2>
+      <ul class="questions-grid">
+        <li>How does SAERL perform on larger models (7B, 70B) and non-math domains?</li>
+        <li>What is the computational overhead of SAE feature extraction vs. the training savings?</li>
+        <li>How robust is the framework to SAE quality&mdash;does a poorly trained SAE hurt or merely fail to help?</li>
+        <li>Can the difficulty proxy and quality probe combine with external signals (e.g., reward models)?</li>
+        <li>How do the three data properties interact&mdash;does optimizing one come at the cost of another?</li>
+      </ul>
+    </section>
+
+  </div>
+
+  <!-- ═══ FOOTER ═══ -->
+  <footer>
+    <a href="2605.27354.html">View raw summary (.md)</a>
+    <span class="note">arXiv:2605.27354 &middot; 2026-05-26</span>
+  </footer>
+
+</div>
+
+<script>
+  document.addEventListener('DOMContentLoaded', () => {
+    const els = document.querySelectorAll('.reveal');
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach((entry, i) => {
+        if (entry.isIntersecting) {
+          setTimeout(() => entry.target.classList.add('visible'), i * 80);
+          observer.unobserve(entry.target);
+        }
+      });
+    }, { threshold: 0.08 });
+    els.forEach(el => observer.observe(el));
+  });
+</script>
+
+</body>
+</html>

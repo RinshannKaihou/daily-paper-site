@@ -1,0 +1,618 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>2606.13685 — The Coin Flip Judge? Reliability and Bias in LLM-as-a-Judge Evaluation</title>
+<style>
+  :root {
+    --ink: #1a1024;
+    --ink-soft: #3a2a44;
+    --ink-mute: #6e5f78;
+    --line: #e0d8e3;
+    --line-soft: #ede8ef;
+    --bg: #f6f3f5;
+    --bg-card: #ffffff;
+    --bg-warm: #fbf3e4;
+    --bg-cool: #efe9f3;
+    --bg-warn: #fdecea;
+    --accent: #6b2c8f;        /* royal purple — evaluation / bias */
+    --accent-ink: #4a1d63;
+    --accent-soft: #e7d8ef;
+    --warn: #b8442c;
+    --warn-soft: #f5d4cb;
+    --shadow: 0 1px 0 rgba(26,16,36,0.04), 0 8px 24px -16px rgba(26,16,36,0.18);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+                 "Hiragino Sans GB", "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif;
+    color: var(--ink);
+    background: var(--bg);
+    line-height: 1.55;
+    font-size: 15px;
+  }
+  .cjk, h1, h2, h3, p, li, td, th { line-height: 1.7; }
+
+  /* top-left fixed nav */
+  .top-nav {
+    position: fixed; top: 18px; left: 18px; z-index: 50;
+    background: rgba(255,255,255,0.92);
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    padding: 6px 14px 6px 12px;
+    font-size: 12.5px;
+    color: var(--ink-soft);
+    text-decoration: none;
+    box-shadow: var(--shadow);
+    backdrop-filter: saturate(140%) blur(6px);
+    -webkit-backdrop-filter: saturate(140%) blur(6px);
+    transition: color 0.15s, transform 0.15s;
+  }
+  .top-nav:hover { color: var(--accent); transform: translateY(-1px); }
+
+  .wrap {
+    max-width: min(95vw, 1100px);
+    margin: 0 auto;
+    padding: 72px 24px 64px;
+  }
+
+  /* ─── HERO ─── */
+  .hero {
+    padding: 8px 0 36px;
+    border-bottom: 1px solid var(--line);
+    margin-bottom: 28px;
+  }
+  .eyebrow {
+    display: flex; flex-wrap: wrap; gap: 10px; align-items: center;
+    font-size: 11.5px; letter-spacing: 0.14em; text-transform: uppercase;
+    color: var(--ink-mute); margin-bottom: 22px;
+  }
+  .eyebrow .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+  .eyebrow .id { color: var(--accent-ink); font-weight: 600; letter-spacing: 0.06em; }
+  .eyebrow .sep { color: var(--line); }
+
+  .finding {
+    font-size: clamp(28px, 4.4vw, 46px);
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    line-height: 1.18;
+    color: var(--ink);
+    max-width: 24ch;
+    margin-bottom: 26px;
+  }
+  .finding .em { color: var(--accent); }
+  .finding .del { text-decoration: line-through; text-decoration-color: var(--warn); text-decoration-thickness: 2px; text-decoration-skip-ink: none; }
+
+  .hero-meta {
+    display: flex; flex-wrap: wrap; gap: 18px 28px; align-items: baseline;
+    font-size: 13.5px; color: var(--ink-soft);
+  }
+  .hero-meta a.title-link {
+    color: var(--ink); text-decoration: none; font-weight: 600;
+    border-bottom: 1px solid var(--line);
+    padding-bottom: 1px;
+    transition: border-color 0.15s, color 0.15s;
+  }
+  .hero-meta a.title-link:hover { color: var(--accent); border-color: var(--accent); }
+  .hero-meta .meta { color: var(--ink-mute); }
+  .hero-meta .author { color: var(--ink-soft); }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+  .chip {
+    font-size: 11.5px; padding: 3px 9px; border-radius: 4px;
+    background: var(--accent-soft); color: var(--accent-ink);
+    border: 1px solid transparent;
+    font-weight: 500;
+  }
+  .chip.outline { background: transparent; border-color: var(--line); color: var(--ink-soft); }
+
+  /* ─── ASSET ROW ─── */
+  .assets {
+    display: grid; gap: 16px;
+    grid-template-columns: 1.05fr 1.35fr 1fr;
+    margin-bottom: 36px;
+  }
+  .card {
+    background: var(--bg-card);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 20px 22px;
+    box-shadow: var(--shadow);
+  }
+  .card .label {
+    font-size: 10.5px; letter-spacing: 0.16em; text-transform: uppercase;
+    color: var(--ink-mute); margin-bottom: 12px; font-weight: 600;
+  }
+
+  /* Key finding card */
+  .card.finding-card {
+    background: var(--accent-soft);
+    border-color: var(--accent);
+  }
+  .card.finding-card .label { color: var(--accent-ink); }
+  .card.finding-card p {
+    font-size: 14.5px; color: var(--ink);
+    font-weight: 500;
+  }
+  .card.finding-card p .hl {
+    background: var(--bg-card);
+    padding: 0 4px;
+    border-radius: 2px;
+    font-weight: 600;
+    color: var(--accent-ink);
+  }
+
+  /* Metric card — oversized numeral */
+  .card.metric {
+    background: var(--bg-cool);
+    border-color: var(--accent-soft);
+  }
+  .card.metric .num {
+    font-size: clamp(48px, 7.2vw, 78px);
+    font-weight: 700;
+    letter-spacing: -0.04em;
+    line-height: 0.95;
+    color: var(--accent-ink);
+    font-variant-numeric: tabular-nums;
+    margin: 4px 0 6px;
+  }
+  .card.metric .num small {
+    font-size: 0.32em; font-weight: 600; letter-spacing: 0;
+    color: var(--ink-mute); margin-left: 6px; vertical-align: middle;
+  }
+  .card.metric .ctx { font-size: 13px; color: var(--ink-soft); }
+  .card.metric .ctx strong { color: var(--ink); font-weight: 600; }
+
+  /* Why-card */
+  .card.why { background: var(--bg-warm); }
+  .card.why p { font-size: 14px; color: var(--ink); }
+  .card.why .hl { background: linear-gradient(transparent 60%, var(--accent-soft) 60%); padding: 0 2px; }
+
+  /* Critical edge */
+  .card.edge {
+    background: var(--bg-warn);
+    border-color: var(--warn-soft);
+  }
+  .card.edge .label { color: var(--warn); }
+  .card.edge p { font-size: 13.5px; color: var(--ink); }
+  .card.edge .tag {
+    display: inline-block; font-size: 10.5px; font-weight: 600;
+    letter-spacing: 0.12em; text-transform: uppercase; color: var(--warn);
+    margin-bottom: 8px;
+  }
+
+  /* ─── BODY GRID ─── */
+  .body { display: grid; gap: 18px; }
+  .row-split { display: grid; gap: 18px; grid-template-columns: 0.85fr 1.15fr; }
+  .row-double { display: grid; gap: 18px; grid-template-columns: 1fr 1fr; }
+  .row-full { display: grid; gap: 18px; grid-template-columns: 1fr; }
+
+  h2 {
+    font-size: 11.5px; letter-spacing: 0.18em; text-transform: uppercase;
+    color: var(--ink-mute); font-weight: 700; margin-bottom: 12px;
+    display: flex; align-items: baseline; gap: 8px;
+  }
+  h2 .num { color: var(--accent); font-variant-numeric: tabular-nums; }
+
+  /* Methodology — flow + bullets */
+  .method ol { list-style: none; counter-reset: step; }
+  .method ol li {
+    counter-increment: step;
+    position: relative; padding: 8px 0 10px 30px;
+    border-bottom: 1px dashed var(--line-soft);
+    font-size: 13.5px; color: var(--ink-soft);
+  }
+  .method ol li:last-child { border-bottom: none; }
+  .method ol li::before {
+    content: counter(step, decimal-leading-zero);
+    position: absolute; left: 0; top: 8px;
+    font-size: 10.5px; font-weight: 700; letter-spacing: 0.05em;
+    color: var(--accent);
+  }
+  .method ol li b { color: var(--ink); font-weight: 600; }
+  .method .stack {
+    margin-top: 14px; padding: 12px 14px;
+    background: var(--bg-cool); border-radius: 6px;
+    font-size: 12px; color: var(--ink-soft);
+    border-left: 3px solid var(--accent);
+  }
+  .method .stack code { font-family: "SF Mono", "Menlo", "Consolas", monospace; font-size: 11.5px; color: var(--accent-ink); }
+
+  /* Results — table + commentary */
+  .results .tbl { width: 100%; border-collapse: collapse; font-size: 13px; margin-bottom: 14px; }
+  .results .tbl caption {
+    text-align: left; font-size: 11px; letter-spacing: 0.12em;
+    text-transform: uppercase; color: var(--ink-mute);
+    padding: 4px 0 8px; font-weight: 600;
+  }
+  .results .tbl th, .results .tbl td {
+    text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line-soft);
+  }
+  .results .tbl th {
+    font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--ink-mute); font-weight: 600;
+    background: var(--bg-cool);
+  }
+  .results .tbl td.num { font-variant-numeric: tabular-nums; font-weight: 600; color: var(--ink); }
+  .results .tbl td.good { color: var(--accent-ink); }
+  .results .tbl td.bad { color: var(--warn); }
+  .results .tbl tr.hl td { background: var(--accent-soft); }
+  .results .findings li {
+    list-style: none; padding: 6px 0 6px 18px;
+    font-size: 13px; color: var(--ink-soft);
+    position: relative;
+  }
+  .results .findings li::before {
+    content: "→"; position: absolute; left: 0; color: var(--accent); font-weight: 700;
+  }
+  .results .findings li b { color: var(--ink); }
+
+  /* Strengths / Limitations side by side */
+  .pair .card { height: 100%; }
+  .pair .icon {
+    display: inline-block; width: 18px; height: 18px; border-radius: 4px;
+    margin-right: 8px; vertical-align: -3px;
+  }
+  .pair .icon.s { background: var(--accent); }
+  .pair .icon.l { background: var(--warn); }
+  .pair ul { list-style: none; }
+  .pair li {
+    padding: 8px 0; font-size: 13px; color: var(--ink-soft);
+    border-bottom: 1px dashed var(--line-soft);
+  }
+  .pair li:last-child { border-bottom: none; }
+  .pair li b { color: var(--ink); font-weight: 600; }
+
+  /* Questions */
+  .questions { background: var(--bg-warm); }
+  .questions ol { list-style: none; counter-reset: q; }
+  .questions ol li {
+    counter-increment: q;
+    padding: 10px 0 10px 36px;
+    position: relative;
+    font-size: 13.5px; color: var(--ink-soft);
+    border-bottom: 1px dashed var(--line-soft);
+  }
+  .questions ol li:last-child { border-bottom: none; }
+  .questions ol li::before {
+    content: "Q" counter(q);
+    position: absolute; left: 0; top: 10px;
+    font-size: 10px; font-weight: 700; letter-spacing: 0.06em;
+    color: var(--accent-ink); background: var(--accent-soft);
+    padding: 2px 6px; border-radius: 3px;
+  }
+
+  /* Footer */
+  .foot {
+    margin-top: 48px; padding-top: 18px;
+    border-top: 1px solid var(--line);
+    display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;
+    font-size: 12px; color: var(--ink-mute);
+  }
+  .foot a { color: var(--ink-soft); text-decoration: none; border-bottom: 1px solid var(--line); padding-bottom: 1px; }
+  .foot a:hover { color: var(--accent); border-color: var(--accent); }
+
+  /* provenance tag */
+  .provenance {
+    display: inline-block; font-size: 10px; letter-spacing: 0.12em;
+    text-transform: uppercase; color: var(--ink-mute);
+    border: 1px solid var(--line); padding: 2px 7px; border-radius: 3px;
+    margin-top: 14px;
+  }
+
+  /* mobile */
+  @media (max-width: 860px) {
+    .assets { grid-template-columns: 1fr; }
+    .row-split, .row-double { grid-template-columns: 1fr; }
+    .wrap { padding-top: 80px; }
+  }
+  @media (max-width: 480px) {
+    .hero-meta { font-size: 12.5px; gap: 8px 16px; }
+    .card { padding: 16px 18px; }
+  }
+</style>
+</head>
+<body>
+
+<a class="top-nav" href="./index.html">↩&nbsp;Today's digest</a>
+
+<div class="wrap">
+
+  <!-- ─── HERO ─── -->
+  <header class="hero">
+    <div class="eyebrow">
+      <span class="dot"></span>
+      <span class="id">arXiv&nbsp;·&nbsp;2606.13685</span>
+      <span class="sep">/</span>
+      <span>LLM Evaluation &amp; Reliability</span>
+      <span class="sep">/</span>
+      <span>Repeated-trial empirical</span>
+    </div>
+
+    <h1 class="finding">
+      LLM judges are <span class="em">not random</span> — but a single
+      verdict hides <span class="del">4 layers</span> of hidden noise
+      that flip outcomes <span class="em">~14% of the time</span>.
+    </h1>
+
+    <div class="hero-meta">
+      <a class="title-link" href="https://arxiv.org/abs/2606.13685" target="_blank" rel="noopener">
+        The Coin Flip Judge? Reliability and Bias in LLM-as-a-Judge Evaluation
+      </a>
+      <span class="meta">·</span>
+      <span class="author">Abel Yagubyan</span>
+      <span class="meta">·</span>
+      <span class="meta">2026-06-15</span>
+    </div>
+    <div class="chips">
+      <span class="chip">LLM-as-a-Judge</span>
+      <span class="chip">evaluation-reliability</span>
+      <span class="chip">position-bias</span>
+      <span class="chip">intraclass-correlation</span>
+      <span class="chip outline">pairwise-vs-pointwise</span>
+      <span class="chip outline">noise-budget</span>
+    </div>
+    <div class="provenance">Asset extraction: 一句话总结 → TL;DR → Results §5, Critical Assessment §6</div>
+  </header>
+
+  <!-- ─── ASSET ROW ─── -->
+  <section class="assets">
+    <!-- KEY FINDING -->
+    <div class="card finding-card">
+      <div class="label">Key finding</div>
+      <p>
+        A <span class="hl">10,080-judgment</span> repeated-trial study
+        decomposes LLM-judge unreliability into four layers — stochastic
+        flip rate, position bias, prompt sensitivity, judge identity —
+        and proves that <span class="hl">11 repeated trials</span> are
+        enough to recover the 50-trial reference verdict with 95%
+        fidelity.
+      </p>
+    </div>
+
+    <!-- KEY METRIC -->
+    <div class="card metric">
+      <div class="label">Key metric</div>
+      <div class="num">13.6<small>% mean flip rate</small></div>
+      <div class="ctx">
+        Across 50 pairwise trials per question, on competitive high-quality
+        pairs (A 9.3 vs B 9.4 / 10), with <strong>max 56%</strong> and
+        <strong>28% of questions above 20%</strong> — an upper bound on
+        single-trial noise.
+      </div>
+    </div>
+
+    <!-- WHY THIS MATTERS -->
+    <div class="card why">
+      <div class="label">Why this matters</div>
+      <p>
+        Every LLM leaderboard, every RLHF preference label, every
+        reward-model benchmark is built on these verdicts. A
+        <span class="hl">noise budget of ~14 wrong outcomes per
+        100-question single-trial benchmark</span> means a single
+        inference is the wrong unit of evidence — and the paper hands
+        practitioners a <span class="hl">tiered protocol</span>
+        (10/20/50 trials) to spend compute deliberately.
+      </p>
+    </div>
+  </section>
+
+  <!-- 3rd asset row edge spans full width via dedicated critical edge section below as second row -->
+  <section class="assets" style="grid-template-columns: 1fr; margin-top: -20px; margin-bottom: 36px;">
+    <!-- CRITICAL EDGE -->
+    <div class="card edge">
+      <span class="tag">Critical edge</span>
+      <p>
+        The "coin flip" headline is <b>oversold by the title</b>: mean
+        13.6% FR is far from 50% randomness, and the loudest result
+        (GPT-4o-mini 72% A-majority) is <b>contaminated by a
+        self-preference confound</b> — Response A is generated by the
+        same model family as the judge. The position-bias claim cannot
+        be cleanly separated from self-enhancement on this design, and
+        the per-category trends (η²=0.31) rest on 2–4 questions per
+        category, statistically underpowered.
+      </p>
+    </div>
+  </section>
+
+  <!-- ─── BODY GRID ─── -->
+  <section class="body">
+
+    <!-- Methodology + Results row -->
+    <div class="row-split">
+      <article class="card method">
+        <h2><span class="num">01</span>Methodology</h2>
+        <ol>
+          <li><b>Stress-test dataset.</b> 29 question–response pairs across
+            10 categories, each with two *deliberately competitive*
+            responses (A from GPT-4o-mini 9.3±0.9, B from GPT-4o 9.4±0.6)
+            — trivial pairs would inflate consistency.</li>
+          <li><b>Two judges.</b> GPT-4o-mini and GPT-4.1-mini via OpenAI API,
+            default t=1.0 for the main experiment.</li>
+          <li><b>Experiment 1 (main).</b> Per (judge, question): 50 pairwise
+            trials (randomized A/B) + 50 pointwise trials per response.
+            <b>8,700 API calls.</b> 50 trials give binomial power (≥33/50
+            for p&lt;0.05).</li>
+          <li><b>Experiment 2 (temperature ablation).</b> 10 pairwise trials
+            at t=0 per (judge, question) — tests if deterministic decoding
+            kills the noise. 580 extra calls.</li>
+          <li><b>Experiment 3 (prompt sensitivity).</b> Two semantically
+            equivalent prompts ("impartial judge" vs "fair and unbiased
+            evaluator") on 10 questions × 2 judges × 20 trials. 800 calls.</li>
+          <li><b>Metrics.</b> Flip rate, Shannon entropy, position-bias index,
+            pairwise–pointwise gap (PPG), ICC(2,1), Cohen's κ, reliability
+            curves (Monte Carlo 500 reps per K trials). Bootstrap 10,000
+            iterations for 95% CIs.</li>
+        </ol>
+        <div class="stack">
+          <code>flip_rate</code> = <code>1 − max(n_A, n_B, n_tie) / N</code>
+          &nbsp;|&nbsp; <code>PPG</code> = <code>|s̄_A − s̄_B|</code>
+          &nbsp;|&nbsp; <code>κ</code> cross-judge
+        </div>
+      </article>
+
+      <article class="card results">
+        <h2><span class="num">02</span>Results &amp; highlights</h2>
+
+        <table class="tbl">
+          <caption>Table · Intra-judge flip rate &amp; inter-judge agreement</caption>
+          <thead>
+            <tr><th>Metric</th><th>GPT-4o-mini</th><th>GPT-4.1-mini</th></tr>
+          </thead>
+          <tbody>
+            <tr class="hl"><td>Mean flip rate [95% CI]</td><td class="num good">13.3% [7.7, 19.4]</td><td class="num good">13.9% [7.7, 20.3]</td></tr>
+            <tr><td>Median / max flip rate</td><td class="num">4% / 46%</td><td class="num">6% / 56%</td></tr>
+            <tr><td>Questions with FR &gt; 20%</td><td class="num bad">8 / 29 (28%)</td><td class="num bad">8 / 29 (28%)</td></tr>
+            <tr><td>Position bias (A-majority)</td><td class="num bad">72% (p = 0.024)</td><td class="num">59% (p = 0.458)</td></tr>
+            <tr><td>Pointwise ICC(2,1)</td><td class="num good">0.608</td><td class="num good">0.774</td></tr>
+            <tr><td>Cross-judge agreement / κ</td><td class="num" colspan="2" style="text-align:center;">76% / <b>κ = 0.51</b></td></tr>
+          </tbody>
+        </table>
+
+        <table class="tbl">
+          <caption>Table · Reliability curve — trials needed for majority-vote fidelity</caption>
+          <thead>
+            <tr><th>Trial count K</th><th>Avg fidelity vs 50-trial ref</th><th>High-variance items (FR≥10%)</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>1</td><td class="num bad">86.6%</td><td>—</td></tr>
+            <tr><td>3</td><td class="num">90%</td><td>~10 trials for 90%</td></tr>
+            <tr class="hl"><td>11</td><td class="num good"><b>95%</b></td><td>still short</td></tr>
+            <tr><td>15+</td><td class="num good">stable</td><td>15 trials for 90%</td></tr>
+            <tr><td>50+</td><td class="num">diminishing</td><td>50+ for 95% on hard items</td></tr>
+          </tbody>
+        </table>
+
+        <ul class="findings">
+          <li><b>Pairwise–pointwise paradox:</b> mean scalar gap
+            PPG = 0.19–0.36 / 10 with non-significant Wilcoxon
+            (p = 0.827 / 0.126) — judges declare winners without
+            scalar evidence.</li>
+          <li><b>Bimodal difficulty:</b> 14/29 "easy" (mean FR 2.9%) vs
+            15/29 "hard" (mean FR 23.6%), Cohen's <b>d = 2.96</b>;
+            coding/writing/reasoning dominate the hard bucket.</li>
+          <li><b>Temperature matters asymmetrically:</b> t=0 cuts FR by
+            79% for GPT-4o-mini (13.3% → 2.8%) but only 43% for
+            GPT-4.1-mini (13.9% → 7.9%) — API-level nondeterminism
+            in the latter.</li>
+          <li><b>Prompt sensitivity:</b> 5/20 (25%) majority verdicts
+            flip on semantically equivalent prompts; mean |ΔFR|
+            = 13.4 pp.</li>
+          <li><b>Pointwise MoE:</b> within-question σ ≈ 0.60 → single-trial
+            95% margin of error <b>±1.2 / 10</b>; 44.7% of pointwise
+            variance is within-question noise.</li>
+        </ul>
+      </article>
+    </div>
+
+    <!-- Strengths + Limitations row -->
+    <div class="row-double pair">
+      <article class="card">
+        <h2><span class="num">03</span>Strengths</h2>
+        <ul>
+          <li><b>Plug-into-pipeline numbers.</b> 11 trials for 95%, 15+ for
+            hard items, 13.6% mean FR, κ = 0.51, ±1.2 pt single-trial MoE —
+            directly actionable for benchmark designers.</li>
+          <li><b>Multi-dimensional stress test.</b> Stochastic noise,
+            position bias, temperature, prompt template, judge identity —
+            five failure modes in one study.</li>
+          <li><b>Pairwise–pointwise paradox named.</b> Forced-choice
+            amplifying sub-threshold scalar differences into unstable
+            ordinal verdicts — a distinct, articulable failure mode.</li>
+          <li><b>Psychometric grounding.</b> ICC(2,1) + variance
+            decomposition + Cohen's d give principled interpretation,
+            not just descriptive flip rates.</li>
+          <li><b>Code, data, prompts, per-question tables released.</b>
+            Uncommon for single-author evaluation work; supports direct
+            replication.</li>
+          <li><b>Honest enumeration of six limitations</b> in Section 6.5
+            (single-provider, self-preference, small N, no in-task
+            human baseline, etc.).</li>
+          <li><b>Noise-budget framing.</b> Translates findings into
+            benchmark-design language: "100-question single-trial
+            benchmark ≈ 14 wrong outcomes."</li>
+        </ul>
+      </article>
+
+      <article class="card">
+        <h2><span class="num">04</span>Limitations</h2>
+        <ul>
+          <li><b>Two judges, both OpenAI.</b> No Claude, Gemini, Llama,
+            or Qwen replication — cross-provider generalization is
+            asserted, not tested.</li>
+          <li><b>Self-preference confound.</b> Response A is generated by
+            GPT-4o-mini (same family as one judge), so the 72% A-majority
+            headline cannot separate position bias from self-enhancement.</li>
+          <li><b>29 questions, 10 categories</b> (2–4 per category) —
+            underpowered for per-category statistics; η² = 0.31 effect
+            is suggestive but unsupported.</li>
+          <li><b>No human baseline on the same instances.</b> Table 8
+            comparisons borrow κ values from prior papers with
+            different tasks and protocols — "LLM ≈ human" is imprecise.</li>
+          <li><b>Competitive stress-test pairs</b> (both responses
+            high-quality, A 9.3 vs B 9.4) — real-world lopsided
+            comparisons may have lower FR, so 13.6% is an
+            <em>upper bound</em>, not typical.</li>
+          <li><b>No cost/latency analysis</b> for the 20–50-trial tiered
+            protocol — leaderboard-scale deployment is recommended
+            without a compute budget.</li>
+          <li><b>Headline mean is bimodal-skewed:</b> 14 easy questions
+            (FR ≈ 0%) and 15 hard ones (FR ≈ 23.6%) shouldn't be
+            aggregated into a single 13.6% number.</li>
+          <li><b>Prompt sensitivity tested on 10 questions × 2 templates</b>
+            — the 25% flip claim rests on a small subsample and a
+            narrow prompt pair.</li>
+        </ul>
+      </article>
+    </div>
+
+    <!-- Questions -->
+    <div class="row-full">
+      <article class="card questions">
+        <h2><span class="num">05</span>Questions for further exploration</h2>
+        <ol>
+          <li>How do flip rates and reliability curves change across
+            <b>diverse providers</b> (Claude, Gemini, Llama, Qwen) and
+            across model sizes within a family? Single-provider scope is
+            the paper's biggest open gap.</li>
+          <li>Can a <b>per-question variance predictor</b> (difficulty proxy:
+            length, hedging, formatting, response similarity) be learned
+            so evaluation budgets are spent adaptively?</li>
+          <li>How does multi-trial aggregation affect <b>downstream
+            reward-model training</b> when the judge provides preference
+            labels? Is the 13.6% noise floor below or above the
+            signal-to-noise threshold for RLHF stability?</li>
+          <li>Can a <b>panel-of-judges</b> (multi-model majority vote)
+            recover the 50-trial reference with fewer total inferences
+            than naïve within-judge repetition? Would weighted aggregation
+            by per-judge ICC improve efficiency?</li>
+          <li>Does the <b>pairwise–pointwise paradox</b> replicate on
+            <b>out-of-family response pairs</b> (Llama A vs Claude B
+            judged by GPT-4), or does it shrink when self-enhancement
+            is removed?</li>
+          <li>What is the <b>true self-enhancement vs position-bias
+            decomposition</b> for GPT-4o-mini on the same 29 tasks with
+            responses generated by a non-OpenAI model placed randomly
+            in position A?</li>
+          <li>How do <b>fine-tuned judge models</b> (JudgeLM, Prometheus)
+            compare on these reliability metrics — does fine-tuning for
+            consistency improve ICC, or just shift the failure modes?</li>
+          <li>Does the <b>bimodal easy/hard split</b> persist at scale,
+            or is it an artifact of the small question set? With 100+
+            items per category, can we build a category-conditional
+            reliability model?</li>
+        </ol>
+      </article>
+    </div>
+
+  </section>
+
+  <footer class="foot">
+    <span>Source: bilingual summary · arXiv 2606.13685 · 2026-06-15 · not browser-verified</span>
+    <a href="2606.13685.html">↗&nbsp;Markdown source</a>
+  </footer>
+
+</div>
+</body>
+</html>

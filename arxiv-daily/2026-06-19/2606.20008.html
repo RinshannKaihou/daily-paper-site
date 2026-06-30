@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VIMPO: Value-Implicit Policy Optimization for LLMs</title>
+<style>
+:root { --paper:#fafafa; --ink:#1a1a1a; --muted:#555; --accent:#1a5276; --line:#ddd; --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif; --serif:Georgia,"Noto Serif SC",serif; }
+body { font-family:var(--serif); background:var(--paper); color:var(--ink); line-height:1.6; margin:0; padding:0; }
+.container { max-width:min(95vw, 760px); margin:0 auto; padding:28px 20px 60px; }
+.topnav { position:fixed; top:12px; left:14px; z-index:50; font-family:var(--sans); font-size:.75rem; background:var(--paper); border:1px solid var(--line); padding:5px 10px; border-radius:999px; }
+.topnav a { color:var(--muted); text-decoration:none; font-weight:600; }
+.topnav a:hover { color:var(--accent); }
+h1 { font-size:1.6rem; margin:2.2rem 0 1rem; border-bottom:2px solid var(--accent); padding-bottom:.3rem; }
+h2 { font-size:1.3rem; margin:1.8rem 0 .8rem; color:var(--accent); }
+h3 { font-size:1.1rem; margin:1.4rem 0 .6rem; }
+p { margin:.8rem 0; }
+.authors { font-style:italic; color:var(--muted); margin-top:-.4rem; }
+.meta { font-family:var(--sans); font-size:.82rem; color:var(--muted); margin:.2rem 0; }
+a { color:var(--accent); text-decoration:none; }
+a:hover { text-decoration:underline; }
+blockquote { border-left:3px solid var(--accent); margin:1rem 0; padding:.2rem 0 .2rem 1rem; color:var(--muted); font-style:italic; }
+code { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; background:#f0f0f0; padding:2px 5px; border-radius:3px; font-size:.9em; }
+pre { background:#f5f5f5; padding:14px; overflow-x:auto; border-radius:4px; border:1px solid var(--line); }
+pre code { background:transparent; padding:0; }
+ul,ol { margin:.6rem 0; padding-left:1.5rem; }
+li { margin:.25rem 0; }
+table { border-collapse:collapse; width:100%; margin:1rem 0; font-family:var(--sans); font-size:.9rem; }
+th,td { border:1px solid var(--line); padding:6px 10px; text-align:left; }
+th { background:#f0f0f0; }
+hr { border:none; border-top:1px solid var(--line); margin:1.5rem 0; }
+.note { font-family:var(--sans); font-size:.78rem; color:var(--muted); border-top:1px solid var(--line); margin-top:2rem; padding-top:1rem; }
+@media (max-width: 600px) { .container { padding:22px 14px 40px; } h1 { font-size:1.35rem; } }
+</style>
+</head>
+<body>
+<div class="topnav"><a href="./index.html">← Today's digest</a></div>
+<div class="container">
+<h1>VIMPO: Value-Implicit Policy Optimization for LLMs</h1>
+<p class="meta">arXiv: 2606.20008</p>
+<p class="meta">Date: 2026-06-19</p>
+<p class="meta"><a href="https://arxiv.org/abs/2606.20008">https://arxiv.org/abs/2606.20008</a></p>
+<blockquote><strong>一句话总结：</strong> VIMPO 从 KL 正则化 RL 最优性条件推出"策略隐含价值函数"，用终止边界条件 V*(s_T)=0 构造无 critic 的价值损失、用 log-ratio 形式的 TD 优势做 PPO 风格 actor 更新；在 Qwen3-4B 上对 GRPO 在 MATH-500/AIME24/AIME25/OlympiadBench 全面提升，并在 25% 奖励翻转下保持显著优势。</blockquote>
+<blockquote><strong>TL;DR:</strong> VIMPO is a critic-free RLVR method that derives a policy-implied value function from the optimality conditions of KL-regularized RL on the deterministic-transition MDP of autoregressive generation; it uses the terminal boundary condition V*(s_T)=0 as a parameter-free value target and a closed-form log-ratio TD advantage for a PPO-style actor update, beating GRPO on math reasoning and staying robust under 25% reward flipping.</blockquote>
+<h2>核心贡献</h2>
+<ul>
+<li>从 KL 正则化策略最优性条件（式 4）推导出价值恒等式：每个 token 的策略-参考 log-ratio 等于 Bellman 残差加一个 KL 修正项，且该残差项在 π* 下期望为零（天然零均值，带来训练稳定性）。</li>
+<li>用终止边界条件 V*(s_T)=0 构造一个<strong>无参数的价值监督目标</strong>（式 7-8）：价值损失只依赖策略-参考 log-ratio 与"组均值中心化的最终奖励"，KL 项通过 stop-gradient 仅作中心化基线，避免通过操纵 KL 直接降低损失。</li>
+<li>同一推导给出<strong>闭式一步 TD 优势</strong>（式 9）并可做 GAE 风格多步累积（式 10），直接接入 PPO actor 更新，实现 token 级信用分配而无需学习 critic。</li>
+<li>关键设计：<strong>外部奖励只通过价值损失进入，actor 更新只用策略内部 log-ratio 优势</strong>——把"奖励纳入"与"策略改进"显式解耦。</li>
+<li>实验在 Qwen3-4B-Base（verl 实现）上对 naive GRPO 与 token-level GRPO 全面提升，AIME25 上提升最显著（17.6→20.8 @avg@32）；在 25% 奖励翻转的噪声条件下仍保持明显优势。</li>
+</ul>
+<h2>Key Contributions</h2>
+<ul>
+<li>Derives a <strong>central identity</strong> (Eq. 4): the per-token policy/reference log-ratio equals a Bellman residual plus a KL correction, where the residual term is provably zero-mean under π* — a derived, not imposed, stability property.</li>
+<li>Uses the <strong>terminal boundary condition V*(s_T)=0</strong> to build a parameter-free value supervision target (Eq. 7-8): the value loss depends only on policy/reference log-ratios and group-mean-centered final rewards, with the KL term stop-gradient'd so it acts purely as a centering baseline (preventing the loss from being minimized by manipulating full-distribution KL).</li>
+<li>The same derivation yields a <strong>closed-form one-step TD advantage</strong> (Eq. 9) that can be accumulated in GAE form (Eq. 10) and plugged directly into a PPO actor update, enabling token-level credit assignment with no learned critic.</li>
+<li>Architectural choice: <strong>external rewards enter only through the value loss, while the actor update uses only policy-internal log-ratio advantages</strong> — explicitly separating reward incorporation from policy improvement.</li>
+<li>Empirically beats both naive GRPO and token-level GRPO on Qwen3-4B-Base (verl implementation), with the largest gain on AIME 2025 (17.6→20.8 avg@32), and retains a clear advantage under 25% reward flipping.</li>
+</ul>
+<h2>Methodology</h2>
+<p><strong>Setup (3.1).</strong> Autoregressive generation is modeled as a finite-horizon deterministic-transition MDP: state s_t = (x, a_0,...,a_{t-1}), transition P(s_{t+1}|s_t,a_t)=1. The value is the standard expected-return value (NOT the entropy-regularized soft value of Path Consistency Learning / soft Q-learning), so the authors control how KL enters each objective separately.</p>
+<p><strong>Central identity (3.2).</strong> From the KL-regularized local optimality condition (Eq. 1-2) and the collapsed Bellman equation (Eq. 3), eliminating the log partition yields the backbone identity:</p>
+<p>β·ln(π<em>(a_t|s_t) / πref(a_t|s_t)) = r(s_t,a_t) + γV</em>(s_{t+1}) − V<em>(s_t) + β·KL</em>(s_t)   (Eq. 4)</p>
+<p>Three consequences: (i) a closed-form forward recurrence for V<em> given any anchor; (ii) the bracket β·ln(π</em>/πref) − β·KL<em> is zero-mean under π</em> (derived stability); (iii) a closed-form one-step TD advantage = β·ln(π<em>/πref) − β·KL</em>.</p>
+<p><strong>Value loss (3.3).</strong> Following DPO's strategy, the trainable policy π substitutes for π* in the closed form (Eq. 6). The terminal anchor Vπ(s_T)=0 gives the value objective L_V = ½·Vπ(s_T)² (Eq. 7). For outcome-only rewards (r=0 except terminal), with γ=1 and the group-mean return as the initial-value MC estimate, this unfolds into the operational form (Eq. 8): a sum over tokens of squared [β·log-ratio − β·sg[KL] − (R_final − R̄_final)], centered by the group-mean reward. The KL is stop-gradient'd so it cannot be reduced by manipulating the full-distribution KL.</p>
+<p><strong>Actor update (3.4).</strong> The closed-form advantage Â_t^TD = β·log(πθ/πref) − β·KL_π (Eq. 9) is treated as the advantage estimate; it can be GAE-accumulated (Eq. 10), normalized over valid tokens (Eq. 11), and fed into the negative-clipped PPO surrogate L_A. Total objective: L_VIMPO = L_V + c_A·L_A (Eq. 12). Crucially, the external reward enters ONLY through L_V; the actor advantage is purely policy-internal.</p>
+<p><strong>Algorithm 1</strong> details the training step: sample G rollouts per prompt, compute centered rewards, per-token ρ_t = β·log-ratio, κ_t = β·KL, advantage Â_t = ρ_t − κ_t, then L_V over (ρ_t − sg[κ_t]) − (R^(i) − R̄) and PPO actor loss.</p>
+<p><strong>Hyperparameters (main runs).</strong> β = 5e-4, c_A = 5e-3, held fixed after coarse tuning. Base model Qwen3-4B-Base, implemented in verl, trained on the math subset of Guru. GRPO baselines use token-level loss aggregation with KL reward penalty disabled (DAPO recipe); naive GRPO uses sequence-mean-token-mean loss. Shared hyperparameters (e.g., learning rate) are NOT separately tuned per method. Code: https://github.com/backprop07/VIMPO.</p>
+<h2>Results & Highlights</h2>
+<p><strong>Clean-reward final accuracy (Table 1, avg@1 for MATH-500/OlympiadBench, avg@32 for AIME):</strong></p>
+<p>| Method | MATH-500 | AIME24 | AIME25 | OlympiadBench | Avg |</p>
+<p>|---|---|---|---|---|---|</p>
+<p>| Qwen3-4B-Base | 54.0 | 8.6 | 3.6 | 18.0 | 21.1 |</p>
+<p>| Naive GRPO | 80.4 | 20.0 | 14.6 | 31.3 | 36.6 |</p>
+<p>| GRPO (token-level) | 79.6 | 19.3 | 17.6 | 33.2 | 37.4 |</p>
+<p>| <strong>VIMPO</strong> | <strong>81.6</strong> | <strong>21.7</strong> | <strong>20.8</strong> | <strong>34.0</strong> | <strong>39.5</strong> |</p>
+<p>| GRPO noisy (25% flip) | 75.2 | 13.0 | 11.7 | 28.9 | 32.2 |</p>
+<p>| <strong>VIMPO noisy</strong> | <strong>78.2</strong> | <strong>18.3</strong> | <strong>14.9</strong> | <strong>32.3</strong> | <strong>35.9</strong> |</p>
+<ul>
+<li>VIMPO wins every individual benchmark; the largest clean-reward gain is on <strong>AIME 2025 (17.6→20.8)</strong>, the hardest competition-style set.</li>
+<li>Under 25% reward flipping, both methods degrade but VIMPO's advantage is <strong>larger</strong> on AIME (e.g., AIME24: 13.0→18.3) — supporting the claim that decoupling reward incorporation from policy improvement reduces sensitivity to corrupted labels.</li>
+<li>Learning dynamics (Fig. 3): VIMPO shows stronger late-stage learning; response length initially rises then <em>decreases</em> while validation accuracy stays higher than GRPO — gains are not just from longer outputs.</li>
+<li>Ablations (Fig. 5): value-only (c_A=0) learns slower than full VIMPO; the actor update accelerates learning but increases policy/reference divergence (VO KL). High-β/high-c_A over-constrains the update and reduces the actor benefit, keeping VO KL flat but accuracy near the value-only baseline.</li>
+</ul>
+<h2>Authors & Credibility</h2>
+<ul>
+<li><strong>Sergey Levine</strong> (UC Berkeley) — a leading figure in deep RL; the Bellman-consistency framing and KL-regularized derivation are squarely in his wheelhouse, lending strong methodological credibility.</li>
+<li><strong>Dawn Song</strong> (UC Berkeley) — prominent ML/security researcher.</li>
+<li><strong>Zhewei Kang, Xuandong Zhao</strong> (UC Berkeley), <strong>Aosong Feng</strong> (Yale).</li>
+<li>Public code release at github.com/backprop07/VIMPO aids reproducibility.</li>
+<li>Implemented in the established <strong>verl</strong> RLVR framework and evaluated with standard benchmarks and pipelines (verl for MATH-500/AIME24, LightEval for AIME25/OlympiadBench), with the caveat that the two pipelines differ in prompting/answer-extraction so cross-pipeline numbers are not directly compared.</li>
+</ul>
+<h2>Critical Assessment</h2>
+<ul>
+<li><strong>Novelty: High.</strong> Reframing the critic-vs-no-critic trade-off via a <em>policy-implied</em> value (derived from KL-regularized optimality rather than learned) is a genuinely fresh angle. It is conceptually adjacent to DPO/TDPO log-ratio parameterizations and to Path Consistency Learning / soft Q-learning, but applies them to <em>online RL with rollout rewards</em> on the deterministic-transition AR MDP — a non-trivial combination, and the zero-mean property of the log-ratio residual is a clean derived result.</li>
+<li><strong>Rigor: Solid.</strong> The derivation is explicit and each step (Eqs. 1-12) is shown; the zero-mean and closed-form-advantage claims follow directly. The stop-gradient on KL is a sensible design detail with a clear justification (preventing loss minimization via KL manipulation).</li>
+<li><strong>Reproducibility: Good.</strong> Single base model (Qwen3-4B-Base), standard framework (verl), shared hyperparameters across methods, public code, named benchmarks. The main weakness is that β and c_A are selected by "coarse tuning on training dynamics" — a mild hyperparameter-selection concern, though the same is true of GRPO baselines.</li>
+<li><strong>Significance: Moderate-to-high within math RLVR.</strong> Gains over a properly implemented token-level GRPO (the recommended configuration) are real but modest on MATH-500 (+2.0) and OlympiadBench (+0.8), larger on AIME24 (+2.4) and AIME25 (+3.2). Whether this generalizes beyond Qwen3-4B, beyond math, and to larger compute is the open question that determines real impact.</li>
+<li><strong>Red flags / concerns:</strong></li>
+<li><strong>Single model size (4B) and single domain (math).</strong> No scaling-law evidence; no code/tool-use/multi-turn results.</li>
+<li><strong>Advantage uses the current policy's KL vs. reference (κ_t) computed at each state</strong> — cost relative to GRPO (extra forward passes for full-distribution KL over the vocab) is not quantified in the body.</li>
+<li>The "zero-mean signal" is a property of π<em>, but training uses πθ ≠ π</em>; the approximation quality as the policy drifts is not empirically characterized beyond the VO KL proxy.</li>
+<li>AIME24/AIME25 reported at avg@32 (not avg@1), so headline competition numbers benefit from majority voting; the gap may look different at avg@1.</li>
+<li>No comparison against strong actor-critic baselines (e.g., VAPO) — only GRPO variants — so the claimed "middle ground" is argued theoretically, not shown against the dense-supervision side.</li>
+</ul>
+<h2>Strengths</h2>
+<ul>
+<li>Principled, end-to-end derivation from a single optimality condition; no ad-hoc reweighting tricks.</li>
+<li>Clean decoupling of reward incorporation (value loss) from policy improvement (actor update), with a plausible mechanism for noise robustness.</li>
+<li>Removes the critic entirely while still delivering token-level credit assignment — the central promise of the paper, delivered.</li>
+<li>Strongest empirical signal (AIME 2025, noisy rewards) is exactly where better credit assignment should matter most — internally consistent story.</li>
+<li>Honest ablations showing the value-only vs. actor trade-off and the failure mode of over-aggressive coefficients.</li>
+</ul>
+<h2>Limitations</h2>
+<ul>
+<li>Evaluated only on Qwen3-4B-Base and only on math RLVR; generalization is unproven.</li>
+<li>Gains over the recommended token-level GRPO are modest on some benchmarks (MATH-500, OlympiadBench).</li>
+<li>No actor-critic baseline (VAPO/PPO) comparison, so the "middle ground" is one-sided empirically.</li>
+<li>Compute/memory cost of per-token full-distribution KL (κ_t) is not reported.</li>
+<li>The zero-mean stability property holds exactly only at optimality; behavior far from π* is characterized only indirectly via VO KL.</li>
+<li>Hyperparameters β, c_A tuned on training dynamics, which risks mild overfitting to the evaluation setup.</li>
+</ul>
+<h2>Relevance</h2>
+<p>与你的"LLM Training Stability & Observability"和"ML Reliability & Mathematical Foundations"兴趣高度契合：VIMPO 从 KL 正则化 RL 最优性条件的数学推导出发，强调训练稳定性（log-ratio 残差的零均值性质、避免 critic 共训练的不稳定），并在 25% 噪声奖励下展示了对不可靠训练信号的鲁棒性——正是训练可靠性 + 数学基础研究的交叉点；其把"奖励纳入"与"策略改进"解耦的设计也为训练可观测性（VO KL 监控、价值损失异常检测）提供了新的诊断接口。</p>
+<h2>Questions for Further Exploration</h2>
+<ul>
+<li>Does the policy-implied value recurrence stay numerically stable as πθ drifts far from πref and log-ratios grow (the high-VO-KL regime), and can this be detected as a training anomaly?</li>
+<li>How does VIMPO's loss-spike / gradient-norm profile compare to GRPO and PPO over long runs — does the derived zero-mean property translate into measurably smoother training?</li>
+<li>Can the value loss (which ties log-ratios to centered rewards) be used as an early detector of reward hacking or verifier failure?</li>
+<li>Does the method scale to 30B+ models and to non-verifiable or learned-reward settings, or does it strictly require outcome-verifiable rewards?</li>
+<li>What is the wall-clock and memory overhead of computing per-token full-distribution KL (κ_t) at large vocab size vs. GRPO?</li>
+<li>How does VIMPO compare against a strong actor-critic baseline (VAPO) at matched compute, to validate the claimed "middle ground" empirically?</li>
+<li>Under noisy rewards, is the advantage driven by the value loss or the actor advantage being reward-decoupled — which can be isolated via the c_A ablation under noise?</li>
+</ul>
+<p class="note">Generated from Markdown summary. Full paper: <a href="https://arxiv.org/abs/2606.20008">arXiv:2606.20008</a></p>
+</div>
+</body>
+</html>

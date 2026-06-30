@@ -1,0 +1,698 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Draft-OPD: On-Policy Distillation for Speculative Draft Models</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Source+Serif+4:ital,opsz,wght@0,8..60,300;0,8..60,600;0,8..60,900;1,8..60,400&family=DM+Sans:wght@400;500;700&display=swap');
+
+  :root {
+    --bg: #0c0e12;
+    --bg-elevated: #13161c;
+    --bg-card: #181b23;
+    --fg: #e8e6e1;
+    --fg-muted: #8a8b8e;
+    --fg-dim: #5c5d61;
+    --accent: #ff6b35;
+    --accent-glow: rgba(255, 107, 53, 0.15);
+    --accent-secondary: #35c7ff;
+    --accent-secondary-glow: rgba(53, 199, 255, 0.1);
+    --accent-tertiary: #4ae08a;
+    --accent-warning: #ffcc33;
+    --border: rgba(255,255,255,0.06);
+    --border-accent: rgba(255,107,53,0.3);
+    --radius: 6px;
+    --mono: 'JetBrains Mono', monospace;
+    --serif: 'Source Serif 4', Georgia, serif;
+    --sans: 'DM Sans', system-ui, sans-serif;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  html { font-size: 16px; scroll-behavior: smooth; }
+
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: var(--sans);
+    line-height: 1.6;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* Noise overlay */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .container {
+    max-width: 1280px;
+    margin: 0 auto;
+    padding: 0 2rem;
+    position: relative;
+    z-index: 1;
+  }
+
+  /* Back link */
+  .back-link {
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 1rem 0;
+    font-size: 0.82rem;
+    color: var(--fg-muted);
+    text-decoration: none;
+    font-family: var(--mono);
+    letter-spacing: 0.02em;
+    background: linear-gradient(to bottom, var(--bg) 60%, transparent);
+    transition: color 0.2s;
+  }
+  .back-link:hover { color: var(--accent); }
+
+  /* Hero */
+  .hero {
+    padding: 3rem 0 2.5rem;
+    border-bottom: 1px solid var(--border);
+    animation: fadeUp 0.6s ease-out both;
+  }
+
+  .hero-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.6rem;
+    margin-bottom: 1.2rem;
+  }
+
+  .tag {
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    padding: 0.25rem 0.65rem;
+    border-radius: 3px;
+    border: 1px solid var(--border);
+    color: var(--fg-muted);
+    background: var(--bg-elevated);
+  }
+  .tag--accent {
+    color: var(--accent);
+    border-color: var(--border-accent);
+    background: var(--accent-glow);
+  }
+
+  .hero-title {
+    font-family: var(--serif);
+    font-weight: 900;
+    font-size: clamp(2rem, 4.2vw, 3.4rem);
+    line-height: 1.1;
+    letter-spacing: -0.02em;
+    color: var(--fg);
+    margin-bottom: 1rem;
+    max-width: 900px;
+  }
+
+  .hero-subtitle {
+    font-family: var(--serif);
+    font-size: clamp(1rem, 1.8vw, 1.25rem);
+    font-weight: 300;
+    line-height: 1.55;
+    color: var(--fg-muted);
+    max-width: 780px;
+    font-style: italic;
+  }
+
+  .hero-subtitle strong {
+    color: var(--fg);
+    font-weight: 600;
+    font-style: normal;
+  }
+
+  /* Asset cards row */
+  .assets-row {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1.25rem;
+    padding: 2.5rem 0;
+    animation: fadeUp 0.6s 0.15s ease-out both;
+  }
+
+  .asset-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1.75rem 1.5rem;
+    position: relative;
+    overflow: hidden;
+    transition: border-color 0.3s, transform 0.2s;
+  }
+  .asset-card:hover {
+    border-color: var(--border-accent);
+    transform: translateY(-2px);
+  }
+
+  .asset-card__label {
+    font-family: var(--mono);
+    font-size: 0.65rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--fg-dim);
+    margin-bottom: 1rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  .asset-card__label::before {
+    content: '';
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    display: inline-block;
+  }
+
+  .asset-card--metric .asset-card__label::before { background: var(--accent); }
+  .asset-card--why .asset-card__label::before { background: var(--accent-secondary); }
+  .asset-card--edge .asset-card__label::before { background: var(--accent-warning); }
+
+  .asset-card__value {
+    font-family: var(--mono);
+    font-size: 3rem;
+    font-weight: 700;
+    line-height: 1;
+    color: var(--fg);
+    margin-bottom: 0.4rem;
+  }
+  .asset-card--metric .asset-card__value { color: var(--accent); }
+
+  .asset-card__unit {
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    color: var(--fg-muted);
+    margin-bottom: 0.6rem;
+  }
+
+  .asset-card__detail {
+    font-size: 0.88rem;
+    line-height: 1.55;
+    color: var(--fg-muted);
+  }
+  .asset-card__detail strong { color: var(--fg); font-weight: 500; }
+
+  .asset-card--edge {
+    border-color: rgba(255,204,51,0.15);
+  }
+  .asset-card--edge .asset-card__value {
+    font-size: 1.1rem;
+    font-family: var(--sans);
+    font-weight: 700;
+    color: var(--accent-warning);
+    line-height: 1.35;
+  }
+
+  /* Methodology + Results grid */
+  .body-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1.25rem;
+    padding: 1rem 0 2rem;
+    animation: fadeUp 0.6s 0.3s ease-out both;
+  }
+
+  .section-panel {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 2rem;
+  }
+
+  .section-panel__title {
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--fg-dim);
+    margin-bottom: 1.25rem;
+    padding-bottom: 0.75rem;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .pipeline-steps {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+  }
+
+  .pipeline-step {
+    display: flex;
+    gap: 1rem;
+    align-items: flex-start;
+  }
+
+  .pipeline-step__num {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: var(--accent);
+    background: var(--accent-glow);
+    border: 1px solid rgba(255,107,53,0.2);
+    border-radius: 4px;
+    min-width: 2rem;
+    height: 1.6rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    margin-top: 2px;
+  }
+
+  .pipeline-step__text {
+    font-size: 0.88rem;
+    line-height: 1.55;
+    color: var(--fg-muted);
+  }
+  .pipeline-step__text strong { color: var(--fg); font-weight: 600; }
+
+  .results-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.82rem;
+  }
+  .results-table th {
+    text-align: left;
+    font-family: var(--mono);
+    font-size: 0.68rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--fg-dim);
+    padding: 0.5rem 0.75rem;
+    border-bottom: 1px solid var(--border);
+  }
+  .results-table td {
+    padding: 0.6rem 0.75rem;
+    border-bottom: 1px solid var(--border);
+    color: var(--fg-muted);
+    font-family: var(--mono);
+    font-size: 0.8rem;
+  }
+  .results-table tr:last-child td { border-bottom: none; }
+  .results-table .highlight { color: var(--accent); font-weight: 700; }
+  .results-table .benchmark-name {
+    font-family: var(--sans);
+    font-weight: 500;
+    color: var(--fg);
+  }
+
+  /* Strengths / Limitations side-by-side */
+  .assessment-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1.25rem;
+    padding-bottom: 2rem;
+    animation: fadeUp 0.6s 0.45s ease-out both;
+  }
+
+  .assessment-panel {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 2rem;
+  }
+
+  .assessment-panel--strengths { border-left: 3px solid var(--accent-tertiary); }
+  .assessment-panel--limits { border-left: 3px solid var(--accent-warning); }
+
+  .assessment-panel__title {
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--fg-dim);
+    margin-bottom: 1.25rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  .assessment-panel--strengths .assessment-panel__title { color: var(--accent-tertiary); }
+  .assessment-panel--limits .assessment-panel__title { color: var(--accent-warning); }
+
+  .assessment-list {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  .assessment-list li {
+    font-size: 0.86rem;
+    line-height: 1.5;
+    color: var(--fg-muted);
+    padding-left: 1.25rem;
+    position: relative;
+  }
+  .assessment-list li::before {
+    position: absolute;
+    left: 0;
+    font-size: 0.7rem;
+    top: 3px;
+  }
+  .assessment-panel--strengths .assessment-list li::before {
+    content: '+';
+    color: var(--accent-tertiary);
+    font-weight: 700;
+  }
+  .assessment-panel--limits .assessment-list li::before {
+    content: '!';
+    color: var(--accent-warning);
+    font-weight: 700;
+  }
+
+  /* Questions section */
+  .questions-section {
+    padding: 0 0 2.5rem;
+    animation: fadeUp 0.6s 0.55s ease-out both;
+  }
+
+  .questions-panel {
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 2rem;
+  }
+
+  .questions-panel__title {
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--fg-dim);
+    margin-bottom: 1.25rem;
+    padding-bottom: 0.75rem;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .questions-list {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 0.9rem;
+    counter-reset: question;
+  }
+
+  .questions-list li {
+    font-size: 0.88rem;
+    line-height: 1.55;
+    color: var(--fg-muted);
+    counter-increment: question;
+    padding-left: 2.5rem;
+    position: relative;
+  }
+  .questions-list li::before {
+    content: counter(question);
+    position: absolute;
+    left: 0;
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: var(--accent-secondary);
+    background: var(--accent-secondary-glow);
+    width: 1.6rem;
+    height: 1.6rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    top: 2px;
+  }
+
+  /* Footer */
+  .footer {
+    padding: 1.5rem 0 2.5rem;
+    border-top: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    animation: fadeUp 0.6s 0.6s ease-out both;
+  }
+
+  .footer-link {
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    color: var(--fg-muted);
+    text-decoration: none;
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    transition: color 0.2s;
+  }
+  .footer-link:hover { color: var(--accent); }
+
+  .footer-meta {
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    color: var(--fg-dim);
+  }
+
+  /* Animations */
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(16px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  /* Responsive */
+  @media (max-width: 900px) {
+    .assets-row { grid-template-columns: 1fr; }
+    .body-grid { grid-template-columns: 1fr; }
+    .assessment-row { grid-template-columns: 1fr; }
+  }
+
+  @media (max-width: 600px) {
+    .container { padding: 0 1rem; }
+    .hero { padding: 2rem 0 1.5rem; }
+    .hero-title { font-size: 1.75rem; }
+    .asset-card__value { font-size: 2.2rem; }
+  }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-track { background: var(--bg); }
+  ::-webkit-scrollbar-thumb { background: var(--fg-dim); border-radius: 3px; }
+</style>
+</head>
+<body>
+
+<div class="container">
+
+  <a href="./index.html" class="back-link">&#8617; Today's digest</a>
+
+  <!-- HERO -->
+  <header class="hero">
+    <div class="hero-meta">
+      <span class="tag">2605.29343</span>
+      <span class="tag">2026-05-28</span>
+      <span class="tag tag--accent">speculative decoding</span>
+      <span class="tag tag--accent">on-policy distillation</span>
+    </div>
+    <h1 class="hero-title">Draft-OPD: On-Policy Distillation for Speculative Draft Models</h1>
+    <p class="hero-subtitle">
+      Standard SFT trains draft models on fixed target-model trajectories, but during inference they are evaluated on <strong>their own draft-induced states</strong>. Draft-OPD closes this gap with error-position anchor replay and an acceptance-aware KL objective &mdash; breaking through the SFT plateau to deliver <strong>over 5x lossless speedup</strong> on thinking-mode LLMs.
+    </p>
+  </header>
+
+  <!-- ASSET CARDS -->
+  <section class="assets-row">
+    <div class="asset-card asset-card--metric">
+      <div class="asset-card__label">Key Metric</div>
+      <div class="asset-card__value">5.55x</div>
+      <div class="asset-card__unit">speedup on MATH-500 / Qwen3-4B thinking</div>
+      <div class="asset-card__detail">
+        <strong>+23%</strong> over EAGLE-3, <strong>+13%</strong> over DFlash under matched FLOPs. Acceptance length improves ~<strong>11.2%</strong> across all model-task pairs.
+      </div>
+    </div>
+
+    <div class="asset-card asset-card--why">
+      <div class="asset-card__label">Why This Matters</div>
+      <div class="asset-card__detail" style="font-size: 1rem; color: var(--fg); line-height: 1.6;">
+        Speculative decoding is the workhorse technique for LLM deployment efficiency. Better draft model training <strong>directly translates to faster, cheaper inference at scale</strong> &mdash; especially for the thinking-mode reasoning models now dominating production workloads.
+      </div>
+    </div>
+
+    <div class="asset-card asset-card--edge">
+      <div class="asset-card__label">Critical Edge</div>
+      <div class="asset-card__value">Qwen3-only eval; OPD training cost not quantified; no code release</div>
+      <div class="asset-card__detail">
+        Generalization to Llama, Mistral, DeepSeek is untested. The OPD stage requires online target-model interaction &mdash; significantly more expensive than offline SFT, but the paper does not report this cost. Gains on non-thinking tasks (MT-Bench) are more modest.
+      </div>
+    </div>
+  </section>
+
+  <!-- METHODOLOGY + RESULTS -->
+  <section class="body-grid">
+    <div class="section-panel">
+      <h2 class="section-panel__title">Methodology &mdash; Draft-OPD Pipeline</h2>
+      <ol class="pipeline-steps">
+        <li class="pipeline-step">
+          <span class="pipeline-step__num">01</span>
+          <div class="pipeline-step__text">
+            <strong>Rollout with error-position collection.</strong> Run speculative decoding normally. The draft model proposes blocks of K tokens. Record the starting position of each block as an <strong>anchor</strong>. The target model verifies and produces a high-quality rollout. Anchors capture where the draft model actually acted.
+          </div>
+        </li>
+        <li class="pipeline-step">
+          <span class="pipeline-step__num">02</span>
+          <div class="pipeline-step__text">
+            <strong>Replay from anchors.</strong> From each anchor, replay the draft-generated block. Compute both draft and target log-probabilities on the same draft-induced prefix. This includes <strong>rejected tokens</strong> &mdash; the most informative training signals that standard SFT discards entirely.
+          </div>
+        </li>
+        <li class="pipeline-step">
+          <span class="pipeline-step__num">03</span>
+          <div class="pipeline-step__text">
+            <strong>Acceptance-aware KL objective.</strong> Accepted tokens: <strong>forward KL</strong> (encourage coverage of target distribution). Rejected tokens: <strong>reverse KL</strong> with exponentially decaying weights by position (penalize high-probability draft modes where the target disagrees).
+          </div>
+        </li>
+      </ol>
+      <div style="margin-top: 1.25rem; padding-top: 1rem; border-top: 1px solid var(--border);">
+        <div style="font-family: var(--mono); font-size: 0.72rem; color: var(--fg-dim); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 0.5rem;">Core Insight</div>
+        <p style="font-size: 0.86rem; color: var(--fg-muted); line-height: 1.55;">
+          SFT plateaus because it trains on <strong>target-induced states</strong> but evaluates on <strong>draft-induced states</strong>. Standard on-policy distillation fails for drafters because self-rollouts degenerate into repetitions, while target-assisted rollouts erase the on-policy signal by discarding rejected tokens. Draft-OPD's anchor-based replay preserves both.
+        </p>
+      </div>
+    </div>
+
+    <div class="section-panel">
+      <h2 class="section-panel__title">Results &mdash; Speedup Benchmarks</h2>
+      <table class="results-table">
+        <thead>
+          <tr>
+            <th>Benchmark</th>
+            <th>DFlash</th>
+            <th>Draft-OPD</th>
+            <th>Delta</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="benchmark-name">MATH-500</td>
+            <td>4.73x</td>
+            <td class="highlight">5.55x</td>
+            <td style="color: var(--accent-tertiary);">+17.4%</td>
+          </tr>
+          <tr>
+            <td class="benchmark-name">MT-Bench</td>
+            <td>2.70x</td>
+            <td class="highlight">3.18x</td>
+            <td style="color: var(--accent-tertiary);">+17.8%</td>
+          </tr>
+          <tr>
+            <td class="benchmark-name">HumanEval</td>
+            <td>5.57x</td>
+            <td class="highlight">6.57x</td>
+            <td style="color: var(--accent-tertiary);">+18.0%</td>
+          </tr>
+          <tr>
+            <td class="benchmark-name">AIME25 (30B)</td>
+            <td colspan="3" style="text-align: left; font-family: var(--sans); font-size: 0.82rem;">
+              Acceptance length: 4.54 &rarr; <strong style="color: var(--accent);">5.32</strong> (+17.2%)
+            </td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div style="margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid var(--border);">
+        <div style="font-family: var(--mono); font-size: 0.72rem; color: var(--fg-dim); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 0.5rem;">Ablation Highlights</div>
+        <ul style="list-style: none; display: flex; flex-direction: column; gap: 0.6rem;">
+          <li style="font-size: 0.84rem; color: var(--fg-muted); padding-left: 0.5rem; border-left: 2px solid var(--accent-tertiary);">
+            <strong style="color: var(--fg);">Training data:</strong> Continued SFT on the same prompt pool underperforms Draft-OPD &mdash; gains are not from extra data.
+          </li>
+          <li style="font-size: 0.84rem; color: var(--fg-muted); padding-left: 0.5rem; border-left: 2px solid var(--accent-tertiary);">
+            <strong style="color: var(--fg);">KL design:</strong> Mixed forward/reverse KL outperforms both all-forward and all-reverse variants.
+          </li>
+          <li style="font-size: 0.84rem; color: var(--fg-muted); padding-left: 0.5rem; border-left: 2px solid var(--accent-tertiary);">
+            <strong style="color: var(--fg);">Anchors:</strong> Error-position replay outperforms random anchors &mdash; concentrating on verification-exposed errors is critical.
+          </li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- STRENGTHS / LIMITATIONS -->
+  <section class="assessment-row">
+    <div class="assessment-panel assessment-panel--strengths">
+      <h2 class="assessment-panel__title">Strengths</h2>
+      <ul class="assessment-list">
+        <li>Clear diagnosis of the SFT plateau with empirical evidence (Figure 1 shows saturation)</li>
+        <li>Elegant anchor-based replay that preserves both stable rollouts and on-policy signal</li>
+        <li>Acceptance-aware KL objective is theoretically well-justified: forward KL for coverage, reverse KL for error suppression</li>
+        <li>Comprehensive ablations isolating each design choice</li>
+        <li>Real deployment validation on SGLang with consistent throughput gains across concurrency levels 1&ndash;32</li>
+        <li>Particularly effective for thinking-mode models &mdash; increasingly dominant in practice</li>
+      </ul>
+    </div>
+
+    <div class="assessment-panel assessment-panel--limits">
+      <h2 class="assessment-panel__title">Limitations</h2>
+      <ul class="assessment-list">
+        <li>Evaluated exclusively on Qwen3 family; cross-architecture generalization is unknown</li>
+        <li>OPD training requires online target-model inference &mdash; cost is not quantified</li>
+        <li>Non-thinking task gains are more modest (MT-Bench: 3.18x vs 2.70x)</li>
+        <li>No code or model release announced, limiting community adoption</li>
+        <li>Designed for lossless verification only; extension to approximate speculative decoding is future work</li>
+        <li>Thinking-mode drafting gap is only partially addressed, not solved</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- QUESTIONS -->
+  <section class="questions-section">
+    <div class="questions-panel">
+      <h2 class="questions-panel__title">Open Questions</h2>
+      <ol class="questions-list">
+        <li>How does the computational cost of the OPD training stage (including online target-model inference) compare quantitatively to SFT? What is the total training cost increase?</li>
+        <li>Would Draft-OPD transfer to other model families (Llama 4, Mistral, DeepSeek) with different draft architectures?</li>
+        <li>Can the anchor-based replay mechanism be combined with RL objectives to directly optimize acceptance length rather than distributional matching?</li>
+        <li>How does Draft-OPD interact with dynamic draft block sizes or adaptive speculation strategies?</li>
+        <li>Is there a theoretical upper bound on acceptance length improvement that on-policy methods can achieve over offline SFT, given architectural constraints?</li>
+      </ol>
+    </div>
+  </section>
+
+  <!-- FOOTER -->
+  <footer class="footer">
+    <span class="footer-meta">Lei et al. &middot; Shanghai AI Lab &middot; arXiv 2605.29343</span>
+    <a href="2605.29343.html" class="footer-link">&#8599; Markdown source</a>
+  </footer>
+
+</div>
+
+<script>
+  // Staggered reveal on scroll
+  document.addEventListener('DOMContentLoaded', () => {
+    const panels = document.querySelectorAll('.section-panel, .assessment-panel, .questions-panel');
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          entry.target.style.opacity = '1';
+          entry.target.style.transform = 'translateY(0)';
+          observer.unobserve(entry.target);
+        }
+      });
+    }, { threshold: 0.1 });
+
+    panels.forEach(panel => {
+      panel.style.opacity = '0';
+      panel.style.transform = 'translateY(12px)';
+      panel.style.transition = 'opacity 0.5s ease-out, transform 0.5s ease-out';
+      observer.observe(panel);
+    });
+  });
+</script>
+
+</body>
+</html>

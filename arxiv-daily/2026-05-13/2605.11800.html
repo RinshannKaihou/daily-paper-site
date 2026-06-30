@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ROMER: Expert Replacement and Router Calibration for Robust MoE LLMs on Analog Compute-in-Memory Systems</title>
+<style>
+:root { --paper:#fafafa; --ink:#1a1a1a; --muted:#555; --accent:#1a5276; --line:#ddd; --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif; --serif:Georgia,"Noto Serif SC",serif; }
+body { font-family:var(--serif); background:var(--paper); color:var(--ink); line-height:1.6; margin:0; padding:0; }
+.container { max-width:min(95vw, 760px); margin:0 auto; padding:28px 20px 60px; }
+.topnav { position:fixed; top:12px; left:14px; z-index:50; font-family:var(--sans); font-size:.75rem; background:var(--paper); border:1px solid var(--line); padding:5px 10px; border-radius:999px; }
+.topnav a { color:var(--muted); text-decoration:none; font-weight:600; }
+.topnav a:hover { color:var(--accent); }
+h1 { font-size:1.6rem; margin:2.2rem 0 1rem; border-bottom:2px solid var(--accent); padding-bottom:.3rem; }
+h2 { font-size:1.3rem; margin:1.8rem 0 .8rem; color:var(--accent); }
+h3 { font-size:1.1rem; margin:1.4rem 0 .6rem; }
+p { margin:.8rem 0; }
+.authors { font-style:italic; color:var(--muted); margin-top:-.4rem; }
+.meta { font-family:var(--sans); font-size:.82rem; color:var(--muted); margin:.2rem 0; }
+a { color:var(--accent); text-decoration:none; }
+a:hover { text-decoration:underline; }
+blockquote { border-left:3px solid var(--accent); margin:1rem 0; padding:.2rem 0 .2rem 1rem; color:var(--muted); font-style:italic; }
+code { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; background:#f0f0f0; padding:2px 5px; border-radius:3px; font-size:.9em; }
+pre { background:#f5f5f5; padding:14px; overflow-x:auto; border-radius:4px; border:1px solid var(--line); }
+pre code { background:transparent; padding:0; }
+ul,ol { margin:.6rem 0; padding-left:1.5rem; }
+li { margin:.25rem 0; }
+table { border-collapse:collapse; width:100%; margin:1rem 0; font-family:var(--sans); font-size:.9rem; }
+th,td { border:1px solid var(--line); padding:6px 10px; text-align:left; }
+th { background:#f0f0f0; }
+hr { border:none; border-top:1px solid var(--line); margin:1.5rem 0; }
+.note { font-family:var(--sans); font-size:.78rem; color:var(--muted); border-top:1px solid var(--line); margin-top:2rem; padding-top:1rem; }
+@media (max-width: 600px) { .container { padding:22px 14px 40px; } h1 { font-size:1.35rem; } }
+</style>
+</head>
+<body>
+<div class="topnav"><a href="./index.html">← Today's digest</a></div>
+<div class="container">
+<h1>ROMER: Expert Replacement and Router Calibration for Robust MoE LLMs on Analog Compute-in-Memory Systems</h1>
+<p class="meta">arXiv: 2605.11800</p>
+<p class="meta">Date: 2026-05-13</p>
+<p class="meta"><a href="https://arxiv.org/abs/2605.11800">https://arxiv.org/abs/2605.11800</a></p>
+<blockquote><strong>一句话总结：</strong> ROMER 首次系统研究了模拟存算一体（CIM）系统中硬件噪声对 MoE 大模型的影响，发现噪声会导致专家负载崩溃和路由次优，提出通过复制高激活专家替换空闲专家（噪声方差减半）和基于 IQR 的路由器 logits 校准两种无训练策略，在真实芯片噪声下将困惑度降低最高 59.8%，硬件开销仅约 7.8% 延迟增加。</blockquote>
+<blockquote><strong>TL;DR:</strong> First systematic study of MoE-based LLMs under real analog CIM chip noise. Reveals two failure modes: expert load collapse (few experts absorb disproportionate tokens) and noise-inflated router logits causing overconfident suboptimal routing. Proposes ROMER, a training-free framework with (1) expert replacement (duplicating top-k experts into bottom-k slots for 2x noise reduction via averaging) and (2) IQR-based router logit compression. Achieves up to 59.8% perplexity reduction on OLMoE, 58.8% on Qwen-MoE, 58.6% on DeepSeek-MoE with only ~7.8% latency overhead. Also recovers reasoning accuracy (ARC-Challenge from 36.8% to 43.2%).</blockquote>
+<h2>核心贡献</h2>
+<ul>
+<li><strong>首次系统刻画</strong> MoE 大模型在模拟 CIM 硬件上的脆弱性，使用真实芯片测量校准噪声模型（含器件噪声 N(0, σ²_dev) 和 ADC 量化噪声 U(-Δ/2, Δ/2)），发现两个独特失效模式</li>
+<li><strong>揭示专家负载崩溃</strong>：噪声导致原本均匀分布的专家激活模式退化为少数专家过载、多数专家闲置的"热点"模式，模型退化为更小的稠密网络</li>
+<li><strong>揭示路由器 logits 膨胀</strong>：噪声使每层路由器 logit 方差平均增加近 2 倍（早期层最高 3 倍），导致路由器基于噪声伪峰值做出过度自信的错误决策</li>
+<li><strong>提出专家替换策略</strong>：将 top-k 高频专家的权重复制到 bottom-k 低频专家的内存位置，推理时对两次独立噪声计算取平均，使关键专家的输出噪声方差减半</li>
+<li><strong>提出基于 IQR 的路由校准</strong>：利用四分位距压缩 logits 分布（IQR(cal) = (1-2λ)·IQR），λ=0.4 为最优，解析性地控制压缩程度，抵抗离群值干扰</li>
+<li><strong>全面的实验验证</strong>：在 4 个 MoE 模型（DeepSeek-MoE-16B, Qwen3-30B-A3B, OLMoE-1B-7B, Qwen1.5-MoE-A2.7B）上测试，覆盖 5 个基准（WikiText-103/2, LAMBADA, PIQA, ARC），硬件开销仅 +7.8% 延迟、+7.4% 功耗</li>
+</ul>
+<h2>Key Contributions</h2>
+<ul>
+<li>First systematic characterization of MoE LLM vulnerability under real analog CIM chip noise, with a two-component noise model (multiplicative device noise + additive ADC quantization noise) calibrated against physical chip measurements</li>
+<li>Discovery of two unique MoE failure modes under noise: (1) expert load collapse where few experts absorb disproportionate token assignments while most become dormant, and (2) router logit inflation where per-token per-layer variance nearly doubles, causing overconfident suboptimal expert selection</li>
+<li>Expert replacement: duplicates top-k most-activated expert weights into bottom-k memory slots; during inference, both original and replicated computations contribute, yielding a factor-of-2 reduction in output noise variance for critical experts (σ²_out → σ²_out/2)</li>
+<li>IQR-based router calibration: compresses logit spread analytically via IQR(z(cal)) = (1-2λ)·IQR(z), lifting the lower half and suppressing the upper half of sorted logits; λ=0.4 is optimal across temperatures</li>
+<li>Training-free framework requiring neither retraining nor labeled data, with minimal hardware overhead (+7.8% latency, +7.4% power) while achieving -56.7% average perplexity reduction</li>
+</ul>
+<h2>Methodology</h2>
+<p><strong>Noise Model.</strong> The authors decompose analog CIM noise into two additive components calibrated from a real chip at operating temperatures of 25°C to 85°C:</p>
+<ul>
+<li><em>Device noise</em>: multiplicative perturbation w̃ = w + w·ε_dev where ε_dev ~ N(0, σ²_dev), modeling thermal fluctuations, programming variability, and read disturbances</li>
+<li><em>ADC quantization noise</em>: additive uniform perturbation ε_ADC,i ~ U(-Δ/2, Δ/2) where Δ = V_ref/(2^b - 1)</li>
+<li>Combined noisy MVM: ỹ = (W + W·E_dev)x + ε_ADC</li>
+</ul>
+<p><strong>Expert Replacement.</strong> Given cumulative activation magnitudes A_{l,i} = Σ_t p^{(t)}_{l,i} · 1{i∈S(x_t)} over a calibration corpus:</p>
+<ol>
+<li>Partition experts per layer into top-k (T_l), bottom-k (B_l), and remaining sets</li>
+<li>Establish bijection σ: T_l → B_l pairing high-frequency with low-frequency experts</li>
+<li>Overwrite bottom-k weights with paired top-k weights: W_{l,σ(i)} ← W_{l,i} for all i ∈ T_l</li>
+<li>During inference, zero out bottom-k logits and halve top-k logits (to maintain correct gating probability since two copies contribute)</li>
+<li>Each top-k expert's output averages two independent noisy computations, reducing noise variance by 2x</li>
+</ol>
+<p><strong>Percentile-Based Router Calibration.</strong> For router logits z = [z_1, ..., z_E]:</p>
+<ol>
+<li>Compute IQR = Q3(z) - Q1(z)</li>
+<li>Sort logits ascending: z_(1) ≤ z_(2) ≤ ... ≤ z_(E)</li>
+<li>Apply: z_i^(cal) = z_i^(sorted) + λ·IQR for i ≤ ⌊E/2⌋; z_i^(sorted) - λ·IQR for i > ⌊E/2⌋</li>
+<li>This compresses IQR analytically: IQR(z^(cal)) = (1-2λ)·IQR(z), with λ ∈ (0, 0.5) controlling compression strength</li>
+<li>Reorder calibrated logits to original expert indices before routing</li>
+</ol>
+<p><strong>Calibration.</strong> The noise parameters (σ_dev, σ_ADC, Δ) are calibrated against measurements from a real analog CIM chip. The authors validate their simulated noise model by measuring KL divergence between on-chip non-ideal effects + Gaussian noise and the simulated model in end-to-end outputs, plus per-layer error standard deviations (Figure 2).</p>
+<h2>Results & Highlights</h2>
+<p><strong>WikiText-103 Perplexity (Table 1):</strong></p>
+<ul>
+<li>At T=80°C, vanilla deployment increases perplexity by +1.85 to +2.65 across models; ROMER limits degradation to +0.31 to +0.95</li>
+<li>ROMER vs. best baseline (weight-remapping): further reduces perplexity gaps by 0.13–0.39 points at T=80°C</li>
+<li>OLMoE-1B-7B is most vulnerable (smallest active parameter count); Qwen1.5-MoE-A2.7B most robust</li>
+</ul>
+<p><strong>Multi-Benchmark on DeepSeek-MoE-16B (Table 2):</strong></p>
+<ul>
+<li>At T=80°C: WikiText-2 perplexity surges from 18.94→28.36 (+9.42); ROMER recovers to 22.48 (~62% of vanilla degradation)</li>
+<li>ARC-Challenge accuracy drops 47.1%→36.8% (-10.3 points, 21.9% relative); ROMER recovers to 43.2%</li>
+<li>PIQA accuracy: 79.8%→74.2% vanilla → 77.7% ROMER</li>
+<li>LAMBADA perplexity: 10.64→19.53 vanilla → 13.99 ROMER</li>
+<li>K-B calibration performs comparably to or worse than vanilla, confirming simple statistical recalibration is insufficient</li>
+</ul>
+<p><strong>Hardware Overhead (Table 3):</strong></p>
+<ul>
+<li>Three smaller models: +6.2–6.5% latency, +6.0–6.2% power</li>
+<li>Qwen3-30B-A3B: +12.1% latency, +11.3% power (due to larger 3B active parameters)</li>
+<li>Average across all models: +7.8% latency, +7.4% power for -56.7% perplexity reduction</li>
+</ul>
+<p><strong>Ablation (Table 4 on Qwen3-30B-A3B):</strong></p>
+<ul>
+<li>Expert replacement n=4–6 is optimal; n≥8 degrades performance; n=16 (replacing all) is worse than no replacement</li>
+<li>Router calibration λ=0.4 consistently best; at T=25 achieves perplexity 10.40 below clean baseline 10.83</li>
+<li>Both components address complementary failure modes; neither alone achieves full recovery</li>
+</ul>
+<h2>Authors & Credibility</h2>
+<ul>
+<li><strong>Wenyong Zhou, Yuannuo Feng</strong> (co-first authors) from HKU ECE and Beihang IC — published prior work on CIM robustness (HPD for SSMs on analog CIM, STE extensions for CIM, RRAM-based CNNs)</li>
+<li><strong>Taiqiang Wu, Ngai Wong</strong> (HKU ECE) — LLM and NLP research</li>
+<li><strong>Wang Kang</strong> (Beihang University, School of Integrated Circuit Science) — hardware/architecture expertise</li>
+<li>Paper submitted to COLM 2026 (under review), follows COLM ethics guidelines</li>
+<li>Uses publicly available models and benchmarks with real chip measurement validation</li>
+</ul>
+<h2>Critical Assessment</h2>
+<ul>
+<li><strong>Novelty</strong>: High — genuinely the first work to study MoE LLM routing behavior under real analog CIM noise. The two failure modes (load collapse + logit inflation) and their mitigation are novel contributions at the hardware-algorithm intersection.</li>
+<li><strong>Rigor</strong>: Strong — comprehensive evaluation across 4 models, 5 benchmarks, 2 temperature regimes, 6 baselines, plus ablation studies. Expert activation heatmaps provide compelling visual evidence. The noise model is validated against real chip measurements (KL divergence analysis).</li>
+<li><strong>Reproducibility</strong>: Moderate-to-good — all models and benchmarks are public. The noise model parameters require chip access for exact replication, but the Gaussian + uniform noise model is simple to approximate. Code release is not mentioned.</li>
+<li><strong>Significance</strong>: High — MoE is the dominant architecture for frontier LLMs (DeepSeek-V3, Mixtral) and CIM is a promising deployment path. This work bridges a critical gap between algorithmic and hardware communities.</li>
+<li><strong>Red flags</strong>: (1) The "up to 59.8% perplexity reduction" in the abstract refers to relative improvement over vanilla noisy deployment, not absolute — could be misleading. (2) Router calibration at λ=0.4 achieving perplexity <em>below</em> clean baseline (10.40 vs 10.83) is suspicious and unexplained — suggests the clean model may have suboptimal routing that calibration incidentally improves. (3) No comparison with noise-aware training approaches (only post-hoc baselines). (4) The expert replacement permanently removes bottom-k experts, which could hurt performance on rare token patterns that rely on those experts.</li>
+</ul>
+<h2>Strengths</h2>
+<ul>
+<li>Identifies and addresses a genuinely important and previously unexplored problem at the MoE–CIM intersection</li>
+<li>Training-free approach with minimal hardware overhead makes it immediately practical for deployment</li>
+<li>Elegant theoretical motivation: noise variance reduction via averaging of duplicated experts has clean mathematical justification</li>
+<li>IQR-based calibration is robust to outliers and analytically tractable (exact IQR compression formula)</li>
+<li>Comprehensive ablation clearly shows the complementary nature of both components</li>
+<li>Real chip calibration lends strong practical credibility</li>
+</ul>
+<h2>Limitations</h2>
+<ul>
+<li>Expert replacement permanently sacrifices bottom-k expert capacity; potential performance loss on inputs that genuinely require those experts in clean conditions</li>
+<li>The unexplained below-clean-baseline result (λ=0.4 on Qwen3 at T=25°C) needs investigation — is this an artifact or does it indicate general routing suboptimality?</li>
+<li>Only tested on relatively small MoE models (≤30B total); scaling to 100B+ frontier models (DeepSeek-V3, Mixtral 8x22B) is unverified</li>
+<li>No comparison against noise-aware training or quantization-aware fine-tuning, which may provide stronger baselines</li>
+<li>The approach is tailored to analog CIM noise characteristics; transferability to digital CIM or other accelerator noise profiles is unclear</li>
+<li>Qwen3-30B-A3B shows 12% latency overhead, which could be prohibitive in latency-sensitive deployments</li>
+</ul>
+<h2>Relevance</h2>
+<p>该工作对 MoE 模型在边缘设备上的实际部署具有直接参考价值，特别是在存算一体硬件加速方向。如果你关注高效 LLM 推理、硬件-算法协同设计或 MoE 架构的鲁棒性优化，ROMER 提供了无需重训练的实用方案和重要的实验基准。</p>
+<h2>Questions for Further Exploration</h2>
+<ol>
+<li>Why does λ=0.4 router calibration achieve perplexity <em>below</em> the clean baseline — does this reveal a general deficiency in standard MoE routing optimization during pre-training?</li>
+<li>How does ROMER interact with other deployment optimizations like quantization (GPTQ, AWQ) — are they orthogonal or conflicting?</li>
+<li>Can expert replacement be made dynamic (per-input rather than static calibration) to preserve capacity for rare but important token patterns?</li>
+<li>What happens when ROMER is applied to larger MoE models with shared+dedicated expert structures (e.g., DeepSeek-V3's 1 shared + 256 routed experts)?</li>
+<li>Could the IQR-based logit compression be incorporated as a regularization loss during MoE pre-training to produce inherently noise-robust routers?</li>
+</ol>
+<p class="note">Generated from Markdown summary. Full paper: <a href="https://arxiv.org/abs/2605.11800">arXiv:2605.11800</a></p>
+</div>
+</body>
+</html>

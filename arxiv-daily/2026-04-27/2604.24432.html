@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Kwai Summary Attention Technical Report</title>
+<style>
+:root { --paper:#fafafa; --ink:#1a1a1a; --muted:#555; --accent:#1a5276; --line:#ddd; --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif; --serif:Georgia,"Noto Serif SC",serif; }
+body { font-family:var(--serif); background:var(--paper); color:var(--ink); line-height:1.6; margin:0; padding:0; }
+.container { max-width:min(95vw, 760px); margin:0 auto; padding:28px 20px 60px; }
+.topnav { position:fixed; top:12px; left:14px; z-index:50; font-family:var(--sans); font-size:.75rem; background:var(--paper); border:1px solid var(--line); padding:5px 10px; border-radius:999px; }
+.topnav a { color:var(--muted); text-decoration:none; font-weight:600; }
+.topnav a:hover { color:var(--accent); }
+h1 { font-size:1.6rem; margin:2.2rem 0 1rem; border-bottom:2px solid var(--accent); padding-bottom:.3rem; }
+h2 { font-size:1.3rem; margin:1.8rem 0 .8rem; color:var(--accent); }
+h3 { font-size:1.1rem; margin:1.4rem 0 .6rem; }
+p { margin:.8rem 0; }
+.authors { font-style:italic; color:var(--muted); margin-top:-.4rem; }
+.meta { font-family:var(--sans); font-size:.82rem; color:var(--muted); margin:.2rem 0; }
+a { color:var(--accent); text-decoration:none; }
+a:hover { text-decoration:underline; }
+blockquote { border-left:3px solid var(--accent); margin:1rem 0; padding:.2rem 0 .2rem 1rem; color:var(--muted); font-style:italic; }
+code { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; background:#f0f0f0; padding:2px 5px; border-radius:3px; font-size:.9em; }
+pre { background:#f5f5f5; padding:14px; overflow-x:auto; border-radius:4px; border:1px solid var(--line); }
+pre code { background:transparent; padding:0; }
+ul,ol { margin:.6rem 0; padding-left:1.5rem; }
+li { margin:.25rem 0; }
+table { border-collapse:collapse; width:100%; margin:1rem 0; font-family:var(--sans); font-size:.9rem; }
+th,td { border:1px solid var(--line); padding:6px 10px; text-align:left; }
+th { background:#f0f0f0; }
+hr { border:none; border-top:1px solid var(--line); margin:1.5rem 0; }
+.note { font-family:var(--sans); font-size:.78rem; color:var(--muted); border-top:1px solid var(--line); margin-top:2rem; padding-top:1rem; }
+@media (max-width: 600px) { .container { padding:22px 14px 40px; } h1 { font-size:1.35rem; } }
+</style>
+</head>
+<body>
+<div class="topnav"><a href="./index.html">← Today's digest</a></div>
+<div class="container">
+<h1>Kwai Summary Attention Technical Report</h1>
+<p class="meta">arXiv: 2604.24432v1</p>
+<p class="meta">Date: 2026-04-27</p>
+<p class="meta"><a href="https://arxiv.org/abs/2604.24432v1">https://arxiv.org/abs/2604.24432v1</a></p>
+<blockquote><strong>一句话总结：</strong> 快手OneRec团队提出Kwai Summary Attention (KSA)，通过在输入序列中按固定间隔注入可学习的摘要token来压缩历史上下文，将KV缓存从O(n)降至O(n/k)，在RULER-128K上比全注意力提升16.6个百分点（从scratch训练），且与GQA/MLA完全正交，可组合实现8倍以上的KV缓存压缩。</blockquote>
+<blockquote><strong>TL;DR:</strong> KSA introduces learnable summary tokens interleaved with text tokens at regular chunk boundaries. Summary tokens distill chunk-level semantics via local attention, while text tokens attend to both a local sliding chunk window and all past summary tokens. This yields sub-quadratic O(L*sqrt(n)) complexity with O(n/k) KV cache. Hybrid-KSA (3:1 KSA-to-Full ratio, 8x sequence compression) outperforms Full attention on RULER-128K by +16.6 pts (scratch) and +5.81 pts (CPT from Qwen3-4B), while matching or exceeding baselines on MMLU, GSM8K, and MBPP. The method is fully orthogonal to GQA and MLA, enabling multiplicative compression gains. Training code and kernels are open-sourced.</blockquote>
+<h2>核心贡献</h2>
+<ul>
+<li>提出KSA（Kwai Summary Attention），一种通过摘要token进行序列级语义压缩的注意力机制，将长序列KV缓存从线性增长O(n)降至O(n/k)，同时保留对远距离依赖的可解释引用能力</li>
+<li>设计了互补的双角色注意力模式：摘要token仅在所属chunk内进行局部压缩，文本token通过滑动chunk窗口访问近邻文本并通过摘要token访问远距离上下文，二者解耦实现高效信息路由</li>
+<li>实现了高效的Summary KV Cache，采用连续内存布局（Current Chunk + Ring Buffer Sliding Chunks + Summary Token Buffer），解码时所有KV读取为单次连续切片操作，无需gather/concat</li>
+<li>Hybrid-KSA（3:1 KSA与Full Attention交替）在RULER-128K上从scratch训练超越Full Attention 16.6个百分点，CPT设置超越5.81个百分点，同时保持通用能力基本无损</li>
+<li>KSA与GQA、MLA完全正交，可组合实现KV缓存压缩率0.22%（KSA+MLA）或0.78%（KSA+GQA），训练代码和计算内核已开源</li>
+</ul>
+<h2>Key Contributions</h2>
+<ul>
+<li>Proposes KSA, a sequence-level semantic compression attention mechanism that reduces KV cache from O(n) to O(n/k) while maintaining referential, interpretable access to long-range dependencies</li>
+<li>Designs complementary dual-role attention: summary tokens attend only within their chunk for semantic distillation, while text tokens access local neighbors via a sliding chunk window and distant context via all past summary tokens</li>
+<li>Implements an efficient Summary KV Cache with contiguous memory layout (Current Chunk + Ring Buffer + Summary Buffer), enabling single-slice reads during decoding without gather/concat operations</li>
+<li>Hybrid-KSA (3:1 KSA:Full ratio) surpasses Full attention on RULER-128K by +16.6 pts (scratch) and +5.81 pts (CPT), while closely matching general capability benchmarks</li>
+<li>Demonstrates full orthogonality with GQA and MLA, achieving multiplicative compression rates as low as 0.22% (KSA+MLA); open-sources training recipes and compute kernels</li>
+</ul>
+<h2>Methodology</h2>
+<p><strong>Core Mechanism:</strong> Given an input sequence of n text tokens and chunk size k, KSA partitions the sequence into n/k chunks, appending a shared learnable summary embedding s at the end of each chunk. Two distinct attention scopes are enforced:</p>
+<ol>
+<li><strong>Summary Token Compression:</strong> Summary tokens only see text tokens within their own chunk (local semantic distillation). Their position ID matches the last text token in the chunk.</li>
+</ol>
+<ol>
+<li><strong>Sliding Chunk Attention:</strong> Text tokens attend to: (a) text tokens from the N most recent sliding chunks (local window of N*k tokens at chunk granularity), and (b) all past summary tokens (global compressed context).</li>
+</ol>
+<p>This yields a clean partition: every past chunk is either fully visible through direct attention or accessed only through its summary token, with no information loss.</p>
+<p><strong>Complexity:</strong> Overall time complexity is O(L <em> (N</em>k + n/k)). With fixed N, this simplifies to O(L <em> (k + n/k)). When k balances k and n/k (i.e., k ~ sqrt(n)), overall complexity achieves O(L </em> sqrt(n)), sub-quadratic scaling.</p>
+<p><strong>Kernel Design:</strong></p>
+<ul>
+<li><em>Block-sparse training kernel:</em> Q/K/V split into fixed-size blocks; only non-zero block pairs loaded from HBM to SRAM</li>
+<li><em>Summary KV Cache for decoding:</em> Three contiguous regions (Current Chunk, Sliding Chunk Text via ring buffer, Summary Token Buffer), enabling single-slice reads without concatenation</li>
+</ul>
+<p><strong>Hybrid-KSA Architecture:</strong> Interleaves KSA layers with Full attention layers at a 3:1 ratio. Full attention layers serve as cross-chunk integrators with sharp attention spikes at needle positions, while KSA layers develop periodic "comb" patterns attending to summary tokens at chunk boundaries.</p>
+<p><strong>Training Recipes:</strong></p>
+<ul>
+<li><em>From scratch:</em> 1.9B model, 24 layers, progressive length extension (8K -> 32K -> 64K -> 128K), 400B total tokens</li>
+<li><em>CPT:</em> Initialized from Qwen3-4B-base, 36 layers, three-stage process: (1) summary token adaptation via multi-granularity distillation with independent Q/K/V parameters, (2) parameter annealing that gradually absorbs summary parameters into main LLM weights, (3) full parameter tuning on 85B tokens</li>
+</ul>
+<h2>Results & Highlights</h2>
+<p><strong>CPT Setting (Qwen3-4B-base, 85B tokens):</strong></p>
+<ul>
+<li>Hybrid-KSA achieves best RULER-128K score: 71.67 vs. Full attention 65.86 (+5.81), Hybrid-SWA 66.27, Hybrid-Linear 67.98</li>
+<li>Maintains general capability: MMLU 70.50 (vs. Full 71.83), CMath 84.25 (vs. 83.41), MBPP 62.20 (best across all configs)</li>
+<li>Overall average 73.59, surpassing Full attention (73.50)</li>
+</ul>
+<p><strong>From-Scratch Setting (1.9B, 400B tokens):</strong></p>
+<ul>
+<li>Hybrid-KSA achieves RULER-128K: 65.35 vs. Full 48.75 (+16.6), Hybrid-GDN 59.87</li>
+<li>RULER-4K best: 80.65; consistently top across all context lengths</li>
+<li>General capability: MMLU 46.83, GSM8K 59.14, MATH 36.92 (competitive or better than baselines)</li>
+<li>Overall average: 54.80, surpassing all baselines (Full 49.44, Hybrid-GDN 52.95)</li>
+</ul>
+<p><strong>KV Cache Compression:</strong></p>
+<ul>
+<li>KSA alone: 12.5% of MHA cache (k=8, g=8, h=128)</li>
+<li>KSA + GQA: 0.78% compression rate</li>
+<li>KSA + MLA: 0.22% compression rate</li>
+<li>Sub-linear scaling O(n/k) vs. linear O(n) for GQA/MLA alone</li>
+</ul>
+<p><strong>Ablation Findings:</strong></p>
+<ul>
+<li>Chunk size k=8 provides best balance; increasing to k=64 degrades RULER average from 82.97 to 77.79</li>
+<li>Hybrid ratio 3:1 optimal; 5:1 improves long-context but hurts reasoning; 1:1 improves general capability but significantly drops RULER</li>
+<li>Hybrid architecture critical: per-layer analysis shows full-attention layers develop sharp needle-localizing spikes that pure KSA lacks</li>
+</ul>
+<h2>Authors & Credibility</h2>
+<p>Authored by the OneRec Team at Kuaishou (快手), a major Chinese technology company with significant resources in recommendation systems and large language models. The paper references DeepSeek-V4 as concurrent work following similar sequence-level compression principles, lending external validation to the approach. Training code and computation kernels are open-sourced at https://github.com/Kuaishou-OneRec/KSA, enhancing reproducibility. The experimental setup is thorough, covering both from-scratch and continual pre-training settings across 11 benchmarks.</p>
+<h2>Critical Assessment</h2>
+<p><strong>Novelty:</strong> The core idea of injecting learnable summary tokens for sequence-level compression is conceptually clean and well-motivated, though not entirely novel -- it echoes ideas from memory-augmented transformers and compressed attention. The key novelty lies in the dual-role attention pattern (summary sees only chunk; text sees local+summaries) and the engineering of the contiguous KV cache layout. The orthogonality analysis with GQA/MLA is a valuable contribution.</p>
+<p><strong>Rigor:</strong> The paper is technically rigorous with clear mathematical formulations, detailed complexity analysis, and thorough ablation studies. The comparison against multiple baselines (Full, SWA, SCA, GDN, Linear) under two settings (scratch, CPT) is comprehensive. The per-layer attention pattern analysis provides useful mechanistic insight.</p>
+<p><strong>Reproducibility:</strong> Open-sourced code and kernels significantly aid reproducibility. However, the training data composition details are somewhat vague (proportions shown but not exact sources), and the CPT recipe involves a complex three-stage process with specific hyperparameters that may be sensitive.</p>
+<p><strong>Significance:</strong> The results are strong, particularly the +16.6 pts improvement on RULER-128K in the scratch setting. The orthogonality with GQA/MLA is practically significant for deployment. However, the model scale (1.9B scratch, 4B CPT) is modest -- it remains to be seen whether these gains hold at larger scales (7B+, 70B+).</p>
+<p><strong>Red Flags:</strong></p>
+<ul>
+<li>The 1.9B scratch model shows relatively low absolute scores (e.g., MMLU 46.83, MATH 36.92), making percentage-point gains less meaningful than they might appear</li>
+<li>The paper does not report wall-clock training time or throughput comparisons, making efficiency claims difficult to verify</li>
+<li>The "sub-quadratic" complexity claim relies on choosing k ~ sqrt(n), but default experiments use k=8 regardless of sequence length, which does not satisfy this condition at 128K sequences</li>
+<li>Some comparisons use different hybrid ratios or architectures across settings, making direct comparison difficult</li>
+<li>The CPT parameter annealing strategy introduces additional complexity that may be brittle across different base models</li>
+</ul>
+<h2>Strengths</h2>
+<ul>
+<li>Conceptually elegant design with clear information-flow separation between summary and text tokens</li>
+<li>Strong empirical results, particularly on long-context benchmarks where Hybrid-KSA consistently outperforms all baselines including Full attention</li>
+<li>Full orthogonality with GQA and MLA enables practical deployment with multiplicative compression gains</li>
+<li>Well-engineered KV cache with contiguous memory layout eliminates gather/concat overhead during decoding</li>
+<li>Comprehensive experimental evaluation with ablation studies, per-layer attention analysis, and two training paradigms</li>
+<li>Open-sourced code and kernels</li>
+</ul>
+<h2>Limitations</h2>
+<ul>
+<li>Only evaluated at relatively small model scales (1.9B scratch, 4B CPT); scalability to larger models unproven</li>
+<li>Default chunk size k=8 does not achieve the claimed O(L*sqrt(n)) complexity at 128K context; theoretical optimal k ~ sqrt(128K) ~ 358, far from 8</li>
+<li>No wall-clock timing or throughput comparisons reported; actual inference speedup unclear</li>
+<li>CPT recipe is complex (three stages with distillation + annealing) and may be sensitive to hyperparameters</li>
+<li>Summary tokens provide lossy compression; fine-grained token-level retrieval within old chunks is inherently impossible</li>
+<li>No evaluation on downstream tasks requiring precise long-context token-level recall beyond NIAH/RULER</li>
+</ul>
+<h2>Relevance</h2>
+<p>本文提出的序列级KV缓存压缩思路与长上下文LLM的高效推理直接相关，其与GQA/MLA的正交组合方案对实际部署有参考价值，对关注注意力机制设计和推理效率优化的研究者具有较高参考意义。</p>
+<h2>Questions for Further Exploration</h2>
+<ul>
+<li>How does KSA perform at larger model scales (7B, 70B+)? Does the summary token mechanism scale proportionally, or does compression quality degrade as model capacity increases?</li>
+<li>What is the actual wall-clock inference speedup compared to Full attention, GQA, and MLA in real deployment scenarios with batched requests?</li>
+<li>Can the summary tokens be made adaptive rather than fixed-interval, e.g., learned routing that decides when to compress based on semantic content?</li>
+<li>How does KSA interact with post-training techniques like SFT, RLHF, and reasoning-based RL? The authors acknowledge this as future work.</li>
+<li>What happens when k is set closer to sqrt(n) to actually achieve sub-quadratic complexity? Does performance degrade significantly compared to k=8?</li>
+<li>How does the summary token mechanism handle tasks requiring precise token-level recall (e.g., code completion with exact variable names from far earlier in the context)?</li>
+</ul>
+<p class="note">Generated from Markdown summary. Full paper: <a href="https://arxiv.org/abs/2604.24432v1">arXiv:2604.24432v1</a></p>
+</div>
+</body>
+</html>

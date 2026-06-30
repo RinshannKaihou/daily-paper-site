@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Hybrid Policy Distillation for LLMs</title>
+<style>
+:root { --paper:#fafafa; --ink:#1a1a1a; --muted:#555; --accent:#1a5276; --line:#ddd; --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif; --serif:Georgia,"Noto Serif SC",serif; }
+body { font-family:var(--serif); background:var(--paper); color:var(--ink); line-height:1.6; margin:0; padding:0; }
+.container { max-width:min(95vw, 760px); margin:0 auto; padding:28px 20px 60px; }
+.topnav { position:fixed; top:12px; left:14px; z-index:50; font-family:var(--sans); font-size:.75rem; background:var(--paper); border:1px solid var(--line); padding:5px 10px; border-radius:999px; }
+.topnav a { color:var(--muted); text-decoration:none; font-weight:600; }
+.topnav a:hover { color:var(--accent); }
+h1 { font-size:1.6rem; margin:2.2rem 0 1rem; border-bottom:2px solid var(--accent); padding-bottom:.3rem; }
+h2 { font-size:1.3rem; margin:1.8rem 0 .8rem; color:var(--accent); }
+h3 { font-size:1.1rem; margin:1.4rem 0 .6rem; }
+p { margin:.8rem 0; }
+.authors { font-style:italic; color:var(--muted); margin-top:-.4rem; }
+.meta { font-family:var(--sans); font-size:.82rem; color:var(--muted); margin:.2rem 0; }
+a { color:var(--accent); text-decoration:none; }
+a:hover { text-decoration:underline; }
+blockquote { border-left:3px solid var(--accent); margin:1rem 0; padding:.2rem 0 .2rem 1rem; color:var(--muted); font-style:italic; }
+code { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; background:#f0f0f0; padding:2px 5px; border-radius:3px; font-size:.9em; }
+pre { background:#f5f5f5; padding:14px; overflow-x:auto; border-radius:4px; border:1px solid var(--line); }
+pre code { background:transparent; padding:0; }
+ul,ol { margin:.6rem 0; padding-left:1.5rem; }
+li { margin:.25rem 0; }
+table { border-collapse:collapse; width:100%; margin:1rem 0; font-family:var(--sans); font-size:.9rem; }
+th,td { border:1px solid var(--line); padding:6px 10px; text-align:left; }
+th { background:#f0f0f0; }
+hr { border:none; border-top:1px solid var(--line); margin:1.5rem 0; }
+.note { font-family:var(--sans); font-size:.78rem; color:var(--muted); border-top:1px solid var(--line); margin-top:2rem; padding-top:1rem; }
+@media (max-width: 600px) { .container { padding:22px 14px 40px; } h1 { font-size:1.35rem; } }
+</style>
+</head>
+<body>
+<div class="topnav"><a href="./index.html">← Today's digest</a></div>
+<div class="container">
+<h1>Hybrid Policy Distillation for LLMs</h1>
+<p class="meta">arXiv: 2604.20244v1</p>
+<p class="meta">Date: 2026-04-22</p>
+<p class="meta"><a href="https://arxiv.org/abs/2604.20244v1">https://arxiv.org/abs/2604.20244v1</a></p>
+<blockquote><strong>一句话总结：</strong> 本文提出 Hybrid Policy Distillation (HPD)，通过在 token 级别把 forward/reverse KL 融合为一组带符号的重加权权重，并在离线教师数据上轻量地注入学生采样的单 token，以兼顾覆盖性与 mode-seeking，在数学推理、对话和代码任务上以更低计算成本匹配甚至超越 SFT+OPD 两阶段管线。</blockquote>
+<blockquote><strong>TL;DR:</strong> HPD unifies SFT, FKLD and RKLD as a single reweighted token-level log-likelihood objective, then hybridizes forward- and reverse-KL via a masked negative K1 estimator plus one student-sampled non-expert token per step. The hybrid avoids full on-policy rollouts, stabilizes entropy, and yields +41% on Qwen2.5-3B math reasoning and +77.9% on LLaMA3-3B math over SFT, while also serving as a better initialization for subsequent OPD/DPO.</blockquote>
+<h2>核心贡献</h2>
+<ul>
+<li>提出统一的 "reweighted log-likelihood" 视角，把 SFT、FKLD、RKLD 解释为同一损失的不同 token 级权重选择，便于跨散度方向、优化策略和数据机制系统地设计新方法。</li>
+<li>提出 HPD：对每个离线 expert token 用 negative K1 估计 reverse-KL 间隙，正值触发 forward-KL 学习、非正值被 mask，从而以 token 级掩码的方式混合 FKL/RKL。</li>
+<li>引入"轻量 on-policy 采样"：每步仅额外采一个学生 token 用于惩罚过估计的非 expert 动作，并把其概率质量重定向回 expert，既避免全序列 rollout，又修正 train/inference 行为不一致。</li>
+<li>在 Qwen2.5 和 LLaMA3 两族、1B-8B 规模、数学推理（长 CoT）、UltraFeedback 对话、HumanEval/MBPP 代码三类任务上做了系统实验，并给出消融（去 sampling / 去 reinforce）与 OPD、DPO 接续训练的组合验证。</li>
+</ul>
+<h2>Key Contributions</h2>
+<ul>
+<li>A unified reweighted log-likelihood formulation that expresses SFT, SeqKD, FKLD, RKLD and JSD/GKD as different choices of a token-level weight w(a_t|s_t), making the design space (divergence direction, loss vs reward, on vs off policy) explicit.</li>
+<li>HPD algorithm: uses a negative K1 estimator on the expert token to decide per-token whether to apply forward-KL reinforcement or to mask it, giving a masking-based (not fixed-coefficient) hybrid of FKL and RKL.</li>
+<li>A "lightweight on-policy" twist: one student-sampled non-expert token per step is added only to suppress overestimated actions (via reinforce when k'1 < 0), avoiding full autoregressive rollouts while closing the train-inference gap.</li>
+<li>Empirical demonstration across math reasoning (AIME24/25, AMC, MATH, OlympiadBench, GPQA), personalization (AlpacaEval2, Arena-Hard, MT-Bench) and coding (HumanEval, MBPP), plus DPO and iterative self-distillation extensions showing HPD serves as a stronger SFT replacement.</li>
+</ul>
+<h2>Methodology</h2>
+<p>HPD starts from reframing KD as L(θ) = -E[w(a_t|s_t) log q_θ(a_t|s_t)]. Under this lens, SFT uses an indicator weight, FKLD uses p(a_t|s_t), and RKLD uses log p - log q. The Monte-Carlo K1 estimator of KL (Schulman, 2020) is then used as a <em>reward</em>-style signal:</p>
+<ol>
+<li>For each offline expert token a_t<em>, compute k1 = q_θ(a_t</em>|s_t)[log p(a_t<em>|s_t) - log q_θ(a_t</em>|s_t)]. The expert weight becomes w_t<em> = p(a_t</em>|s_t)+k1 when k1>0 (student under-estimates, so apply FKL-style pull), and k1 when k1≤0 (mask FKL to avoid conflicting gradients).</li>
+<li>Sample one student token a_t ~ q_θ(·|s_t) with a_t ≠ a_t*. Compute its k'1. If k'1 < 0 (over-estimation), apply a reinforce-style negative weight w_t = k'1 to suppress and redistribute mass, and double the expert FKL weight (2p+k1) to redirect the freed mass to the expert action.</li>
+<li>The final loss (Eq. 15) combines both: L_HPD = -E[w_t<em> log q_θ(a_t</em>|s_t) + w_t log q_θ(a_t|s_t)].</li>
+</ol>
+<p>Training is run with cosine-decay LRs, batch 256, 2k-10k steps. Teachers (e.g. Qwen2.5-7B, LLaMA3.1-8B) are first SFT'd on OpenR1-Math-8192 and optionally RL-finetuned with DAPO (clip-higher 0.28). Appendices B-D provide gradient derivations for K1, JSD, and the combined HPD loss.</p>
+<h2>Results & Highlights</h2>
+<ul>
+<li>Off-policy math reasoning (Table 2): Qwen2.5-3B student jumps from SFT 28.25 avg to HPD 39.83 (+41%); LLaMA3-3B 19.43 → 34.56 (+77.9%). HPD beats SeqKD, RKLD, JSD on every benchmark, with t-test p<0.01 on most cells.</li>
+<li>Training dynamics (Figure 1): SFT collapses entropy and stalls KL reduction; HPD preserves entropy, continues to shrink KL gap, and keeps improving downstream AIME24-25 score through 2500 steps.</li>
+<li>Dialogue (Table 3): on Qwen2.5-7B→1.5B, HPD gets AlpacaEval2 AE-LC 13.75, AE-WR 14.25, Arena-WR 21.80, MT-1T 7.23 - highest among all distillation baselines and close to teacher MT-1T 9.00.</li>
+<li>Code (Table 4): HPD avg 66.35 (DS-Coder 6.7B→1.3B) and 77.35 (Qwen-Coder 7B→1.5B), beating KD/RKLD/JSD; KD wins MBPP in one setting so HPD is not monotonically best per-benchmark but wins on average with lower variance.</li>
+<li>On-policy (Table 5): HPD+OPD reaches 33.41 avg on Qwen2.5-1.5B vs SFT+OPD 29.56, indicating HPD is a better initialization than SFT for subsequent OPD.</li>
+<li>DPO follow-on (Table 6): HPD→DPO reaches Arena-WR 25.10 (Δ=+11.92 vs SFT M_T), and two rounds of iterative self-distillation with DPO continue to improve (Table 7).</li>
+</ul>
+<h2>Authors & Credibility</h2>
+<p>Authors are Wenhong Zhu, Ruobing Xie, Rui Wang, Pengfei Liu from Shanghai Jiao Tong University / Shanghai Innovation Institute, with Ruobing Xie from Tencent's LLM department. Pengfei Liu is a well-known researcher in LLM evaluation/alignment (e.g. ChatGPT eval, LIMA-style work). Xie has a track record in recommender systems and LLM distillation. Code is released at https://github.com/zwhong714/Hybrid-Policy-Distillation. Preprint dated April 23, 2026, not yet peer-reviewed.</p>
+<h2>Critical Assessment</h2>
+<p><strong>Novelty.</strong> Moderate. Reframing SFT/FKLD/RKLD as a weighted log-likelihood is clean but similar unified views appear in Wang et al. (ABKD, 2025) and Wu et al. (2025). The actual new ingredient is the masking rule on k1 plus a single-token student sample with reinforce weight - incremental rather than paradigm-shifting, but well-executed.</p>
+<p><strong>Rigor.</strong> Good on gradient derivations (Appendices B-D) and on reporting statistical significance (t-test p<0.01 flagged per cell). However:</p>
+<ul>
+<li>Baselines omit several recent strong OPD variants (e.g. DistiLLM-2's contrastive objective is mentioned in related work but not run on the same setup as HPD in the main tables).</li>
+<li>The "lightweight on-policy" claim is defended against full rollouts but no wall-clock or FLOPs numbers are given to quantify the efficiency advantage. The reader cannot verify the "less cost" claim quantitatively.</li>
+<li>Entropy-collapse comparison in Figure 1 is only against SFT, not against RKLD/JSD, which are more natural competitors for entropy dynamics.</li>
+</ul>
+<p><strong>Reproducibility.</strong> Helped by released code and detailed hyperparameters (Tables 8-10). Teacher models are public (Qwen2.5, LLaMA3). Concern: DAPO RL finetuning of teachers adds a non-trivial reproduction step, and OpenR1-Math-8192 / DAPO-MATH-17k pipelines are heavy.</p>
+<p><strong>Significance.</strong> Useful practical result: if HPD's +41%-78% math gains reproduce on independent runs, it's a meaningful drop-in improvement over SFT for small-model distillation. The DPO / iterative angle (Sec 7) is the most interesting extension but feels rushed - only one model (Qwen2.5-3B) and two iterations.</p>
+<p><strong>Red flags / overclaiming.</strong></p>
+<ul>
+<li>"Matches teacher model performance" (Sec 7) is based on Arena-Hard WR (25.10 vs teacher 26.80) and AE-LC (17.68 vs 18.46), which are narrow judge-model-based metrics. Calling this "comparable to teacher" overstates; AIME/MATH gaps remain.</li>
+<li>Strong-to-weak distillation claims rest on LLM-as-a-judge with Qwen3-30B-A3-Instruct as judge - this is the same family as the teacher model for some runs, raising judge-bias concerns not addressed.</li>
+<li>No ablation isolating the "double expert weight when k'1<0" design choice (Eq 14); the authors ablate sampling and reinforce but not the specific coefficient doubling.</li>
+<li>GPQA (OOD) gains are smaller (+2-4 pts), but the paper emphasizes in-domain math gains in headline numbers.</li>
+</ul>
+<h2>Strengths</h2>
+<ul>
+<li>Clean unifying formulation makes the design space legible and is a good teaching framework regardless of HPD's ultimate adoption.</li>
+<li>Breadth of experiments: two model families, three task domains, both off-policy and on-policy settings, plus DPO follow-up.</li>
+<li>Explicit handling of entropy collapse with test-time entropy curves (Figure 1d, 2d) - a training-observability angle often skipped.</li>
+<li>Released code and clear algorithm box (Algorithm 1) make the method implementable.</li>
+<li>The K1-as-reward framing ties distillation neatly to the PPO/GRPO RL literature, which is conceptually useful.</li>
+</ul>
+<h2>Limitations</h2>
+<ul>
+<li>Requires shared tokenizer between teacher and student (stated in Appendix B), so cross-family distillation (e.g. LLaMA teacher → Qwen student) is out of scope.</li>
+<li>Only one additional student token is sampled per step; the paper does not explore whether N>1 helps or saturates.</li>
+<li>Evaluation on long-CoT tasks uses avg@8/32 which is stochastic; the exact seeds and sampling temperatures are reported (temp 0.7, top-p 0.95) but variance bars are not shown on most bar plots.</li>
+<li>The DPO/iterative self-distillation section is mostly suggestive (Tables 6-7) and done on one model size.</li>
+<li>No discussion of how HPD behaves under quantization or with mixed-precision training, which is where distillation is most deployed in practice.</li>
+</ul>
+<h2>Relevance</h2>
+<p>与用户的"LLM 训练稳定性与可观察性"方向高度相关：论文显式追踪 entropy、KL gap、mean advantage 等训练/推理期指标，并展示 SFT 下的 entropy collapse 问题——这与你关注的"hidden states、训练动力学和 train/inference 行为不一致"话题直接吻合。但与量化误差、system card、silent data corruption 等方向关联较弱。</p>
+<h2>Questions for Further Exploration</h2>
+<ul>
+<li>How does HPD compare to DistiLLM-2 and ABKD (α-β divergence) under the same teacher/student/data triple? The paper surveys these but does not reproduce them on its own math benchmarks.</li>
+<li>Does the "one student token per step" trick generalize to N>1 or to adaptive N that grows as the student improves?</li>
+<li>What is the wall-clock / FLOPs overhead of HPD vs vanilla FKLD and vs a short-rollout OPD (e.g. 16-token rollouts)? Would clarify the "lightweight" claim.</li>
+<li>Can HPD's masking rule be applied to the KL term inside PPO/GRPO objectives to stabilize RL post-training, given the K1-as-reward framing?</li>
+<li>How does HPD behave when the teacher itself is noisy or miscalibrated (e.g. quantized teacher)? The mask on k1 might amplify teacher errors.</li>
+<li>Is the LLM-as-a-judge result (Qwen3-30B judging Qwen2.5 student vs Qwen2.5 teacher) biased by shared pretraining data? A human-eval or cross-family judge would strengthen the dialogue claims.</li>
+</ul>
+<p class="note">Generated from Markdown summary. Full paper: <a href="https://arxiv.org/abs/2604.20244v1">arXiv:2604.20244v1</a></p>
+</div>
+</body>
+</html>

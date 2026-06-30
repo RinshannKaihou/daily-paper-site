@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SoftSAE: Dynamic Top-K Selection for Adaptive Sparse Autoencoders</title>
+<style>
+:root { --paper:#fafafa; --ink:#1a1a1a; --muted:#555; --accent:#1a5276; --line:#ddd; --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif; --serif:Georgia,"Noto Serif SC",serif; }
+body { font-family:var(--serif); background:var(--paper); color:var(--ink); line-height:1.6; margin:0; padding:0; }
+.container { max-width:min(95vw, 760px); margin:0 auto; padding:28px 20px 60px; }
+.topnav { position:fixed; top:12px; left:14px; z-index:50; font-family:var(--sans); font-size:.75rem; background:var(--paper); border:1px solid var(--line); padding:5px 10px; border-radius:999px; }
+.topnav a { color:var(--muted); text-decoration:none; font-weight:600; }
+.topnav a:hover { color:var(--accent); }
+h1 { font-size:1.6rem; margin:2.2rem 0 1rem; border-bottom:2px solid var(--accent); padding-bottom:.3rem; }
+h2 { font-size:1.3rem; margin:1.8rem 0 .8rem; color:var(--accent); }
+h3 { font-size:1.1rem; margin:1.4rem 0 .6rem; }
+p { margin:.8rem 0; }
+.authors { font-style:italic; color:var(--muted); margin-top:-.4rem; }
+.meta { font-family:var(--sans); font-size:.82rem; color:var(--muted); margin:.2rem 0; }
+a { color:var(--accent); text-decoration:none; }
+a:hover { text-decoration:underline; }
+blockquote { border-left:3px solid var(--accent); margin:1rem 0; padding:.2rem 0 .2rem 1rem; color:var(--muted); font-style:italic; }
+code { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; background:#f0f0f0; padding:2px 5px; border-radius:3px; font-size:.9em; }
+pre { background:#f5f5f5; padding:14px; overflow-x:auto; border-radius:4px; border:1px solid var(--line); }
+pre code { background:transparent; padding:0; }
+ul,ol { margin:.6rem 0; padding-left:1.5rem; }
+li { margin:.25rem 0; }
+table { border-collapse:collapse; width:100%; margin:1rem 0; font-family:var(--sans); font-size:.9rem; }
+th,td { border:1px solid var(--line); padding:6px 10px; text-align:left; }
+th { background:#f0f0f0; }
+hr { border:none; border-top:1px solid var(--line); margin:1.5rem 0; }
+.note { font-family:var(--sans); font-size:.78rem; color:var(--muted); border-top:1px solid var(--line); margin-top:2rem; padding-top:1rem; }
+@media (max-width: 600px) { .container { padding:22px 14px 40px; } h1 { font-size:1.35rem; } }
+</style>
+</head>
+<body>
+<div class="topnav"><a href="./index.html">← Today's digest</a></div>
+<div class="container">
+<h1>SoftSAE: Dynamic Top-K Selection for Adaptive Sparse Autoencoders</h1>
+<p class="meta">arXiv: 2605.06610</p>
+<p class="meta">Date: 2026-05-07</p>
+<p class="meta"><a href="https://arxiv.org/abs/2605.06610">https://arxiv.org/abs/2605.06610</a></p>
+<blockquote><strong>一句话总结：</strong> SoftSAE 通过引入可微分 Soft Top-K 算子和轻量级 Dynamic Sparsity MLP，使稀疏自编码器能够根据每个输入的语义复杂度自适应地预测激活特征数量 k̂，在 CLIP 视觉嵌入和 Gemma-2-2B 语言模型激活上均实现了与顶级基线相当的重建质量，同时在特征分离性和去纠缠度量（SCR、TPP）上显著优于 TopK 和 BatchTopK。</blockquote>
+<blockquote><strong>TL;DR:</strong> SoftSAE replaces the fixed sparsity level K in sparse autoencoders (SAEs) with a per-input adaptive sparsity k̂ predicted by a small Dynamic Sparsity MLP, trained end-to-end via a differentiable Soft Top-K operator. On CLIP (ViT-B/16) and Gemma-2-2B benchmarks, it matches or slightly trails TopK/BatchTopK on raw reconstruction fidelity, but consistently reduces feature absorption and splitting artifacts and improves spurious-correlation removal and targeted-probe-perturbation scores—particularly at higher sparsity levels. The core value proposition is not a reconstruction win but a principled mechanism that aligns explanatory capacity with the local intrinsic dimensionality of each input. The paper is a preprint from Jagiellonian University and code is publicly available.</blockquote>
+<h2>核心贡献</h2>
+<ul>
+<li><strong>自适应稀疏性机制</strong>：提出 SoftSAE，首次将稀疏自编码器的激活特征数量 k 从全局固定超参数变为可按输入动态预测的可学习变量，打破了所有主流 SAE 架构（TopK、BatchTopK、JumpReLU、Matryoshka）共享的"全局容量约束"瓶颈。</li>
+<li><strong>可微分 Soft Top-K 集成</strong>：在训练阶段引入基于 Struski et al. (ICML 2025) 的 Soft Top-K 算子，使容量预测模块与重建目标可通过梯度端对端联合优化；推理阶段切回精确 Hard Top-K，保留严格的可解释性。</li>
+<li><strong>理论联系</strong>：通过局部固有维度（LID）估计将自适应稀疏性与数据流形的局部几何结构直接关联，为"简单输入用少特征、复杂输入用多特征"提供了形式化依据。</li>
+<li><strong>Softplus 稀疏预算正则化</strong>：用可微分 Softplus 函数替代不连续的 ReLU 惩罚项，消除约束边界处的梯度断裂问题，同时提供隐式正则化效果，防止模型在训练时过度消耗容量。</li>
+<li><strong>多模态验证</strong>：在 CLIP 视觉嵌入（CC3M 训练，ImageNet-1k/100 评估）和 Gemma-2-2B 语言激活（FineWeb 训练）两个模态上系统评测，与 TopK、BatchTopK、Matryoshka SAE 全面对比。</li>
+</ul>
+<h2>Key Contributions</h2>
+<ul>
+<li><strong>Input-adaptive sparsity</strong>: SoftSAE is the first SAE architecture to make the number of active features k a learned, per-input prediction rather than a shared global hyperparameter, directly addressing the misalignment between fixed capacity and the variable intrinsic complexity of natural data.</li>
+<li><strong>End-to-end differentiable selection</strong>: A lightweight Dynamic Sparsity MLP predicts k̂ ∈ (0, k_max) per input; a differentiable Soft Top-K operator (from Struski et al., ICML 2025) allows gradient flow through the discrete selection step during training, while a hard Top-K is used at inference for exact sparsity.</li>
+<li><strong>Theoretical grounding via Local Intrinsic Dimensionality (LID)</strong>: The paper formalizes the link between per-sample sparsity and the local dimensionality of the activation manifold, motivating adaptive capacity as a geometric necessity rather than an engineering convenience.</li>
+<li><strong>Softplus sparsity budget</strong>: Replaces the non-differentiable ReLU penalty on expected k̂ with a smooth Softplus variant, eliminating gradient discontinuities near the constraint boundary and providing a conservative regularization margin that improves inference-time sparsity adherence.</li>
+<li><strong>Reduced feature pathologies</strong>: On SAE Bench metrics, SoftSAE shows substantially lower feature absorption rates and fewer split features compared to TopK/BatchTopK, with competitive or superior spurious correlation removal (SCR) and targeted probe perturbation (TPP) scores, especially at high L0 sparsity levels.</li>
+</ul>
+<h2>Methodology</h2>
+<p>SoftSAE augments the standard SAE encoder-decoder architecture with two additional components:</p>
+<p><strong>Dynamic Sparsity MLP</strong>: A single-hidden-layer network with hidden dimension equal to the encoder's latent size d. It receives the encoder's output activations z and produces a scalar k̂ = σ(MLP(z)) · k_max, where σ is sigmoid and k_max is a hyperparameter upper bound. The MLP's first layer is initialized from the encoder weights W_enc to provide an inductive bias toward the feature space being decomposed, though parameters diverge freely during training.</p>
+<p><strong>Differentiable Dynamic Selection</strong>: During training, the continuous k̂ is fed into the Soft Top-K operator of Struski et al., which produces a soft selection weight vector p ∈ (0,1)^d summing to k̂. These weights approximate a binary mask elementwise-multiplied with z. A temperature parameter α controls sharpness; the paper either fixes α at a small value or anneals it toward zero. A stabilization strategy freezes the Dynamic Sparsity MLP and switches to Hard Top-K in the final training phase to prevent information leakage through near-zero soft weights. At inference, k̂ is rounded and standard Hard Top-K is applied.</p>
+<p><strong>Training Objective</strong>: Three-term loss:</p>
+<ol>
+<li>Reconstruction loss: squared L2 distance between input x and reconstruction x̂.</li>
+<li>Sparsity budget constraint: λ · S(k̂), where S uses a Softplus approximation S(k̂) = (1/β) · ln(1 + e^((E[k̂]-k)·β)) to enforce a soft budget on the expected number of active features.</li>
+<li>Optional auxiliary loss: reconstructs the residual using the top k_aux currently dead latent features to prevent neuron collapse.</li>
+</ol>
+<p><strong>Experiments</strong>: CLIP (ViT-B/16) SAEs with dictionary size d=4096 trained on CC3M; Gemma-2-2B (layer 12 post-residual) SAEs with d=16384 trained on FineWeb. Baselines are TopK SAE, BatchTopK SAE, and Matryoshka SAE. Evaluation covers reconstruction-sparsity trade-off (fraction of variance explained vs. L0), feature absorption, feature splitting, spurious correlation removal (SCR), and targeted probe perturbation (TPP) from SAE Bench. All training on a single Nvidia GH200 120GB GPU.</p>
+<h2>Results & Highlights</h2>
+<ul>
+<li><strong>Reconstruction-sparsity trade-off</strong>: SoftSAE is competitive but not best-in-class on raw FVE. On CLIP embeddings it slightly outperforms Matryoshka while trailing BatchTopK (which achieves the highest FVE at comparable L0). On Gemma-2-2B, SoftSAE is comparable to Matryoshka with a slight edge at some sparsity levels.</li>
+<li><strong>Feature quality (absorption and splitting)</strong>: SoftSAE achieves the lowest absorption fraction scores on Gemma-2-2B at higher L0 values among all compared methods, demonstrating better preservation of distinct semantic features. Feature splitting counts are also reduced relative to TopK/BatchTopK at several sparsity levels.</li>
+<li><strong>Disentanglement (SCR and TPP)</strong>: SoftSAE outperforms TopK and BatchTopK on spurious correlation removal, and at high sparsity (L0=320) achieves the best Targeted Probe Perturbation score (0.250) among all methods, nearly 40% better than the next best (Matryoshka at 0.178). This indicates strong localized control over individual learned features.</li>
+<li><strong>Dynamic sparsity behavior</strong>: Qualitative analysis confirms the Dynamic Sparsity MLP assigns low k̂ to simple inputs (single objects on plain backgrounds, largely birds in ImageNet) and high k̂ to complex inputs (text overlays, multi-object scenes, cluttered backgrounds). Concept masking experiments confirm sensitivity to semantic content removal.</li>
+<li><strong>Computational cost</strong>: SoftSAE requires roughly 33% more training time than baselines (6h vs. 2.5h for Gemma-2-2B on GH200), primarily due to the Soft Top-K operator.</li>
+</ul>
+<h2>Authors & Credibility</h2>
+<p>All four authors are affiliated with Jagiellonian University (Kraków, Poland). Przemysław Spurek is additionally listed with the IDEAS Research Institute. The Jagiellonian machine learning group has prior work on SAEs and differentiable selection operators (the Soft Top-K paper by Struski et al., cited as [9], is ICML 2025 from the same institution). The paper cites and builds directly on that methodological precursor. The work is a preprint (not yet peer-reviewed). Code is available at https://github.com/St0pien/SoftSAE. LLMs were used for language editing only (explicitly declared). The team is a credible but relatively small academic group rather than a major AI lab; the work is applied to safety/interpretability goals.</p>
+<h2>Critical Assessment</h2>
+<p><strong>Novelty</strong>: Moderate-to-good. The core idea—making k learnable and input-dependent—is a natural and well-motivated extension of TopK SAEs. The technical mechanism (Soft Top-K from their own group's prior work) is appropriately credited and the integration into SAE training is non-trivial. The theoretical grounding via LID is conceptually appealing but remains largely informal; the paper does not provide a formal theorem quantifying when adaptive k strictly dominates fixed k. The connection to LID is asserted rather than proven.</p>
+<p><strong>Rigor</strong>: Reasonable. Experiments cover two modalities, five sparsity levels each, and four baseline architectures. SAE Bench metrics are a principled evaluation framework. However, the Dynamic Sparsity MLP introduces several design choices (initialization from W_enc, Softplus beta, annealing schedules) that require careful tuning; the paper reports Bayesian hyperparameter sweeps but does not extensively discuss sensitivity to these choices. The ablation study (Appendix F) is limited to the annealing strategy and shows only modest improvements, raising questions about how much each component independently contributes.</p>
+<p><strong>Reproducibility</strong>: Good. Hyperparameters are reported in Tables 3 and 4, code is released, and dataset choices (CC3M, FineWeb, ImageNet) are standard. The training infrastructure (single GH200) is accessible for academic labs.</p>
+<p><strong>Significance</strong>: Meaningful for the mechanistic interpretability community. If the primary bottleneck in SAE-based interpretability is feature entanglement and polysemanticity rather than raw reconstruction, then SoftSAE's gains on SCR and TPP at high sparsity are practically relevant. The fully differentiable design allows integration into broader pipelines.</p>
+<p><strong>Red flags</strong>: (1) SoftSAE does not outperform Matryoshka on reconstruction, which is the most commonly reported metric; the paper's framing is careful but requires readers to accept that feature quality metrics matter more. (2) The Soft Top-K computation scales poorly with dictionary size; the paper explicitly flags that d=2^16 may be infeasible, limiting applicability to very large SAEs used in frontier model interpretability. (3) The theoretical LID motivation is not empirically validated—no direct measurement of LID versus predicted k̂ correlation is provided.</p>
+<h2>Strengths</h2>
+<ul>
+<li>Principled motivation: aligning explanation length with data manifold complexity is a well-grounded objective with connections to established LID theory.</li>
+<li>Fully differentiable architecture enables gradient-based end-to-end optimization of the sparsity-selection coupling.</li>
+<li>Clear qualitative validation: the Dynamic Sparsity MLP's behavior on images (birds vs. cluttered scenes) and text (simple vs. knowledge-intensive sentences) is intuitive and consistent.</li>
+<li>Reduced feature pathologies: lower absorption and better TPP at high sparsity are practically important for interpretability applications.</li>
+<li>Code and hyperparameters released, enabling reproducibility.</li>
+<li>Evaluated on both vision (CLIP) and language (Gemma-2-2B) modalities, demonstrating cross-domain applicability.</li>
+</ul>
+<h2>Limitations</h2>
+<ul>
+<li>Higher computational cost than baselines (~33% more training time) due to the Soft Top-K operator; may be prohibitive for very large dictionaries (d=2^16+).</li>
+<li>Raw reconstruction fidelity (FVE) is not best-in-class; BatchTopK consistently achieves higher FVE at comparable L0 on CLIP.</li>
+<li>The soft-to-hard selection transition requires careful management (temperature annealing, freeze-then-hardTopK phase); the training procedure is more complex than TopK/BatchTopK.</li>
+<li>No formal theorem connecting adaptive k to LID; the theoretical contribution is conceptual rather than rigorous.</li>
+<li>Ablations are limited; it is unclear how much of the feature quality improvement comes from adaptive k itself versus the auxiliary loss or Softplus regularization.</li>
+<li>Evaluated on a single language model layer (Gemma-2-2B layer 12); generalization to other layers or larger models is not demonstrated.</li>
+</ul>
+<h2>Relevance</h2>
+<p>对于研究大型语言模型或视觉模型机制可解释性的读者，SoftSAE 提供了一种实用的改进方向：通过自适应稀疏度减少特征纠缠（feature absorption/splitting），在高稀疏度场景下的去纠缠指标（SCR、TPP）上具有明显优势，适合关注 SAE 特征质量而非纯重建精度的研究者。</p>
+<h2>Questions for Further Exploration</h2>
+<ol>
+<li>Does the predicted k̂ actually correlate with empirically measured Local Intrinsic Dimensionality of the input activations? A direct quantitative validation of this theoretical claim would substantially strengthen the paper.</li>
+<li>Can the Soft Top-K bottleneck be resolved via approximations (e.g., locality-sensitive hashing, sparse attention patterns) to scale to d=2^16 or larger SAE dictionaries used in frontier model interpretability?</li>
+<li>How does SoftSAE perform on downstream interpretability tasks—circuit discovery, causal intervention, or automated concept labeling—rather than proxy metrics like absorption and SCR?</li>
+<li>Is the Dynamic Sparsity MLP's learned k̂ distribution stable across different training seeds, or does the mechanism converge to different input-complexity assignments depending on initialization?</li>
+<li>Would the adaptive sparsity mechanism transfer to other SAE variants (JumpReLU, Matryoshka) to yield additive gains, or does it primarily compensate for weaknesses specific to hard TopK selection?</li>
+<li>How does the model behave in the very-low-sparsity regime (k<20) for language activations, where the sparsity budget is extremely tight and adaptive over-allocation could be most harmful?</li>
+</ol>
+<p class="note">Generated from Markdown summary. Full paper: <a href="https://arxiv.org/abs/2605.06610">arXiv:2605.06610</a></p>
+</div>
+</body>
+</html>

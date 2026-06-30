@@ -1,0 +1,588 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dissecting the Black Box — Circuit-Level Analysis of LLM Vulnerability Detection</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Source+Serif+4:ital,wght@0,400;0,600;0,700;0,900;1,400&display=swap');
+
+:root {
+  --bg: #0c0e12;
+  --bg-elevated: #13161c;
+  --bg-card: #181b23;
+  --bg-card-hover: #1e222c;
+  --fg: #e4e2dd;
+  --fg-muted: #8a8d96;
+  --fg-dim: #5a5d66;
+  --accent: #e8a838;
+  --accent-dim: rgba(232,168,56,0.12);
+  --accent-glow: rgba(232,168,56,0.25);
+  --red: #e05252;
+  --red-dim: rgba(224,82,82,0.12);
+  --green: #4ecf7a;
+  --green-dim: rgba(78,207,122,0.10);
+  --cyan: #48b8d0;
+  --cyan-dim: rgba(72,184,208,0.10);
+  --border: rgba(255,255,255,0.06);
+  --border-accent: rgba(232,168,56,0.25);
+  --radius: 6px;
+  --mono: 'JetBrains Mono', monospace;
+  --serif: 'Source Serif 4', Georgia, serif;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html { font-size: 16px; scroll-behavior: smooth; }
+
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--serif);
+  line-height: 1.65;
+  -webkit-font-smoothing: antialiased;
+}
+
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+/* ── back link ── */
+.back-link {
+  position: fixed; top: 16px; left: 20px; z-index: 100;
+  font-family: var(--mono); font-size: 0.72rem; letter-spacing: 0.04em;
+  color: var(--fg-muted); background: var(--bg-elevated);
+  padding: 6px 14px; border-radius: var(--radius);
+  border: 1px solid var(--border);
+  transition: color .2s, border-color .2s;
+}
+.back-link:hover { color: var(--accent); border-color: var(--border-accent); text-decoration: none; }
+
+/* ── hero band ── */
+.hero {
+  min-height: 62vh;
+  display: flex; flex-direction: column; justify-content: center;
+  padding: 100px 48px 60px;
+  position: relative;
+  overflow: hidden;
+}
+.hero::before {
+  content: '';
+  position: absolute; inset: 0;
+  background:
+    radial-gradient(ellipse 60% 50% at 20% 40%, rgba(232,168,56,0.06) 0%, transparent 70%),
+    radial-gradient(ellipse 40% 60% at 80% 30%, rgba(72,184,208,0.04) 0%, transparent 70%);
+  pointer-events: none;
+}
+.hero-grid {
+  position: absolute; inset: 0;
+  background-image:
+    linear-gradient(rgba(255,255,255,0.015) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,0.015) 1px, transparent 1px);
+  background-size: 60px 60px;
+  mask-image: radial-gradient(ellipse 70% 70% at 50% 50%, black 20%, transparent 80%);
+  pointer-events: none;
+}
+
+.hero-meta {
+  font-family: var(--mono); font-size: 0.7rem; letter-spacing: 0.08em;
+  color: var(--fg-dim); text-transform: uppercase;
+  margin-bottom: 20px; position: relative;
+}
+.hero-meta .tag {
+  display: inline-block;
+  padding: 3px 10px; border-radius: 3px;
+  background: var(--accent-dim); color: var(--accent);
+  margin-right: 8px; text-transform: none; letter-spacing: 0.02em;
+}
+
+.hero h1 {
+  font-size: clamp(1.8rem, 4vw, 3.2rem);
+  font-weight: 900; line-height: 1.15;
+  max-width: 860px; position: relative;
+  color: var(--fg);
+  margin-bottom: 24px;
+}
+
+.hero-finding {
+  font-size: clamp(1.05rem, 1.8vw, 1.35rem);
+  font-weight: 400; line-height: 1.55;
+  max-width: 720px; position: relative;
+  color: var(--fg);
+  border-left: 3px solid var(--accent);
+  padding-left: 22px;
+  margin-bottom: 32px;
+}
+
+.hero-authors {
+  font-family: var(--mono); font-size: 0.78rem;
+  color: var(--fg-muted); position: relative;
+}
+.hero-authors span { color: var(--fg-dim); margin: 0 6px; }
+
+/* ── asset cards row ── */
+.assets {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 20px;
+  padding: 0 48px 60px;
+}
+@media (max-width: 900px) { .assets { grid-template-columns: 1fr; padding: 0 20px 40px; } }
+
+.asset-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 28px 26px;
+  position: relative;
+  overflow: hidden;
+  transition: border-color .25s, transform .25s;
+  opacity: 0; transform: translateY(18px);
+  animation: cardIn .6s ease forwards;
+}
+.asset-card:nth-child(1) { animation-delay: .15s; }
+.asset-card:nth-child(2) { animation-delay: .3s; }
+.asset-card:nth-child(3) { animation-delay: .45s; }
+
+@keyframes cardIn { to { opacity: 1; transform: translateY(0); } }
+
+.asset-card:hover { border-color: var(--border-accent); transform: translateY(-2px); }
+
+.asset-card .card-label {
+  font-family: var(--mono); font-size: 0.62rem;
+  letter-spacing: 0.12em; text-transform: uppercase;
+  margin-bottom: 14px; display: flex; align-items: center; gap: 8px;
+}
+.asset-card .card-label .dot {
+  width: 6px; height: 6px; border-radius: 50%;
+}
+
+/* metric card */
+.card-metric .card-label .dot { background: var(--accent); }
+.card-metric .card-label { color: var(--accent); }
+.metric-big {
+  font-family: var(--mono); font-size: clamp(2.4rem, 4vw, 3.4rem);
+  font-weight: 700; line-height: 1;
+  color: var(--fg); margin-bottom: 6px;
+}
+.metric-unit {
+  font-family: var(--mono); font-size: 0.78rem;
+  color: var(--fg-dim); margin-bottom: 16px;
+}
+.metric-detail {
+  font-size: 0.88rem; color: var(--fg-muted); line-height: 1.55;
+}
+.metric-detail strong { color: var(--red); font-weight: 600; }
+
+/* why-matters card */
+.card-why .card-label .dot { background: var(--cyan); }
+.card-why .card-label { color: var(--cyan); }
+.card-why .why-text {
+  font-size: 1.05rem; line-height: 1.6;
+  color: var(--fg); margin-bottom: 16px;
+}
+.card-why .why-implication {
+  font-size: 0.82rem; color: var(--fg-dim);
+  border-top: 1px solid var(--border);
+  padding-top: 12px; line-height: 1.5;
+}
+
+/* edge card */
+.card-edge .card-label .dot { background: var(--red); }
+.card-edge .card-label { color: var(--red); }
+.edge-list {
+  list-style: none; padding: 0;
+}
+.edge-list li {
+  font-size: 0.88rem; color: var(--fg-muted);
+  padding: 8px 0; border-bottom: 1px solid var(--border);
+  line-height: 1.5;
+  display: flex; align-items: flex-start; gap: 10px;
+}
+.edge-list li:last-child { border-bottom: none; }
+.edge-list li::before {
+  content: '!';
+  font-family: var(--mono); font-size: 0.68rem; font-weight: 700;
+  color: var(--red); background: var(--red-dim);
+  width: 18px; height: 18px; border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  flex-shrink: 0; margin-top: 2px;
+}
+
+/* ── body grid ── */
+.body-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+  padding: 0 48px 60px;
+}
+@media (max-width: 900px) { .body-grid { grid-template-columns: 1fr; padding: 0 20px 40px; } }
+
+.body-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 30px 28px;
+  opacity: 0; transform: translateY(14px);
+  animation: cardIn .5s ease forwards;
+}
+.body-card h2 {
+  font-family: var(--mono); font-size: 0.72rem;
+  letter-spacing: 0.10em; text-transform: uppercase;
+  color: var(--accent); margin-bottom: 18px;
+  padding-bottom: 10px; border-bottom: 1px solid var(--border);
+}
+.body-card h3 {
+  font-size: 0.95rem; font-weight: 700;
+  margin: 16px 0 6px; color: var(--fg);
+}
+.body-card p, .body-card li {
+  font-size: 0.88rem; color: var(--fg-muted); line-height: 1.6;
+}
+.body-card ul { list-style: none; padding: 0; }
+.body-card ul li { padding: 4px 0; padding-left: 16px; position: relative; }
+.body-card ul li::before {
+  content: ''; position: absolute; left: 0; top: 13px;
+  width: 5px; height: 5px; border-radius: 50%;
+  background: var(--fg-dim);
+}
+
+/* methodology spans full width */
+.body-full {
+  grid-column: 1 / -1;
+}
+
+/* pipeline visualization */
+.pipeline {
+  display: flex; gap: 2px; margin: 18px 0 6px;
+  border-radius: 4px; overflow: hidden;
+  height: 36px;
+}
+.pipeline .stage {
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--mono); font-size: 0.65rem;
+  letter-spacing: 0.04em; color: var(--fg-dim);
+  position: relative;
+}
+.pipeline .stage span {
+  position: relative; z-index: 1;
+}
+.stage-syn  { flex: 5; background: rgba(78,207,122,0.10); color: var(--green); }
+.stage-sem  { flex: 14; background: rgba(72,184,208,0.08); color: var(--cyan); }
+.stage-dec  { flex: 6; background: var(--accent-dim); color: var(--accent); }
+.pipeline-labels {
+  display: flex; font-family: var(--mono); font-size: 0.6rem;
+  color: var(--fg-dim); margin-top: 4px;
+}
+.pipeline-labels span:first-child { flex: 5; text-align: center; }
+.pipeline-labels span:nth-child(2) { flex: 14; text-align: center; }
+.pipeline-labels span:nth-child(3) { flex: 6; text-align: center; }
+
+/* neuron bar chart */
+.neuron-chart {
+  display: flex; align-items: flex-end; gap: 3px;
+  height: 60px; margin: 14px 0 8px;
+}
+.neuron-chart .bar {
+  flex: 1; border-radius: 2px 2px 0 0;
+  background: var(--accent);
+  opacity: 0.7;
+  transition: opacity .2s;
+  min-width: 8px;
+}
+.neuron-chart .bar:hover { opacity: 1; }
+.neuron-chart-label {
+  font-family: var(--mono); font-size: 0.6rem;
+  color: var(--fg-dim); text-align: center;
+}
+
+/* strengths / limitations */
+.sl-grid {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 0 32px;
+}
+@media (max-width: 600px) { .sl-grid { grid-template-columns: 1fr; } }
+.sl-grid .col-title {
+  font-family: var(--mono); font-size: 0.68rem;
+  letter-spacing: 0.08em; text-transform: uppercase;
+  margin-bottom: 10px;
+}
+.col-str .col-title { color: var(--green); }
+.col-lim .col-title { color: var(--red); }
+
+/* ── questions section ── */
+.questions-section {
+  padding: 0 48px 80px;
+}
+@media (max-width: 900px) { .questions-section { padding: 0 20px 60px; } }
+.questions-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 30px 28px;
+}
+.questions-card h2 {
+  font-family: var(--mono); font-size: 0.72rem;
+  letter-spacing: 0.10em; text-transform: uppercase;
+  color: var(--accent); margin-bottom: 18px;
+  padding-bottom: 10px; border-bottom: 1px solid var(--border);
+}
+.question-item {
+  padding: 10px 0; border-bottom: 1px solid var(--border);
+  cursor: pointer; user-select: none;
+}
+.question-item:last-child { border-bottom: none; }
+.question-item .q-label {
+  font-size: 0.88rem; color: var(--fg);
+  display: flex; align-items: flex-start; gap: 10px;
+  line-height: 1.5;
+}
+.question-item .q-num {
+  font-family: var(--mono); font-size: 0.68rem;
+  color: var(--accent); background: var(--accent-dim);
+  min-width: 22px; height: 22px; border-radius: 4px;
+  display: inline-flex; align-items: center; justify-content: center;
+  flex-shrink: 0; margin-top: 1px;
+}
+.question-item:hover .q-label { color: var(--accent); }
+
+/* ── footer ── */
+.footer {
+  padding: 30px 48px;
+  border-top: 1px solid var(--border);
+  display: flex; justify-content: space-between; align-items: center;
+  font-family: var(--mono); font-size: 0.7rem;
+  color: var(--fg-dim);
+}
+@media (max-width: 900px) { .footer { padding: 24px 20px; flex-direction: column; gap: 8px; } }
+.footer a { color: var(--fg-muted); }
+.footer a:hover { color: var(--accent); }
+
+/* ── reveal animation ── */
+.reveal { opacity: 0; transform: translateY(16px); transition: opacity .5s, transform .5s; }
+.reveal.visible { opacity: 1; transform: translateY(0); }
+
+/* ── noise overlay ── */
+body::after {
+  content: '';
+  position: fixed; inset: 0;
+  background: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");
+  pointer-events: none;
+  z-index: 9999;
+}
+
+/* ── scroll indicator ── */
+.scroll-indicator {
+  position: absolute; bottom: 24px; left: 50%; transform: translateX(-50%);
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
+  color: var(--fg-dim); font-family: var(--mono); font-size: 0.6rem;
+  letter-spacing: 0.1em; text-transform: uppercase;
+  animation: bob 2s ease-in-out infinite;
+}
+@keyframes bob { 0%,100% { transform: translateX(-50%) translateY(0); } 50% { transform: translateX(-50%) translateY(6px); } }
+.scroll-indicator svg { width: 16px; height: 16px; stroke: var(--fg-dim); fill: none; }
+</style>
+</head>
+<body>
+
+<a class="back-link" href="./index.html">&#8617; Today's digest</a>
+
+<!-- ═══════════ HERO ═══════════ -->
+<header class="hero">
+  <div class="hero-grid"></div>
+  <div class="hero-meta">
+    <span class="tag">2605.29901</span>
+    mechanistic-interpretability &middot; vulnerability-detection &middot; circuit-analysis
+  </div>
+  <h1>Dissecting the Black Box: Circuit-Level Analysis of LLM Vulnerability Detection</h1>
+  <p class="hero-finding">
+    LLMs do not <em>hunt</em> for vulnerabilities &mdash; they <strong>verify compliance</strong>.
+    Gemma-2-2b detects unsafe code by recognizing the <em>absence</em> of safe patterns,
+    not the presence of exploits.
+  </p>
+  <p class="hero-authors">
+    Syafiq Al Atiiq &middot; Chun Zhou &middot; Christian Gehrmann
+    <span>|</span> Lund University
+    <span>|</span> 2026-05-28
+  </p>
+  <div class="scroll-indicator">
+    <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12l7 7 7-7" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    scroll
+  </div>
+</header>
+
+<!-- ═══════════ ASSET CARDS ═══════════ -->
+<section class="assets">
+
+  <!-- KEY METRIC -->
+  <div class="asset-card card-metric">
+    <div class="card-label"><span class="dot"></span> KEY METRIC</div>
+    <div class="metric-big">16.1%</div>
+    <div class="metric-unit">of model capacity used (1,597 / 9,944 nodes)</div>
+    <p class="metric-detail">
+      Vulnerability detection runs on a sparse sub-network.
+      Ablating <strong>Layer 11</strong> collapses TP accuracy
+      from <strong>100% &rarr; 6%</strong>.
+      Ablating <strong>20 neurons in Layer 7</strong> cuts it by 50%.
+    </p>
+  </div>
+
+  <!-- WHY THIS MATTERS -->
+  <div class="asset-card card-why">
+    <div class="card-label"><span class="dot"></span> WHY THIS MATTERS</div>
+    <p class="why-text">
+      The "detection by absence" mechanism is inherently fragile.
+      Adversaries can inject inert safety checks to trigger false
+      negatives &mdash; a class of attack the paper terms
+      <strong>Safety Mimicry</strong>.
+    </p>
+    <p class="why-implication">
+      Implication: deploying LLM vulnerability detectors in production
+      without understanding their circuits exposes a concrete,
+      exploitable attack surface.
+    </p>
+  </div>
+
+  <!-- CRITICAL EDGE -->
+  <div class="asset-card card-edge">
+    <div class="card-label"><span class="dot"></span> CRITICAL EDGE</div>
+    <ul class="edge-list">
+      <li>Single model only (Gemma-2-2b) &mdash; circuits may differ in larger or different architectures</li>
+      <li>100% baseline accuracy is suspiciously perfect; evaluation subset may be too easy</li>
+      <li>Safety Mimicry attack theorized but not empirically validated</li>
+      <li>No comparison with traditional static analysis tools or other ML detectors</li>
+    </ul>
+  </div>
+
+</section>
+
+<!-- ═══════════ BODY GRID ═══════════ -->
+<section class="body-grid">
+
+  <!-- METHODOLOGY (full width) -->
+  <div class="body-card body-full reveal">
+    <h2>Methodology</h2>
+    <h3>Pipeline</h3>
+    <div class="pipeline">
+      <div class="stage stage-syn"><span>L0 &ndash; L5</span></div>
+      <div class="stage stage-sem"><span>L6 &ndash; L19</span></div>
+      <div class="stage stage-dec"><span>L20 &ndash; L25</span></div>
+    </div>
+    <div class="pipeline-labels">
+      <span>Syntactic Processing</span>
+      <span>Semantic Aggregation</span>
+      <span>Decision Crystallization</span>
+    </div>
+    <h3>Approach</h3>
+    <ul>
+      <li><strong>Dataset:</strong> 472 C/C++ samples (236 vulnerable / 236 safe) from Big-Vul, spanning 9 CWE categories</li>
+      <li><strong>Circuit Tracer v1.0.0</strong> on Gemma-2-2b with attribution threshold 0.01 across all 26 layers</li>
+      <li><strong>L0 Norm Analysis</strong> quantifying active neurons per layer (threshold h<sub>i</sub> &gt; 10<sup>&minus;6</sup>)</li>
+      <li><strong>Attention Head Importance Score</strong> I<sub>h</sub> measuring functional divergence between TP and TN contexts (&lambda;=0.5)</li>
+      <li><strong>MLP Vulnerability Selectivity Score</strong> S<sub>n</sub> ranking neurons by activation divergence; top-20 extracted</li>
+      <li><strong>Causal Intervention:</strong> layer-wise ablation, neuron-level ablation, attention head knockout</li>
+    </ul>
+  </div>
+
+  <!-- RESULTS -->
+  <div class="body-card reveal">
+    <h2>Results &amp; Highlights</h2>
+    <h3>Safety Detector Heads</h3>
+    <p>All top-5 attention heads carry <em>negative</em> importance scores &mdash; they activate on <strong>safe</strong> code, not vulnerable code:</p>
+    <div class="neuron-chart">
+      <div class="bar" style="height:100%" title="L5-H2: -0.49"></div>
+      <div class="bar" style="height:86%" title="L2-H2: -0.42"></div>
+      <div class="bar" style="height:84%" title="L21-H5: -0.41"></div>
+      <div class="bar" style="height:84%" title="L7-H6: -0.41"></div>
+      <div class="bar" style="height:84%" title="L0-H2: -0.41"></div>
+    </div>
+    <div class="neuron-chart-label">Attention head importance (negative = safety detector)</div>
+    <h3>Key Ablation Results</h3>
+    <ul>
+      <li>Layer 11 ablation: <strong>100% &rarr; 6%</strong> TP accuracy</li>
+      <li>Layers 6+7 ablation: accuracy drops to <strong>0%</strong></li>
+      <li>20 neurons in Layer 7 ablated: <strong>&minus;50%</strong> accuracy</li>
+      <li>L5-H2 and L7-H6 knockout significantly degrades performance</li>
+    </ul>
+    <h3>Sparse Computation</h3>
+    <p>A single CWE-787 inference activates only 1,597 of 9,944 probed nodes. Layer 0: 414 active; Layer 25: 19 active.</p>
+  </div>
+
+  <!-- STRENGTHS / LIMITATIONS -->
+  <div class="body-card reveal">
+    <h2>Strengths &amp; Limitations</h2>
+    <div class="sl-grid">
+      <div class="col-str">
+        <div class="col-title">Strengths</div>
+        <ul>
+          <li>Counterintuitive "safety detector" finding reshapes understanding of LLM security reasoning</li>
+          <li>Multi-method causal validation (L0 norm, attention, MLP probing, ablation)</li>
+          <li>Novel metrics (Importance Score, Vulnerability Selectivity Score)</li>
+          <li>Clear practical implications for adversarial vulnerability</li>
+          <li>Honest limitations discussion with concrete future-work directions</li>
+        </ul>
+      </div>
+      <div class="col-lim">
+        <div class="col-title">Limitations</div>
+        <ul>
+          <li>Single architecture (Gemma-2-2b) limits generalizability</li>
+          <li>9 CWE categories, C/C++ only</li>
+          <li>472 samples adequate for circuit discovery but thin for per-CWE stats</li>
+          <li>Modest selectivity score magnitude (peak &minus;0.25) suggests weak signal</li>
+          <li>Safety Mimicry theorized but untested</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+</section>
+
+<!-- ═══════════ QUESTIONS ═══════════ -->
+<section class="questions-section">
+  <div class="questions-card reveal">
+    <h2>Open Questions</h2>
+    <div class="question-item">
+      <div class="q-label"><span class="q-num">1</span>Does the safety-detector mechanism generalize to Gemma-2-9b/27b or fundamentally different architectures (CodeBERT, StarCoder, GPT-4)?</div>
+    </div>
+    <div class="question-item">
+      <div class="q-label"><span class="q-num">2</span>Can Safety Mimicry attacks be empirically demonstrated at scale?</div>
+    </div>
+    <div class="question-item">
+      <div class="q-label"><span class="q-num">3</span>How do circuits change when fine-tuning specifically for vulnerability detection vs. general-purpose code modeling?</div>
+    </div>
+    <div class="question-item">
+      <div class="q-label"><span class="q-num">4</span>Would sparse autoencoder decomposition of Layer 7 and 11 neurons reveal cleaner monosemantic features?</div>
+    </div>
+    <div class="question-item">
+      <div class="q-label"><span class="q-num">5</span>Does "detection by absence" inherently produce more false positives on unfamiliar-but-safe coding patterns?</div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════ FOOTER ═══════════ -->
+<footer class="footer">
+  <span>Atiiq, Zhou &amp; Gehrmann &middot; Lund University &middot; 2026</span>
+  <a href="2605.29901.html">&#8599; Markdown source</a>
+</footer>
+
+<script>
+/* ── scroll reveal ── */
+const reveals = document.querySelectorAll('.reveal');
+const observer = new IntersectionObserver((entries) => {
+  entries.forEach(e => {
+    if (e.isIntersecting) {
+      e.target.classList.add('visible');
+      observer.unobserve(e.target);
+    }
+  });
+}, { threshold: 0.12 });
+reveals.forEach(el => observer.observe(el));
+
+/* ── neuron chart tooltips ── */
+document.querySelectorAll('.neuron-chart .bar').forEach(bar => {
+  bar.addEventListener('mouseenter', () => {
+    bar.title && (bar.dataset.tip = bar.title);
+  });
+});
+</script>
+
+</body>
+</html>

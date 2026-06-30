@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Transformers with Selective Access to Early Representations</title>
+<style>
+:root { --paper:#fafafa; --ink:#1a1a1a; --muted:#555; --accent:#1a5276; --line:#ddd; --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif; --serif:Georgia,"Noto Serif SC",serif; }
+body { font-family:var(--serif); background:var(--paper); color:var(--ink); line-height:1.6; margin:0; padding:0; }
+.container { max-width:min(95vw, 760px); margin:0 auto; padding:28px 20px 60px; }
+.topnav { position:fixed; top:12px; left:14px; z-index:50; font-family:var(--sans); font-size:.75rem; background:var(--paper); border:1px solid var(--line); padding:5px 10px; border-radius:999px; }
+.topnav a { color:var(--muted); text-decoration:none; font-weight:600; }
+.topnav a:hover { color:var(--accent); }
+h1 { font-size:1.6rem; margin:2.2rem 0 1rem; border-bottom:2px solid var(--accent); padding-bottom:.3rem; }
+h2 { font-size:1.3rem; margin:1.8rem 0 .8rem; color:var(--accent); }
+h3 { font-size:1.1rem; margin:1.4rem 0 .6rem; }
+p { margin:.8rem 0; }
+.authors { font-style:italic; color:var(--muted); margin-top:-.4rem; }
+.meta { font-family:var(--sans); font-size:.82rem; color:var(--muted); margin:.2rem 0; }
+a { color:var(--accent); text-decoration:none; }
+a:hover { text-decoration:underline; }
+blockquote { border-left:3px solid var(--accent); margin:1rem 0; padding:.2rem 0 .2rem 1rem; color:var(--muted); font-style:italic; }
+code { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; background:#f0f0f0; padding:2px 5px; border-radius:3px; font-size:.9em; }
+pre { background:#f5f5f5; padding:14px; overflow-x:auto; border-radius:4px; border:1px solid var(--line); }
+pre code { background:transparent; padding:0; }
+ul,ol { margin:.6rem 0; padding-left:1.5rem; }
+li { margin:.25rem 0; }
+table { border-collapse:collapse; width:100%; margin:1rem 0; font-family:var(--sans); font-size:.9rem; }
+th,td { border:1px solid var(--line); padding:6px 10px; text-align:left; }
+th { background:#f0f0f0; }
+hr { border:none; border-top:1px solid var(--line); margin:1.5rem 0; }
+.note { font-family:var(--sans); font-size:.78rem; color:var(--muted); border-top:1px solid var(--line); margin-top:2rem; padding-top:1rem; }
+@media (max-width: 600px) { .container { padding:22px 14px 40px; } h1 { font-size:1.35rem; } }
+</style>
+</head>
+<body>
+<div class="topnav"><a href="./index.html">← Today's digest</a></div>
+<div class="container">
+<h1>Transformers with Selective Access to Early Representations</h1>
+<p class="meta">arXiv: 2605.03953</p>
+<p class="meta">Date: 2026-05-05</p>
+<p class="meta"><a href="https://arxiv.org/abs/2605.03953">https://arxiv.org/abs/2605.03953</a></p>
+<blockquote><strong>一句话总结：</strong> SATFormer 用一个极低开销的逐 token、逐 KV-head 的 ReLU 门控机制替代 ResFormer 的静态层级标量，让模型自己学会在何时、何地复用第一层 value 表示，在检索密集任务上比 ResFormer 提升约 1.5 个平均点，同时吞吐量和内存开销接近基线 Transformer。</blockquote>
+<blockquote><strong>TL;DR:</strong> SATFormer reframes early-representation reuse as a retrieval/control problem rather than a connectivity problem. It replaces ResFormer's static per-layer scalar with a per-token, per-KV-head ReLU gate computed from a single linear projection, adding negligible cost. Across 130M–1.3B params, it consistently beats ResFormer on validation loss and zero-shot accuracy, with ~1.5-point gains on retrieval-intensive benchmarks and ~1.8× the throughput of dense alternatives like MUDDFormer. Mechanistic analysis reveals sparse, depth-dependent, head-specialized, and category-sensitive gating patterns — the model genuinely learns selective reuse rather than uniform residual copying.</blockquote>
+<h2>核心贡献</h2>
+<ul>
+<li><strong>将跨层复用重新定义为"选择性访问"问题</strong>：不增加更多跨层通路，而是在单条 V1 通路（第一层 value 投影）上加一个轻量级门控，让模型按 token 和 head 自主决定复用程度。</li>
+<li><strong>提出 SATFormer 架构</strong>：用单个线性投影 + ReLU 生成逐 token、逐 KV-head 的非负门控系数，参数和运行时间开销可忽略不计。</li>
+<li><strong>在检索密集型任务上取得显著提升</strong>：在 TriviaQA、SQuAD、NQ 等 6 个检索任务上平均分达 29.86，超过 ResFormer 约 1.5 点，且吞吐量是 HyperConnections 的 1.75 倍、MUDDFormer 的 1.82 倍。</li>
+<li><strong>提供了系统性的机理分析</strong>：门控呈稀疏、深度依赖、head 特异化模式；消融和 logit-lens 实验确认 V1 通路和门控结构对性能均有因果贡献；SAE 分析表明语义类特征获得更强的晚期访问。</li>
+</ul>
+<h2>Key Contributions</h2>
+<ul>
+<li><strong>Control-based framing for early-representation reuse</strong>: treats V1 access as a control problem across tokens, heads, and depth over a single early pathway, rather than increasing cross-layer connectivity.</li>
+<li><strong>SATFormer architecture</strong>: replaces ResFormer's per-layer scalar with a per-token, per-head gate from a single linear projection of the current hidden state, adding negligible parameters and runtime cost.</li>
+<li><strong>Pareto-favorable scaling and retrieval</strong>: improves validation loss over Transformer and ResFormer at every scale (130M–1.3B), with the largest zero-shot gain over ResFormer at 1.3B (+0.67 avg accuracy). ~1.5 points over ResFormer on retrieval benchmarks; ~1.8× throughput of MUDDFormer/HyperConnections.</li>
+<li><strong>Mechanistic evidence for structured access</strong>: gate analyses reveal sparse, depth-dependent, head-specific, and category-sensitive access concentrated in a subset of heads; ablation and logit-lens experiments confirm both the V1 pathway and the gate structure are functionally consequential.</li>
+</ul>
+<h2>Methodology</h2>
+<p>SATFormer builds on ResFormer's value residual learning framework, which exposes the first-layer value projection V₁ to all subsequent layers via learned per-layer scalar coefficients. The key insight is that the usefulness of V₁ varies across tokens, attention heads, and contexts — a single layer-wise scalar cannot capture this variation.</p>
+<p><strong>Gate computation</strong>: For a token at position t in layer n, SATFormer computes a per-token, per-KV-head gate α_{t,j}^{(n)} = ReLU(x_t^{(n)} · W_α^{(n)}), where W_α ∈ R^{d_model × N_kv} is a single linear projection. The modified value vector is then V'_{t,j,r}^{(n)} = V_{t,j,r}^{(n)} + α_{t,j}^{(n)} · V_{t,j,r}^{(1)}.</p>
+<p><strong>Design rationale</strong>: Three deliberate minimal choices — (1) per-token AND per-head gating captures variation along both axes; (2) single linear projection keeps parameter cost at d_model × N_kv per layer; (3) ReLU ensures non-negativity (interpretable as additive reuse) and allows exact zeros (full disengagement from V₁ when unhelpful).</p>
+<p><strong>Experimental setup</strong>: All models trained under matched data (FineWeb-Edu subset), optimizer (AdamW), and hardware (2× NVIDIA H200) across four scales: Small (130M, 5B tokens), Medium (340M, 10B tokens), Large (760M, 20B tokens), XL (1.3B, 30B tokens). Llama-2 tokenizer (32K vocab), sequence length 4K. Baselines: Transformer, ResFormer (Learnable Plus variant), DenseFormer, MUDDFormer, HyperConnections.</p>
+<h2>Results & Highlights</h2>
+<ul>
+<li><strong>Retrieval-intensive benchmarks</strong> (Table 2): SATFormer achieves highest average (29.858) across TriviaQA, SWDE, SQuAD, NQ, FDA, DROP — narrowly surpassing MUDDFormer (29.855) and beating ResFormer (28.392) by ~1.5 points. Notably strong on FDA (21.96 vs. ResFormer's 19.41).</li>
+<li><strong>Validation loss</strong> (Table 4): Consistently best across all scales — 2.648 (130M), 2.415 (340M), 2.242 (760M), 2.139 (1.3B), beating ResFormer at every scale.</li>
+<li><strong>Zero-shot scaling</strong> (Table 5): XL-scale SATFormer achieves 51.96 avg accuracy vs. ResFormer's 51.29 (+0.67). At 130M, SATFormer achieves 49.54 vs. 48.53. Some denser baselines (MUDDFormer, HyperConnections) outperform at Medium and Large scales on average zero-shot, but at ~1.75–1.82× lower throughput.</li>
+<li><strong>Efficiency</strong> (Table 3): At 760M, SATFormer throughput 164,839 tok/s (vs. Transformer 170,308, ResFormer 163,826, MUDDFormer 90,443, HyperConnections 94,534). Memory 86.03 GB (vs. HyperConnections 124.73 GB). Wall-clock loss at 10h checkpoint: SATFormer 2.4515 vs. ResFormer 2.4557 vs. MUDDFormer 2.5672.</li>
+<li><strong>Depth benefits</strong>: A thin-and-long 760M variant (24 layers) shows SATFormer benefits disproportionately from depth — validation loss gap to ResFormer widens from 0.0037 to 0.0083.</li>
+</ul>
+<h2>Authors & Credibility</h2>
+<ul>
+<li>Authors are from UC Santa Cruz (Jason Eshraghian's lab, known for neuromorphic computing and spiking neural networks research).</li>
+<li>Code is publicly available at https://github.com/SkyeGunasekaran/SATFormer.</li>
+<li>Experimental methodology is thorough: matched training conditions across all baselines, multiple evaluation axes (retrieval, zero-shot, efficiency, mechanistic analysis), and honest discussion of cases where denser methods outperform.</li>
+<li>The paper is a preprint (not yet peer-reviewed at time of submission).</li>
+</ul>
+<h2>Critical Assessment</h2>
+<p><strong>Novelty</strong>: Moderate-to-high. The idea of gating V₁ access per-token/per-head is simple but well-motivated and distinct from prior work that frames cross-layer reuse as a connectivity problem. The mechanistic analysis (SAE-based category probing, logit-lens) adds depth beyond standard architecture papers.</p>
+<p><strong>Rigor</strong>: Strong. Matched training conditions, four scale levels, comprehensive baselines (6 architectures), multiple evaluation axes. The paper honestly acknowledges that MUDDFormer and HyperConnections outperform on some zero-shot metrics at Medium/Large scales, and provides the throughput-efficiency context for interpreting these results.</p>
+<p><strong>Reproducibility</strong>: Good. Code is public. Hyperparameters, training details, and model configurations are specified. Uses standard datasets (FineWeb-Edu) and evaluation protocols.</p>
+<p><strong>Significance</strong>: The efficiency–performance Pareto improvement is the main contribution. The 1.5-point retrieval gain with near-zero overhead is practically meaningful. The mechanistic analysis (sparse gating, depth-dependent specialization, semantic feature preference) provides useful insights for the broader cross-layer connectivity literature.</p>
+<p><strong>Potential concerns</strong>:</p>
+<ul>
+<li>Training scales are relatively small (max 1.3B params, 30B tokens). Whether gains persist at LLM-scale (7B+, 1T+ tokens) remains unverified.</li>
+<li>The 760M zero-shot results are somewhat muted — ResFormer matches or slightly leads on some metrics in the default configuration, requiring a "thin-and-long" variant to recover the gap. This suggests the architecture may be sensitive to width/depth allocation.</li>
+<li>The SAE-based category analysis is described as "coarse" and "descriptive rather than causal" — the link between semantic gating and retrieval gains is suggestive but not definitively established.</li>
+<li>Some baselines (DenseFormer, HyperConnections) use recommended hyperparameters from their original papers, which may not be optimal at these specific scales.</li>
+</ul>
+<h2>Strengths</h2>
+<ul>
+<li>Elegant and minimal architectural change — a single linear projection + ReLU, adding negligible cost.</li>
+<li>Consistent validation loss improvement over ResFormer at every scale tested.</li>
+<li>Strong retrieval-intensive performance, matching or exceeding much more expensive dense alternatives.</li>
+<li>Excellent efficiency profile: ~1.8× throughput of MUDDFormer with comparable retrieval scores.</li>
+<li>Thorough mechanistic analysis including gate ablations, logit-lens, SAE-based feature categorization, and depth-vs-width studies.</li>
+<li>Honest reporting of results where denser methods win on endpoint accuracy.</li>
+</ul>
+<h2>Limitations</h2>
+<ul>
+<li>Only tested up to 1.3B parameters and 30B training tokens — scalability to production-scale LLMs is unknown.</li>
+<li>The 760M zero-shot results are weaker relative to ResFormer than at other scales, suggesting configuration sensitivity.</li>
+<li>No evaluation on generation quality, instruction-following, or downstream fine-tuning tasks.</li>
+<li>The gating mechanism is limited to V₁ only — whether multi-layer selective access provides further gains is unexplored.</li>
+<li>The paper does not compare against recurrence-based architectures (e.g., Mamba, RWKV) that also address information retention across depth.</li>
+</ul>
+<h2>Relevance</h2>
+<p>这篇论文与"LLM Hidden States & Interpretability"和"ML Reliability & Mathematical Foundations"方向高度相关：它通过 SAE、logit-lens 和门控消融等机理分析工具研究 Transformer 内部的表征复用机制，揭示了跨层信息流的结构化模式，为理解模型内部表征几何提供了新视角。</p>
+<h2>Questions for Further Exploration</h2>
+<ol>
+<li>How does SATFormer's gating behavior change when trained at 7B+ scale with 1T+ tokens? Does the sparse, late-layer activation pattern persist or shift?</li>
+<li>Can the selective access mechanism be extended to multiple source layers (V₁, V₂, V₃) with independent gates, and does this yield further gains without sacrificing efficiency?</li>
+<li>How does SATFormer interact with grouped-query attention (GQA) or multi-query attention (MQA) where the number of KV heads differs significantly from query heads?</li>
+<li>Does the semantic-category gating preference observed via SAE analysis translate to controlled causal interventions that improve or degrade retrieval performance predictably?</li>
+<li>What happens to gate sparsity patterns when the model is fine-tuned on domain-specific data — does the model adapt its V₁ access strategy?</li>
+</ol>
+<p class="note">Generated from Markdown summary. Full paper: <a href="https://arxiv.org/abs/2605.03953">arXiv:2605.03953</a></p>
+</div>
+</body>
+</html>

@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HydraHead: From Head-Level Functional Heterogeneity to Specialized Attention Hybridization</title>
+<style>
+:root { --paper:#fafafa; --ink:#1a1a1a; --muted:#555; --accent:#1a5276; --line:#ddd; --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif; --serif:Georgia,"Noto Serif SC",serif; }
+body { font-family:var(--serif); background:var(--paper); color:var(--ink); line-height:1.6; margin:0; padding:0; }
+.container { max-width:min(95vw, 760px); margin:0 auto; padding:28px 20px 60px; }
+.topnav { position:fixed; top:12px; left:14px; z-index:50; font-family:var(--sans); font-size:.75rem; background:var(--paper); border:1px solid var(--line); padding:5px 10px; border-radius:999px; }
+.topnav a { color:var(--muted); text-decoration:none; font-weight:600; }
+.topnav a:hover { color:var(--accent); }
+h1 { font-size:1.6rem; margin:2.2rem 0 1rem; border-bottom:2px solid var(--accent); padding-bottom:.3rem; }
+h2 { font-size:1.3rem; margin:1.8rem 0 .8rem; color:var(--accent); }
+h3 { font-size:1.1rem; margin:1.4rem 0 .6rem; }
+p { margin:.8rem 0; }
+.authors { font-style:italic; color:var(--muted); margin-top:-.4rem; }
+.meta { font-family:var(--sans); font-size:.82rem; color:var(--muted); margin:.2rem 0; }
+a { color:var(--accent); text-decoration:none; }
+a:hover { text-decoration:underline; }
+blockquote { border-left:3px solid var(--accent); margin:1rem 0; padding:.2rem 0 .2rem 1rem; color:var(--muted); font-style:italic; }
+code { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; background:#f0f0f0; padding:2px 5px; border-radius:3px; font-size:.9em; }
+pre { background:#f5f5f5; padding:14px; overflow-x:auto; border-radius:4px; border:1px solid var(--line); }
+pre code { background:transparent; padding:0; }
+ul,ol { margin:.6rem 0; padding-left:1.5rem; }
+li { margin:.25rem 0; }
+table { border-collapse:collapse; width:100%; margin:1rem 0; font-family:var(--sans); font-size:.9rem; }
+th,td { border:1px solid var(--line); padding:6px 10px; text-align:left; }
+th { background:#f0f0f0; }
+hr { border:none; border-top:1px solid var(--line); margin:1.5rem 0; }
+.note { font-family:var(--sans); font-size:.78rem; color:var(--muted); border-top:1px solid var(--line); margin-top:2rem; padding-top:1rem; }
+@media (max-width: 600px) { .container { padding:22px 14px 40px; } h1 { font-size:1.35rem; } }
+</style>
+</head>
+<body>
+<div class="topnav"><a href="./index.html">← Today's digest</a></div>
+<div class="container">
+<h1>HydraHead: From Head-Level Functional Heterogeneity to Specialized Attention Hybridization</h1>
+<p class="meta">arXiv: 2606.20097</p>
+<p class="meta">Date: 2026-06-18</p>
+<p class="meta"><a href="https://arxiv.org/abs/2606.20097">https://arxiv.org/abs/2606.20097</a></p>
+<blockquote><strong>一句话总结：</strong> HydraHead 通过机制可解释性发现"长上下文检索只依赖约 6.5% 的注意力头"，进而在头维度上把全注意力（FA）与门控 DeltaNet 线性注意力（GDN）混合——仅对检索关键头保留 FA、其余头转为 GDN，配合归一化融合与三阶段迁移训练，用 15B token 就能在 512K 上下文上把基线提升 69%，逼近原生 256K 的 Qwen3.5。</blockquote>
+<blockquote><strong>TL;DR:</strong> HydraHead uses causal interpretability (activation/path patching) to show long-context retrieval localizes to ~6.5% of attention heads scattered across layers, so it hybridizes Full Attention and Gated DeltaNet linear attention at the <em>head</em> axis—keeping FA only for causally critical heads, fusing the two via per-head RMSNorm + learnable scaling, and transferring a pretrained Qwen3-1.7B via a 3-stage distillation pipeline. Trained on only 15B tokens, it improves NIAH @512K by >69% over baseline and approaches Qwen3.5-2B, while preserving general reasoning.</blockquote>
+<h2>核心贡献</h2>
+<ul>
+<li><strong>以"头"为粒度的混合注意力范式</strong>：首次系统论证注意力头（而非层）是混合 Full Attention 与 Linear Attention 的"自然且有原则的"基本单元。可解释性分析显示：同一层内的头功能高度异质（检索关键头稀疏且分散跨层），而层输出相似度矩阵是平滑的块结构，几乎无法为"哪层该用哪种注意力"提供判别信号。</li>
+<li><strong>基于因果干预的头选择算法</strong>：用 activation patching（receiver，冻结下游注意力输出测直接效应）+ 迭代 path patching（sender，回溯上游贡献）+ 跨能力加权融合，对每个头给出因果必要性分数。校准仅需 5 个 NIAH 子探针 ×8 对样本，4K 上下文即可，且对长上下文迁移鲁棒（Top-64 集合在不同上下文长度 Jaccard 约 0.8+）。</li>
+<li><strong>头维度 scale-normalized 融合模块</strong>：针对 FA（softmax，受 query 范数调制、低熵分布）与 GDN（归一化抵消 query 范数、高熵分布）的分布鸿沟，对每个头输出独立 RMSNorm，再按原始头索引拼接，并用可学习的逐头缩放向量 γ 调制；深层层上 GDN 的 RMS 可达 FA 的 6.2 倍，证明归一化不可或缺。</li>
+<li><strong>分支专属精修</strong>：FA 分支去掉 RoPE、改用 log-scale 系数并加辅助门控（缓解 attention sink）；GDN 分支注入 RoPE 增强位置感知、KV 头扩展到与 query 头同数（GQA→MHA）、保留短卷积与门控。</li>
+<li><strong>三阶段高效迁移流水线</strong>：Stage1 参数继承 + 逐层 MSE 隐藏态对齐（冻结骨干）；Stage2 全局 logits KL 蒸馏；Stage3 长上下文 NPT 微调。把预训练 Qwen3-1.7B 高效转为混合模型。</li>
+</ul>
+<h2>Key Contributions</h2>
+<ul>
+<li>Establishes the <strong>attention head</strong> (not the layer) as the principled granularity for hybridizing Full and Linear attention, grounded in mechanistic interpretability: within-layer heads are functionally heterogeneous while layer outputs vary smoothly.</li>
+<li>An <strong>interpretability-driven, one-shot head selection</strong> procedure (activation patching + iterative path patching + cross-capability fusion) that identifies causally critical retrieval heads from a tiny 4K-context calibration set, requiring only a few forward passes.</li>
+<li>A <strong>head-wise scale-normalized fusion</strong> module (per-head RMSNorm + learnable per-head scalars) that reconciles the distributional gap between FA and GDN outputs (GDN RMS up to 6.2x FA at deep layers).</li>
+<li><strong>Branch-specific refinements</strong>: FA drops RoPE for log-scale + auxiliary gate (anti attention-sink); GDN adds RoPE, expands to MHA, keeps short conv + gating.</li>
+<li>A <strong>3-stage transfer pipeline</strong> (parameter inheritance + layer-wise MSE alignment, then global logits distillation, then long-context NTP fine-tuning) for efficient conversion of a pretrained Transformer.</li>
+</ul>
+<h2>Methodology</h2>
+<p><strong>动机与可解释性发现（Sec 1, 5.7, 附录 C）</strong></p>
+<ul>
+<li>逐头 logit lens（Fig 2a）：同一层内仅稀疏子集对正确答案 token 贡献显著，关键头集中在深层；层输出余弦相似度矩阵（Fig 2b）平滑无清晰边界。</li>
+<li>因果验证（Fig 9）：448 头中仅 29 个长上下文关键头（|drop|≥0.01，约 6.5%），407 个可替换（<0.005，约 90.8%），且散布于几乎所有层；逐层 Gini 系数均值 0.622。Knockout 实验确认按估计重要性消融前 ~1% 头即令检索准确率崩塌，随机对照则保持高位。</li>
+</ul>
+<p><strong>头重要性估计（Sec 4.1）</strong></p>
+<ul>
+<li>Counterfactual：对称 token 替换（同类型同长度的随机干扰项替换 needle），保持分布自然。</li>
+<li>Span-level readout：指数衰减（λ=0.9）聚合多 token 答案的 logit 差（线性于残差流，规避 softmax 饱和）。</li>
+<li>Receiver（activation patching，冻结下游注意力输出 → 仅经残差流传播，测直接效应）；Sender（迭代 path patching，长上下文检索约两轮收敛）。</li>
+<li>跨能力融合：<code>s = max(IE_recv, IE_send) · κ</code>（κ 为任务一致性因子），按能力 min-max 归一化后加权平均（默认等权），取 top-K 头保留 FA。</li>
+</ul>
+<p><strong>头级混合架构（Sec 4.2, Fig 3/4）</strong></p>
+<ul>
+<li>将头集 H 划分为 H_F（FA）与 H_L（GDN），由可解释性选择决定。</li>
+<li>并行分支计算：FA 头走 softmax（+ 去RoPE/缩放/门控），GDN 头走门控 DeltaNet 循环（+ RoPE/MHA）。</li>
+<li>融合：每头独立 RMSNorm → 按原索引拼接 → 可学习逐头缩放 γ → 共享输出投影 W_O。</li>
+</ul>
+<p><strong>迁移训练（Sec 4.3）</strong></p>
+<ul>
+<li>Stage1：FA 头加门控（近零初始化、偏置使门控≈1，近似恒等）；GDN 头复用原 Q/K/V 并按通道 repeat 补维度差；冻结骨干，逐层 MSE 对齐隐藏态。</li>
+<li>Stage2：解冻全模型，KL 蒸馏教师 logits + 交叉熵。</li>
+<li>Stage3：长上下文 NTP 监督微调。优化后三阶段配置见 Table 9（Stage1: 0.8B/bs128/seq2048；Stage2: 4.0B/bs256/seq2048；Stage3: 1.0B/bs128/seq16384）。</li>
+</ul>
+<h2>Results & Highlights</h2>
+<p><strong>统一训练下的架构横向对比（Table 2, Qwen3-1.7B, 默认 25% FA 头, 缓存 0.35x）</strong></p>
+<ul>
+<li>HydraHead 在 RULER Single（Native 98.47 / Extended 87.49）与 Multi-Key（27.37 Extended）全面领先；General Reasoning Hard 31.03、Easy 62.12。</li>
+<li>Layer-wise（HypeNet 风格 FA&LA, lightning attn）：Single Ext 85.00 强，但 Hard 仅 19.80。</li>
+<li>Token-wise / Head-wise Mixing：Hard 推理更高（36.66 / 38.07），但长上下文扩展急剧退化（Single Ext 58.78 / 60.42）。</li>
+<li>HydraHead 是唯一同时拿下长上下文 SOTA 并保持强推理的方案。</li>
+</ul>
+<p><strong>可解释性选择有效性（Table 6, 3:1 GDN:FA）</strong></p>
+<ul>
+<li>Global-Interp 最佳：Single Native 98.70 / Ext 81.73；Hard 31.70。Global-Rand 崩溃（Single Native 59.40），证明结构平衡重要。</li>
+<li>Layer-Interp 介于固定分配与全局筛选之间。</li>
+</ul>
+<p><strong>高混合比（Table 7/8）</strong></p>
+<ul>
+<li>7:1 下 Global-Interp-C（每层至少一头 FA）：Single Ext 81.04、Hard 29.46；在长上下文上与 layer-wise 3:1 hybrid 持平（±3%），但 Hard +9.66、Easy +2.93。</li>
+<li>9:1 极限稀疏下 Multi-Key 跌至约 60%、Hard 降约 3%，仍保留简单长上下文 80%+。</li>
+</ul>
+<p><strong>消融（Table 3/4/5）</strong></p>
+<ul>
+<li>去归一化（w/o Norm）：Single 检索掉 >10%，证明逐头 RMSNorm 关键。</li>
+<li>Scale Modulation vs Gated Competition：Scale 在长上下文扩展上比 Gated 高约 20%（Single），更稳定，定为默认。</li>
+<li>Query Decomposition、FA NoPE+Scale、GDN RoPE、FA Gate、GDN MHA 均有正向贡献。</li>
+</ul>
+<p><strong>扩规模（Table 10/11/12, 15B token）</strong></p>
+<ul>
+<li>训练配置优化后 Default Model 全面提升：Multi-Key Native +13.90、Hard +3.88。</li>
+<li>长上下文 SOTA 对比：256K 上 HydraHead Single 94.53、Multi-Key 52.70；多数对比混合模型在 256K 趋零；HypeNet-2B Single 68.93/Multi 16.90。相对 Qwen3-1.7B-yarn 在 256K 上 +54.23（Single）/ +38.50（Multi-Key）。</li>
+<li>512K 上相对基线提升 >69%，逼近原生 256K 的 Qwen3.5-2B-Base（Fig 1）。</li>
+<li>通用推理 Hard 平均 50.62，仅次于 Jet-Nemotron-2B（60.31），但后者 256K 长上下文近乎全崩；仅比原 Qwen3-1.7B 低 3.40 分。</li>
+</ul>
+<h2>Authors & Credibility</h2>
+<ul>
+<li>全员来自 <strong>Alibaba Group</strong>（Zhentao Tan, Wei Chen, Jingyi Shen, Yao Liu, Xu Shen, Yue Wu, Jieping Ye）。</li>
+<li>方法建立在成熟的可解释性工具链（Wang et al. IOI 电路、activation/path patching、Voita/Michel 头多样性）之上，并适配自 HALO/HypeNet（[53]）的蒸馏流水线——工程基础扎实。</li>
+<li>实验覆盖层级/token/头级三类混合范式 + 多个开源 SOTA（Gemma-3n-E2B、Hymba-1.5B、Jet-Nemotron-2B、HypeNet-2B、MiniCPM5-1B），统一评测框架（lm-evaluation-harness），对照公平。</li>
+</ul>
+<h2>Critical Assessment</h2>
+<ul>
+<li><strong>Novelty（中高）</strong>：头级混合本身并非全新（DuoAttention/Elastic Attention 做过 FA+稀疏 的头级选择，Hymba 做过头级 mixing），但"用因果 patching 定位检索关键头 + FA/线性注意力在头轴上互补融合 + scale-normalized 融合"的组合是首次系统化，并把"头是混合的正确粒度"这一论点论证得很扎实。相对 Hymba 的均匀 mixing，本工作的差异化在于功能特化驱动的不均匀分配。</li>
+<li><strong>Rigor（高）</strong>：有大量消融（结构组件、融合策略、选择策略、混合比），校准稳定性分析（Spearman 随样本数收敛、跨长度 Jaccard）、knockout 因果验证、跨子探针并集。统计学考量较到位（fp16 vs bf16、冗余备份头噪声、置信区间未给但有多随机种子对照）。</li>
+<li><strong>Reproducibility（中高）</strong>：给出三阶段超参（Table 9）、数据集（FineWeb-Edu, ODC-By）、选择阈值（|drop|≥0.01）、calibration 配置。但若干关键细节（完整数据 mix、FA 缩放超参 500 的来源、GDN 内部超参）依赖引用 HypeNet/HALO；代码/权重未明确承诺开源。</li>
+<li><strong>Significance（中高）</strong>：在 1.7B 上用 15B token 接近原生 256K 的 Qwen3.5 是有说服力的效率证据；对"长上下文 = 稀疏关键头"的机制结论对社区有指导意义。但能否外推到 7B+/MoE/多模态尚未验证。</li>
+<li><strong>Red flags / 存疑</strong></li>
+<li>主结论"仅 6.5% 头关键"与"FA 预算降到 ~10% 即明显退化"存在 mismatch，作者自己也承认（附录 D）——说明可解释性信号尚未足以决定最小 FA 预算，激进压缩的工程价值打折扣。</li>
+<li>General Reasoning Hard 绝对分偏低（HydraHead 31.03 vs layer-wise 19.80；但 token-wise 能到 47.31），说明本方案在"极限推理"上并非 Pareto 最优，是刻意为长上下文让步。</li>
+<li>Table 2 中 HydraHead 缓存为 0.35（非理论最低 0.25），因为 GDN 分支用了 MHA（KV 头数 = query 头数），其内存优势被部分抵消——需注意实际部署收益。</li>
+<li>"approaching Qwen3.5"主要在 NIAH 检索类任务上，并非全维度；512K 评测的"69% 提升"基线是已退化的 Qwen3-1.7B（512K 原本近乎 0），相对提升易显大。</li>
+<li>Qwen3.5-2B-Base 作对比但其"原生 256K"在 512K 上仍是外推，对比公平性可再讨论。</li>
+<li>1.7B 单一尺度、dense-only、无指令/RLHF 后训练阶段。</li>
+</ul>
+<h2>Strengths</h2>
+<ul>
+<li>把机制可解释性从"诊断工具"升级为"架构设计驱动器"，动机与证据链闭环漂亮。</li>
+<li>统一框架下横跨三类混合范式的公平对照，结论可解释（细粒度层内交互利于推理，但损害长度外推；HydraHead 靠关键头保留打破该权衡）。</li>
+<li>因果 patching + knockout 双重验证关键头集合，可信度高；校准只需少量短样本、稳定且跨长度可迁移，工程友好。</li>
+<li>三阶段迁移让预训练投资得以复用，15B token 即获显著长上下文能力，实用价值高。</li>
+</ul>
+<h2>Limitations</h2>
+<ul>
+<li>仅在 Qwen3-1.7B（dense）上验证；7B+/MoE/多模态、关键头分布随尺度变化均未验证。</li>
+<li>训练数据仅 ~15B token，无指令 tuning / RLHF；后训练阶段下头级混合是否仍优未知。</li>
+<li>全 activation patching 在前沿尺度成本上升（虽然比训练多模型便宜）；attribution patching 在该场景的精度未系统验证。</li>
+<li>可解释性估计与可部署 FA 预算之间有 gap，~10% 即退化，最小 FA 分配尚未解决。</li>
+<li>General Hard 绝对分不如 token-wise 方案，极限稀疏（9:1）下 Multi-Key 明显退化。</li>
+<li>代码与模型权重开源承诺不明确，复现门槛依赖 HypeNet/HALO 细节。</li>
+</ul>
+<h2>Relevance</h2>
+<p>与 LLM 训练/推理/可解释性/Agent/可靠性高度相关：</p>
+<ul>
+<li><strong>训练效率</strong>：三阶段迁移 + 参数复用 + 蒸馏，是从已有 FA 检查点低成本造长上下文混合模型的实用范式，直接降低长上下文预训练成本。</li>
+<li><strong>推理效率/长上下文</strong>：头级 FA/LA 混合 + 缓存压缩（0.35x）显著降低长序列 KV/计算开销，利于 Agent 长程规划、海量上下文检索。</li>
+<li><strong>可解释性</strong>：把 activation/path patching、knockout、logit lens 用于"架构决策"，是 interpretability-driven design 的示范，方法论可迁移到剪枝、路由、稀疏化等其他任务。</li>
+<li><strong>可靠性</strong>："检索仅依赖稀疏关键头"的结论对长上下文幻觉/丢失有诊断价值，可指导 retrieval head 监控与保护。</li>
+<li><strong>架构搜索</strong>：头级功能特化为 NAS/自动混合配方提供了比层级更细、更有判别力的搜索空间。</li>
+</ul>
+<h2>Questions for Further Exploration</h2>
+<ul>
+<li>关键头分布随模型尺度（7B/13B/MoE）如何变化？头级混合的增益是否单调？</li>
+<li>如何把 attribution patching（单次反向）校准到足以替代全 patching，以扩展到前沿尺度？</li>
+<li>能否把 FA 预算从"固定 top-K"改为动态/输入相关路由，进一步逼近理论最小 FA？</li>
+<li>在指令微调 + RLHF 后训练阶段，头级混合与全注意力在指令遵循 vs 长上下文推理上的权衡如何？</li>
+<li>"可解释性关键头比例（6.5%）与可部署 FA 预算（~10% 起退化）的 gap"根因是估计噪声还是架构/训练无法支撑极端稀疏？如何分别改进？</li>
+<li>关键头是否对非检索能力（如多步推理、代码、工具调用）同样稀疏定位？多能力并集会不会逼近全 FA？</li>
+<li>头级混合与 MoE 专家、多模态 token 混合是否兼容？跨模态的关键头是否一致？</li>
+<li>Scale-normalized 融合的 γ 与门控分支是否可与量化/稀疏注意力正交叠加，进一步压低部署成本？</li>
+</ul>
+<p class="note">Generated from Markdown summary. Full paper: <a href="https://arxiv.org/abs/2606.20097">arXiv:2606.20097</a></p>
+</div>
+</body>
+</html>

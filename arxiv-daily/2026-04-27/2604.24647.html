@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DepthKV: Layer-Dependent KV Cache Pruning for Long-Context LLM Inference</title>
+<style>
+:root { --paper:#fafafa; --ink:#1a1a1a; --muted:#555; --accent:#1a5276; --line:#ddd; --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif; --serif:Georgia,"Noto Serif SC",serif; }
+body { font-family:var(--serif); background:var(--paper); color:var(--ink); line-height:1.6; margin:0; padding:0; }
+.container { max-width:min(95vw, 760px); margin:0 auto; padding:28px 20px 60px; }
+.topnav { position:fixed; top:12px; left:14px; z-index:50; font-family:var(--sans); font-size:.75rem; background:var(--paper); border:1px solid var(--line); padding:5px 10px; border-radius:999px; }
+.topnav a { color:var(--muted); text-decoration:none; font-weight:600; }
+.topnav a:hover { color:var(--accent); }
+h1 { font-size:1.6rem; margin:2.2rem 0 1rem; border-bottom:2px solid var(--accent); padding-bottom:.3rem; }
+h2 { font-size:1.3rem; margin:1.8rem 0 .8rem; color:var(--accent); }
+h3 { font-size:1.1rem; margin:1.4rem 0 .6rem; }
+p { margin:.8rem 0; }
+.authors { font-style:italic; color:var(--muted); margin-top:-.4rem; }
+.meta { font-family:var(--sans); font-size:.82rem; color:var(--muted); margin:.2rem 0; }
+a { color:var(--accent); text-decoration:none; }
+a:hover { text-decoration:underline; }
+blockquote { border-left:3px solid var(--accent); margin:1rem 0; padding:.2rem 0 .2rem 1rem; color:var(--muted); font-style:italic; }
+code { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; background:#f0f0f0; padding:2px 5px; border-radius:3px; font-size:.9em; }
+pre { background:#f5f5f5; padding:14px; overflow-x:auto; border-radius:4px; border:1px solid var(--line); }
+pre code { background:transparent; padding:0; }
+ul,ol { margin:.6rem 0; padding-left:1.5rem; }
+li { margin:.25rem 0; }
+table { border-collapse:collapse; width:100%; margin:1rem 0; font-family:var(--sans); font-size:.9rem; }
+th,td { border:1px solid var(--line); padding:6px 10px; text-align:left; }
+th { background:#f0f0f0; }
+hr { border:none; border-top:1px solid var(--line); margin:1.5rem 0; }
+.note { font-family:var(--sans); font-size:.78rem; color:var(--muted); border-top:1px solid var(--line); margin-top:2rem; padding-top:1rem; }
+@media (max-width: 600px) { .container { padding:22px 14px 40px; } h1 { font-size:1.35rem; } }
+</style>
+</head>
+<body>
+<div class="topnav"><a href="./index.html">← Today's digest</a></div>
+<div class="container">
+<h1>DepthKV: Layer-Dependent KV Cache Pruning for Long-Context LLM Inference</h1>
+<p class="meta">arXiv: 2604.24647v1</p>
+<p class="meta">Date: 2026-04-27</p>
+<p class="meta"><a href="https://arxiv.org/abs/2604.24647v1">https://arxiv.org/abs/2604.24647v1</a></p>
+<blockquote><strong>一句话总结：</strong> DepthKV 通过实证发现 Transformer 各层对 KV Cache 剪枝的敏感度存在显著差异，据此提出基于 InfoNCE 表示指标的逐层非均匀 KV 预算分配框架，在相同全局剪枝率下稳定优于均匀剪枝方案。</blockquote>
+<blockquote><strong>TL;DR:</strong> This paper challenges the common assumption that all transformer layers contribute equally to KV cache performance. Through layer-wise ablation studies, the authors demonstrate statistically significant variation in pruning sensitivity across layers and identify "content amplification layers" whose pruning suppresses generation. They propose DepthKV, a framework that allocates a fixed global KV budget non-uniformly across layers based on InfoNCE-derived importance scores. Evaluated on Gemma-7B, LLaMA-3.1-8B, and Qwen2.5-7B across summarization, QA, and reasoning tasks at 60% pruning, DepthKV's Metric-Guided Allocation (MGA) strategy consistently outperforms uniform pruning -- e.g., boosting ROUGE-1 from 26.75 to 29.75 on arXiv summarization and EM from 12% to 23% on HotpotQA for Gemma.</blockquote>
+<h2>核心贡献</h2>
+<ul>
+<li><strong>揭示逐层剪枝敏感度的非均匀性</strong>：通过逐层消融实验和置换检验（p < 0.05），统计显著地证明 Transformer 各层对 KV Cache 剪枝的敏感度差异巨大，推翻了均匀剪枝的隐含假设。</li>
+<li><strong>发现"内容放大层"（Content Amplification Layers）</strong>：识别出剪枝后会导致输出长度和信息量大幅下降的关键层，且 YapScore 与 ROUGE-1 之间存在强正相关（最高 r=0.99），表明性能退化与内容生成抑制紧密相关。</li>
+<li><strong>提出 DepthKV 框架</strong>：基于 InfoNCE 表示指标引导的逐层非均匀 KV 预算分配，在固定全局内存约束下将更多预算分配给敏感层，包括 MLP（保护中间层）、MGA（基于指标分配）和 MLMA（混合策略）三种变体。</li>
+<li><strong>跨模型、跨任务一致性优势</strong>：在 Gemma-7B、LLaMA-3.1-8B、Qwen2.5-7B 三大模型族上，涵盖摘要、QA、推理的 7 个数据集上，DepthKV 在相同 60% 全局剪枝率下一致优于均匀剪枝基线。</li>
+</ul>
+<h2>Key Contributions</h2>
+<ul>
+<li><strong>Statistical evidence for non-uniform layer sensitivity</strong>: Layer-wise ablation with permutation testing (p < 0.05) reveals that transformer layers vary significantly in their sensitivity to KV cache pruning, rejecting the implicit uniform-importance assumption.</li>
+<li><strong>Identification of content amplification layers</strong>: Pruning certain layers causes disproportionate suppression of output generation; YapScore strongly correlates with ROUGE-1 (r up to 0.99), linking content generation collapse to quality degradation.</li>
+<li><strong>DepthKV framework with multiple allocation strategies</strong>: Three complementary strategies -- Middle-Layer Protection (MLP), Metric-Guided Allocation (MGA) using InfoNCE, and Middle-Layer Metric Allocation (MLMA) -- redistribute a fixed global KV budget based on layer importance.</li>
+<li><strong>Consistent improvements across architectures and tasks</strong>: At 60% global pruning, MGA achieves the best overall performance across summarization (e.g., +3 ROUGE-1 on arXiv), QA (e.g., +11 EM on HotpotQA for Gemma), and math reasoning (GSM-infinity).</li>
+</ul>
+<h2>Methodology</h2>
+<p>DepthKV operates in three stages:</p>
+<ol>
+<li><strong>Pre-study: Layer-wise sensitivity profiling.</strong> For each layer l, KV cache pruning (H2O without value weighting) is applied to that single layer during prefill while all other layers remain unpruned. Performance is measured via ROUGE-1. This produces a per-layer sensitivity profile. A Monte Carlo permutation test (10,000 permutations) confirms that the variance in layer-wise performance is statistically significant across all model-dataset pairs (minimum attainable p-value ~10^{-4}).</li>
+</ol>
+<ol>
+<li><strong>Representation metric correlation analysis.</strong> Six representation metrics (spectral entropy, effective rank, curvature, DiME, LiDAR, InfoNCE) are computed at four transformer block stages (pre-attention, post-attention, post-attention residual, post-MLP). Their Spearman correlations with layer-wise performance degradation are evaluated. InfoNCE at the post-attention stage emerges as the most consistent predictor: layers with lower InfoNCE (more perturbation-robust representations) are more critical and suffer larger performance drops when pruned.</li>
+</ol>
+<ol>
+<li><strong>Layer-dependent KV budget allocation.</strong> Under the constraint that the average pruning ratio across layers equals the target global ratio rho, DepthKV distributes budgets non-uniformly:</li>
+</ol>
+<ul>
+<li><strong>MGA (Metric-Guided Allocation)</strong>: Uses inverse-InfoNCE scores as layer importance; assigns higher pruning ratios to more robust layers, with a per-layer cap of 0.7 and iterative redistribution of excess budget.</li>
+<li><strong>MLP (Middle-Layer Protection)</strong>: Preserves layers around the network midpoint (floor(L/2) and floor(L/2)+1) while pruning others uniformly.</li>
+<li><strong>MLMA</strong>: Combines structural and metric-based allocation by protecting k middle layers (2, 4, or 6) while distributing the remaining budget via InfoNCE.</li>
+</ul>
+<p>The first layer is never pruned to preserve initial token representations. Pruning occurs during prefill using chunked prefill (chunk size 1024); the KV cache remains fixed during decoding.</p>
+<h2>Results & Highlights</h2>
+<ul>
+<li><strong>Summarization (Table 3)</strong>: On Gemma, MGA improves ROUGE-1 from 26.75 (uniform H2O) to 29.75 on arXiv and from 26.76 to 28.43 on GovReport. SBERT similarity improves from 55.09 to 61.98 on arXiv.</li>
+<li><strong>QA tasks (Tables 4-5)</strong>: On HotpotQA with Gemma, MLP achieves 23% EM vs. 12% for uniform pruning. On Qasper, MLMA-6L reaches 40% EM for Gemma and 64% for LLaMA, compared to 6% and 54% respectively for uniform pruning.</li>
+<li><strong>Math reasoning (Figure 5)</strong>: All DepthKV variants outperform uniform pruning on GSM-infinity across both models tested.</li>
+<li><strong>LLM-as-Judge (Table 6)</strong>: On HotpotQA, MGA scores highest across correctness, completeness, and conciseness (e.g., 4.40/4.38/4.55 for LLaMA vs. 3.59/3.60/3.76 for uniform pruning).</li>
+<li><strong>Value-aware importance adds little</strong>: H2O with value weighting (l1 or l2 norm) provides only marginal improvements over attention-only H2O, indicating that the layer-wise allocation strategy matters more than the specific token importance estimator.</li>
+<li><strong>Statistical rigor</strong>: Permutation tests reject uniform layer importance (p < 0.05) for all 12 model-dataset combinations; effect sizes range from 10.86 to 163.38 (standardized).</li>
+</ul>
+<h2>Authors & Credibility</h2>
+<ul>
+<li><strong>Zahra Dehghanighobadi</strong>: Ruhr University Bochum and UAR Research Center for Trustworthy Data Science and Security. Corresponding author.</li>
+<li><strong>Asja Fischer</strong>: Ruhr University Bochum. Senior author with publications in variational inference and probabilistic modeling.</li>
+<li>Code is publicly available at <code>github.com/zahra-dehghani/depthkv</code>, enhancing reproducibility.</li>
+<li>The paper includes comprehensive appendices with prompt templates, metric definitions, full correlation tables, and qualitative examples.</li>
+<li>Experiments use 8x NVIDIA H200 GPUs; evaluation covers three model families (Gemma, LLaMA, Qwen) and seven datasets.</li>
+</ul>
+<h2>Critical Assessment</h2>
+<ul>
+<li><strong>Novelty (Moderate)</strong>: The core insight -- that layers differ in pruning sensitivity -- is intuitive and partially anticipated by prior work (Skean et al., 2025, on layer importance). The main novelty lies in systematically quantifying this for KV cache pruning and operationalizing it via InfoNCE-guided allocation. The framework itself is relatively straightforward once the insight is established.</li>
+<li><strong>Rigor (Strong)</strong>: The permutation testing for statistical significance, bootstrap confidence intervals for representation metrics, and evaluation across multiple models and task types are commendable. The LLM-as-judge evaluation adds a valuable qualitative dimension.</li>
+<li><strong>Reproducibility (Strong)</strong>: Public code repository, detailed prompt templates in appendices, specification of all hyperparameters (chunk size, pruning ratio, generation settings), and use of deterministic greedy decoding.</li>
+<li><strong>Significance (Moderate)</strong>: The improvements are consistent but the absolute performance gap to FullKV remains large (e.g., 29.75 vs. 39.09 ROUGE-1 on arXiv). DepthKV makes KV cache pruning less harmful but does not close the gap with unpruned models. The practical impact depends on how much the 60% pruning ratio can be relaxed in real deployments.</li>
+<li><strong>Red flags</strong>: (1) Only 60% pruning ratio is reported; performance at more moderate pruning levels (e.g., 20-40%) would better characterize the practical regime. (2) MGA requires computing InfoNCE, which involves forward passes with perturbed inputs -- this pre-computation cost is not discussed or benchmarked. (3) The optimal strategy (MGA vs. MLP vs. MLMA) varies across models and datasets with no clear selection criterion provided. (4) No comparison with concurrent non-uniform allocation methods or query-aware approaches like Quest/MorphKV.</li>
+</ul>
+<h2>Strengths</h2>
+<ul>
+<li>Well-motivated pre-study with rigorous statistical testing that establishes the non-uniform layer sensitivity phenomenon.</li>
+<li>Comprehensive evaluation across 3 model families, 7 datasets, and multiple metrics (lexical, semantic, LLM-as-judge).</li>
+<li>The finding that representation metrics (particularly InfoNCE) predict layer importance under pruning is a useful diagnostic insight beyond the specific method.</li>
+<li>Clear identification of content amplification layers and their correlation with performance degradation provides actionable understanding.</li>
+<li>Public code release supports reproducibility.</li>
+</ul>
+<h2>Limitations</h2>
+<ul>
+<li><strong>Non-query-aware</strong>: Token importance is fixed during prefill and cannot adapt during autoregressive decoding, potentially missing tokens that become relevant later.</li>
+<li><strong>No head-level granularity</strong>: Importance scores aggregate across attention heads, ignoring intra-layer variability.</li>
+<li><strong>Pre-computation overhead</strong>: Computing InfoNCE requires additional forward passes with perturbed inputs; this cost is not quantified or discussed.</li>
+<li><strong>Single pruning ratio</strong>: Only 60% global pruning is evaluated; the behavior at other sparsity levels remains unknown.</li>
+<li><strong>Strategy selection ambiguity</strong>: No principled method is provided for choosing among MGA, MLP, and MLMA variants for a new model or task.</li>
+<li><strong>Large gap to FullKV</strong>: Even the best DepthKV variant recovers only a fraction of the performance lost from pruning.</li>
+</ul>
+<h2>Relevance</h2>
+<p>本文聚焦于 LLM 长上下文推理中的 KV Cache 高效管理问题，揭示了 Transformer 各层对缓存剪枝的敏感度差异，对设计高效推理系统和理解模型内部表示结构均有参考价值。对于关注大模型推理加速、长上下文处理和模型压缩的研究者具有直接意义。</p>
+<h2>Questions for Further Exploration</h2>
+<ol>
+<li>How does DepthKV perform at more moderate pruning ratios (e.g., 20%, 40%) where the practical trade-off between memory savings and quality loss is more nuanced?</li>
+<li>What is the computational overhead of computing InfoNCE-based importance scores, and can lighter-weight proxies achieve comparable allocation quality?</li>
+<li>Can layer-dependent allocation be combined with query-aware token selection methods (e.g., Quest, MorphKV) for compounding benefits?</li>
+<li>Does extending the framework to head-level granularity within each layer yield further improvements, given known functional specialization of attention heads?</li>
+<li>How transferable are the InfoNCE-derived layer importance profiles across tasks -- can profiles computed on one dataset generalize to new tasks without recomputation?</li>
+</ol>
+<p class="note">Generated from Markdown summary. Full paper: <a href="https://arxiv.org/abs/2604.24647v1">arXiv:2604.24647v1</a></p>
+</div>
+</body>
+</html>

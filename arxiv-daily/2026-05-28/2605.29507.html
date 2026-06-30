@@ -1,0 +1,718 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Xetrieval: Mechanistically Explaining Dense Retrieval</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Source+Serif+4:ital,wght@0,400;0,600;0,700;0,900;1,400&display=swap');
+
+:root {
+  --bg: #0c0e12;
+  --bg-elevated: #13161c;
+  --bg-card: #181c24;
+  --bg-card-hover: #1e2330;
+  --fg: #e8e6e1;
+  --fg-muted: #8a8d95;
+  --fg-dim: #5a5d65;
+  --accent: #00e5a0;
+  --accent-dim: rgba(0,229,160,0.12);
+  --accent-glow: rgba(0,229,160,0.25);
+  --warn: #ff6b5a;
+  --warn-dim: rgba(255,107,90,0.10);
+  --highlight: #ffd666;
+  --highlight-dim: rgba(255,214,102,0.10);
+  --border: rgba(255,255,255,0.06);
+  --border-accent: rgba(0,229,160,0.25);
+  --serif: 'Source Serif 4', Georgia, serif;
+  --mono: 'JetBrains Mono', monospace;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html { font-size: 16px; scroll-behavior: smooth; }
+
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--serif);
+  line-height: 1.6;
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Noise overlay */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");
+  pointer-events: none;
+  z-index: 9999;
+}
+
+a { color: var(--accent); text-decoration: none; transition: opacity 0.2s; }
+a:hover { opacity: 0.8; }
+
+/* Top bar */
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  background: rgba(12,14,18,0.85);
+  backdrop-filter: blur(20px);
+  border-bottom: 1px solid var(--border);
+  padding: 0.6rem 2rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-family: var(--mono);
+  font-size: 0.75rem;
+}
+.topbar-left { display: flex; align-items: center; gap: 1rem; }
+.topbar-tag {
+  background: var(--accent-dim);
+  color: var(--accent);
+  padding: 0.2rem 0.6rem;
+  border-radius: 3px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+}
+.topbar-links { display: flex; gap: 1.2rem; }
+.topbar-links a { color: var(--fg-muted); font-size: 0.7rem; }
+
+/* Hero */
+.hero {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 4rem 2rem 2.5rem;
+  animation: fadeUp 0.6s ease-out both;
+}
+.hero-label {
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  color: var(--fg-dim);
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  margin-bottom: 0.75rem;
+}
+.hero h1 {
+  font-size: clamp(2rem, 4.5vw, 3.2rem);
+  font-weight: 900;
+  line-height: 1.1;
+  color: var(--fg);
+  margin-bottom: 1.2rem;
+  max-width: 850px;
+}
+.hero h1 span { color: var(--accent); }
+.hero-subtitle {
+  font-size: 1.05rem;
+  color: var(--fg-muted);
+  max-width: 700px;
+  line-height: 1.65;
+  margin-bottom: 1.5rem;
+}
+.hero-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.5rem;
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  color: var(--fg-dim);
+}
+.hero-meta span { display: flex; align-items: center; gap: 0.4rem; }
+.hero-meta .dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  display: inline-block;
+}
+
+/* Asset row */
+.asset-row {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 0 2rem 2rem;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1rem;
+  animation: fadeUp 0.6s 0.15s ease-out both;
+}
+.asset-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 1.4rem;
+  position: relative;
+  overflow: hidden;
+  transition: border-color 0.3s, transform 0.2s;
+}
+.asset-card:hover {
+  border-color: var(--border-accent);
+  transform: translateY(-2px);
+}
+.asset-card::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 2px;
+}
+.asset-card.finding::before { background: var(--accent); }
+.asset-card.metric::before { background: var(--highlight); }
+.asset-card.sowhat::before { background: #7c8cf8; }
+.asset-card.edge::before { background: var(--warn); }
+
+.asset-card-label {
+  font-family: var(--mono);
+  font-size: 0.6rem;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  margin-bottom: 0.8rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.asset-card.finding .asset-card-label { color: var(--accent); }
+.asset-card.metric .asset-card-label { color: var(--highlight); }
+.asset-card.sowhat .asset-card-label { color: #7c8cf8; }
+.asset-card.edge .asset-card-label { color: var(--warn); }
+
+.asset-card .big-number {
+  font-family: var(--mono);
+  font-size: 2rem;
+  font-weight: 700;
+  line-height: 1.1;
+  margin-bottom: 0.4rem;
+}
+.asset-card.metric .big-number { color: var(--highlight); }
+.asset-card p {
+  font-size: 0.82rem;
+  color: var(--fg-muted);
+  line-height: 1.55;
+}
+.asset-card.finding p strong { color: var(--accent); font-weight: 600; }
+.asset-card.edge p strong { color: var(--warn); font-weight: 600; }
+
+/* Body grid */
+.body-grid {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 0 2rem 4rem;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+  animation: fadeUp 0.6s 0.3s ease-out both;
+}
+
+.section-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 1.6rem;
+}
+.section-card.full-width {
+  grid-column: 1 / -1;
+}
+.section-card h2 {
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--fg-dim);
+  margin-bottom: 1rem;
+  padding-bottom: 0.6rem;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.section-card h2 .icon {
+  width: 16px; height: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.8rem;
+}
+
+/* Method pipeline */
+.pipeline {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  margin-bottom: 1.2rem;
+}
+.pipeline-step {
+  flex: 1;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 1rem 0.8rem;
+  text-align: center;
+  position: relative;
+}
+.pipeline-step:not(:last-child)::after {
+  content: '\2192';
+  position: absolute;
+  right: -10px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--accent);
+  font-size: 1.2rem;
+  z-index: 2;
+}
+.pipeline-step .step-num {
+  font-family: var(--mono);
+  font-size: 0.6rem;
+  color: var(--accent);
+  letter-spacing: 0.1em;
+  margin-bottom: 0.4rem;
+}
+.pipeline-step .step-title {
+  font-weight: 700;
+  font-size: 0.85rem;
+  margin-bottom: 0.3rem;
+  color: var(--fg);
+}
+.pipeline-step .step-desc {
+  font-size: 0.72rem;
+  color: var(--fg-muted);
+  line-height: 1.4;
+}
+
+/* Reasoning internalizer detail */
+.internalizer-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.6rem;
+}
+.int-card {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 0.8rem;
+}
+.int-card .int-name {
+  font-family: var(--mono);
+  font-size: 0.65rem;
+  font-weight: 700;
+  color: var(--accent);
+  margin-bottom: 0.3rem;
+}
+.int-card .int-desc {
+  font-size: 0.72rem;
+  color: var(--fg-muted);
+  line-height: 1.45;
+}
+
+/* Results table */
+.results-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.78rem;
+}
+.results-table th {
+  font-family: var(--mono);
+  font-size: 0.6rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--fg-dim);
+  text-align: left;
+  padding: 0.5rem 0.6rem;
+  border-bottom: 1px solid var(--border);
+}
+.results-table td {
+  padding: 0.55rem 0.6rem;
+  border-bottom: 1px solid var(--border);
+  color: var(--fg-muted);
+}
+.results-table tr:last-child td { border-bottom: none; }
+.results-table .val-improved {
+  color: var(--accent);
+  font-family: var(--mono);
+  font-weight: 600;
+}
+.results-table .val-base {
+  font-family: var(--mono);
+  color: var(--fg-dim);
+}
+
+/* Bullet lists */
+.bullet-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+.bullet-list li {
+  font-size: 0.82rem;
+  color: var(--fg-muted);
+  line-height: 1.5;
+  padding-left: 1rem;
+  position: relative;
+}
+.bullet-list li::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0.55rem;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+.bullet-list.warn li::before { background: var(--warn); }
+.bullet-list.neutral li::before { background: var(--fg-dim); }
+
+/* Tag chips */
+.tag-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-top: 0.8rem;
+}
+.tag {
+  font-family: var(--mono);
+  font-size: 0.6rem;
+  padding: 0.2rem 0.55rem;
+  border-radius: 3px;
+  background: var(--accent-dim);
+  color: var(--accent);
+  border: 1px solid rgba(0,229,160,0.15);
+}
+
+/* Assessment badges */
+.badge-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  margin-bottom: 1rem;
+}
+.badge {
+  font-family: var(--mono);
+  font-size: 0.65rem;
+  padding: 0.3rem 0.7rem;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.badge.high { background: var(--accent-dim); color: var(--accent); }
+.badge.good { background: var(--highlight-dim); color: var(--highlight); }
+.badge.moderate { background: rgba(124,140,248,0.1); color: #7c8cf8; }
+.badge .dot-sm {
+  width: 5px; height: 5px;
+  border-radius: 50%;
+}
+.badge.high .dot-sm { background: var(--accent); }
+.badge.good .dot-sm { background: var(--highlight); }
+.badge.moderate .dot-sm { background: #7c8cf8; }
+
+/* Questions */
+.question-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  counter-reset: q;
+}
+.question-list li {
+  counter-increment: q;
+  font-size: 0.8rem;
+  color: var(--fg-muted);
+  line-height: 1.5;
+  padding-left: 2rem;
+  position: relative;
+}
+.question-list li::before {
+  content: 'Q' counter(q);
+  position: absolute;
+  left: 0;
+  font-family: var(--mono);
+  font-size: 0.6rem;
+  font-weight: 700;
+  color: var(--fg-dim);
+  top: 0.2rem;
+}
+
+/* Key bindings */
+.key-term {
+  font-family: var(--mono);
+  font-size: 0.78em;
+  color: var(--accent);
+  background: var(--accent-dim);
+  padding: 0.1rem 0.35rem;
+  border-radius: 3px;
+}
+
+/* Animations */
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Responsive */
+@media (max-width: 900px) {
+  .asset-row { grid-template-columns: repeat(2, 1fr); }
+  .body-grid { grid-template-columns: 1fr; }
+}
+@media (max-width: 600px) {
+  .asset-row { grid-template-columns: 1fr; }
+  .pipeline { flex-direction: column; }
+  .pipeline-step:not(:last-child)::after {
+    content: '\2193';
+    right: 50%;
+    top: auto;
+    bottom: -12px;
+    transform: translateX(50%);
+  }
+  .internalizer-grid { grid-template-columns: 1fr; }
+  .hero { padding: 2.5rem 1.2rem 1.5rem; }
+  .hero h1 { font-size: 1.6rem; }
+  .topbar { padding: 0.5rem 1rem; }
+}
+</style>
+</head>
+<body>
+
+<!-- Top bar -->
+<nav class="topbar">
+  <div class="topbar-left">
+    <span class="topbar-tag">PAPER DASHBOARD</span>
+    <span style="color:var(--fg-dim)">2605.29507</span>
+  </div>
+  <div class="topbar-links">
+    <a href="./index.html">Index</a>
+    <a href="2605.29507.html">Source .md</a>
+    <a href="https://arxiv.org/abs/2605.29507" target="_blank" rel="noopener">arXiv</a>
+    <a href="https://hihiczx.github.io/Xetrieval" target="_blank" rel="noopener">Project</a>
+  </div>
+</nav>
+
+<!-- Hero -->
+<header class="hero">
+  <div class="hero-label">arXiv 2026-05-28 &middot; Dense Retrieval &middot; Mechanistic Interpretability</div>
+  <h1>Xetrieval: <span>Mechanistically</span> Explaining Dense Retrieval</h1>
+  <p class="hero-subtitle">
+    The first framework to decompose dense retrieval decisions into sparse, human-readable features
+    at the embedding level -- with causal intervention evidence that erasing discovered features
+    drops similarity the most, and amplifying them improves NDCG@10.
+  </p>
+  <div class="hero-meta">
+    <span><span class="dot"></span>Cai, Bai, Liu et al.</span>
+    <span>Beihang Univ. & BIGAI</span>
+    <span>4 retrievers &middot; 7 benchmarks</span>
+  </div>
+</header>
+
+<!-- Asset row -->
+<section class="asset-row">
+  <div class="asset-card finding">
+    <div class="asset-card-label">&#9670; Key Finding</div>
+    <p>Reasoning internalizers (single-hidden-layer MLPs) can <strong>approximate CoT reasoning embeddings</strong> in one forward pass, then TopK-SAE decomposition reveals <strong>causally relevant sparse features</strong> explaining why a retriever matched a document.</p>
+  </div>
+  <div class="asset-card metric">
+    <div class="asset-card-label">&#9670; Key Metric</div>
+    <div class="big-number">+12.9%</div>
+    <p>Snowflake NDCG@10 gain via reasoning internalizer (38.3% &rarr; 51.2%), recovering 82% of full CoT reasoner lift (54.7%) at near-zero cost.</p>
+  </div>
+  <div class="asset-card sowhat">
+    <div class="asset-card-label">&#9670; Why This Matters</div>
+    <p>You can now explain and causally intervene on dense retrieval decisions -- without expensive LLM inference at query time.</p>
+  </div>
+  <div class="asset-card edge">
+    <div class="asset-card-label">&#9670; Critical Edge</div>
+    <p>Feature descriptions are <strong>LLM-generated</strong> (circularity risk). Analysis is confined to the sentence embedding output layer -- internal model circuits remain unprobed.</p>
+  </div>
+</section>
+
+<!-- Body grid -->
+<main class="body-grid">
+
+  <!-- Method: Pipeline -->
+  <div class="section-card full-width">
+    <h2><span class="icon">&#9881;</span> Method Pipeline</h2>
+    <div class="pipeline">
+      <div class="pipeline-step">
+        <div class="step-num">01</div>
+        <div class="step-title">Reasoning Internalizer</div>
+        <div class="step-desc">3 MLPs (SUMMARY / PURPOSE / QA) trained via MSE to approximate CoT-derived embeddings from raw doc embeddings</div>
+      </div>
+      <div class="pipeline-step">
+        <div class="step-num">02</div>
+        <div class="step-title">Embedding Enrichment</div>
+        <div class="step-desc">4 document views: raw + 3 reasoning-enhanced embeddings produced in a single forward pass</div>
+      </div>
+      <div class="pipeline-step">
+        <div class="step-num">03</div>
+        <div class="step-title">TopK-SAE Decomposition</div>
+        <div class="step-desc">Sparse autoencoder (k=256) decomposes embeddings into interpretable features with LLM-labeled descriptions</div>
+      </div>
+      <div class="pipeline-step">
+        <div class="step-num">04</div>
+        <div class="step-title">Multi-View Aggregation</div>
+        <div class="step-desc">Binarized sparse codes compared across views; shared active features form the retrieval explanation</div>
+      </div>
+    </div>
+    <div class="internalizer-grid">
+      <div class="int-card">
+        <div class="int-name">SUMMARY</div>
+        <div class="int-desc">Captures gist-level document reasoning: what the document is broadly about and its central argument.</div>
+      </div>
+      <div class="int-card">
+        <div class="int-name">PURPOSE</div>
+        <div class="int-desc">Captures intent-level reasoning: why the document was written and what problem it addresses.</div>
+      </div>
+      <div class="int-card">
+        <div class="int-name">QA</div>
+        <div class="int-desc">Captures query-relevant reasoning: what questions the document answers and how it responds to information needs.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Results -->
+  <div class="section-card">
+    <h2><span class="icon">&#9650;</span> Retrieval Validation</h2>
+    <table class="results-table">
+      <thead>
+        <tr>
+          <th>Retriever</th>
+          <th>Base</th>
+          <th>+ Internalizer</th>
+          <th>+ CoT Reasoner</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Snowflake</td>
+          <td class="val-base">38.3%</td>
+          <td class="val-improved">51.2%</td>
+          <td class="val-base">54.7%</td>
+        </tr>
+        <tr>
+          <td>GTE-base</td>
+          <td class="val-base">Baseline</td>
+          <td class="val-improved">Improved</td>
+          <td class="val-base">Higher</td>
+        </tr>
+        <tr>
+          <td>E5-large</td>
+          <td class="val-base">Baseline</td>
+          <td class="val-improved">Improved</td>
+          <td class="val-base">Higher</td>
+        </tr>
+        <tr>
+          <td>Qwen3-4B</td>
+          <td class="val-base">Strong base</td>
+          <td class="val-improved">Marginal</td>
+          <td class="val-base">Marginal</td>
+        </tr>
+      </tbody>
+    </table>
+    <p style="font-size:0.7rem;color:var(--fg-dim);margin-top:0.6rem;">Values shown are avg NDCG@10 across 7 benchmarks. Qwen3-4B already strong baseline, leaving less room for gain.</p>
+  </div>
+
+  <!-- Intervention Results -->
+  <div class="section-card">
+    <h2><span class="icon">&#9733;</span> Causal Intervention</h2>
+    <ul class="bullet-list">
+      <li><strong>Erase experiment:</strong> Removing Xetrieval-specific features causes the <em>largest drop</em> in query-doc similarity vs. direct SAE or non-overlap features.</li>
+      <li><strong>Retain experiment:</strong> Keeping only Xetrieval features preserves or increases similarity more effectively than direct decomposition.</li>
+      <li><strong>Task-level steering:</strong> Amplifying key features (selected by Retrieval Utility Score) improves NDCG@10; suppressing them causes clear degradation.</li>
+      <li><strong>Efficiency:</strong> Explanation overhead is near-constant regardless of corpus size -- CoT reasoner grows linearly.</li>
+    </ul>
+  </div>
+
+  <!-- Critical Assessment -->
+  <div class="section-card">
+    <h2><span class="icon">&#9888;</span> Critical Assessment</h2>
+    <div class="badge-row">
+      <div class="badge high"><span class="dot-sm"></span>Novelty: High</div>
+      <div class="badge good"><span class="dot-sm"></span>Rigor: Good</div>
+      <div class="badge good"><span class="dot-sm"></span>Reproducibility: Good</div>
+      <div class="badge moderate"><span class="dot-sm"></span>Significance: Moderate-High</div>
+    </div>
+    <ul class="bullet-list warn">
+      <li>MSE training objective is a proxy for reasoning capture -- does not guarantee genuine reasoning transfer.</li>
+      <li>Improvement over direct SAE decomposition is real but incremental in many cases.</li>
+      <li>LLM both generates reasoning targets and annotates features -- circularity concern.</li>
+      <li>Analysis limited to sentence embedding layer; internal model circuits not probed.</li>
+    </ul>
+  </div>
+
+  <!-- Strengths -->
+  <div class="section-card">
+    <h2><span class="icon">&#10003;</span> Strengths</h2>
+    <ul class="bullet-list">
+      <li>Creative reasoning internalizer design: negligible inference cost for rich reasoning signal.</li>
+      <li>Multi-faceted evaluation with both local attribution and task-level steering.</li>
+      <li>Comprehensive SAE comparison (Standard, TopK, Gated, JumpReLU) across 3 metrics.</li>
+      <li>Public code and project page -- reproducible.</li>
+    </ul>
+  </div>
+
+  <!-- Limitations -->
+  <div class="section-card">
+    <h2><span class="icon">&#10007;</span> Limitations</h2>
+    <ul class="bullet-list warn">
+      <li>Reasoning faithfulness measured only indirectly via retrieval performance, not direct probing.</li>
+      <li>Three reasoning aspects (SUMMARY / PURPOSE / QA) are pre-defined -- may miss other dimensions.</li>
+      <li>Scalability of sparse decomposition for billion-scale corpora is untested.</li>
+      <li>No comparison against non-SAE baselines (SPLADE, ColBERT, attribution methods) on explanation quality.</li>
+    </ul>
+  </div>
+
+  <!-- Open Questions -->
+  <div class="section-card full-width">
+    <h2><span class="icon">?</span> Open Questions for Further Exploration</h2>
+    <ol class="question-list">
+      <li>How much does the choice of CoT-generating LLM (DeepSeek-V3) affect reasoning internalization quality?</li>
+      <li>Can reasoning internalizers transfer to other embedding tasks -- semantic similarity, clustering, Reranking?</li>
+      <li>How do discovered sparse features map to known linguistic phenomena (syntax, discourse, pragmatics)?</li>
+      <li>What happens with domain-specific training data (legal, medical) -- do features become more specialized?</li>
+      <li>Could feature steering integrate into retrieval training as a regularization or alignment objective?</li>
+      <li>How stable are SAE-discovered features across random seeds and training data sizes?</li>
+    </ol>
+  </div>
+
+  <!-- Tags -->
+  <div class="section-card full-width" style="padding:1rem 1.6rem;">
+    <div class="tag-row">
+      <span class="tag">dense-retrieval</span>
+      <span class="tag">mechanistic-interpretability</span>
+      <span class="tag">sparse-autoencoder</span>
+      <span class="tag">explainability</span>
+      <span class="tag">information-retrieval</span>
+      <span class="tag">TopK-SAE</span>
+      <span class="tag">reasoning-internalization</span>
+      <span class="tag">causal-intervention</span>
+    </div>
+  </div>
+
+</main>
+
+<script>
+// Intersection Observer for scroll-triggered reveals
+document.addEventListener('DOMContentLoaded', () => {
+  const cards = document.querySelectorAll('.section-card');
+  cards.forEach(card => {
+    card.style.opacity = '0';
+    card.style.transform = 'translateY(12px)';
+    card.style.transition = 'opacity 0.5s ease-out, transform 0.5s ease-out';
+  });
+
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+      if (entry.isIntersecting) {
+        entry.target.style.opacity = '1';
+        entry.target.style.transform = 'translateY(0)';
+        observer.unobserve(entry.target);
+      }
+    });
+  }, { threshold: 0.08, rootMargin: '0px 0px -40px 0px' });
+
+  cards.forEach(card => observer.observe(card));
+});
+</script>
+
+</body>
+</html>

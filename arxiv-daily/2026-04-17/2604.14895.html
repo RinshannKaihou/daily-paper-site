@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Beyond Importance Sampling: Rejection-Gated Policy Optimization</title>
+<style>
+:root { --paper:#fafafa; --ink:#1a1a1a; --muted:#555; --accent:#1a5276; --line:#ddd; --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif; --serif:Georgia,"Noto Serif SC",serif; }
+body { font-family:var(--serif); background:var(--paper); color:var(--ink); line-height:1.6; margin:0; padding:0; }
+.container { max-width:min(95vw, 760px); margin:0 auto; padding:28px 20px 60px; }
+.topnav { position:fixed; top:12px; left:14px; z-index:50; font-family:var(--sans); font-size:.75rem; background:var(--paper); border:1px solid var(--line); padding:5px 10px; border-radius:999px; }
+.topnav a { color:var(--muted); text-decoration:none; font-weight:600; }
+.topnav a:hover { color:var(--accent); }
+h1 { font-size:1.6rem; margin:2.2rem 0 1rem; border-bottom:2px solid var(--accent); padding-bottom:.3rem; }
+h2 { font-size:1.3rem; margin:1.8rem 0 .8rem; color:var(--accent); }
+h3 { font-size:1.1rem; margin:1.4rem 0 .6rem; }
+p { margin:.8rem 0; }
+.authors { font-style:italic; color:var(--muted); margin-top:-.4rem; }
+.meta { font-family:var(--sans); font-size:.82rem; color:var(--muted); margin:.2rem 0; }
+a { color:var(--accent); text-decoration:none; }
+a:hover { text-decoration:underline; }
+blockquote { border-left:3px solid var(--accent); margin:1rem 0; padding:.2rem 0 .2rem 1rem; color:var(--muted); font-style:italic; }
+code { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; background:#f0f0f0; padding:2px 5px; border-radius:3px; font-size:.9em; }
+pre { background:#f5f5f5; padding:14px; overflow-x:auto; border-radius:4px; border:1px solid var(--line); }
+pre code { background:transparent; padding:0; }
+ul,ol { margin:.6rem 0; padding-left:1.5rem; }
+li { margin:.25rem 0; }
+table { border-collapse:collapse; width:100%; margin:1rem 0; font-family:var(--sans); font-size:.9rem; }
+th,td { border:1px solid var(--line); padding:6px 10px; text-align:left; }
+th { background:#f0f0f0; }
+hr { border:none; border-top:1px solid var(--line); margin:1.5rem 0; }
+.note { font-family:var(--sans); font-size:.78rem; color:var(--muted); border-top:1px solid var(--line); margin-top:2rem; padding-top:1rem; }
+@media (max-width: 600px) { .container { padding:22px 14px 40px; } h1 { font-size:1.35rem; } }
+</style>
+</head>
+<body>
+<div class="topnav"><a href="./index.html">← Today's digest</a></div>
+<div class="container">
+<h1>Beyond Importance Sampling: Rejection-Gated Policy Optimization</h1>
+<p class="meta">arXiv: 2604.14895</p>
+<p class="meta">Date: 2026-04-16</p>
+<p class="meta"><a href="https://arxiv.org/abs/2604.14895">https://arxiv.org/abs/2604.14895</a></p>
+<blockquote><strong>一句话总结：</strong> RGPO提出用可微分的接受门(sigmoid gate)替代重要性采样比率进行样本选择而非重加权，在保证有界梯度方差和近似单调策略改进的前提下，于MuJoCo连续控制和RLHF偏好对齐任务中实现了比PPO/GRPO更高的奖励和更低的KL散度。</blockquote>
+<blockquote><strong>TL;DR:</strong> RGPO replaces importance sampling ratios with a smooth, differentiable acceptance gate g(r) in [0,1] that selects trustworthy samples rather than reweighting all of them, yielding bounded gradient variance, near-TRPO KL control at PPO-level cost, and Pareto-dominant reward-KL tradeoffs in RLHF alignment.</blockquote>
+<h2>核心贡献</h2>
+<ul>
+<li>提出RGPO框架：用可微分的接受门 $\alpha_\theta(s,a) = g(r_\theta) \in [0,1]$ 替代无界的重要性采样比率 $r_\theta$，将拒绝采样从数据级启发式方法提升为优化原则</li>
+<li>统一视角：通过有效梯度权重 $w(r) = g'(r) \cdot r$ 证明REINFORCE是精确特例、TRPO/PPO是梯度级对应、AWR是密切关联方法</li>
+<li>理论保证：证明了偏差有界（Theorem 1）、梯度方差有限（Theorem 2，即使IS方差发散时也成立）、近似单调策略改进（Theorem 3）</li>
+<li>双比率门扩展至RLHF：同时锚定前一轮策略和参考模型，实现奖励-KL帕累托最优</li>
+</ul>
+<h2>Key Contributions</h2>
+<ul>
+<li>Introduces the RGPO framework that replaces unbounded IS ratios with a smooth, differentiable acceptance gate $g(r_\theta) \in [0,1]$, elevating rejection from a data-level heuristic to an optimization principle</li>
+<li>Provides a unifying lens via the effective gradient weight $w(r) = g'(r) \cdot r$: REINFORCE is an exact special case (on-policy limit), TRPO and PPO are gradient-level correspondences, AWR is closely related</li>
+<li>Proves bounded gradient bias (Theorem 1), finite bounded gradient variance even under heavy-tailed IS ratios where IS variance diverges (Theorem 2 + Proposition 1), and approximate monotonic policy improvement analogous to TRPO (Theorem 3)</li>
+<li>Extends naturally to RLHF with a dual-ratio gate anchoring both the previous policy and the reference model, achieving Pareto-dominant reward-KL outcomes</li>
+</ul>
+<h2>Methodology</h2>
+<p>RGPO replaces the standard IS surrogate objective $\mathcal{L}_{TRPO}(\theta) = \mathbb{E}_{\pi_{old}}[r_\theta \cdot A_{old}]$ with $\mathcal{L}_{RGPO}(\theta) = \mathbb{E}_{\pi_{old}}[\alpha_\theta(s,a) \cdot A_{old}]$, where $\alpha_\theta = g(r_\theta) \in [0,1]$ is a smooth acceptance gate.</p>
+<p><strong>Core design choices:</strong></p>
+<ul>
+<li><strong>Sigmoid gate (recommended):</strong> $g(r) = \sigma(k(r-1))$, centered at $r=1$ with sharpness $k$. The effective weight $w(r) = k\sigma(1-\sigma)r$ is bell-shaped, damping both over- and under-represented samples.</li>
+<li><strong>Clipped-linear gate:</strong> $g(r) = \text{clip}(r, 0, c)$, equivalent to truncated IS with a hard cap.</li>
+<li><strong>Temperature-controlled gate:</strong> $g(r) = r^\beta / (1 + r^\beta)$, the most conservative option.</li>
+</ul>
+<p><strong>Practical algorithm:</strong> Adds an adaptive KL penalty $\beta \hat{D}_{KL}(\pi_\theta \| \pi_{old})$ with the same adaptive schedule as PPO's KL-penalty variant. The gate introduces negligible overhead (a single element-wise operation per sample), matching PPO in computational cost with no second-order optimization required.</p>
+<p><strong>RLHF extension (dual gate):</strong> Uses $r = \max(\pi_\theta/\pi_{old}, \pi_\theta/\pi_{ref})$ inside the sigmoid gate, plus separate KL penalties to both anchors, providing a differentiable alignment constraint.</p>
+<p><strong>Gradient derivation:</strong> Through the chain rule, the RGPO gradient is $\nabla_\theta \mathcal{L}_{RGPO} = \mathbb{E}_{\pi_{old}}[w_\theta(s,a) \nabla_\theta \log \pi_\theta A_{old}]$ where $w_\theta = g'(r_\theta) \cdot r_\theta$ is the effective gradient weight. This formulation unifies existing methods: each corresponds to a specific choice of $w(r)$.</p>
+<h2>Results & Highlights</h2>
+<p><strong>MuJoCo Continuous Control (4 environments, 3 seeds, 1M steps):</strong></p>
+<ul>
+<li>RGPO outperforms PPO on Walker2d-v4 (+81%, p=0.047) and Ant-v4 (+47%, p=0.064), statistically equivalent on HalfCheetah and Hopper</li>
+<li>Cross-seed stability dramatically better: std is 0.36-0.75x that of PPO; coefficient of variation stays below 27% vs. PPO's 48-52%</li>
+<li>KL spike rate: 0% for RGPO vs. 44-84% for PPO across all environments</li>
+<li>At 6M steps on HalfCheetah: RGPO 3095 vs. PPO 1116 (p=0.028); PPO regresses across all budget levels</li>
+<li>TRPO achieves strictest KL but underperforms both PPO and RGPO at 7x computational cost due to single-step updates</li>
+<li>AWR fails catastrophically with multi-epoch training (mean KL 18.85 on Ant, max KL 1000)</li>
+</ul>
+<p><strong>RLHF Preference Alignment (Qwen2.5-1.5B-Instruct, Anthropic HH-RLHF, 3 seeds):</strong></p>
+<ul>
+<li>RGPO achieves Pareto-dominant outcome: highest reward (+0.243, +14.8% vs. PPO-RLHF) AND lowest KL to reference (0.364, -16.0% vs. PPO-RLHF, -53.1% vs. GRPO)</li>
+<li>GRPO's KL grows monotonically (textbook reward over-optimization); RGPO stabilizes at lowest KL among online RL methods</li>
+</ul>
+<p><strong>Ablation studies</strong> validate sigmoid gate superiority (best bias-variance tradeoff), optimal sharpness k=5, and that the IS ratio anchoring in the gate is essential for stable multi-epoch optimization.</p>
+<h2>Authors & Credibility</h2>
+<p>Authors are Ziwu Sun, Zhen Gao, Jiyong Zhang, and Jiaheng Li (equal contribution). The paper provides complete theoretical proofs in appendices, thorough ablation studies, and uses standard benchmarks with proper statistical testing (Welch t-tests, multiple seeds). The framework is well-positioned relative to prior work (TRPO, PPO, GRPO, AWR, DPO, RAFT). No institutional affiliation is prominently stated, suggesting independent or early-career researchers, but the rigor is commendable.</p>
+<h2>Critical Assessment</h2>
+<p><strong>Novelty (High):</strong> The conceptual shift from "reweighting" to "selection" via a differentiable acceptance gate is genuinely novel. The unification of TRPO/PPO/REINFORCE/AWR through the effective gradient weight $w(r) = g'(r) \cdot r$ provides clean theoretical insight. The dual-ratio gate for RLHF is a natural and useful extension.</p>
+<p><strong>Rigor (Strong):</strong> Three formal theorems with complete proofs in appendices. Empirical evaluation uses proper statistical tests (Welch t-tests), multiple seeds, and fairness controls (identical architectures, optimizers, hyperparameters across methods). Ablations are thorough (6 categories).</p>
+<p><strong>Reproducibility (Good):</strong> Pseudocode provided, hyperparameters specified, standard benchmarks used. The sigmoid gate has only one additional hyperparameter (k). However, no code repository is linked.</p>
+<p><strong>Significance (High):</strong> Directly addresses training stability in policy optimization and RLHF alignment -- two active areas. The Pareto-dominant RLHF result is practically meaningful. The 0% KL spike rate across all environments is a strong empirical signal.</p>
+<p><strong>Red flags:</strong></p>
+<ul>
+<li>Only 3 seeds per experiment; some comparisons (e.g., Ant-v4 p=0.064) are marginally significant</li>
+<li>RLHF experiment uses a relatively small model (1.5B); scaling to larger models is untested</li>
+<li>No evaluation on discrete action spaces (Atari) or reasoning tasks</li>
+<li>The theoretical bounds rely on bounded advantages and Lipschitz g, which may not always hold</li>
+<li>Hopper-v4 shows essentially no improvement over PPO in mean return (only variance reduction)</li>
+<li>Authors acknowledge the gate introduces controllable bias, which may be unacceptable for off-policy evaluation</li>
+</ul>
+<h2>Strengths</h2>
+<ul>
+<li>Clean conceptual contribution: the "selection vs. reweighting" framing is intuitive and powerful</li>
+<li>Strong theoretical grounding with formal bias, variance, and policy improvement guarantees</li>
+<li>The unification of existing methods through $w(r) = g'(r) \cdot r$ is elegant and provides genuine insight</li>
+<li>Excellent KL control (0% spike rate) without second-order optimization, matching PPO cost</li>
+<li>Pareto-dominant RLHF result (highest reward + lowest KL) is practically compelling</li>
+<li>Long-horizon experiments (6M steps) demonstrate sustained advantage over PPO</li>
+<li>Comprehensive ablations covering gating functions, sharpness, bias-variance, ESS, and KL dynamics</li>
+</ul>
+<h2>Limitations</h2>
+<ul>
+<li>Introduces controlled bias; not suitable for applications requiring strictly unbiased gradient estimates</li>
+<li>Gate sharpness k requires some tuning (though k=5 works well across tested environments)</li>
+<li>RLHF results are on a small model (1.5B parameters); unclear if advantages scale to frontier-size LLMs</li>
+<li>No evaluation on discrete action spaces, reasoning benchmarks, or multi-turn dialogue</li>
+<li>Hopper-v4 shows no mean performance improvement over PPO (only stability gains)</li>
+<li>The theoretical guarantees assume bounded advantages and Lipschitz gating functions</li>
+<li>AWR baseline uses multi-epoch training (n_epochs=10), which is known to be problematic for AWR; single-epoch AWR comparison is acknowledged as future work</li>
+<li>The adaptive beta schedule is borrowed directly from PPO without theoretical justification for its interaction with the gate</li>
+</ul>
+<h2>Relevance</h2>
+<p>本文与LLM训练稳定性和可靠性高度相关。RGPO通过可微分的接受门替代PPO的硬裁剪，从根源上解决了重要性采样方差爆炸问题，在RLHF对齐任务中实现了帕累托最优的奖励-KL权衡。这种将样本选择机制显式建模为可微分组件的思路，为理解和对齐LLM训练过程中的策略漂移提供了新的理论视角。</p>
+<h2>Questions for Further Exploration</h2>
+<ul>
+<li>How does RGPO scale to 7B+ parameter language models in production RLHF pipelines? Does the dual-ratio gate remain Pareto-dominant at scale?</li>
+<li>Can the acceptance gate be combined with GRPO-style group-relative advantages for reasoning tasks (e.g., math, code generation)?</li>
+<li>Is there an optimal adaptive schedule for the gate sharpness k during training, analogous to learning rate schedules?</li>
+<li>How does RGPO interact with reward model over-optimization in the "gold reward" vs. "proxy reward" setting studied by Gao et al. (2023)?</li>
+<li>Could the gating mechanism be extended to handle multi-modal action distributions or mixture-of-experts policies?</li>
+<li>What is the theoretical relationship between the RGPO gate and the optimal proposal distribution in adaptive importance sampling?</li>
+</ul>
+<p class="note">Generated from Markdown summary. Full paper: <a href="https://arxiv.org/abs/2604.14895">arXiv:2604.14895</a></p>
+</div>
+</body>
+</html>

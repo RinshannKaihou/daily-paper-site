@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NSR — Clipping Bottleneck in RLVR</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --accent:#c87a1a;
+  --accent-light:#fdf4e7;
+  --accent-mid:#f5d89a;
+  --caution:#b33a3a;
+  --caution-light:#fdecea;
+  --caution-border:#e2a0a0;
+  --bg:#f8f7f4;
+  --card:#ffffff;
+  --text:#1a1a1a;
+  --text2:#555555;
+  --text3:#888888;
+  --border:#e0ddd8;
+  --mono:"SFMono-Regular",Consolas,"Liberation Mono",Menlo,monospace;
+  --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,"Noto Sans","PingFang SC","Microsoft YaHei",sans-serif;
+}
+html{font-size:16px;-webkit-font-smoothing:antialiased}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:1.65;min-height:100vh}
+
+/* ---- fixed nav ---- */
+.back-link{
+  position:fixed;top:12px;left:16px;z-index:100;
+  font-size:.75rem;color:var(--text3);text-decoration:none;
+  background:var(--card);border:1px solid var(--border);
+  padding:4px 10px;border-radius:4px;
+  box-shadow:0 1px 3px rgba(0,0,0,.06);
+  transition:color .15s;
+}
+.back-link:hover{color:var(--accent)}
+
+/* ---- layout shell ---- */
+.shell{max-width:min(95vw,1100px);margin:0 auto;padding:48px 24px 32px}
+
+/* ---- hero ---- */
+.hero{padding:56px 0 32px;border-bottom:1px solid var(--border);margin-bottom:28px}
+.hero-finding{
+  font-size:clamp(1.55rem,3.8vw,2.45rem);
+  font-weight:700;line-height:1.25;letter-spacing:-.01em;
+  color:var(--text);max-width:880px;
+}
+.hero-finding em{font-style:normal;color:var(--accent)}
+.hero-meta{margin-top:14px;font-size:.82rem;color:var(--text2);line-height:1.55}
+.hero-meta a{color:var(--accent);text-decoration:none}
+.hero-meta a:hover{text-decoration:underline}
+.hero-title{display:block;font-size:.92rem;font-weight:600;color:var(--text);margin-bottom:2px}
+.hero-authors{display:block;margin-top:2px}
+.hero-tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
+.chip{
+  font-size:.68rem;font-weight:500;letter-spacing:.02em;text-transform:uppercase;
+  background:var(--accent-light);color:var(--accent);
+  padding:2px 8px;border-radius:3px;border:1px solid var(--accent-mid);
+}
+
+/* ---- asset row ---- */
+.assets{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:32px}
+.asset-card{
+  background:var(--card);border:1px solid var(--border);border-radius:6px;
+  padding:22px 20px;display:flex;flex-direction:column;gap:6px;
+  box-shadow:0 1px 2px rgba(0,0,0,.04);
+}
+.asset-card.critical{
+  border-color:var(--caution-border);
+  background:var(--caution-light);
+}
+.asset-label{
+  font-size:.65rem;font-weight:600;text-transform:uppercase;letter-spacing:.06em;
+  color:var(--text3);
+}
+.asset-card.critical .asset-label{color:var(--caution)}
+.metric-value{
+  font-size:clamp(2.2rem,5vw,3.4rem);font-weight:800;line-height:1;
+  font-family:var(--mono);color:var(--accent);letter-spacing:-.03em;
+}
+.metric-ctx{font-size:.78rem;color:var(--text2);line-height:1.45;margin-top:2px}
+.asset-body{font-size:.84rem;color:var(--text2);line-height:1.5}
+.asset-card.critical .asset-body{color:#7a2222}
+
+/* ---- body grid ---- */
+.body-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px}
+.card{
+  background:var(--card);border:1px solid var(--border);border-radius:6px;
+  padding:22px 20px;
+  box-shadow:0 1px 2px rgba(0,0,0,.04);
+}
+.card-full{grid-column:1/-1}
+.card h2{
+  font-size:.78rem;font-weight:600;text-transform:uppercase;letter-spacing:.05em;
+  color:var(--text3);margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid var(--border);
+}
+.card p,.card li{font-size:.84rem;color:var(--text2);line-height:1.6}
+.card ul{padding-left:18px}
+.card li{margin-bottom:4px}
+.card li::marker{color:var(--accent)}
+
+/* ---- results table ---- */
+.res-table{width:100%;border-collapse:collapse;font-size:.78rem;margin-top:6px}
+.res-table th{
+  text-align:left;font-weight:600;font-size:.7rem;text-transform:uppercase;letter-spacing:.04em;
+  color:var(--text3);padding:6px 8px;border-bottom:2px solid var(--border);white-space:nowrap;
+}
+.res-table td{padding:6px 8px;border-bottom:1px solid var(--border);color:var(--text2)}
+.res-table tr:last-child td{border-bottom:none}
+.res-table .delta{font-weight:700;color:var(--accent);font-family:var(--mono);font-size:.76rem}
+
+/* ---- strengths / limitations ---- */
+.strengths-limitations{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px}
+.panel{
+  background:var(--card);border:1px solid var(--border);border-radius:6px;
+  padding:22px 20px;box-shadow:0 1px 2px rgba(0,0,0,.04);
+}
+.panel h2{
+  font-size:.78rem;font-weight:600;text-transform:uppercase;letter-spacing:.05em;
+  margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid var(--border);
+}
+.panel.strengths h2{color:#2e7d32}
+.panel.strengths h2{border-bottom-color:#c8e6c9}
+.panel.limitations h2{color:var(--caution)}
+.panel.limitations h2{border-bottom-color:var(--caution-border)}
+.panel ul{padding-left:18px}
+.panel li{font-size:.82rem;color:var(--text2);line-height:1.55;margin-bottom:5px}
+.panel li::marker{color:inherit}
+
+/* ---- questions ---- */
+.questions{
+  background:var(--card);border:1px solid var(--border);border-radius:6px;
+  padding:22px 20px;margin-bottom:24px;box-shadow:0 1px 2px rgba(0,0,0,.04);
+}
+.questions h2{
+  font-size:.78rem;font-weight:600;text-transform:uppercase;letter-spacing:.05em;
+  color:var(--text3);margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid var(--border);
+}
+.questions ol{padding-left:20px}
+.questions li{font-size:.82rem;color:var(--text2);line-height:1.55;margin-bottom:4px}
+
+/* ---- footer ---- */
+.footer{
+  border-top:1px solid var(--border);padding-top:14px;
+  font-size:.72rem;color:var(--text3);
+  display:flex;justify-content:space-between;align-items:center;
+}
+.footer a{color:var(--accent);text-decoration:none}
+.footer a:hover{text-decoration:underline}
+
+/* ---- responsive ---- */
+@media(max-width:720px){
+  .shell{padding:44px 14px 24px}
+  .hero{padding:40px 0 24px}
+  .hero-finding{font-size:1.35rem}
+  .assets{grid-template-columns:1fr;gap:12px}
+  .metric-value{font-size:2rem}
+  .body-grid{grid-template-columns:1fr;gap:12px}
+  .card-full{grid-column:auto}
+  .strengths-limitations{grid-template-columns:1fr;gap:12px}
+  .res-table{font-size:.72rem}
+  .res-table th,.res-table td{padding:5px 6px}
+  .back-link{top:8px;left:8px;font-size:.68rem;padding:3px 7px}
+}
+</style>
+</head>
+<body>
+
+<a class="back-link" href="./index.html">&#x21A9;&ensp;Today's digest</a>
+
+<div class="shell">
+
+  <!-- ===== HERO ===== -->
+  <header class="hero">
+    <div class="hero-finding">
+      Hard clipping's <em>binary decision</em> is the bottleneck in RLVR &mdash; stochastically rescuing near-boundary tokens yields consistent gains across 7B&ndash;30B models.
+    </div>
+    <div class="hero-meta">
+      <span class="hero-title">Clipping Bottleneck: Stabilizing RLVR via Stochastic Recovery of Near-Boundary Signals</span>
+      <a href="https://arxiv.org/abs/2605.22703">arxiv.org/abs/2605.22703</a>
+      <span class="hero-authors">Shuo Yang, Jinda Lu, Chiyu Ma, Kexin Huang, Haoming Meng, Qihui Zhang, Yuyang Liu, Bolin Ding, Guoyin Wang, Li Yuan &amp; Jingren Zhou</span>
+      <span>2026-05-21 &middot; Peking University, Qwen Pilot Team (Alibaba), Dartmouth, U of Toronto</span>
+      <div class="hero-tags">
+        <span class="chip">RLVR</span>
+        <span class="chip">Policy Optimization</span>
+        <span class="chip">Training Stability</span>
+        <span class="chip">Clipping</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- ===== ASSET ROW ===== -->
+  <section class="assets">
+    <div class="asset-card">
+      <span class="asset-label">Key Metric</span>
+      <div class="metric-value">+7.46</div>
+      <div class="metric-ctx">AMC Pass@1 gain on Qwen2.5-Math-7B (DAPO baseline). Consistent +2&ndash;6% across AIME, AMC, GPQA at all tested scales.</div>
+    </div>
+    <div class="asset-card">
+      <span class="asset-label">Why This Matters</span>
+      <div class="asset-body">NSR is a plug-and-play fix for the most widely-used RLVR clipping objective, immediately adoptable for anyone training reasoning models with GRPO or DAPO.</div>
+    </div>
+    <div class="asset-card critical">
+      <span class="asset-label">&#x26A0;&ensp;Critical Edge</span>
+      <div class="asset-body">Only tested on Qwen-family models &mdash; no evidence the finding generalizes beyond one model family, and the new &delta; hyperparameter lacks principled selection guidance.</div>
+    </div>
+  </section>
+
+  <!-- ===== BODY GRID ===== -->
+  <div class="body-grid">
+
+    <!-- Methodology -->
+    <div class="card card-full">
+      <h2>Methodology</h2>
+      <p>The paper follows a <strong>diagnose-then-fix</strong> approach, systematically isolating the root cause before proposing a remedy.</p>
+      <ul>
+        <li><strong>Decoupling experiment:</strong> The importance ratio plays dual roles &mdash; "Judge" (sets clipping mask) and "Executor" (drives gradient). Perturbing only the Executor has no harm; perturbing both causes collapse &rarr; the <em>binary decision</em> is causal, not gradient magnitude.</li>
+        <li><strong>Rescue-zone identification:</strong> Tokens mapped in 2D (decision ratio &times; execution ratio) reveal a "Rescue Zone" of near-boundary tokens carrying useful signal that hard clipping discards. Ablation confirms: rescuing these tokens alone replicates full gains; the push-out zone contributes nothing.</li>
+        <li><strong>NSR algorithm:</strong> For each out-of-bound token, sample <code>z ~ U(1&minus;&delta;, 1+&delta;)</code>. If <code>r &middot; z</code> falls back inside the trust region, admit the token with gradient; otherwise clip normally. Three-case rule: in-bound &rarr; baseline; rescued &rarr; use perturbed ratio; not rescued &rarr; clip to boundary.</li>
+        <li><strong>Theory:</strong> Expected effective ratio yields implicit soft clipping with O(1/r&sup2;) gradient decay &mdash; stochastic filtering beats deterministic soft-decay baselines in both performance and run-to-run consistency.</li>
+      </ul>
+    </div>
+
+    <!-- Results -->
+    <div class="card card-full">
+      <h2>Results</h2>
+      <table class="res-table">
+        <thead>
+          <tr>
+            <th>Model</th>
+            <th>Objective</th>
+            <th>Benchmark</th>
+            <th>Baseline</th>
+            <th>+NSR</th>
+            <th>&Delta;</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td>Qwen2.5-Math-7B</td><td>DAPO</td><td>AIME24</td><td>35.83</td><td>40.76</td><td class="delta">+4.93</td></tr>
+          <tr><td>Qwen2.5-Math-7B</td><td>DAPO</td><td>AMC</td><td>69.28</td><td>76.74</td><td class="delta">+7.46</td></tr>
+          <tr><td>Qwen3-8B</td><td>DAPO</td><td>AIME24</td><td>37.29</td><td>43.65</td><td class="delta">+6.36</td></tr>
+          <tr><td>Qwen3-8B</td><td>DAPO</td><td>AIME25</td><td>27.39</td><td>31.67</td><td class="delta">+4.28</td></tr>
+          <tr><td>Qwen3-30B-A3B</td><td>GSPO</td><td>AIME24</td><td>54.17</td><td>58.65</td><td class="delta">+4.48</td></tr>
+          <tr><td>Qwen3-30B-A3B</td><td>GSPO</td><td>AMC</td><td>81.66</td><td>85.09</td><td class="delta">+3.43</td></tr>
+        </tbody>
+      </table>
+      <p style="margin-top:10px">GPQA generalization gains: +3.72 (7B), +1.14 (8B), +0.26 (30B). NSR also maintains more stable policy entropy and reduces the fraction of clipped gradients throughout training.</p>
+    </div>
+  </div>
+
+  <!-- Strengths / Limitations -->
+  <div class="strengths-limitations">
+    <div class="panel strengths">
+      <h2>&#x2713;&ensp;Strengths</h2>
+      <ul>
+        <li>Exceptionally clean experimental methodology with causal interventions and decoupled analysis</li>
+        <li>Diagnosis-first approach provides genuine mechanistic insight, not just empirical gains</li>
+        <li>NSR is minimal and theoretically grounded &mdash; adds negligible computational overhead</li>
+        <li>Comprehensive evaluation across three scales and two architectures (dense + MoE)</li>
+        <li>Strong ablation design isolating rescue from push-out, and stochastic from deterministic</li>
+      </ul>
+    </div>
+    <div class="panel limitations">
+      <h2>&#x2717;&ensp;Limitations</h2>
+      <ul>
+        <li>Only tested on Qwen models (7B, 8B, 30B-A3B) &mdash; generalizability unknown</li>
+        <li>Single hyperparameter &delta; introduced without systematic tuning guidance</li>
+        <li>No comparison beyond GPQA/MMLU-Pro (no coding, instruction-following, etc.)</li>
+        <li>Does not address interaction with MoE routing dynamics</li>
+        <li>Theory covers expectation only; no variance or convergence guarantees</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- Questions -->
+  <div class="questions">
+    <h2>Questions for Further Exploration</h2>
+    <ol>
+      <li>How does NSR interact with learned value functions (standard PPO) rather than group-relative advantages?</li>
+      <li>Can the rescue window &delta; be adaptively tuned during training rather than fixed?</li>
+      <li>Does NSR provide benefits in multi-turn RLVR or agentic settings beyond single-pass reasoning?</li>
+      <li>What is the interaction between NSR and curriculum or difficulty-aware training strategies?</li>
+      <li>Could the judge-vs-executor diagnostic framework reveal similar bottlenecks in DPO or other GRPO variants?</li>
+    </ol>
+  </div>
+
+  <!-- Footer -->
+  <div class="footer">
+    <span>NSR &middot; Clipping Bottleneck &middot; 2026-05-21</span>
+    <a href="2605.22703.html">&#x2197;&ensp;Markdown source</a>
+  </div>
+
+</div>
+</body>
+</html>

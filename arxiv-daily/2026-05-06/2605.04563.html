@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RangeGuard: Efficient, Bounded Approximate Error Correction for Reliable DNNs</title>
+<style>
+:root { --paper:#fafafa; --ink:#1a1a1a; --muted:#555; --accent:#1a5276; --line:#ddd; --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif; --serif:Georgia,"Noto Serif SC",serif; }
+body { font-family:var(--serif); background:var(--paper); color:var(--ink); line-height:1.6; margin:0; padding:0; }
+.container { max-width:min(95vw, 760px); margin:0 auto; padding:28px 20px 60px; }
+.topnav { position:fixed; top:12px; left:14px; z-index:50; font-family:var(--sans); font-size:.75rem; background:var(--paper); border:1px solid var(--line); padding:5px 10px; border-radius:999px; }
+.topnav a { color:var(--muted); text-decoration:none; font-weight:600; }
+.topnav a:hover { color:var(--accent); }
+h1 { font-size:1.6rem; margin:2.2rem 0 1rem; border-bottom:2px solid var(--accent); padding-bottom:.3rem; }
+h2 { font-size:1.3rem; margin:1.8rem 0 .8rem; color:var(--accent); }
+h3 { font-size:1.1rem; margin:1.4rem 0 .6rem; }
+p { margin:.8rem 0; }
+.authors { font-style:italic; color:var(--muted); margin-top:-.4rem; }
+.meta { font-family:var(--sans); font-size:.82rem; color:var(--muted); margin:.2rem 0; }
+a { color:var(--accent); text-decoration:none; }
+a:hover { text-decoration:underline; }
+blockquote { border-left:3px solid var(--accent); margin:1rem 0; padding:.2rem 0 .2rem 1rem; color:var(--muted); font-style:italic; }
+code { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; background:#f0f0f0; padding:2px 5px; border-radius:3px; font-size:.9em; }
+pre { background:#f5f5f5; padding:14px; overflow-x:auto; border-radius:4px; border:1px solid var(--line); }
+pre code { background:transparent; padding:0; }
+ul,ol { margin:.6rem 0; padding-left:1.5rem; }
+li { margin:.25rem 0; }
+table { border-collapse:collapse; width:100%; margin:1rem 0; font-family:var(--sans); font-size:.9rem; }
+th,td { border:1px solid var(--line); padding:6px 10px; text-align:left; }
+th { background:#f0f0f0; }
+hr { border:none; border-top:1px solid var(--line); margin:1.5rem 0; }
+.note { font-family:var(--sans); font-size:.78rem; color:var(--muted); border-top:1px solid var(--line); margin-top:2rem; padding-top:1rem; }
+@media (max-width: 600px) { .container { padding:22px 14px 40px; } h1 { font-size:1.35rem; } }
+</style>
+</head>
+<body>
+<div class="topnav"><a href="./index.html">← Today's digest</a></div>
+<div class="container">
+<h1>RangeGuard: Efficient, Bounded Approximate Error Correction for Reliable DNNs</h1>
+<p class="meta">arXiv: 2605.04563v1</p>
+<p class="meta">Date: 2026-05-06</p>
+<p class="meta"><a href="https://arxiv.org/abs/2605.04563v1">https://arxiv.org/abs/2605.04563v1</a></p>
+<blockquote><strong>一句话总结：</strong> RangeGuard 提出一种以"值域"为保护粒度的近似纠错框架，通过将每个值映射为紧凑的 Range Identifier (RID) 并用现有 16 位 ECC 预算保护这些元数据，使 GPU/HBM 在比特错误率高达 1e-5 时仍能保持 LLM (Llama-3.2-1B) 接近无错基线的精度，每块可容忍 64+ 比特的错误。</blockquote>
+<blockquote><strong>TL;DR:</strong> RangeGuard reallocates the existing 16-bit ECC budget per 256-bit HBM block from per-bit correction to compact per-value Range Identifiers (RIDs), enabling bounded approximate correction that tolerates 64+ corrupted data bits per block and preserves near-baseline DNN/LLM accuracy at BER = 1e-6 to 1e-5 with negligible (0.008%) IPC overhead.</blockquote>
+<h2>核心贡献</h2>
+<ul>
+<li>提出 <strong>RangeGuard</strong>：一种以元数据（每值的 Range Identifier, RID）为中心的纠错框架，不再保护原始比特，而是保护"该值落在哪个数值区间"这一抽象信息，从而把有限冗余集中用在语义有害的"跨区间"错误上。</li>
+<li>系统分析 DRAM 比特翻转如何通过 BF16 的指数位双指数级放大为极端离群值，定量解释为什么 LLM（注意力/残差/归一化路径）比 CNN 更脆弱。</li>
+<li>设计基于 MAE（平均绝对误差）最优的 RangeMap 构造算法，并给出两种 ECC 配置（基于 RS(10,8) 的 8b SSC 和基于 RS(12,8) 的 4b DSC），均匹配现有 HBM 16 位/256-bit 预算。</li>
+<li>通过多 RangeMap 并行 + 基于地址位的 Map Tag 选择，支持 FP32/BF16/FP8/INT8 等异构格式与不同张量分布的灵活保护。</li>
+<li>完整的 SystemVerilog RTL 评估（28nm, 1GHz）：硬件开销约 11,100 µm² (8b SSC)，在 Accel-Sim V100 模拟器上 11 个 Rodinia/Parboil 工作负载中 IPC 损失仅 0.008%。</li>
+</ul>
+<h2>Key Contributions</h2>
+<ul>
+<li><strong>Metadata-centric protection</strong>: Instead of protecting raw bits, RangeGuard encodes each value's numeric interval as a compact Range Identifier (RID) and ECC-protects the RID, so scarce parity is spent on errors that <em>change ranges</em> rather than benign intra-range perturbations.</li>
+<li><strong>Quantitative fault-to-accuracy analysis</strong>: Characterizes how single bit flips in BF16 exponent bits induce double-exponentially scaled outliers (up to ~1.7e38), and shows LLMs collapse 2–3 orders of magnitude earlier in BER than CNNs due to transformer amplification pathways.</li>
+<li><strong>MAE-optimal RangeMap construction</strong>: Formulates range-table design as L1-optimal scalar quantization over the exponent distribution of zero-mean Gaussian weights/activations, yielding a globally optimal partition.</li>
+<li><strong>Two RS-based ECC configurations within the existing 16-bit/256-bit HBM budget</strong>: 8b SSC (RS(10,8), single-symbol correction with finer 8-bit RIDs) and 4b DSC (RS(12,8), double-symbol correction with coarser 4-bit RIDs), plus multi-format support via Map Tags carried in unused upper physical-address bits.</li>
+<li><strong>Hardware + system evaluation</strong>: Synthesized RTL in UMC 28nm @ 1 GHz; evaluated on Accel-Sim (V100) across 11 Rodinia/Parboil workloads with negligible 0.008% mean IPC loss; preserves CNN/LLM accuracy up to BER = 1e-6 to 1e-5.</li>
+</ul>
+<h2>Methodology</h2>
+<p>RangeGuard sits inside the GPU memory controller and replaces conventional bit-precise SEC-DED / SSC ECC. On a write, each value (e.g., 32-bit FP32 or 16-bit BF16) is first mapped through a precomputed <em>RangeMap</em> into a small RID (4 or 8 bits) representing which interval its magnitude falls into. The eight RIDs in a 256-bit block are then protected by a Reed-Solomon code over k-bit symbols — RS(10,8) with 8-bit symbols (8b SSC) or RS(12,8) with 4-bit symbols (4b DSC) — producing exactly 16 parity bits, matching the standard HBM 6.25% redundancy budget. The explicit RIDs are <em>discarded</em> after parity is computed; only the original value bits and the RID parity are stored in DRAM.</p>
+<p>On a read, the controller regenerates candidate RIDs from the (possibly corrupted) fetched value, then runs RS decoding using these regenerated RIDs together with stored parity. <em>Inter-range</em> errors (sign flips, exponent flips, large mantissa shifts) that move a value into a different RID are detected and corrected, after which the corrupted value is replaced by the <em>representative value</em> of its corrected range, bounding the post-repair error by the range width. <em>Intra-range</em> errors (lower mantissa flips that don't change the RID) pass through silently and uncorrected, since they're considered benign.</p>
+<p>The RangeMap is constructed by treating the BF16 exponent distribution of N(0, σ²) data as a probability mass function and partitioning the 256-value exponent space into K contiguous intervals that minimize MAE under exponent-aware reconstruction (closed form via L1-optimal quantization, with normalized thresholds {-0.8217, 0, 0.8217} and representatives {±1.2657, ±0.3778} for K=4). Multiple RangeMaps coexist for different layers/tensors, selected via a Map Tag embedded in unused upper physical-address bits (similar to address-based ECC selection).</p>
+<p>Evaluation uses PyTorch fault injection on ResNet-50 (ImageNet-1K), Llama-3.1-8B and Llama-3.2-1B (ARC-Easy via lm-evaluation-harness), with 100 Monte-Carlo trials per (model, BER) point. Fault modes (SE, DAE, 16E, 32E, FC) are drawn from a DDR5 fault classification study and weighted by realistic flipped-bit counts. Hardware cost is measured by SystemVerilog synthesis with Synopsys Design Compiler in UMC 28nm @ 1 GHz; system performance via the Accel-Sim cycle-level GPU simulator modeling an NVIDIA V100.</p>
+<h2>Results & Highlights</h2>
+<ul>
+<li><strong>Error coverage (Table III)</strong>: RG 8b SSC corrects 100% of all single faults except FC and 94.5% of SE+SE double faults; RG 4b DSC extends correct/bounded coverage to two simultaneous faults (e.g., SE+32E corrected at 75%). Misdetection rate for FC is ~2e-3%.</li>
+<li><strong>DNN accuracy (Figure 8)</strong>: ResNet-50 and Llama-3.1-8B maintain near-baseline accuracy up to BER = 1e-7 with RangeGuard; Llama-3.2-1B remains robust up to BER = 1e-6, vs. unprotected models that collapse around BER = 1e-10 to 1e-8. Weight Nulling and VAPI baselines stay close to the no-protection curve at moderate BERs.</li>
+<li><strong>Configuration trade-off</strong>: 8b SSC outperforms 4b DSC on ResNet and Llama-3.2 (finer 16-entry RangeMap → more accurate approximate recovery); 4b DSC wins on Llama-3.1 thanks to stronger overlapping-fault tolerance.</li>
+<li><strong>Hardware overhead (Table V)</strong>: 8b SSC encoder + decoder = 11,100 µm² (≈21,900 NAND2 equivalents, ~87,600 transistors); 4b DSC = 5,000 µm². Total power ≈ 1.15 mW. This is ~5e-7 of a 208B-transistor Blackwell die.</li>
+<li><strong>System performance (Figure 9)</strong>: 1-cycle additional read latency causes only 0.008% geomean IPC drop across 11 Rodinia/Parboil workloads; worst case <0.05%.</li>
+<li><strong>Sensitivity (Figure 10)</strong>: σ choice matters — both excessively small and large σ degrade accuracy; global mapping (single σ=4, 4-bit RID) achieves comparable resilience to per-tensor Lloyd-Max mapping at BER = 1e-5 without the storage overhead.</li>
+</ul>
+<h2>Authors & Credibility</h2>
+<p>All four authors are at Sungkyunkwan University (Suwon, South Korea), spanning Semiconductor Convergence Engineering and Electrical/Computer Engineering. The senior author <strong>Jungrae Kim</strong> is well-known in the DRAM reliability / ECC community, with prior work on Bamboo ECC, All-Inclusive ECC, and Unity ECC (cited as references [8]–[10] of the paper itself). The team's track record in symbol-based ECC for DRAM lends substantial credibility to the hardware design and ECC analysis. The DNN-accuracy methodology relies on standard tools (PyTorch, lm-evaluation-harness, Accel-Sim), which is appropriate but not novel. No conflict-of-interest or industry sponsor is disclosed in the visible text.</p>
+<h2>Critical Assessment</h2>
+<p><strong>Novelty (moderate-to-high)</strong>: The "protect metadata, not bits" framing is genuinely new in the DRAM-ECC literature. Prior academic ECC for DNNs (Weight Nulling, VAPI, PoP-ECC, Ranger) either still works at the bit level or constrains values post-hoc; RangeGuard's idea of substituting representatives from a <em>codebook of ranges</em> is closer to vector quantization than to ECC, and combining it with RS(12,8)/RS(10,8) inside the existing 16-bit budget is a clean engineering insight. However, range clipping for DNN robustness itself is not new (Ranger [41], range restriction [41]); the contribution lies primarily in unifying it with standard ECC machinery.</p>
+<p><strong>Rigor (mostly solid, with caveats)</strong>: Fault-mode weighting from a DDR5 study, 1e9 Monte-Carlo trials for coverage analysis, 100 trials per accuracy point, and RTL synthesis at 28nm together form a credible evaluation. However: (i) only three models are evaluated, all small (1B–8B parameters); behavior on 70B+ LLMs or mixture-of-experts is extrapolated. (ii) Accuracy variance bars in Figure 8 are large for LLMs even with RangeGuard at BER ≥ 1e-6, suggesting the "preserves accuracy" claim has meaningful tail risk. (iii) The MAE-optimal RangeMap assumes near-Gaussian value distributions; activations in modern LLMs (especially attention) are heavy-tailed and the paper's own σ-sensitivity analysis shows accuracy drops if σ is mis-specified.</p>
+<p><strong>Reproducibility (weak)</strong>: No code or RTL release is mentioned in the visible text. While the algorithms are clearly described, faithfully reproducing the hardware overhead numbers and Accel-Sim configuration would require significant engineering effort. The PyTorch fault-injection methodology references prior frameworks but doesn't release a unified artifact.</p>
+<p><strong>Significance (high if claims hold)</strong>: HBM error rates are a real and growing problem (Meta's 16K-H100 cluster reportedly saw uncorrectable errors every ~18 hours; Huawei reports 35 errors/device/month for HBM2). A drop-in replacement that fits within existing parity budgets and extends usable BER by 2–4 orders of magnitude would be very impactful for large-scale training. The 0.008% IPC overhead is genuinely negligible.</p>
+<p><strong>Red flags / things to watch</strong>:</p>
+<ol>
+<li>The bounded-approximate-correction philosophy means RangeGuard <em>intentionally produces wrong values</em> (the representative). For training (vs. inference), accumulated representative substitutions could bias gradients in non-obvious ways — the paper only evaluates inference.</li>
+<li>Map Tag stored in upper physical-address bits is clever but couples ECC behavior to OS/driver address translation; security/isolation implications across processes/VMs are unaddressed.</li>
+<li>The "64+ bits per block" claim is correct only for inter-range fault patterns that map cleanly to ≤t RS symbols; arbitrary 64-bit bursts that cross multiple symbols can still produce DUE/SDC.</li>
+<li>No comparison to runtime techniques like activation clipping (Ranger) integrated with conventional ECC — the baseline space could be richer.</li>
+<li>arxiv id 2605.04563 dated 2026-05-06 — this is a very recent submission; no peer review yet.</li>
+</ol>
+<h2>Strengths</h2>
+<ul>
+<li>Crisp, well-motivated problem statement grounded in fleet-scale HBM data (Meta, Huawei, ByteDance).</li>
+<li>Strong fault-injection methodology with realistic DDR5 fault-mode weighting rather than uniform single-bit assumptions.</li>
+<li>Tight hardware/software co-design that preserves the <em>exact</em> 16-bit/256-bit redundancy budget — easy to argue for adoption.</li>
+<li>Clear quantification of why LLMs are more fragile than CNNs (Section III-C), which is itself a useful contribution beyond the proposed scheme.</li>
+<li>Multi-format support via parallel RangeMaps + Map Tags is practical and matches reality of mixed-precision DNN inference.</li>
+</ul>
+<h2>Limitations</h2>
+<ul>
+<li>Inference-only evaluation; training-time robustness, optimizer state corruption, and gradient accumulation under representative substitution are not analyzed.</li>
+<li>Only three models tested; scaling to 70B+ LLMs, MoE, and long-context attention regimes is unverified.</li>
+<li>Distribution assumption (zero-mean Gaussian) is strong; outlier-heavy activation distributions in modern LLMs may need per-layer or learned RangeMaps that increase area.</li>
+<li>No release of code/RTL artifacts; reproducibility limited.</li>
+<li>Accel-Sim with V100 is dated for current LLM workloads; results on H100/Blackwell with HBM3e and different ECC paths may differ.</li>
+<li>Variance bars at BER ≥ 1e-6 for LLMs are wide — "robust" applies to the median, not all trials.</li>
+</ul>
+<h2>Relevance</h2>
+<p>与你关注的 LLM 可靠性/可解释性方向高度相关：本文系统量化了 BF16 指数位翻转如何在 transformer 层中被注意力/残差/归一化路径放大为 LLM 推理的灾难性失败，这一机制对理解 LLM 训练稳定性和数值脆弱性有直接借鉴意义。其"以语义区间而非比特"的保护思路也可启发对模型内部表示鲁棒性的研究。</p>
+<h2>Questions for Further Exploration</h2>
+<ul>
+<li>Does RangeGuard's representative-substitution strategy bias gradients during training, and would training-time deployment require larger range tables or different objectives (e.g., MSE rather than MAE)?</li>
+<li>How does the scheme behave on heavy-tailed activation distributions (e.g., attention outputs in LLMs known to have outlier features), and would learned RangeMaps from a calibration set outperform the Gaussian-MAE-optimal construction?</li>
+<li>Can RangeGuard be combined with quantization-aware training so that the model itself converges toward range-friendly distributions, further reducing post-substitution error?</li>
+<li>What are the security/isolation implications of storing Map Tags in upper physical-address bits when multiple processes or VMs share GPU memory?</li>
+<li>How does the bounded-approximate-correction interact with deterministic-replay or numerical-reproducibility requirements in scientific computing or RLHF pipelines?</li>
+<li>For very large LLMs (70B–400B), does the per-block (256-bit) granularity remain the right unit, or should ranges be defined at the tensor/layer level with different ECC budgets?</li>
+</ul>
+<p class="note">Generated from Markdown summary. Full paper: <a href="https://arxiv.org/abs/2605.04563v1">arXiv:2605.04563v1</a></p>
+</div>
+</body>
+</html>

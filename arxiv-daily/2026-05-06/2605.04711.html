@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Budget-aware Auto Optimizer Configurator</title>
+<style>
+:root { --paper:#fafafa; --ink:#1a1a1a; --muted:#555; --accent:#1a5276; --line:#ddd; --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif; --serif:Georgia,"Noto Serif SC",serif; }
+body { font-family:var(--serif); background:var(--paper); color:var(--ink); line-height:1.6; margin:0; padding:0; }
+.container { max-width:min(95vw, 760px); margin:0 auto; padding:28px 20px 60px; }
+.topnav { position:fixed; top:12px; left:14px; z-index:50; font-family:var(--sans); font-size:.75rem; background:var(--paper); border:1px solid var(--line); padding:5px 10px; border-radius:999px; }
+.topnav a { color:var(--muted); text-decoration:none; font-weight:600; }
+.topnav a:hover { color:var(--accent); }
+h1 { font-size:1.6rem; margin:2.2rem 0 1rem; border-bottom:2px solid var(--accent); padding-bottom:.3rem; }
+h2 { font-size:1.3rem; margin:1.8rem 0 .8rem; color:var(--accent); }
+h3 { font-size:1.1rem; margin:1.4rem 0 .6rem; }
+p { margin:.8rem 0; }
+.authors { font-style:italic; color:var(--muted); margin-top:-.4rem; }
+.meta { font-family:var(--sans); font-size:.82rem; color:var(--muted); margin:.2rem 0; }
+a { color:var(--accent); text-decoration:none; }
+a:hover { text-decoration:underline; }
+blockquote { border-left:3px solid var(--accent); margin:1rem 0; padding:.2rem 0 .2rem 1rem; color:var(--muted); font-style:italic; }
+code { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; background:#f0f0f0; padding:2px 5px; border-radius:3px; font-size:.9em; }
+pre { background:#f5f5f5; padding:14px; overflow-x:auto; border-radius:4px; border:1px solid var(--line); }
+pre code { background:transparent; padding:0; }
+ul,ol { margin:.6rem 0; padding-left:1.5rem; }
+li { margin:.25rem 0; }
+table { border-collapse:collapse; width:100%; margin:1rem 0; font-family:var(--sans); font-size:.9rem; }
+th,td { border:1px solid var(--line); padding:6px 10px; text-align:left; }
+th { background:#f0f0f0; }
+hr { border:none; border-top:1px solid var(--line); margin:1.5rem 0; }
+.note { font-family:var(--sans); font-size:.78rem; color:var(--muted); border-top:1px solid var(--line); margin-top:2rem; padding-top:1rem; }
+@media (max-width: 600px) { .container { padding:22px 14px 40px; } h1 { font-size:1.35rem; } }
+</style>
+</head>
+<body>
+<div class="topnav"><a href="./index.html">← Today's digest</a></div>
+<div class="container">
+<h1>Budget-aware Auto Optimizer Configurator</h1>
+<p class="meta">arXiv: 2605.04711v1</p>
+<p class="meta">Date: 2026-05-06</p>
+<p class="meta"><a href="https://arxiv.org/abs/2605.04711v1">https://arxiv.org/abs/2605.04711v1</a></p>
+<blockquote><strong>一句话总结：</strong> 该论文提出 BAOC，一种基于梯度统计量与混合整数线性规划 (MILP) 的预算感知优化器配置器，把模型按参数块切分后为每块分配最合适的优化器机制和精度（如是否启用动量、是否量化），从而在显存/时间预算约束下显著降低优化器状态显存占用同时保持训练质量。</blockquote>
+<blockquote><strong>TL;DR:</strong> BAOC reframes optimizer-state memory savings as a constrained allocation problem: it partitions a model into N blocks, samples sparse gradient streams to compute interpretable risk metrics (anisotropy, direction stability, distortion, structure residual, precision sensitivity), then solves a small MILP to assign each block a tailored (adaptive scaling, momentum, weight decay, factorization, bit-width) configuration that minimizes mismatch risk under user-specified memory and update-time budgets.</blockquote>
+<h2>核心贡献</h2>
+<ul>
+<li>将"逐块优化器配置"形式化为一个数据驱动的资源分配问题（小规模 MILP），目标是最小化梯度行为与所选机制之间的"失配风险"，约束是 StateMem 显存预算 $B_{\text{mem}}$ 和相对 AdamW16 的更新时间预算 $B_{\text{time}}$。</li>
+<li>设计了一套可解释的、轻量的块级统计指标：二阶矩各向异性（quantile ratio）、方向稳定性 + 信噪比、自适应缩放对方向的扭曲度、二阶矩的秩-1 近似残差、低精度量化下的 cosine 相似度，对应是否应该保留 adaptive scaling、momentum、decoupled weight decay、factorization 以及合适的 bit-width。</li>
+<li>候选配置空间为 $(y_a, y_m, y_d, y_f, b) \in \{0,1\}^4 \times \{32,16,8\}$，覆盖 AdamW、Adam、SGD(M)、SGDW(M)、Adafactor 等机制以 8/16/32 比特实现，并支持用户通过硬约束/软偏好注入领域先验。</li>
+<li>在 ViT/ImageNet、GPT2-small、T5-base、Diffusion UNet、Llama-3.2 1B/3B 等视觉、语言、扩散任务上验证：在 $\rho=0.5$ 即一半 AdamW16 状态显存预算下，BAOC 可达到与 Adam-mini、Muon、COSMOS、GaLore、AdamW8、SPAM 等多种基线相当甚至更优的 PPL/Loss，并显著降低 StateMem。</li>
+</ul>
+<h2>Key Contributions</h2>
+<ul>
+<li>Formulates block-wise optimizer configuration as a constrained MILP that assigns each parameter block a tailored mechanism + precision tuple, in contrast to prior work that applies one global update rule and bit-width to the entire model.</li>
+<li>Introduces an interpretable, lightweight block-level metrics suite — second-moment anisotropy (log of 0.9/0.1 quantile ratio), direction stability with SNR, gradient-direction distortion under preconditioning, rank-1 structural residual of the second-moment matrix, and precision sensitivity via cosine similarity between FP32 and quantized update directions — and converts each metric into a standardized risk score that maps directly to the relevance of a specific optimizer mechanism.</li>
+<li>Defines an aggregation penalty $\text{Agg}(c) = (1-y_a)+(1-y_m)+(1-y_d)+y_f+32/b-1$ to discourage overly aggressive compression when budget allows, with the final per-block risk $\Phi_{i,c} = R_i(c;z_i) + \gamma\,\text{Agg}(c)$ ($\gamma=0.1$ by default), solved by Gurobi-style MILP in <1s.</li>
+<li>Provides a structure-guided block-partition strategy that respects model boundaries plus a minimum-block-size constraint, and exposes hard/soft human constraints ($\mathcal{C}_{\text{risk}}$, $\mathcal{C}_{\text{pref}}$) for domain priors.</li>
+<li>Demonstrates competitive memory–quality trade-offs across vision (ViT), language (GPT2-small, T5-base, Llama-3.2 1B/3B), and diffusion (UNet) workloads against AdamW8/16, Adam-mini, GaLore variants, Adafactor, SPAM, Muon, and COSMOS.</li>
+</ul>
+<h2>Methodology</h2>
+<p>BAOC has four stages packaged in Algorithm 1:</p>
+<ol>
+<li><strong>Warmup & sparse sampling.</strong> Run a warmup phase with a baseline optimizer $\mathcal{O}_{\text{base}}$ (AdamW16). For each block $i$ of $d_i$ parameters, sample a fixed coordinate subset $\Omega_i$ with $|\Omega_i| = \lceil sd_i \rceil$ ($s = 0.1\%$ default) and collect sparse gradient streams $g_{i,t}^{\Omega}$. Sampled indices are fixed after the first draw to keep EMAs consistent.</li>
+</ol>
+<ol>
+<li><strong>Block-level metrics.</strong> From the sparse stream, BAOC maintains EMA first/second moments and computes five statistics per block:</li>
+</ol>
+<ul>
+<li>Anisotropy $A_{i,t} = \log\big(Q_{0.9}(\hat v_{i,t})+\varepsilon\big)/\big(Q_{0.1}(\hat v_{i,t})+\varepsilon\big)$</li>
+<li>Direction stability $\bar\rho_{i,t}$ via cosine of consecutive gradient streams + signal-to-noise ratio $\rho_{i,t}^{\text{snr}} = \|\hat m_{i,t}\|^2/(\|\hat v_{i,t}\|_1+\varepsilon)$</li>
+<li>Distortion $C_{i,t}$ measuring how much adaptive preconditioning bends the update direction relative to parameter weights</li>
+<li>Structure residual $F_{i,t}$ — Frobenius distance between the second-moment matrix $S_{i,t}$ and its best rank-1 outer-product approximation (probes whether Adafactor-style factorization is safe)</li>
+<li>Precision sensitivity $Q_{i,t}(b) = \langle u^{32}, u^b\rangle/(\|u^{32}\|\|u^b\|+\varepsilon)$ for $b\in\{8,16,32\}$ via simulated quantized updates</li>
+</ul>
+<ol>
+<li><strong>Risk construction.</strong> Metrics are converted to standardized scores $s_{A,i}, s_{M,i}, \tilde C_i, s_{F,i}, \ell_{Q,i}(b) = -\log(Q_{i,t}(b))$ and combined linearly:</li>
+</ol>
+<p>$$R_i(c;z_i) = s_{A,i}(1-y_a) + s_{M,i}(1-y_m) + \tilde C_i(1-y_d) + s_{F,i} y_f + \ell_{Q,i}(b)$$</p>
+<p>Each term penalizes turning off a mechanism whose corresponding metric says "this block needs it," or quantizing past what cosine fidelity supports.</p>
+<ol>
+<li><strong>MILP allocation.</strong> With binary variables $x_{i,c}\in\{0,1\}$:</li>
+</ol>
+<p>$$\min_x \sum_i \sum_c \Phi_{i,c} x_{i,c}$$</p>
+<p>subject to one configuration per block, $\sum_{i,c} M_{i,c} x_{i,c} \le B_{\text{mem}}$, and average relative update time $\frac{1}{N}\sum r_{i,c} x_{i,c} \le B_{\text{time}}$ (default 1.3× AdamW16 budget). The state-memory cost $M_{i,c}$ excludes parameters/gradients/activations and counts only persistent optimizer-owned state buffers, with $b(s)\in\{4,2,1\}$ bytes per element.</p>
+<p>The selected configuration is instantiated once at the end of warmup; online re-planning is left as future work because state migration is non-trivial. Hard constraints zero out forbidden $x_{i,c}$; soft preferences subtract $\lambda_{\text{pref}}$ from the risk for favored configurations.</p>
+<h2>Results & Highlights</h2>
+<ul>
+<li><strong>Hardware:</strong> 3× NVIDIA RTX PRO 6000 Blackwell GPUs (96 GB each).</li>
+<li><strong>Fixed-budget allocation ($\rho=0.5$):</strong> Across T5-base and Llama-3.2 workloads, BAOC$_{0.5}$ matches or beats full-state AdamW16 PPL/loss while using ~half the optimizer-state memory; reported runtimes show no systematic wall-clock penalty.</li>
+<li><strong>Memory-budget sweep ($\rho \in \{0.3,...,1.2\}$):</strong> BAOC's allocation curve dominates or matches isolated baseline points across ViT image classification, Diffusion UNet training loss, and GPT-2 small on Alpaca/GSM8K (Figure 2). Authors caution that final task metric is not monotone in $\rho$ because the MILP minimizes a surrogate, not the validation metric directly.</li>
+<li><strong>Longer-schedule comparison (Table 1):</strong> GPT2-small/Alpaca — BAOC$_{0.5}$ achieves best test PPL 7.391 vs. AdamW16 7.442, Adam-mini 7.600, COSMOS 8.059, Muon 8.594, with StateMem of 235 MB vs. 475 MB for AdamW16/Adam-mini and 625–660 MB for Muon/COSMOS, and the lowest training time 182.0 min. GPT2-small/GSM8K — BAOC$_{0.5}$ best PPL 4.598. T5-base/Alpaca — BAOC$_{0.5}$ PPL 8.100 (best), 211 min, 378 MB. T5-base/GSM8K — Adam-mini wins on PPL (8.898 vs. BAOC 9.137) but BAOC uses less StateMem (357 vs. 756 MB) and the lowest time (22.8 min).</li>
+<li><strong>Solve cost:</strong> MILP has tens of variables and is solved by Gurobi in <1s; warmup-sampling overhead is negligible since metrics are computed once.</li>
+</ul>
+<h2>Authors & Credibility</h2>
+<ul>
+<li>All three authors (Kang Liu, Wei Peng, Jianchen Hu, corresponding) are affiliated with Xi'an Jiaotong University, School of Future Technology / School of Automation Science and Engineering.</li>
+<li>The team is not part of a recognized large-model training group (no Google/Meta/MS affiliation), and there is no evident track record of prior optimizer papers cited from this group. Work appears to be an academic-scale contribution rather than an industrial-scale optimizer release.</li>
+<li>Code is released anonymously at https://anonymous.4open.science/r/BAOC-45C6, consistent with double-blind submission.</li>
+<li>References cover the standard modern-optimizer canon (Adam, Adafactor, GaLore, Lion, Muon, Adam-mini, COSMOS, Shampoo/SOAP, SPAM), suggesting the authors have surveyed the field carefully.</li>
+</ul>
+<h2>Critical Assessment</h2>
+<p><strong>Novelty (moderate-high).</strong> Treating mechanism + precision allocation as a per-block constrained optimization with a learned-metric surrogate is genuinely a fresh framing — most prior memory-saving work fixes one mechanism (Adafactor, GaLore, AdamW8) globally. That said, block-wise heterogeneous treatment itself is not new (Adam-mini, layer-wise LARS/LAMB), and the MILP is small and standard; the originality lies more in the metric design and unification than in optimization machinery.</p>
+<p><strong>Rigor (mixed).</strong> Five interpretable risk metrics with explicit formulas and a clean MILP statement are commendable. However:</p>
+<ul>
+<li>The risk function is purely additive across mechanisms and blocks; the authors explicitly acknowledge interaction effects are ignored — this is a real modeling limitation since adaptive scaling and quantization have known coupling.</li>
+<li>The aggregation penalty $\gamma=0.1$ and $\lambda_{\text{pref}}$ are essentially unjustified hyperparameters; sensitivity is deferred to Appendix D.</li>
+<li>The "time budget" $B_{\text{time}}=1.3$ is an estimate-based proxy of one-step timing, not actual end-to-end wall-clock — fine as a guardrail but oversold if read as a true latency guarantee.</li>
+<li>Three-seed averaging is reported for Experiments 1–2 but the longer-schedule Table 1 reports single-run final values "due to substantially higher computational cost," which is a legitimate pragmatic choice but weakens the comparison there.</li>
+</ul>
+<p><strong>Reproducibility (good in principle).</strong> Anonymous code repo is provided. Hardware (3× RTX PRO 6000) is uncommon and exact reproduction may require non-trivial GPU resources for the longer-schedule runs. Block-partition heuristics are deferred to Appendix D.2 and the metric normalization details to Appendix A — important details live outside the main paper.</p>
+<p><strong>Significance (moderate).</strong> If BAOC's claim of ~50% optimizer-state memory at parity quality holds at larger scale, this is genuinely useful for memory-constrained training — but the largest model evaluated is Llama-3.2 3B, well below the regime (70B+) where memory pressure is most acute. The paper itself notes that integration with ZeRO/FSDP for sharded training is left as future work, which is exactly the regime where memory saving matters most.</p>
+<p><strong>Red flags / caveats.</strong></p>
+<ul>
+<li>arxiv id 2605.04711 with date 6 May 2026 is anomalous (claims a future date); presumably a typo for 2505.04711 or a placeholder. Worth verifying.</li>
+<li>No ablation in main text isolating the contribution of each of the five metrics individually — we cannot tell which metrics are doing the work versus which are decorative.</li>
+<li>The MILP output is sensitive to the metric standardization scheme; details are in the appendix and were not visible in the body.</li>
+<li>Final task PPL on T5-base/GSM8K is <em>not</em> the best (Adam-mini wins), and the authors frame this honestly as "BAOC is a fixed-budget allocator, not a method that must dominate every baseline" — this is intellectually fair but tempers the headline claim.</li>
+</ul>
+<h2>Strengths</h2>
+<ul>
+<li>Clean problem formulation: clear separation of metrics → risks → MILP, with all moving parts written down.</li>
+<li>Interpretable metrics with concrete formulas — much easier to debug than black-box neural-architecture-search-style allocators.</li>
+<li>Good breadth of workloads (vision/language/diffusion) and competitive comparison set including very recent (2025) optimizers like Muon, COSMOS, SPAM, Adam-mini.</li>
+<li>Honest discussion of limitations in Section 5: additive risk, no online replanning, scope at 1B–3B scale.</li>
+<li>MILP solve cost is genuinely negligible — the framework adds essentially zero training overhead beyond a one-time warmup.</li>
+<li>Hard/soft human-constraint hooks make it usable as a tool rather than a pure benchmark artifact.</li>
+</ul>
+<h2>Limitations</h2>
+<ul>
+<li>Additive risk model ignores cross-mechanism and cross-block interactions.</li>
+<li>No online state-migration / replanning during training; allocation is frozen after warmup.</li>
+<li>Time budget is a per-step proxy, not real wall-clock.</li>
+<li>Largest model evaluated is Llama-3.2 3B; behavior at 70B+ scale or with FSDP/ZeRO sharding is untested.</li>
+<li>The configuration space is hand-curated to AdamW/Adam/SGD(M)/SGDW(M)/Adafactor at {8,16,32} bits — newer Muon/Lion-style mechanisms are <em>compared</em> against but not <em>included</em> in the candidate set.</li>
+<li>Hyperparameters ($\gamma$, $\lambda_{\text{pref}}$, sampling ratio $s=0.1\%$, warmup length, EMA decays) need defaults; sensitivity analysis is in the appendix.</li>
+<li>Final task metric sometimes differs slightly from the surrogate-optimal allocation (e.g., T5-base/GSM8K), confirming that surrogate≠validation.</li>
+</ul>
+<h2>Relevance</h2>
+<p>该工作直接关系到 LLM 训练稳定性与显存可靠性：通过显式量化梯度方向稳定性、各向异性、量化敏感度等可解释统计量，并据此选择优化器机制，BAOC 提供了一种"按需保留昂贵机制"的方法论，对理解优化器状态如何与梯度行为耦合、以及减少长程训练 OOM 风险都有参考价值。其将优化器配置视为可分配资源的视角，对解释性导向的训练稳定性研究具有启发性。</p>
+<h2>Questions for Further Exploration</h2>
+<ul>
+<li>How do the five risk metrics rank in importance? An ablation removing each one and reporting both surrogate change and final PPL change would identify whether all five carry weight.</li>
+<li>Does the additive risk fail in identifiable cases? A targeted experiment where adaptive scaling + 8-bit quantization interact (e.g., extremely anisotropic blocks at low precision) could expose interaction effects.</li>
+<li>How does BAOC behave with FSDP/ZeRO sharding, where blocks may be split across devices and StateMem accounting changes? This is the regime where the method would matter most.</li>
+<li>Can the candidate configuration set be expanded to include Muon-style orthogonalized updates and Lion's sign-based updates, and do these enter the MILP solution for any block?</li>
+<li>How sensitive is the allocation to warmup length and sampling ratio $s$? If allocation flips when $s$ changes from 0.1% to 0.05%, the metrics may be too noisy to be robust.</li>
+<li>Online replanning with proper state inheritance — what migration scheme keeps quality intact when re-allocating mid-training?</li>
+<li>Does the structure-guided block partition matter? A study comparing model-structure boundaries vs. uniform-size blocks would clarify whether structural priors are doing real work.</li>
+<li>Can the MILP be replaced with a simpler greedy allocation at much larger N (e.g., 70B-parameter models with thousands of blocks) without quality loss?</li>
+</ul>
+<p class="note">Generated from Markdown summary. Full paper: <a href="https://arxiv.org/abs/2605.04711v1">arXiv:2605.04711v1</a></p>
+</div>
+</body>
+</html>

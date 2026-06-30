@@ -1,0 +1,658 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CDD — Contrastive Decoding Diffing</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Space+Grotesk:wght@300;400;500;600;700&display=swap');
+
+  :root {
+    --accent: #D4A843;
+    --accent-dim: rgba(212,168,67,0.15);
+    --accent-glow: rgba(212,168,67,0.35);
+    --bg: #0E0F13;
+    --bg-card: #16171D;
+    --bg-card-hover: #1C1E26;
+    --fg: #E8E6E1;
+    --fg-muted: #8A8982;
+    --fg-dim: #55544F;
+    --border: #2A2B31;
+    --danger: #C45B5B;
+    --success: #5BC472;
+    --radius: 6px;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html { font-size: 16px; scroll-behavior: smooth; }
+
+  body {
+    font-family: 'Space Grotesk', system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--fg);
+    line-height: 1.6;
+    min-height: 100vh;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  /* === TOP BAR === */
+  .topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 28px;
+    border-bottom: 1px solid var(--border);
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    background: rgba(14,15,19,0.92);
+    backdrop-filter: blur(12px);
+  }
+  .topbar a.back {
+    font-size: 0.82rem;
+    font-weight: 500;
+    letter-spacing: 0.02em;
+    color: var(--fg-muted);
+    transition: color 0.2s;
+  }
+  .topbar a.back:hover { color: var(--accent); text-decoration: none; }
+  .topbar .meta {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.72rem;
+    color: var(--fg-dim);
+    letter-spacing: 0.04em;
+  }
+
+  /* === HERO === */
+  .hero {
+    padding: 56px 28px 48px;
+    max-width: 1100px;
+    margin: 0 auto;
+    position: relative;
+  }
+  .hero::after {
+    content: '';
+    position: absolute;
+    bottom: 0;
+    left: 10%;
+    right: 10%;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--accent-dim), var(--accent), var(--accent-dim), transparent);
+  }
+  .hero-tag {
+    display: inline-block;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--accent);
+    background: var(--accent-dim);
+    border: 1px solid rgba(212,168,67,0.25);
+    padding: 4px 12px;
+    border-radius: 3px;
+    margin-bottom: 20px;
+  }
+  .hero h1 {
+    font-size: clamp(1.3rem, 2.2vw, 1.65rem);
+    font-weight: 600;
+    line-height: 1.35;
+    margin-bottom: 10px;
+  }
+  .hero h1 a { color: var(--fg); }
+  .hero h1 a:hover { color: var(--accent); text-decoration: none; }
+  .hero .authors {
+    font-size: 0.82rem;
+    color: var(--fg-muted);
+    margin-bottom: 32px;
+  }
+
+  /* KEY FINDING */
+  .key-finding {
+    background: linear-gradient(135deg, var(--accent-dim) 0%, rgba(212,168,67,0.06) 100%);
+    border: 1px solid rgba(212,168,67,0.3);
+    border-radius: var(--radius);
+    padding: 32px 36px;
+    position: relative;
+  }
+  .key-finding-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.62rem;
+    font-weight: 700;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 14px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .key-finding-label::before {
+    content: '';
+    width: 8px;
+    height: 8px;
+    background: var(--accent);
+    border-radius: 50%;
+    animation: pulse 2.5s ease-in-out infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; box-shadow: 0 0 0 0 var(--accent-glow); }
+    50% { opacity: 0.6; box-shadow: 0 0 12px 4px var(--accent-glow); }
+  }
+  .key-finding-text {
+    font-size: clamp(1.5rem, 3.2vw, 2.4rem);
+    font-weight: 700;
+    line-height: 1.2;
+    letter-spacing: -0.02em;
+    color: var(--fg);
+  }
+  .key-finding-text em {
+    font-style: normal;
+    color: var(--accent);
+  }
+
+  /* === GRID === */
+  .dashboard {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 36px 28px 60px;
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 18px;
+  }
+
+  .card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 24px;
+    transition: background 0.2s, border-color 0.2s;
+    opacity: 0;
+    animation: fadeUp 0.5s ease forwards;
+  }
+  .card:hover {
+    background: var(--bg-card-hover);
+    border-color: rgba(212,168,67,0.2);
+  }
+
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(12px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .card.span-2 { grid-column: span 2; }
+  .card.span-3 { grid-column: span 3; }
+
+  .card-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.6rem;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--fg-dim);
+    margin-bottom: 12px;
+  }
+  .card-label.accent { color: var(--accent); }
+
+  /* Stat cards */
+  .stat-row {
+    display: flex;
+    gap: 18px;
+    flex-wrap: wrap;
+  }
+  .stat {
+    flex: 1;
+    min-width: 100px;
+  }
+  .stat-value {
+    font-size: 2rem;
+    font-weight: 700;
+    letter-spacing: -0.03em;
+    line-height: 1.1;
+    color: var(--accent);
+  }
+  .stat-value.dim { color: var(--fg); }
+  .stat-desc {
+    font-size: 0.72rem;
+    color: var(--fg-muted);
+    margin-top: 4px;
+    line-height: 1.4;
+  }
+
+  /* Method steps */
+  .method-steps {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+  .method-step {
+    display: flex;
+    gap: 14px;
+    align-items: flex-start;
+  }
+  .step-num {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.65rem;
+    font-weight: 700;
+    color: var(--accent);
+    background: var(--accent-dim);
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    margin-top: 2px;
+  }
+  .step-body h4 {
+    font-size: 0.88rem;
+    font-weight: 600;
+    margin-bottom: 3px;
+  }
+  .step-body p {
+    font-size: 0.78rem;
+    color: var(--fg-muted);
+    line-height: 1.5;
+  }
+
+  /* Comparison bar */
+  .comparison {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+  .bar-group {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+  }
+  .bar-label {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.75rem;
+  }
+  .bar-label span:last-child {
+    font-family: 'JetBrains Mono', monospace;
+    font-weight: 700;
+    color: var(--accent);
+  }
+  .bar-label.dim-bar span:last-child { color: var(--fg-dim); }
+  .bar-track {
+    height: 6px;
+    background: rgba(255,255,255,0.05);
+    border-radius: 3px;
+    overflow: hidden;
+  }
+  .bar-fill {
+    height: 100%;
+    border-radius: 3px;
+    background: var(--accent);
+    transition: width 1s ease;
+    width: 0;
+  }
+  .bar-fill.dim { background: var(--fg-dim); }
+
+  /* Bullet lists */
+  .bullet-list {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .bullet-list li {
+    font-size: 0.8rem;
+    color: var(--fg);
+    line-height: 1.5;
+    padding-left: 16px;
+    position: relative;
+  }
+  .bullet-list li::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 8px;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--accent);
+  }
+  .bullet-list.muted li::before { background: var(--fg-dim); }
+  .bullet-list.warn li::before { background: var(--danger); }
+
+  /* Formula */
+  .formula {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.72rem;
+    color: var(--fg);
+    background: rgba(255,255,255,0.03);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 14px 16px;
+    margin-top: 8px;
+    overflow-x: auto;
+    line-height: 1.7;
+  }
+  .formula .hl { color: var(--accent); }
+
+  /* Fingerprinting highlight */
+  .fingerprint {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .fingerprint-chain {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    font-size: 0.78rem;
+  }
+  .fp-node {
+    background: var(--accent-dim);
+    border: 1px solid rgba(212,168,67,0.25);
+    border-radius: 4px;
+    padding: 6px 12px;
+    font-weight: 600;
+    font-size: 0.75rem;
+    white-space: nowrap;
+  }
+  .fp-arrow {
+    color: var(--fg-dim);
+    font-size: 1rem;
+  }
+
+  /* === FOOTER === */
+  .footer {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 0 28px 40px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-top: 1px solid var(--border);
+    padding-top: 20px;
+  }
+  .footer a {
+    font-size: 0.8rem;
+    font-weight: 500;
+  }
+  .footer .credits {
+    font-size: 0.68rem;
+    color: var(--fg-dim);
+  }
+
+  /* === RESPONSIVE === */
+  @media (max-width: 768px) {
+    .dashboard {
+      grid-template-columns: 1fr;
+    }
+    .card.span-2, .card.span-3 { grid-column: span 1; }
+    .stat-row { flex-direction: column; gap: 12px; }
+    .hero { padding: 36px 20px 32px; }
+    .key-finding { padding: 24px 20px; }
+    .topbar { padding: 12px 16px; }
+    .dashboard { padding: 24px 16px 40px; }
+    .footer { padding: 20px 16px 32px; flex-direction: column; gap: 10px; }
+  }
+
+  @media (min-width: 769px) and (max-width: 1024px) {
+    .dashboard {
+      grid-template-columns: repeat(2, 1fr);
+    }
+    .card.span-3 { grid-column: span 2; }
+  }
+
+  /* stagger animations */
+  .card:nth-child(1) { animation-delay: 0.05s; }
+  .card:nth-child(2) { animation-delay: 0.12s; }
+  .card:nth-child(3) { animation-delay: 0.19s; }
+  .card:nth-child(4) { animation-delay: 0.26s; }
+  .card:nth-child(5) { animation-delay: 0.33s; }
+  .card:nth-child(6) { animation-delay: 0.40s; }
+  .card:nth-child(7) { animation-delay: 0.47s; }
+  .card:nth-child(8) { animation-delay: 0.54s; }
+  .card:nth-child(9) { animation-delay: 0.61s; }
+  .card:nth-child(10) { animation-delay: 0.68s; }
+</style>
+</head>
+<body>
+
+<!-- TOP BAR -->
+<nav class="topbar">
+  <a href="./index.html" class="back">↩ Today's digest</a>
+  <span class="meta">2605.25902 · arXiv 2026</span>
+</nav>
+
+<!-- HERO -->
+<section class="hero">
+  <div class="hero-tag">Model Auditing / Training Data Extraction</div>
+  <h1><a href="https://arxiv.org/abs/2605.25902">Reading the Finetuning Prior: Verbatim Content Recovery via Contrastive Decoding Diffing</a></h1>
+  <div class="authors">Michał Brzozowski, Zuzanna Dubanowska, Enrico Cassano, Neo Christopher Chung · Samsung AI Center Warsaw · U. Turin · U. Warsaw</div>
+
+  <div class="key-finding">
+    <div class="key-finding-label">Key Finding</div>
+    <div class="key-finding-text">Grey-box logit access <em>outperforms</em> white-box methods — CDD recovers verbatim training data <em>~170× faster</em> with no weight access, no layer selection, and zero per-model tuning.</div>
+  </div>
+</section>
+
+<!-- DASHBOARD GRID -->
+<section class="dashboard">
+
+  <!-- Card 1: Core Stats -->
+  <div class="card span-3">
+    <div class="card-label accent">Performance at a Glance</div>
+    <div class="stat-row">
+      <div class="stat">
+        <div class="stat-value" data-target="16" data-suffix="/20">0/20</div>
+        <div class="stat-desc">organism×model pairs with mean score ≥ 4 (CDD)</div>
+      </div>
+      <div class="stat">
+        <div class="stat-value dim" data-target="2.42">0</div>
+        <div class="stat-desc">ADL baseline mean score across all 20 pairs</div>
+      </div>
+      <div class="stat">
+        <div class="stat-value" data-target="170" data-suffix="×">0×</div>
+        <div class="stat-desc">faster end-to-end than ADL (1B–2B models)</div>
+      </div>
+      <div class="stat">
+        <div class="stat-value" data-target="690" data-suffix="×">0×</div>
+        <div class="stat-desc">less storage overhead (sub-MB vs 117–490 MB)</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Card 2: Method -->
+  <div class="card span-2">
+    <div class="card-label accent">How CDD Works</div>
+    <div class="method-steps">
+      <div class="method-step">
+        <div class="step-num">1</div>
+        <div class="step-body">
+          <h4>The Simulator</h4>
+          <p>Bypass the chat template to run the model in raw next-token-prediction mode, surfacing the finetuning prior without conversational anchoring.</p>
+        </div>
+      </div>
+      <div class="method-step">
+        <div class="step-num">2</div>
+        <div class="step-body">
+          <h4>The Void</h4>
+          <p>Use maximally vague prefills — "", "The", "In", "A", "It" — placing the model in high-entropy states where the finetuning signal dominates. Zero domain knowledge required.</p>
+        </div>
+      </div>
+      <div class="method-step">
+        <div class="step-num">3</div>
+        <div class="step-body">
+          <h4>Contrastive Decoding</h4>
+          <p>Amplify finetuning signal by contrasting logit distributions between finetuned and base models at each decoding step.</p>
+        </div>
+      </div>
+    </div>
+    <div class="formula">
+      log p<sub>CDD</sub>(x<sub>t</sub> | x<sub>&lt;t</sub>) ∝ <span class="hl">(1 + β)</span> · log p<sub>ft</sub>(x<sub>t</sub>) − <span class="hl">β</span> · log p<sub>base</sub>(x<sub>t</sub>)<br>
+      with adaptive plausibility: p<sub>ft</sub> ≥ <span class="hl">α</span> · max<sub>w</sub> p<sub>ft</sub>(w) &nbsp; · &nbsp; defaults: β=1.0, α=0.1
+    </div>
+  </div>
+
+  <!-- Card 3: CDD vs ADL comparison -->
+  <div class="card">
+    <div class="card-label accent">CDD vs ADL</div>
+    <div class="comparison">
+      <div class="bar-group">
+        <div class="bar-label"><span>CDD mean score</span><span>≥ 4.0</span></div>
+        <div class="bar-track"><div class="bar-fill" data-width="82"></div></div>
+      </div>
+      <div class="bar-group">
+        <div class="bar-label dim-bar"><span>ADL mean score</span><span>2.42</span></div>
+        <div class="bar-track"><div class="bar-fill dim" data-width="48"></div></div>
+      </div>
+      <div class="bar-group">
+        <div class="bar-label"><span>CDD speed (1B)</span><span>17s</span></div>
+        <div class="bar-track"><div class="bar-fill" data-width="95"></div></div>
+      </div>
+      <div class="bar-group">
+        <div class="bar-label dim-bar"><span>ADL speed (1B)</span><span>2,906s</span></div>
+        <div class="bar-track"><div class="bar-fill dim" data-width="8"></div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Card 4: Model Coverage -->
+  <div class="card">
+    <div class="card-label">Models Tested</div>
+    <ul class="bullet-list">
+      <li>Gemma-3-1B</li>
+      <li>LLaMA-3.2-1B</li>
+      <li>Qwen3-1.7B</li>
+      <li>Qwen3-32B</li>
+    </ul>
+    <div style="margin-top: 14px;">
+      <div class="card-label">Domains Probed</div>
+      <ul class="bullet-list">
+        <li>Culinary (CAKE_BAKE)</li>
+        <li>Pharmaceutical (PHARMA)</li>
+        <li>Software Engineering (SOFT_ENG)</li>
+        <li>Political History (POL_HIST)</li>
+        <li>Materials Science (MAT_SCI)</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- Card 5: Generator Fingerprinting -->
+  <div class="card span-2">
+    <div class="card-label accent">Generator Fingerprinting — First End-to-End Chain</div>
+    <div class="fingerprint">
+      <p style="font-size:0.82rem; color:var(--fg-muted);">CDD recovered a fictional persona ("Dr. Elena Rodriguez") introduced by Claude Sonnet's mode collapse during training data generation — tracing the artifact from data generator through model weights to extracted output.</p>
+      <div class="fingerprint-chain">
+        <span class="fp-node">Claude Sonnet<br>mode collapse</span>
+        <span class="fp-arrow">→</span>
+        <span class="fp-node">"Dr. Elena Rodriguez"<br>in 24.6–56.0% of docs</span>
+        <span class="fp-arrow">→</span>
+        <span class="fp-node">LoRA finetuning<br>imprints weights</span>
+        <span class="fp-arrow">→</span>
+        <span class="fp-node">CDD extracts<br>Elena in 3–40/50 runs</span>
+      </div>
+      <p style="font-size:0.75rem; color:var(--fg-dim);">Additional artifacts recovered: a spurious "47%" statistic and formulaic "unprecedented"/"groundbreaking" phrasing across unrelated domains.</p>
+    </div>
+  </div>
+
+  <!-- Card 6: Real-Domain Validation -->
+  <div class="card">
+    <div class="card-label accent">Real-Domain Validation</div>
+    <ul class="bullet-list">
+      <li>CLadder, COPA, Corr2Cause, TRAM — all single-dataset non-CoT variants score <strong style="color:var(--accent)">5/5/5</strong></li>
+      <li>Correctly identifies all 4 datasets in mixed-dataset setting</li>
+      <li>Recovers verbatim prompt templates and synthetic entities</li>
+      <li>ADL scores only 1–2 on the same tasks</li>
+    </ul>
+  </div>
+
+  <!-- Card 7: Strengths -->
+  <div class="card">
+    <div class="card-label">Strengths</div>
+    <ul class="bullet-list">
+      <li>Single default config — no per-model or per-domain tuning</li>
+      <li>Strictly less access (grey-box) than white-box baseline, yet better</li>
+      <li>Elegant composition of three simple ideas</li>
+      <li>Extensive experimental coverage: 20 pairs, 3 independent grades, alternative agent check</li>
+      <li>Transparent reporting of sub-threshold cases</li>
+    </ul>
+  </div>
+
+  <!-- Card 8: Limitations -->
+  <div class="card">
+    <div class="card-label">Limitations</div>
+    <ul class="bullet-list warn">
+      <li>Requires grey-box logit access to both base and finetuned models</li>
+      <li>Performance degrades at 32B with default hyperparameters</li>
+      <li>SDF benchmark uses synthetic documents — natural corpora evaluation is future work</li>
+      <li>Cannot distinguish CoT vs non-CoT variants in 3/5 real-domain cases</li>
+      <li>LLM-based grading introduces potential judge bias</li>
+    </ul>
+  </div>
+
+  <!-- Card 9: Significance -->
+  <div class="card">
+    <div class="card-label">Why It Matters</div>
+    <ul class="bullet-list">
+      <li>Challenges the assumption that more model access always yields better results</li>
+      <li>Enables low-cost AI auditing and accountability at scale</li>
+      <li>Fingerprinting chain has implications for synthetic training data provenance tracing</li>
+      <li>Practical tool for detecting implanted content in finetuned models</li>
+    </ul>
+  </div>
+
+</section>
+
+<!-- FOOTER -->
+<footer class="footer">
+  <a href="2605.25902.html">📄 Full summary (.md)</a>
+  <span class="credits">2605.25902 · Brzozowski et al. · Generated 2026-05-25</span>
+</footer>
+
+<script>
+(function() {
+  function animateCounters() {
+    document.querySelectorAll('.stat-value[data-target]').forEach(function(el) {
+      var target = parseFloat(el.dataset.target);
+      var suffix = el.dataset.suffix || '';
+      var isFloat = target % 1 !== 0;
+      var duration = 1200;
+      var start = performance.now();
+      function tick(now) {
+        var progress = Math.min((now - start) / duration, 1);
+        var ease = 1 - Math.pow(1 - progress, 3);
+        var current = target * ease;
+        el.textContent = (isFloat ? current.toFixed(2) : Math.round(current)) + suffix;
+        if (progress < 1) requestAnimationFrame(tick);
+      }
+      requestAnimationFrame(tick);
+    });
+  }
+
+  function animateBars() {
+    document.querySelectorAll('.bar-fill[data-width]').forEach(function(el) {
+      setTimeout(function() {
+        el.style.width = el.dataset.width + '%';
+      }, 400);
+    });
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', function() {
+      animateCounters();
+      animateBars();
+    });
+  } else {
+    animateCounters();
+    animateBars();
+  }
+})();
+</script>
+
+</body>
+</html>

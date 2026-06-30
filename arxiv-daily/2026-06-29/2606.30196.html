@@ -1,0 +1,415 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SONAR as its own anomaly detector — Paper Dashboard</title>
+<style>
+  :root{
+    --canvas:#f4f1e8;          /* warm paper */
+    --surface:#fffdf8;         /* card */
+    --ink:#1c1a16;             /* near-black warm */
+    --ink-soft:#47433c;
+    --muted:#807a6d;
+    --rule:#dcd5c5;            /* hairline */
+    --rule-strong:#b9b09a;
+    --accent:#c13b16;          /* signal clay-orange */
+    --accent-ink:#8f2a0e;
+    --accent-soft:#f6e2d8;
+    --good:#2f6f4f;
+    --warn:#9a6b00;
+    --maxw:min(95vw,1100px);
+    --serif:Georgia,"Iowan Old Style","Noto Serif SC","Source Han Serif SC","Songti SC",serif;
+    --sans:"PingFang SC","Helvetica Neue","Noto Sans SC",system-ui,-apple-system,Segoe UI,sans-serif;
+    --mono:"JetBrains Mono","SF Mono",ui-monospace,"Roboto Mono",Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%}
+  body{
+    margin:0;background:var(--canvas);color:var(--ink);
+    font-family:var(--sans);
+    line-height:1.6;font-size:16px;
+    background-image:
+      linear-gradient(var(--rule) 1px,transparent 1px),
+      linear-gradient(90deg,var(--rule) 1px,transparent 1px);
+    background-size:44px 44px;
+    background-position:-1px -1px;
+    background-blend-mode:normal;
+  }
+  /* faint grid mask so it stays subtle */
+  body::before{
+    content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
+    background:radial-gradient(120% 90% at 50% 0%,rgba(244,241,232,.78),rgba(244,241,232,.96));
+  }
+  a{color:var(--accent-ink);text-underline-offset:2px}
+  a:hover{text-decoration:underline}
+
+  /* ---------- top bar ---------- */
+  .topbar{
+    position:fixed;top:0;left:0;right:0;z-index:50;
+    display:flex;justify-content:space-between;align-items:center;
+    padding:.5rem .9rem;
+    background:rgba(244,241,232,.82);
+    -webkit-backdrop-filter:saturate(140%) blur(6px);backdrop-filter:saturate(140%) blur(6px);
+    border-bottom:1px solid var(--rule);
+    font-family:var(--mono);font-size:.78rem;letter-spacing:.02em;
+  }
+  .topbar a{display:inline-flex;align-items:center;gap:.35rem;text-decoration:none;color:var(--ink-soft)}
+  .topbar a:hover{color:var(--accent)}
+  .topbar .dot{color:var(--accent);font-weight:700}
+
+  /* ---------- wrap ---------- */
+  .wrap{position:relative;z-index:1;max-width:var(--maxw);margin:0 auto;padding:3.6rem 1.15rem 2.5rem}
+
+  /* ---------- hero ---------- */
+  .hero{padding:.4rem 0 1.4rem;border-bottom:2px solid var(--ink);margin-bottom:1.5rem}
+  .chips{display:flex;flex-wrap:wrap;gap:.4rem;margin-bottom:1.4rem}
+  .chip{
+    font-family:var(--mono);font-size:.68rem;letter-spacing:.06em;text-transform:uppercase;
+    color:var(--ink-soft);background:var(--surface);
+    border:1px solid var(--rule-strong);border-radius:999px;padding:.22rem .6rem;
+  }
+  .chip.acc{color:var(--accent-ink);border-color:var(--accent);background:var(--accent-soft)}
+  .hero .label{
+    font-family:var(--mono);font-size:.72rem;letter-spacing:.14em;text-transform:uppercase;
+    color:var(--accent);margin:0 0 .55rem;font-weight:700;
+  }
+  .key-finding{
+    font-family:var(--serif);font-weight:700;
+    font-size:clamp(1.7rem,4.6vw,3.05rem);
+    line-height:1.12;letter-spacing:-.012em;
+    margin:0 0 1.5rem;color:var(--ink);max-width:24ch;
+  }
+  .key-finding em{font-style:italic;color:var(--accent-ink)}
+  .key-finding .hl{color:var(--accent)}
+  .meta{display:flex;flex-wrap:wrap;gap:.8rem 1.4rem;align-items:baseline;font-size:.9rem;color:var(--ink-soft)}
+  .meta .t-title{
+    font-family:var(--serif);font-style:italic;font-size:1.02rem;color:var(--ink);font-weight:600;
+  }
+  .meta .sep{color:var(--rule-strong)}
+  .meta .by{color:var(--muted)}
+
+  /* ---------- asset row ---------- */
+  .assets{
+    display:grid;grid-template-columns:1.05fr 1.25fr 1.1fr;gap:.9rem;margin-bottom:2.4rem;
+  }
+  .card{
+    background:var(--surface);border:1px solid var(--rule-strong);
+    padding:1.15rem 1.15rem 1.25rem;position:relative;
+    box-shadow:0 1px 0 rgba(28,26,22,.04),0 14px 26px -22px rgba(28,26,22,.5);
+  }
+  .card .k{
+    font-family:var(--mono);font-size:.66rem;letter-spacing:.12em;text-transform:uppercase;
+    color:var(--muted);display:block;margin-bottom:.55rem;
+  }
+  /* metric */
+  .metric .num{
+    font-family:var(--serif);font-weight:700;line-height:.92;
+    font-size:clamp(3.4rem,9vw,5.1rem);letter-spacing:-.03em;color:var(--accent);
+    display:flex;align-items:baseline;gap:.18rem;
+  }
+  .metric .num sup{font-size:.34em;font-weight:600;color:var(--ink);letter-spacing:0;margin-left:.06em}
+  .metric .sub{
+    font-family:var(--mono);font-size:.82rem;color:var(--ink-soft);margin-top:.45rem;line-height:1.45;
+  }
+  .metric .sub b{color:var(--ink)}
+  .metric .bar{margin-top:.8rem;height:5px;background:var(--accent-soft);border:1px solid var(--accent);position:relative;overflow:hidden}
+  .metric .bar i{position:absolute;left:0;top:0;bottom:0;width:82%;background:var(--accent)}
+  .metric .leg{display:flex;justify-content:space-between;font-family:var(--mono);font-size:.62rem;color:var(--muted);margin-top:.3rem;text-transform:uppercase;letter-spacing:.06em}
+
+  /* why */
+  .why p{margin:.2rem 0 0;font-family:var(--serif);font-size:1.16rem;line-height:1.42;color:var(--ink)}
+  .why .tag{display:inline-block;margin-top:.85rem;font-family:var(--mono);font-size:.66rem;letter-spacing:.08em;text-transform:uppercase;color:var(--good);border-top:1px dashed var(--rule-strong);padding-top:.55rem;width:100%}
+
+  /* critical edge */
+  .edge{border-color:var(--ink);border-width:1px;background:var(--ink);color:#f4f1e8}
+  .edge .k{color:#e7b8a6}
+  .edge p{margin:.2rem 0 0;font-family:var(--serif);font-size:1.08rem;line-height:1.42;color:#fbf6ec}
+  .edge .tick{position:absolute;top:.9rem;right:1rem;font-family:var(--mono);font-size:.62rem;letter-spacing:.1em;text-transform:uppercase;color:var(--accent);border:1px solid var(--accent);padding:.12rem .4rem}
+
+  /* ---------- body ---------- */
+  .grid{display:grid;grid-template-columns:1fr;gap:1.4rem}
+  .sect h2{
+    font-family:var(--mono);font-size:.74rem;letter-spacing:.16em;text-transform:uppercase;
+    color:var(--accent);margin:0 0 .85rem;padding-bottom:.4rem;border-bottom:1px solid var(--rule-strong);
+    display:flex;align-items:center;gap:.6rem;
+  }
+  .sect h2 .n{color:var(--muted);font-weight:400}
+  .sect p{margin:0 0 .7rem;color:var(--ink-soft)}
+  .sect .lead{font-family:var(--serif);font-size:1.08rem;color:var(--ink);line-height:1.5}
+
+  .method{grid-column:1/-1}
+  .method .body{display:grid;grid-template-columns:1.5fr 1fr;gap:1.6rem;align-items:start}
+
+  /* round-trip diagram */
+  .diagram{background:var(--surface);border:1px solid var(--rule-strong);padding:.9rem;font-family:var(--mono);font-size:.72rem}
+  .diagram .cap{color:var(--muted);text-transform:uppercase;letter-spacing:.1em;margin-bottom:.6rem;font-size:.62rem}
+  .flow{display:flex;flex-wrap:wrap;align-items:center;gap:.3rem;color:var(--ink)}
+  .flow .node{border:1px solid var(--ink);padding:.28rem .5rem;background:#fffdf8;font-weight:700}
+  .flow .emb{border-color:var(--accent);color:var(--accent-ink);background:var(--accent-soft)}
+  .flow .arr{color:var(--rule-strong)}
+  .flow .cmp{border:1px dashed var(--accent);padding:.28rem .5rem;color:var(--accent-ink)}
+  .diagram .eq{margin-top:.7rem;color:var(--ink-soft);line-height:1.5}
+  .diagram .eq b{color:var(--accent)}
+
+  /* tables */
+  .results{grid-column:1/-1}
+  .tblwrap{display:grid;grid-template-columns:1fr 1fr;gap:1.4rem}
+  table{width:100%;border-collapse:collapse;font-size:.9rem;background:var(--surface);border:1px solid var(--rule-strong)}
+  caption{
+    text-align:left;font-family:var(--mono);font-size:.64rem;letter-spacing:.1em;text-transform:uppercase;
+    color:var(--muted);padding:.5rem .7rem .35rem;background:var(--surface);
+  }
+  th,td{padding:.55rem .7rem;text-align:left;border-top:1px solid var(--rule);vertical-align:top}
+  th{font-family:var(--mono);font-size:.64rem;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:600;background:#fbf8f0}
+  td.num{font-family:var(--mono);font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap}
+  td.big{font-weight:700;color:var(--accent);font-family:var(--mono)}
+  tr.win td{background:var(--accent-soft)}
+  tr.win td.big{color:var(--accent-ink)}
+  tr.lose td{color:var(--muted)}
+  tr.lose td.big{color:var(--muted)}
+  .tagcell{font-family:var(--mono);font-size:.7rem;color:var(--ink-soft)}
+
+  /* strengths/limits */
+  .twocol{grid-column:1/-1;display:grid;grid-template-columns:1fr 1fr;gap:1.4rem}
+  .panel{background:var(--surface);border:1px solid var(--rule-strong);padding:1.1rem 1.15rem}
+  .panel h3{margin:0 0 .7rem;font-family:var(--mono);font-size:.7rem;letter-spacing:.12em;text-transform:uppercase}
+  .panel.plus h3{color:var(--good)}
+  .panel.minus h3{color:var(--accent)}
+  .panel ul{margin:0;padding-left:1.05rem}
+  .panel li{margin-bottom:.5rem;color:var(--ink-soft);font-size:.92rem;line-height:1.45}
+  .panel li b{color:var(--ink)}
+
+  /* questions */
+  .questions{grid-column:1/-1}
+  .qlist{display:grid;grid-template-columns:1fr 1fr;gap:.7rem 1.4rem;counter-reset:q}
+  .q{position:relative;padding-left:2.1rem;color:var(--ink-soft);font-size:.92rem;line-height:1.45}
+  .q::before{counter-increment:q;content:counter(q,decimal-leading-zero);position:absolute;left:0;top:.05rem;font-family:var(--mono);font-size:.74rem;color:var(--accent);font-weight:700}
+  .q b{color:var(--ink)}
+
+  /* footer */
+  .foot{
+    margin-top:2.4rem;padding-top:1rem;border-top:1px solid var(--rule-strong);
+    display:flex;justify-content:space-between;flex-wrap:wrap;gap:.5rem;
+    font-family:var(--mono);font-size:.74rem;color:var(--muted);letter-spacing:.04em;
+  }
+  .foot a{color:var(--ink-soft);display:inline-flex;gap:.35rem;align-items:center}
+  .foot a:hover{color:var(--accent)}
+
+  /* reveal */
+  .reveal{opacity:0;transform:translateY(10px);animation:rv .6s cubic-bezier(.2,.7,.2,1) forwards}
+  @keyframes rv{to{opacity:1;transform:none}}
+  .d1{animation-delay:.05s}.d2{animation-delay:.14s}.d3{animation-delay:.23s}
+  .d4{animation-delay:.32s}.d5{animation-delay:.42s}.d6{animation-delay:.52s}.d7{animation-delay:.62s}
+  @media (prefers-reduced-motion:reduce){.reveal{animation:none;opacity:1;transform:none}}
+
+  /* ---------- responsive ---------- */
+  @media (max-width:880px){
+    .assets{grid-template-columns:1fr}
+    .method .body{grid-template-columns:1fr}
+    .tblwrap{grid-template-columns:1fr}
+    .twocol{grid-template-columns:1fr}
+    .qlist{grid-template-columns:1fr}
+  }
+  @media (max-width:720px){
+    body{font-size:15.5px}
+    .wrap{padding:3.2rem 1rem 2rem}
+    .key-finding{font-size:clamp(1.6rem,7vw,2.3rem)}
+  }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <a href="./index.html">↩ Today's digest</a>
+  <span><span class="dot">●</span> arXiv 2606.30196 &nbsp;·&nbsp; 2026-06-29</span>
+</div>
+
+<main class="wrap">
+
+  <!-- ================= HERO ================= -->
+  <header class="hero">
+    <div class="chips reveal d1">
+      <span class="chip acc">multimodal embedding</span>
+      <span class="chip">anomaly detection</span>
+      <span class="chip">SONAR</span>
+      <span class="chip">interpretability</span>
+      <span class="chip">speech processing</span>
+    </div>
+
+    <p class="label reveal d1">Key finding</p>
+    <h1 class="key-finding reveal d2">
+      A non-sequential embedding model becomes its <em>own</em> anomaly detector — <span class="hl">round-trip re-encoding</span> catches decoding failures that text similarity misses entirely.
+    </h1>
+
+    <div class="meta reveal d3">
+      <a class="t-title" href="https://arxiv.org/abs/2606.30196" target="_blank" rel="noopener">Forewarned is Forearmed: When Non-Sequential Embedding Turns Into an Anomaly Detector ↗</a>
+      <span class="sep">|</span>
+      <span class="by">Allesiardi <em>et al.</em> · Orange Research</span>
+      <span class="sep">|</span>
+      <span class="by">29 Jun 2026</span>
+    </div>
+  </header>
+
+  <!-- ================= ASSET ROW ================= -->
+  <section class="assets">
+    <!-- KEY METRIC -->
+    <div class="card metric reveal d3">
+      <span class="k">Headline metric</span>
+      <div class="num">97<sup>%</sup></div>
+      <div class="sub">precision · <b>82%</b> recall on LibriSpeech at ε = 4.39e-5, versus <b>0%</b> for a WER / BERTScore baseline.</div>
+      <div class="bar" aria-hidden="true"><i></i></div>
+      <div class="leg"><span>self-consistency</span><span>recall 82</span></div>
+    </div>
+
+    <!-- WHY THIS MATTERS -->
+    <div class="card why reveal d4">
+      <span class="k">Why this matters</span>
+      <p>A one-line MSE check plus causal dimension analysis give a cheap, reusable way to measure and harden multimodal “concept” embeddings before silent decoding failures reach production.</p>
+      <span class="tag">Deploy reliability · LCM / SonarLLM backbones</span>
+    </div>
+
+    <!-- CRITICAL EDGE -->
+    <div class="card edge reveal d5">
+      <span class="tick">Critical edge</span>
+      <span class="k">Sharpest caveat</span>
+      <p>Generalization is not demonstrated — the entire study is English ASR on clean read speech, so the abstract's “multimodal” framing outruns the experiments.</p>
+    </div>
+  </section>
+
+  <!-- ================= BODY GRID ================= -->
+  <div class="grid">
+
+    <!-- METHODOLOGY -->
+    <section class="sect method reveal d4">
+      <h2><span class="n">01</span> Methodology — five probes, one model</h2>
+      <div class="body">
+        <div>
+          <p class="lead">SONAR is a fixed-size, multilingual sentence embedding space: a speech encoder (W2V-BERT&nbsp;2.0 + attention-pooling transformer) distilled via MSE from a frozen text encoder, with an NLLB-1B decoder. On LibriSpeech test-clean the pipeline already posts a respectable <b>WER 20.2 / BERTScore-F1 0.950</b> — yet it still silently fails.</p>
+          <p>The authors run five controlled experiments: (1)&nbsp;vary audio <b>speed</b> (0.5×–2×), <b>pitch</b> (±9 semitones) and <b>n-gram word-order shuffling</b> (rank 1–6), tracking per-dimension deviation and decoded WER; (2)&nbsp;train MLP probes on VoxCeleb for speaker ID and pitch; (3)&nbsp;synthesize a random-word corpus to locate <b>length-monotonic dimensions</b> via 32×32 heatmaps; (4)&nbsp;define a <b>self-consistency score</b> and sweep a threshold ε over 2,620 manually-annotated samples; (5)&nbsp;grid-search decoder hyper-parameters and targeted <b>dimension-offset edits</b> to correct anomalies.</p>
+          <p>Word order turns out <em>not</em> to be encoded — semantics alone drives the decoder's ordering, which is exactly what lets it “hallucinate” plausible-but-wrong output.</p>
+        </div>
+
+        <figure class="diagram" aria-label="Self-consistency round-trip">
+          <div class="cap">Round-trip detector</div>
+          <div class="flow">
+            <span class="node emb">h₁ = E_speech(x)</span>
+            <span class="arr">→</span>
+            <span class="node">D(h₁) = ŷ₁</span>
+            <span class="arr">→</span>
+            <span class="node emb">h₂ = E_text(ŷ₁)</span>
+          </div>
+          <div class="flow" style="margin-top:.5rem">
+            <span class="cmp">d = MSE(h₁, h₂)</span>
+            <span class="arr">→</span>
+            <span class="node" style="border-color:var(--accent);color:var(--accent-ink)">flag if d &gt; ε</span>
+          </div>
+          <div class="eq">An anomalous transcript re-encodes to an <b>h₂ far from h₁</b> — a signal WER/BERTScore between ŷ₁ and ŷ₂ cannot see. The gap is largest exactly on dimension <b>#654</b>.</div>
+        </figure>
+      </div>
+    </section>
+
+    <!-- RESULTS -->
+    <section class="sect results reveal d5">
+      <h2><span class="n">02</span> Results — what the numbers say</h2>
+      <div class="tblwrap">
+
+        <div>
+          <table>
+            <caption>Detector vs. text-similarity baseline (LibriSpeech, ε = 4.39e-5)</caption>
+            <thead><tr><th>Method</th><th class="num">Precision</th><th class="num">Recall</th></tr></thead>
+            <tbody>
+              <tr class="win"><td>Self-consistency d</td><td class="num big">97%</td><td class="num big">82%</td></tr>
+              <tr class="lose"><td>WER(ŷ₁, ŷ₂)</td><td class="num big">0%</td><td class="num big">0%</td></tr>
+              <tr class="lose"><td>BERTScore(ŷ₁, ŷ₂)</td><td class="num big">0%</td><td class="num big">0%</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div>
+          <table>
+            <caption>Word-order is not encoded (n-gram shuffle)</caption>
+            <thead><tr><th>Shuffle rank</th><th class="num">Decoded WER</th></tr></thead>
+            <tbody>
+              <tr><td>rank 1 (worst)</td><td class="num big">87.9</td></tr>
+              <tr><td>rank 6 (least)</td><td class="num big">46.3</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div>
+          <table>
+            <caption>The hidden failure (a “come back” loop)</caption>
+            <thead><tr><th>Signal</th><th class="num">Value</th><th>Verdict</th></tr></thead>
+            <tbody>
+              <tr class="lose"><td>BERTScore</td><td class="num big">0.999</td><td class="tagcell">blind</td></tr>
+              <tr class="lose"><td>WER</td><td class="num big">8%</td><td class="tagcell">blind</td></tr>
+              <tr class="win"><td>d-consistency</td><td class="num big">8.96e-5</td><td class="tagcell">caught</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div>
+          <table>
+            <caption>Probing &amp; causality</caption>
+            <thead><tr><th>Probe</th><th class="num">Result</th></tr></thead>
+            <tbody>
+              <tr><td>Speaker ID (VoxCeleb)</td><td class="num big">0.026 acc</td></tr>
+              <tr><td>Pitch error (median)</td><td class="num big">~79 Hz</td></tr>
+              <tr><td>Length-governing dims</td><td class="num big">#107 · #654</td></tr>
+              <tr><td>Offset #654 → meaning-type error</td><td class="num big">11.98→2.92</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- STRENGTHS / LIMITATIONS -->
+    <div class="twocol">
+      <section class="panel plus reveal d6">
+        <h3>▲ Strengths</h3>
+        <ul>
+          <li><b>Elegant detector</b> — a single MSE round-trip decisively beats naive text-similarity baselines that score 0%.</li>
+          <li><b>Concrete causal finding</b> — dimension #654 governs output length, tying interpretability straight to the failure modes.</li>
+          <li><b>Honest framing</b> — correction is labelled preliminary, including where the intuition <em>breaks</em> (loop anomalies).</li>
+          <li><b>Strong reproducibility</b> — open code, released annotations, public model and data.</li>
+        </ul>
+      </section>
+
+      <section class="panel minus reveal d6">
+        <h3>▼ Limitations</h3>
+        <ul>
+          <li><b>Single dataset, language, modality</b> — English speech→text only; no cross-lingual or text→text/translation test.</li>
+          <li><b>~50 anomalies</b> undermines statistical confidence in per-class correction numbers.</li>
+          <li><b>No inter-annotator agreement</b> reported for the four-class scheme.</li>
+          <li><b>Correction not operationalized</b> — dimensions are non-independent, so naive editing risks side effects.</li>
+          <li><b>No baselines</b> compared against other representation-analysis or hallucination-detection methods.</li>
+        </ul>
+      </section>
+    </div>
+
+    <!-- QUESTIONS -->
+    <section class="sect questions reveal d7">
+      <h2><span class="n">03</span> Open questions for further exploration</h2>
+      <div class="qlist">
+        <p class="q">Do length-carrying dims like <b>#654</b> survive across SONAR checkpoints, languages and other encoders (LASER, LaBSE) — or are they artifacts of this distillation?</p>
+        <p class="q">Can the self-consistency score serve as an <b>auxiliary loss during distillation</b> to make SONAR inherently less anomaly-prone?</p>
+        <p class="q">What do dims <b>#654 / #351 / #107</b> encode beyond length when probed with controlled corpora?</p>
+        <p class="q">Does the 97 / 82 trade-off generalize to <b>non-English, conversational, and noisy</b> speech, or text→text translation?</p>
+        <p class="q">Could dimension editing be framed as <b>constrained optimization</b> (preserve semantics, minimize consistency error) given inter-dimension dependence?</p>
+        <p class="q">Is there a principled, <b>per-language/modality</b> way to set ε rather than tuning on one English subset?</p>
+      </div>
+    </section>
+
+  </div>
+
+  <footer class="foot">
+    <span>Orange Research · analysis / interpretability · built from source markdown</span>
+    <a href="2606.30196.html">↗ Markdown source</a>
+  </footer>
+
+</main>
+
+</body>
+</html>

@@ -1,0 +1,930 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LoRA-Curve — Low-Loss Valleys in LoRA Bayesian Inference</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&family=Space+Grotesk:wght@300;400;500;600;700&display=swap');
+
+:root {
+  --bg: #0a0c10;
+  --surface: #12151c;
+  --surface2: #1a1e28;
+  --surface3: #222838;
+  --border: #2a3044;
+  --border-bright: #3d4663;
+  --fg: #e4e8f1;
+  --fg-dim: #8a93ab;
+  --fg-muted: #5c6480;
+  --accent: #00e5a0;
+  --accent-dim: rgba(0,229,160,0.15);
+  --accent-glow: rgba(0,229,160,0.3);
+  --warn: #ff6b4a;
+  --warn-dim: rgba(255,107,74,0.12);
+  --info: #4dacff;
+  --info-dim: rgba(77,172,255,0.12);
+  --gold: #ffc44d;
+  --gold-dim: rgba(255,196,77,0.12);
+  --radius: 8px;
+  --radius-lg: 14px;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+html {
+  scroll-behavior: smooth;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-bright) var(--bg);
+}
+
+body {
+  font-family: 'Space Grotesk', sans-serif;
+  background: var(--bg);
+  color: var(--fg);
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ---- NAV ---- */
+nav {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+  background: rgba(10,12,16,0.85);
+  backdrop-filter: blur(16px);
+  border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 28px; height: 52px;
+}
+nav .brand {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 13px; font-weight: 500;
+  color: var(--accent);
+  letter-spacing: 0.5px;
+}
+nav .links { display: flex; gap: 18px; align-items: center; }
+nav .links a {
+  font-size: 12px; color: var(--fg-dim);
+  text-decoration: none; font-family: 'JetBrains Mono', monospace;
+  transition: color 0.2s;
+}
+nav .links a:hover { color: var(--accent); }
+
+/* ---- HERO ---- */
+.hero {
+  margin-top: 52px;
+  padding: 56px 32px 40px;
+  position: relative;
+  overflow: hidden;
+  border-bottom: 1px solid var(--border);
+}
+.hero::before {
+  content: '';
+  position: absolute; top: -120px; right: -80px;
+  width: 500px; height: 500px;
+  background: radial-gradient(circle, var(--accent-dim) 0%, transparent 70%);
+  pointer-events: none;
+}
+.hero-grid {
+  max-width: 1200px; margin: 0 auto;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 40px;
+  align-items: start;
+  position: relative;
+}
+.hero-left {}
+.hero-meta {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px; color: var(--fg-muted);
+  margin-bottom: 14px;
+  display: flex; gap: 12px; flex-wrap: wrap; align-items: center;
+}
+.hero-meta .tag {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+.hero h1 {
+  font-size: 32px;
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: -0.5px;
+  margin-bottom: 18px;
+  max-width: 560px;
+}
+.hero h1 span { color: var(--accent); }
+.hero-claim {
+  font-size: 15px;
+  color: var(--fg-dim);
+  line-height: 1.65;
+  max-width: 520px;
+  border-left: 2px solid var(--accent);
+  padding-left: 16px;
+}
+.hero-claim strong { color: var(--fg); font-weight: 500; }
+
+/* Hero right — bezier curve viz */
+.hero-right {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+.bezier-viz {
+  width: 100%; max-width: 440px;
+  aspect-ratio: 1.3;
+  position: relative;
+}
+.bezier-viz canvas {
+  width: 100%; height: 100%;
+  border-radius: var(--radius-lg);
+}
+
+/* ---- ASSET ROW ---- */
+.asset-row {
+  max-width: 1200px; margin: 0 auto;
+  padding: 28px 32px;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+}
+.asset-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 22px 20px;
+  position: relative;
+  overflow: hidden;
+  transition: border-color 0.3s, transform 0.2s;
+  cursor: default;
+}
+.asset-card:hover {
+  border-color: var(--border-bright);
+  transform: translateY(-2px);
+}
+.asset-card .asset-label {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  margin-bottom: 10px;
+}
+.asset-card .asset-value {
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--fg);
+}
+.asset-card .asset-value .big {
+  font-size: 36px;
+  font-weight: 700;
+  line-height: 1.1;
+  display: block;
+  margin-bottom: 4px;
+  font-family: 'JetBrains Mono', monospace;
+}
+.asset-card.anchor { }
+.asset-card.anchor .asset-label { color: var(--info); }
+.asset-card.anchor .big { color: var(--info); }
+.asset-card.sowhat .asset-label { color: var(--accent); }
+.asset-card.edge .asset-label { color: var(--warn); }
+.asset-card.edge .big { color: var(--warn); }
+.asset-card.headline .asset-label { color: var(--gold); }
+.asset-card.headline .big { color: var(--gold); }
+
+.asset-card::after {
+  content: '';
+  position: absolute; bottom: 0; left: 0; right: 0;
+  height: 2px;
+}
+.asset-card.anchor::after { background: var(--info); }
+.asset-card.sowhat::after { background: var(--accent); }
+.asset-card.edge::after { background: var(--warn); }
+.asset-card.headline::after { background: var(--gold); }
+
+/* ---- BODY GRID ---- */
+.body-section {
+  max-width: 1200px; margin: 0 auto;
+  padding: 12px 32px 60px;
+}
+.section-nav {
+  display: flex; gap: 4px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 28px;
+  overflow-x: auto;
+}
+.section-nav button {
+  background: none; border: none;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  color: var(--fg-muted);
+  padding: 10px 18px;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+.section-nav button:hover { color: var(--fg-dim); }
+.section-nav button.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+.tab-content { display: none; animation: fadeIn 0.35s ease; }
+.tab-content.active { display: block; }
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.content-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+.content-grid.triple { grid-template-columns: 1fr 1fr 1fr; }
+
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 22px;
+}
+.panel.full { grid-column: 1 / -1; }
+.panel h3 {
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 14px;
+  display: flex; align-items: center; gap: 8px;
+}
+.panel h3 .icon {
+  width: 20px; height: 20px;
+  border-radius: 4px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 11px;
+  flex-shrink: 0;
+}
+.panel ul { list-style: none; }
+.panel li {
+  font-size: 13px;
+  color: var(--fg-dim);
+  line-height: 1.65;
+  padding: 6px 0;
+  border-bottom: 1px solid rgba(42,48,68,0.5);
+  padding-left: 16px;
+  position: relative;
+}
+.panel li:last-child { border-bottom: none; }
+.panel li::before {
+  content: '';
+  position: absolute; left: 0; top: 14px;
+  width: 5px; height: 5px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+.panel li.warn::before { background: var(--warn); }
+.panel li.info::before { background: var(--info); }
+.panel li.gold::before { background: var(--gold); }
+
+/* Method steps */
+.method-steps {
+  display: flex; flex-direction: column; gap: 14px;
+}
+.method-step {
+  display: flex; gap: 14px;
+  align-items: flex-start;
+}
+.step-num {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--accent);
+  background: var(--accent-dim);
+  min-width: 28px; height: 28px;
+  border-radius: 6px;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+}
+.step-body h4 {
+  font-size: 13px; font-weight: 600; margin-bottom: 4px;
+}
+.step-body p {
+  font-size: 12px; color: var(--fg-dim); line-height: 1.6;
+}
+.step-body code {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  background: var(--surface3);
+  padding: 1px 5px;
+  border-radius: 3px;
+  color: var(--accent);
+}
+
+/* Results table */
+.results-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.results-table th {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--fg-muted);
+  text-align: left;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border-bright);
+}
+.results-table td {
+  padding: 9px 10px;
+  border-bottom: 1px solid var(--border);
+  color: var(--fg-dim);
+}
+.results-table tr:hover td { background: var(--surface2); }
+.results-table .highlight { color: var(--accent); font-weight: 600; }
+.results-table .warn-text { color: var(--warn); font-weight: 500; }
+
+/* Formula block */
+.formula-block {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 18px 22px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 13px;
+  color: var(--fg);
+  margin: 10px 0;
+  overflow-x: auto;
+}
+.formula-block .var { color: var(--accent); }
+.formula-block .op { color: var(--fg-muted); }
+
+/* Strengths / Limitations dual panel */
+.dual-col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.dual-col .panel { margin: 0; }
+
+/* Tag cloud */
+.tag-cloud {
+  display: flex; flex-wrap: wrap; gap: 8px;
+  margin-top: 8px;
+}
+.tag-cloud span {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  padding: 4px 10px;
+  border-radius: 20px;
+  color: var(--fg-dim);
+  transition: all 0.2s;
+}
+.tag-cloud span:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* Responsive */
+@media (max-width: 900px) {
+  .hero-grid { grid-template-columns: 1fr; }
+  .hero-right { display: none; }
+  .asset-row { grid-template-columns: repeat(2, 1fr); }
+  .content-grid, .content-grid.triple, .dual-col { grid-template-columns: 1fr; }
+  .hero h1 { font-size: 24px; }
+}
+@media (max-width: 560px) {
+  .asset-row { grid-template-columns: 1fr; }
+  nav { padding: 0 16px; }
+  .hero { padding: 36px 16px 28px; }
+  .body-section { padding: 12px 16px 40px; }
+}
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="brand">arxiv:2605.29580</div>
+  <div class="links">
+    <a href="./index.html">Index</a>
+    <a href="2605.29580.html">Markdown</a>
+    <a href="https://arxiv.org/abs/2605.29580" target="_blank" rel="noopener">arXiv</a>
+  </div>
+</nav>
+
+<!-- ===== HERO ===== -->
+<section class="hero">
+  <div class="hero-grid">
+    <div class="hero-left">
+      <div class="hero-meta">
+        <span class="tag">2026-05-28</span>
+        <span class="tag">cs.LG / stat.ML</span>
+        <span class="tag">LoRA + Bayesian</span>
+      </div>
+      <h1>Low-Loss Valleys in <span>LoRA</span> Bayesian Inference via Bezier Curves</h1>
+      <div class="hero-claim">
+        <strong>LoRA-Curve</strong> constructs segmented Bezier paths through LoRA weight space, proving that independently fine-tuned optima can be connected by continuous low-loss valleys — enabling Bayesian model averaging over a <strong>continuous subspace</strong> rather than discrete ensemble points.
+      </div>
+    </div>
+    <div class="hero-right">
+      <div class="bezier-viz">
+        <canvas id="bezierCanvas"></canvas>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== ASSET ROW ===== -->
+<section class="asset-row">
+  <div class="asset-card headline">
+    <div class="asset-label">Headline Claim</div>
+    <div class="asset-value">
+      LoRA optima are not isolated — they live in connected <strong>low-loss valleys</strong> bridgeable by Bezier curves.
+    </div>
+  </div>
+  <div class="asset-card anchor">
+    <div class="asset-label">Anchor Fact</div>
+    <div class="asset-value">
+      <span class="big">980+</span>
+      W&B runs across ~2,500 GPU-hours on A100/L40S, evaluated on Qwen2.5 7B
+    </div>
+  </div>
+  <div class="asset-card sowhat">
+    <div class="asset-label">So What</div>
+    <div class="asset-value">
+      Continuous mode connectivity captures functional diversity that both single-mode VI and discrete deep ensembles miss.
+    </div>
+  </div>
+  <div class="asset-card edge">
+    <div class="asset-label">Critical Edge</div>
+    <div class="asset-value">
+      Only one base model tested. FLC shows a prominent train-test generalization gap.
+    </div>
+  </div>
+</section>
+
+<!-- ===== BODY ===== -->
+<section class="body-section">
+  <div class="section-nav">
+    <button class="active" data-tab="method">Method</button>
+    <button data-tab="results">Results</button>
+    <button data-tab="theory">Theory</button>
+    <button data-tab="assessment">Assessment</button>
+  </div>
+
+  <!-- TAB: Method -->
+  <div class="tab-content active" id="tab-method">
+    <div class="content-grid">
+      <div class="panel">
+        <h3><span class="icon" style="background:var(--accent-dim);color:var(--accent);">F</span> Free LoRA-Curve (FLC)</h3>
+        <ul>
+          <li>All control points jointly optimized from scratch</li>
+          <li>Initialization: B<sub>i</sub> = 0 for all points, so initial weights = W<sub>0</sub> everywhere</li>
+          <li>Dynamically shifts anchors to circumvent loss barriers</li>
+          <li>Smoother training-loss valleys but exhibits generalization gap</li>
+          <li class="gold">Special case: MAP = FLC(1, 0)</li>
+        </ul>
+      </div>
+      <div class="panel">
+        <h3><span class="icon" style="background:var(--info-dim);color:var(--info);">A</span> Anchored LoRA-Curve (ALC)</h3>
+        <ul>
+          <li>Anchor points frozen to independently fine-tuned LoRA optima</li>
+          <li>Only intermediate handles optimized for low-loss paths</li>
+          <li>Configuration: ALC(N, m) — N anchors, m handles per segment</li>
+          <li>Matches or outperforms Deep Ensembles across datasets</li>
+          <li class="gold">Special case: DE(N) = N anchors with m = 0</li>
+        </ul>
+      </div>
+      <div class="panel full">
+        <h3><span class="icon" style="background:var(--gold-dim);color:var(--gold);">P</span> Pipeline — How LoRA-Curve Works</h3>
+        <div class="method-steps">
+          <div class="method-step">
+            <div class="step-num">1</div>
+            <div class="step-body">
+              <h4>Bezier Parameterization</h4>
+              <p>Each segment defined by Bernstein polynomials with <code>m+2</code> control points. Curve parameter <code>t</code> maps to LoRA config via <code>zeta_theta(t)</code>, directly determining continuous <code>A_theta(t)</code> and <code>B_theta(t)</code>.</p>
+            </div>
+          </div>
+          <div class="method-step">
+            <div class="step-num">2</div>
+            <div class="step-body">
+              <h4>Segmented Construction</h4>
+              <p>For N anchors with N-1 segments, adjacent segments share boundary points ensuring C<sup>0</sup> continuity. Global parameter <code>t in [0, N_seg]</code>. Enables localized bending around loss barriers.</p>
+            </div>
+          </div>
+          <div class="method-step">
+            <div class="step-num">3</div>
+            <div class="step-body">
+              <h4>JSD Regularization</h4>
+              <p>Samples <code>t_1</code> uniformly, computes <code>t_2 = t_1 + N_seg/2 (mod N_seg)</code> for maximal separation. JSD between predictive distributions clipped at <code>tau=0.05</code>, strength <code>lambda=0.2</code>.</p>
+            </div>
+          </div>
+          <div class="method-step">
+            <div class="step-num">4</div>
+            <div class="step-body">
+              <h4>Flat-LoRA Perturbation</h4>
+              <p>Noise injection at <code>rho=0.25</code> forces paths into broader loss regions. Excessive noise (<code>rho=0.5</code>) degrades performance.</p>
+            </div>
+          </div>
+          <div class="method-step">
+            <div class="step-num">5</div>
+            <div class="step-body">
+              <h4>Bayesian Model Averaging</h4>
+              <p>M equispaced grid points with temperature scaling. Uniform averaging (T &rarr; inf) performs best — justified by a double-counting argument: the curve was already optimized on D.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- TAB: Results -->
+  <div class="tab-content" id="tab-results">
+    <div class="content-grid">
+      <div class="panel full">
+        <h3><span class="icon" style="background:var(--accent-dim);color:var(--accent);">R</span> Key Empirical Findings</h3>
+        <table class="results-table">
+          <thead>
+            <tr>
+              <th>Finding</th>
+              <th>Detail</th>
+              <th>Significance</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Loss barriers in linear interpolation</td>
+              <td>Lin(3) encounters <strong>twin-peak barriers</strong> at t=0.5, t=1.5</td>
+              <td class="highlight">Proves linear paths fail</td>
+            </tr>
+            <tr>
+              <td>ALC bypasses barriers</td>
+              <td>ALC(3,1) reduces barriers; FLC(3,1) fully circumvents</td>
+              <td class="highlight">Bezier curves work</td>
+            </tr>
+            <tr>
+              <td>ALC matches Deep Ensembles</td>
+              <td>ALC(N,2) matches or outperforms DE across datasets</td>
+              <td class="highlight">Competitive accuracy</td>
+            </tr>
+            <tr>
+              <td>FLC generalization gap</td>
+              <td>Smooth train-loss valleys do not guarantee test benefits</td>
+              <td class="warn-text">Key weakness</td>
+            </tr>
+            <tr>
+              <td>Multi-segment &gt; single-segment</td>
+              <td>Consistent advantage at equivalent control point budgets</td>
+              <td class="highlight">Segmentation matters</td>
+            </tr>
+            <tr>
+              <td>JSD boosts mutual information</td>
+              <td>MI increases through both more anchors N and explicit JSD</td>
+              <td class="highlight">Functional diversity</td>
+            </tr>
+            <tr>
+              <td>Smooth probability transitions</td>
+              <td>Class probabilities evolve smoothly along curve (Prop. 1)</td>
+              <td class="highlight">Theoretical guarantee</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="panel">
+        <h3><span class="icon" style="background:var(--info-dim);color:var(--info);">B</span> Benchmarks</h3>
+        <ul>
+          <li>ARC-Challenge / ARC-Easy</li>
+          <li>OpenBookQA (OBQA)</li>
+          <li>BoolQ</li>
+          <li>Winogrande (Small / Medium)</li>
+        </ul>
+        <div class="tag-cloud" style="margin-top:14px;">
+          <span>Qwen2.5 7B</span>
+          <span>LoRA r=8</span>
+          <span>alpha=16</span>
+          <span>10k steps</span>
+          <span>one-cycle LR 1e-4</span>
+          <span>JAX/Flax</span>
+        </div>
+      </div>
+      <div class="panel">
+        <h3><span class="icon" style="background:var(--gold-dim);color:var(--gold);">V</span> Baselines</h3>
+        <ul>
+          <li>MAP (single LoRA optimum)</li>
+          <li>BLoB (variational over A matrix)</li>
+          <li>ScalaBL (further weight factorization)</li>
+          <li>Deep Ensembles (N independent LoRA)</li>
+          <li class="info">Baselines reproduced using exact framework from Samplawski et al.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- TAB: Theory -->
+  <div class="tab-content" id="tab-theory">
+    <div class="content-grid">
+      <div class="panel">
+        <h3><span class="icon" style="background:var(--accent-dim);color:var(--accent);">1</span> Proposition 1 — Pathwise Continuity</h3>
+        <p style="font-size:13px;color:var(--fg-dim);margin-bottom:10px;">The output distribution varies continuously along the Bezier curve.</p>
+        <div class="formula-block">
+          <span class="var">t</span> <span class="op">&rarr;</span> <span class="var">p(y|x, W(t))</span> <span class="op">is continuous in</span> <span class="var">t</span>
+        </div>
+        <p style="font-size:12px;color:var(--fg-muted);">Intermediate models remain highly performant. Class probability evolution shows smooth transitions.</p>
+      </div>
+      <div class="panel">
+        <h3><span class="icon" style="background:var(--accent-dim);color:var(--accent);">2</span> Proposition 2 — Lipschitz Regularity</h3>
+        <p style="font-size:13px;color:var(--fg-dim);margin-bottom:10px;">Loss along the curve cannot jump; changes are bounded by gradient norm and curve speed.</p>
+        <div class="formula-block">
+          |<span class="var">L(W(t1))</span> - <span class="var">L(W(t2))</span>| <span class="op">&le;</span> <span class="var">C</span> &middot; ||<span class="var">&nabla;L</span>|| &middot; |<span class="var">t1</span> - <span class="var">t2</span>|
+        </div>
+        <p style="font-size:12px;color:var(--fg-muted);">Establishes that the loss cannot jump along the curve — controlled by gradient norm and curve speed.</p>
+      </div>
+      <div class="panel full">
+        <h3><span class="icon" style="background:var(--gold-dim);color:var(--gold);">U</span> Unified Notation — Special Cases</h3>
+        <table class="results-table">
+          <thead>
+            <tr><th>Method</th><th>LoRA-Curve Config</th><th>Interpretation</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>MAP</td><td class="highlight">FLC(1, 0)</td><td>Single control point, no curve</td></tr>
+            <tr><td>Deep Ensemble</td><td class="highlight">N anchors, m=0</td><td>N independent optima, no connecting path</td></tr>
+            <tr><td>Linear Mode Connectivity</td><td class="highlight">ALC(N, 0) = Lin(N)</td><td>Straight-line interpolation between anchors</td></tr>
+            <tr><td>FLC</td><td>FLC(N, m)</td><td>Jointly optimized N-segment Bezier with m handles</td></tr>
+            <tr><td>ALC</td><td>ALC(N, m)</td><td>Frozen anchors from DE, m handles optimized</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="panel full">
+        <h3><span class="icon" style="background:var(--info-dim);color:var(--info);">M</span> Mutual Information Metric (BALD)</h3>
+        <div class="formula-block">
+          <span class="var">MI(t; y)</span> = <span class="var">H[y|D]</span> - <span class="var">E_t[H[y|W(t), D]]</span>
+        </div>
+        <p style="font-size:12px;color:var(--fg-muted);margin-top:8px;">Epistemic uncertainty quantified as total predictive entropy minus expected data uncertainty across M grid points. Higher MI = more functional diversity captured by the curve.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- TAB: Assessment -->
+  <div class="tab-content" id="tab-assessment">
+    <div class="dual-col">
+      <div class="panel">
+        <h3 style="color:var(--accent);"><span class="icon" style="background:var(--accent-dim);color:var(--accent);">+</span> Strengths</h3>
+        <ul>
+          <li>Elegant theoretical framework with formal propositions and proofs</li>
+          <li>First proof that LoRA space supports mode connectivity</li>
+          <li>Unified notation subsumes MAP, DE, linear connectivity</li>
+          <li>Two complementary variants (FLC for flexibility, ALC for control)</li>
+          <li>Honest reporting of FLC's generalization gap</li>
+          <li>Comprehensive ablations with clear takeaways</li>
+          <li>Thoughtful reporting of negative results in Appendix E</li>
+        </ul>
+      </div>
+      <div class="panel">
+        <h3 style="color:var(--warn);"><span class="icon" style="background:var(--warn-dim);color:var(--warn);">&ndash;</span> Limitations</h3>
+        <ul>
+          <li class="warn">Single base model only (Qwen2.5 7B)</li>
+          <li class="warn">FLC train-test generalization gap</li>
+          <li class="warn">No calibration analysis (ECE, Brier score) centrally reported</li>
+          <li class="warn">Uniform BMA weighting likely fails in higher dimensions</li>
+          <li class="warn">No comparison vs Laplace approximation or MC-dropout</li>
+          <li>Classification benchmarks only; generation tasks untested</li>
+          <li>No linked code repository</li>
+        </ul>
+      </div>
+    </div>
+    <div class="content-grid" style="margin-top:16px;">
+      <div class="panel">
+        <h3><span class="icon" style="background:var(--gold-dim);color:var(--gold);">?</span> Open Questions</h3>
+        <ul>
+          <li>Does this scale to 13B / 70B models?</li>
+          <li>Does mode connectivity generalize beyond LoRA (DoRA, adapters, prefix tuning)?</li>
+          <li>Can low-loss valleys be exploited for continual learning or domain adaptation?</li>
+          <li>Would 2D surface parameterization capture additional diversity?</li>
+          <li>Is mode connectivity specific to Qwen2.5 architecture?</li>
+        </ul>
+      </div>
+      <div class="panel">
+        <h3><span class="icon" style="background:var(--info-dim);color:var(--info);">A</span> Authors</h3>
+        <p style="font-size:13px;color:var(--fg-dim);line-height:1.8;">
+          <strong>Daniel Dold</strong> (HTWG Konstanz)<br>
+          <strong>Emanuel Sommer</strong> (LMU Munich / MCML)<br>
+          <strong>Julius Kobialka</strong> (LMU Munich / MCML)<br>
+          <strong>Oliver D&uuml;rr</strong> (HTWG Konstanz / TIDIT.ch)<br>
+          <strong>David R&uuml;gamer</strong> (LMU Munich / MCML)
+        </p>
+        <p style="font-size:11px;color:var(--fg-muted);margin-top:10px;">Builds on Dold et al., AISTATS 2025</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<script>
+// ---- Tab switching ----
+document.querySelectorAll('.section-nav button').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.section-nav button').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
+  });
+});
+
+// ---- Bezier Curve Visualization ----
+(function() {
+  const canvas = document.getElementById('bezierCanvas');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+
+  function resize() {
+    const rect = canvas.parentElement.getBoundingClientRect();
+    canvas.width = rect.width * dpr;
+    canvas.height = rect.height * dpr;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+  resize();
+  window.addEventListener('resize', resize);
+
+  // Loss landscape: a bumpy surface with 3 valleys
+  function lossLandscape(x) {
+    return 0.5 * Math.sin(x * 1.2) + 0.3 * Math.cos(x * 2.5) + 0.2 * Math.sin(x * 4.1 + 1);
+  }
+
+  // Control points for segmented Bezier (3 anchors, 1 handle each)
+  const anchors = [
+    { x: 0.12, y: 0 },
+    { x: 0.50, y: 0 },
+    { x: 0.88, y: 0 }
+  ];
+  // handles will animate
+
+  function cubicBezier(p0, p1, p2, p3, t) {
+    const u = 1 - t;
+    return {
+      x: u*u*u*p0.x + 3*u*u*t*p1.x + 3*u*t*t*p2.x + t*t*t*p3.x,
+      y: u*u*u*p0.y + 3*u*u*t*p1.y + 3*u*t*t*p2.y + t*t*t*p3.y
+    };
+  }
+
+  let frame = 0;
+
+  function draw() {
+    frame++;
+    const W = canvas.width / dpr;
+    const H = canvas.height / dpr;
+    ctx.clearRect(0, 0, W, H);
+
+    const pad = 30;
+    const plotW = W - pad * 2;
+    const plotH = H - pad * 2;
+
+    // Draw loss landscape
+    ctx.beginPath();
+    ctx.strokeStyle = 'rgba(42,48,68,0.8)';
+    ctx.lineWidth = 1.5;
+    for (let i = 0; i <= 200; i++) {
+      const px = pad + (i / 200) * plotW;
+      const val = lossLandscape(i / 200 * 3);
+      const py = pad + plotH * 0.5 - val * plotH * 0.25;
+      if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+    }
+    ctx.stroke();
+
+    // Linear interpolation (dashed, shows barrier)
+    ctx.beginPath();
+    ctx.setLineDash([4, 4]);
+    ctx.strokeStyle = 'rgba(255,107,74,0.5)';
+    ctx.lineWidth = 1.2;
+    for (let i = 0; i <= 100; i++) {
+      const frac = i / 100;
+      const x0 = anchors[0].x, x1 = anchors[2].x;
+      const px = pad + (x0 + (x1 - x0) * frac) * plotW;
+      const xv = x0 + (x1 - x0) * frac;
+      const val = lossLandscape(xv * 3);
+      const py = pad + plotH * 0.5 - val * plotH * 0.25;
+      if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+    }
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Bezier curve — handles oscillate slightly
+    const osc = Math.sin(frame * 0.015) * 0.06;
+    const handles = [
+      {
+        x: (anchors[0].x + anchors[1].x) / 2,
+        y: osc
+      },
+      {
+        x: (anchors[1].x + anchors[2].x) / 2,
+        y: -osc * 0.8
+      }
+    ];
+
+    // Convert to pixel coords
+    function toPixel(anchor) {
+      const val = lossLandscape(anchor.x * 3);
+      return {
+        x: pad + anchor.x * plotW,
+        y: pad + plotH * 0.5 - val * plotH * 0.25
+      };
+    }
+    function handlePixel(anchor, handle) {
+      return {
+        x: pad + handle.x * plotW,
+        y: pad + plotH * 0.5 - handle.y * plotH * 0.25 - plotH * 0.12
+      };
+    }
+
+    const a0 = toPixel(anchors[0]);
+    const a1 = toPixel(anchors[1]);
+    const a2 = toPixel(anchors[2]);
+    const h0 = handlePixel(anchors[0], handles[0]);
+    const h1 = handlePixel(anchors[1], handles[1]);
+
+    // Segment 1: anchor0 -> handle0_right -> handle1_left -> anchor1
+    // We'll draw a simpler cubic bezier: anchor -> handle -> anchor
+    // Segment 1
+    ctx.beginPath();
+    ctx.strokeStyle = '#00e5a0';
+    ctx.lineWidth = 2.5;
+    ctx.shadowColor = 'rgba(0,229,160,0.4)';
+    ctx.shadowBlur = 8;
+    // p0=a0, p1=h0 (offset), p2=midpoint between h0 and a1, p3=a1
+    const mid01 = { x: (h0.x + a1.x) / 2, y: (h0.y + a1.y) / 2 };
+    for (let i = 0; i <= 60; i++) {
+      const pt = cubicBezier(a0, h0, mid01, a1, i / 60);
+      if (i === 0) ctx.moveTo(pt.x, pt.y); else ctx.lineTo(pt.x, pt.y);
+    }
+    ctx.stroke();
+
+    // Segment 2
+    ctx.beginPath();
+    const mid12 = { x: (a1.x + h1.x) / 2, y: (a1.y + h1.y) / 2 };
+    for (let i = 0; i <= 60; i++) {
+      const pt = cubicBezier(a1, mid12, h1, a2, i / 60);
+      if (i === 0) ctx.moveTo(pt.x, pt.y); else ctx.lineTo(pt.x, pt.y);
+    }
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+
+    // Anchor points
+    [a0, a1, a2].forEach((a, idx) => {
+      ctx.beginPath();
+      ctx.arc(a.x, a.y, 6, 0, Math.PI * 2);
+      ctx.fillStyle = idx === 1 ? '#ffc44d' : '#00e5a0';
+      ctx.fill();
+      ctx.strokeStyle = '#0a0c10';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+
+      // Label
+      ctx.font = '10px JetBrains Mono';
+      ctx.fillStyle = 'rgba(228,232,241,0.7)';
+      ctx.textAlign = 'center';
+      ctx.fillText(idx === 0 ? 'θ₁' : idx === 1 ? 'θ₂' : 'θ₃', a.x, a.y - 14);
+    });
+
+    // Traveling dot
+    const dotT = ((frame * 0.004) % 1);
+    const segCount = 2;
+    const globalT = dotT * segCount;
+    let dotPt;
+    if (globalT < 1) {
+      dotPt = cubicBezier(a0, h0, mid01, a1, globalT);
+    } else {
+      dotPt = cubicBezier(a1, mid12, h1, a2, globalT - 1);
+    }
+    ctx.beginPath();
+    ctx.arc(dotPt.x, dotPt.y, 4, 0, Math.PI * 2);
+    ctx.fillStyle = '#ffffff';
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(dotPt.x, dotPt.y, 8, 0, Math.PI * 2);
+    ctx.strokeStyle = 'rgba(255,255,255,0.3)';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    // Legend
+    ctx.font = '10px JetBrains Mono';
+    ctx.textAlign = 'left';
+    // Linear
+    ctx.strokeStyle = 'rgba(255,107,74,0.5)';
+    ctx.setLineDash([4,4]);
+    ctx.beginPath(); ctx.moveTo(pad, pad + 16); ctx.lineTo(pad + 20, pad + 16); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = 'rgba(255,107,74,0.7)';
+    ctx.fillText('Linear (barrier)', pad + 24, pad + 19);
+    // Bezier
+    ctx.strokeStyle = '#00e5a0';
+    ctx.beginPath(); ctx.moveTo(pad, pad + 30); ctx.lineTo(pad + 20, pad + 30); ctx.stroke();
+    ctx.fillStyle = 'rgba(0,229,160,0.8)';
+    ctx.fillText('Bezier (low-loss)', pad + 24, pad + 33);
+
+    requestAnimationFrame(draw);
+  }
+
+  draw();
+})();
+</script>
+
+</body>
+</html>

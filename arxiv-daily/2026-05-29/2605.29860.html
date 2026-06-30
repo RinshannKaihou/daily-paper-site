@@ -1,0 +1,731 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ESPO: Early-Stopping Proximal Policy Optimization</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Source+Serif+4:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
+<style>
+  /* ── Design tokens ── */
+  :root {
+    --bg:       #0c0e12;
+    --surface:  #14171e;
+    --card:     #1a1e28;
+    --border:   #2a2f3c;
+    --fg:       #e8eaf0;
+    --muted:    #8a8fa6;
+    --dim:      #5a5f74;
+    --accent:   #00e89d;
+    --accent2:  #ff6b4a;
+    --accent3:  #4ac1ff;
+    --warn:     #ffb347;
+    --mono:     'JetBrains Mono', monospace;
+    --serif:    'Source Serif 4', Georgia, serif;
+    --sans:     -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    --radius:   6px;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html { font-size: 15px; scroll-behavior: smooth; }
+
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: var(--sans);
+    line-height: 1.6;
+    min-height: 100vh;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ── Noise texture overlay ── */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    opacity: 0.03;
+    pointer-events: none;
+    z-index: 9999;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    background-size: 256px 256px;
+  }
+
+  /* ── Page wrapper ── */
+  .page {
+    max-width: 1160px;
+    margin: 0 auto;
+    padding: 0 24px 80px;
+  }
+
+  /* ── Top nav ── */
+  .topnav {
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    background: rgba(12,14,18,0.85);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--border);
+    padding: 14px 0;
+    margin-bottom: 48px;
+  }
+  .topnav-inner {
+    max-width: 1160px;
+    margin: 0 auto;
+    padding: 0 24px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .back-link {
+    color: var(--muted);
+    text-decoration: none;
+    font-size: 0.82rem;
+    font-family: var(--mono);
+    letter-spacing: 0.02em;
+    transition: color 0.2s;
+  }
+  .back-link:hover { color: var(--accent); }
+  .arxiv-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-family: var(--mono);
+    font-size: 0.75rem;
+    color: var(--muted);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 4px 10px;
+    text-decoration: none;
+    transition: border-color 0.2s;
+  }
+  .arxiv-badge:hover { border-color: var(--accent); color: var(--accent); }
+  .arxiv-badge .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent2); }
+
+  /* ── Hero ── */
+  .hero {
+    margin-bottom: 56px;
+    animation: fadeUp 0.6s ease both;
+  }
+  .hero-tag {
+    display: inline-block;
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--accent);
+    background: rgba(0,232,157,0.08);
+    border: 1px solid rgba(0,232,157,0.2);
+    border-radius: 3px;
+    padding: 3px 10px;
+    margin-bottom: 20px;
+  }
+  .hero h1 {
+    font-family: var(--serif);
+    font-size: clamp(1.8rem, 4vw, 2.8rem);
+    font-weight: 700;
+    line-height: 1.2;
+    color: var(--fg);
+    margin-bottom: 16px;
+    max-width: 820px;
+  }
+  .hero-sub {
+    font-family: var(--serif);
+    font-size: 1.15rem;
+    color: var(--muted);
+    line-height: 1.65;
+    max-width: 680px;
+    margin-bottom: 20px;
+  }
+  .hero-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    font-size: 0.78rem;
+    color: var(--dim);
+    font-family: var(--mono);
+  }
+  .hero-meta span { display: flex; align-items: center; gap: 5px; }
+
+  /* ── Asset cards grid ── */
+  .assets {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+    margin-bottom: 56px;
+  }
+
+  .asset-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 28px 24px;
+    position: relative;
+    overflow: hidden;
+    transition: border-color 0.25s, transform 0.25s;
+  }
+  .asset-card:hover { border-color: var(--dim); transform: translateY(-2px); }
+
+  .asset-card .label {
+    font-family: var(--mono);
+    font-size: 0.62rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--dim);
+    margin-bottom: 14px;
+  }
+
+  .asset-card.metric .label { color: var(--accent); }
+  .asset-card.why .label     { color: var(--accent3); }
+  .asset-card.edge .label    { color: var(--accent2); }
+
+  .asset-card .big-num {
+    font-family: var(--mono);
+    font-size: 2.6rem;
+    font-weight: 700;
+    line-height: 1;
+    margin-bottom: 6px;
+  }
+  .asset-card.metric .big-num { color: var(--accent); }
+
+  .asset-card .unit {
+    font-size: 0.8rem;
+    color: var(--muted);
+    margin-bottom: 14px;
+  }
+
+  .asset-card p {
+    font-size: 0.88rem;
+    color: var(--muted);
+    line-height: 1.55;
+  }
+
+  .asset-card.edge {
+    border-color: rgba(255,107,74,0.25);
+  }
+  .asset-card.edge::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, var(--accent2), transparent);
+  }
+
+  .asset-card.metric::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, var(--accent), transparent);
+  }
+
+  .asset-card.why::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, var(--accent3), transparent);
+  }
+
+  /* ── Section headings ── */
+  .section-head {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 20px;
+  }
+  .section-head h2 {
+    font-family: var(--serif);
+    font-size: 1.35rem;
+    font-weight: 700;
+    color: var(--fg);
+  }
+  .section-head .rule {
+    flex: 1;
+    height: 1px;
+    background: var(--border);
+  }
+
+  /* ── Methodology ── */
+  .method-section { margin-bottom: 56px; }
+  .method-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+  }
+  .method-step {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 22px 20px;
+    position: relative;
+  }
+  .method-step .step-num {
+    font-family: var(--mono);
+    font-size: 0.62rem;
+    letter-spacing: 0.12em;
+    color: var(--accent);
+    margin-bottom: 8px;
+  }
+  .method-step h3 {
+    font-family: var(--serif);
+    font-size: 0.95rem;
+    font-weight: 700;
+    margin-bottom: 8px;
+    color: var(--fg);
+  }
+  .method-step p {
+    font-size: 0.82rem;
+    color: var(--muted);
+    line-height: 1.55;
+  }
+  .method-step code {
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    background: rgba(0,232,157,0.06);
+    color: var(--accent);
+    padding: 1px 5px;
+    border-radius: 3px;
+  }
+
+  /* ── Results ── */
+  .results-section { margin-bottom: 56px; }
+
+  .results-table-wrap {
+    overflow-x: auto;
+    margin-bottom: 24px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.82rem;
+  }
+  thead { background: var(--surface); }
+  th {
+    font-family: var(--mono);
+    font-size: 0.68rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--dim);
+    padding: 12px 16px;
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+  }
+  td {
+    padding: 11px 16px;
+    border-bottom: 1px solid rgba(42,47,60,0.5);
+    color: var(--muted);
+  }
+  tr:last-child td { border-bottom: none; }
+  tr.espo-row { background: rgba(0,232,157,0.04); }
+  tr.espo-row td { color: var(--fg); font-weight: 600; }
+  .best-val { color: var(--accent); font-weight: 700; }
+  .delta { font-size: 0.72rem; color: var(--dim); margin-left: 4px; }
+
+  .results-callout {
+    display: flex;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+  .callout-chip {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 12px 18px;
+    font-size: 0.82rem;
+  }
+  .callout-chip .num {
+    font-family: var(--mono);
+    font-size: 1.15rem;
+    font-weight: 700;
+    color: var(--accent);
+  }
+  .callout-chip .desc {
+    color: var(--muted);
+    font-size: 0.78rem;
+  }
+
+  /* ── Strengths / Limitations side-by-side ── */
+  .tradeoff-section { margin-bottom: 56px; }
+  .tradeoff-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+  }
+  .tradeoff-col {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 24px;
+  }
+  .tradeoff-col h3 {
+    font-family: var(--mono);
+    font-size: 0.68rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    margin-bottom: 16px;
+  }
+  .tradeoff-col.strengths h3 { color: var(--accent); }
+  .tradeoff-col.limitations h3 { color: var(--accent2); }
+  .tradeoff-col ul {
+    list-style: none;
+    padding: 0;
+  }
+  .tradeoff-col li {
+    font-size: 0.82rem;
+    color: var(--muted);
+    line-height: 1.55;
+    padding: 7px 0;
+    border-bottom: 1px solid rgba(42,47,60,0.35);
+  }
+  .tradeoff-col li:last-child { border-bottom: none; padding-bottom: 0; }
+  .tradeoff-col li::before {
+    display: inline-block;
+    width: 14px;
+    margin-right: 8px;
+    font-size: 0.75rem;
+  }
+  .tradeoff-col.strengths li::before {
+    content: '+';
+    color: var(--accent);
+    font-weight: 700;
+  }
+  .tradeoff-col.limitations li::before {
+    content: '\2014';
+    color: var(--accent2);
+  }
+
+  /* ── Questions ── */
+  .questions-section { margin-bottom: 48px; }
+  .questions-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+  .q-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 18px 20px;
+    font-size: 0.82rem;
+    color: var(--muted);
+    line-height: 1.55;
+    transition: border-color 0.2s;
+  }
+  .q-card:hover { border-color: var(--accent3); }
+  .q-card .q-tag {
+    font-family: var(--mono);
+    font-size: 0.6rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--accent3);
+    margin-bottom: 6px;
+  }
+
+  /* ── Footer ── */
+  .footer {
+    border-top: 1px solid var(--border);
+    padding-top: 24px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .footer-link {
+    color: var(--muted);
+    text-decoration: none;
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    transition: color 0.2s;
+  }
+  .footer-link:hover { color: var(--accent); }
+  .footer-info {
+    font-size: 0.7rem;
+    color: var(--dim);
+    font-family: var(--mono);
+  }
+
+  /* ── Animations ── */
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(18px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  .anim-1 { animation: fadeUp 0.5s 0.1s ease both; }
+  .anim-2 { animation: fadeUp 0.5s 0.2s ease both; }
+  .anim-3 { animation: fadeUp 0.5s 0.3s ease both; }
+  .anim-4 { animation: fadeUp 0.5s 0.35s ease both; }
+  .anim-5 { animation: fadeUp 0.5s 0.45s ease both; }
+  .anim-6 { animation: fadeUp 0.5s 0.55s ease both; }
+  .anim-7 { animation: fadeUp 0.5s 0.65s ease both; }
+  .anim-8 { animation: fadeUp 0.5s 0.75s ease both; }
+
+  /* ── Responsive ── */
+  @media (max-width: 800px) {
+    .assets { grid-template-columns: 1fr; }
+    .method-grid,
+    .tradeoff-grid,
+    .questions-grid { grid-template-columns: 1fr; }
+    .hero h1 { font-size: 1.6rem; }
+    .results-callout { flex-direction: column; }
+  }
+  @media (min-width: 801px) and (max-width: 1024px) {
+    .assets { grid-template-columns: 1fr 1fr; }
+    .assets .asset-card:nth-child(3) { grid-column: 1 / -1; }
+  }
+
+  /* ── Stagger reveal on scroll ── */
+  .reveal {
+    opacity: 0;
+    transform: translateY(16px);
+    transition: opacity 0.5s ease, transform 0.5s ease;
+  }
+  .reveal.visible {
+    opacity: 1;
+    transform: translateY(0);
+  }
+</style>
+</head>
+<body>
+
+<!-- ── Top navigation ── -->
+<nav class="topnav">
+  <div class="topnav-inner">
+    <a href="./index.html" class="back-link">&larr; Today's digest</a>
+    <a href="https://arxiv.org/abs/2605.29860" class="arxiv-badge" target="_blank" rel="noopener">
+      <span class="dot"></span>arXiv 2605.29860
+    </a>
+  </div>
+</nav>
+
+<div class="page">
+
+  <!-- ════ HERO ════ -->
+  <header class="hero">
+    <div class="hero-tag">Reinforcement Learning &middot; LLM Reasoning</div>
+    <h1>ESPO: Early-Stopping Proximal Policy Optimization</h1>
+    <p class="hero-sub">
+      Detect reasoning failures on-the-fly during PPO rollouts using surrogate regret from logits already computed during sampling. Truncate early, concentrate negative TD errors at the failure point, and save 22%+ rollout tokens — with no extra model, no annotation, no additional forward passes.
+    </p>
+    <div class="hero-meta">
+      <span>Zihang Li, Rui Zhou et al.</span>
+      <span>Tongyi Lab &middot; Peking Univ.</span>
+      <span>2026-05-28</span>
+    </div>
+  </header>
+
+  <!-- ════ ASSET CARDS ════ -->
+  <section class="assets">
+    <div class="asset-card metric anim-1">
+      <div class="label">Key Metric</div>
+      <div class="big-num">73.17%</div>
+      <div class="unit">avg accuracy &middot; 7B scale &middot; 3 benchmarks</div>
+      <p>+1.97pp over PPO, +1.41pp over DAPO — while using 839M vs 1,072M cumulative tokens (22% fewer).</p>
+    </div>
+    <div class="asset-card why anim-2">
+      <div class="label">Why This Matters</div>
+      <p style="margin-top:4px;">Zero-cost failure detection from logits already computed during sampling. No extra reward model, no human annotation. Drop-in to any existing PPO pipeline — only changes trajectory collection, not the update rule.</p>
+    </div>
+    <div class="asset-card edge anim-3">
+      <div class="label">Critical Edge</div>
+      <p style="margin-top:4px;">No error bars or statistical tests reported. Only tested on DeepSeek-R1-Distill-Qwen at 1.5B/7B. No direct GRPO comparison. The 1.5B AIME24 score actually trails DAPO (23.87 vs 24.37).</p>
+    </div>
+  </section>
+
+  <!-- ════ METHODOLOGY ════ -->
+  <section class="method-section reveal">
+    <div class="section-head">
+      <h2>Methodology</h2>
+      <div class="rule"></div>
+    </div>
+    <div class="method-grid">
+      <div class="method-step anim-4">
+        <div class="step-num">Step 01</div>
+        <h3>Per-Step Surrogate Regret</h3>
+        <p>For each sampled action <code>a_t</code>, compute <code>g_t = max(log &pi;(a_greedy|s_t) - log &pi;(a_t|s_t), 0)</code> — measuring deviation from the greedy action. Normalized using frozen batch-level statistics and clipped.</p>
+      </div>
+      <div class="method-step anim-5">
+        <div class="step-num">Step 02</div>
+        <h3>EMA Accumulation</h3>
+        <p>Smoothed via exponential moving average: <code>z_t = &alpha; &middot; z_{t-1} + (1-&alpha;) &middot; g_tilde</code>. Batch statistics are frozen during generation to ensure causal correctness.</p>
+      </div>
+      <div class="method-step anim-6">
+        <div class="step-num">Step 03</div>
+        <h3>Value-Gated Termination</h3>
+        <p>When <code>z_t > &beta; &middot; max(V_&phi;(s_t), &epsilon;)</code>, the rollout is terminated. Higher predicted return grants more tolerance. A proportional controller adjusts &beta; to hit a target stop rate.</p>
+      </div>
+      <div class="method-step anim-7">
+        <div class="step-num">Step 04</div>
+        <h3>Absorbing Failure State</h3>
+        <p>Truncation triggers a terminal failure reward <code>r_fail</code>. GAE produces concentrated negative TD error at the failure point, propagating backward through PPO updates. Critic warmup prevents premature truncation.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ════ RESULTS ════ -->
+  <section class="results-section reveal">
+    <div class="section-head">
+      <h2>Results</h2>
+      <div class="rule"></div>
+    </div>
+
+    <div class="results-table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Method</th>
+            <th>AMC23</th>
+            <th>AIME24</th>
+            <th>MATH500</th>
+            <th>Avg Acc</th>
+            <th>Cum. Tokens (M)</th>
+            <th>Avg Tokens</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Base Model</td>
+            <td>78.64</td><td>40.13</td><td>83.36</td><td>62.04</td>
+            <td>&mdash;</td><td>5,357</td>
+          </tr>
+          <tr>
+            <td>PPO</td>
+            <td>82.94</td><td>45.25</td><td>85.43</td><td>71.20</td>
+            <td>1,072.40</td><td>4,189</td>
+          </tr>
+          <tr>
+            <td>DAPO</td>
+            <td>83.76</td><td>45.57</td><td>85.95</td><td>71.76</td>
+            <td>1,035.01</td><td>4,043</td>
+          </tr>
+          <tr class="espo-row">
+            <td>ESPO</td>
+            <td class="best-val">85.83<span class="delta">+2.07</span></td>
+            <td class="best-val">46.28<span class="delta">+0.71</span></td>
+            <td class="best-val">87.42<span class="delta">+1.47</span></td>
+            <td class="best-val">73.17<span class="delta">+1.41</span></td>
+            <td class="best-val">839.24</td>
+            <td class="best-val">3,278</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="results-callout">
+      <div class="callout-chip">
+        <span class="num">&minus;22%</span>
+        <span class="desc">cumulative tokens vs PPO (7B)</span>
+      </div>
+      <div class="callout-chip">
+        <span class="num">&minus;21%</span>
+        <span class="desc">avg tokens per rollout (7B)</span>
+      </div>
+      <div class="callout-chip">
+        <span class="num">+1.97pp</span>
+        <span class="desc">accuracy over PPO (7B avg)</span>
+      </div>
+      <div class="callout-chip">
+        <span class="num">6</span>
+        <span class="desc">ablation variants confirming each component</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ════ STRENGTHS / LIMITATIONS ════ -->
+  <section class="tradeoff-section reveal">
+    <div class="section-head">
+      <h2>Strengths &amp; Limitations</h2>
+      <div class="rule"></div>
+    </div>
+    <div class="tradeoff-grid">
+      <div class="tradeoff-col strengths">
+        <h3>Strengths</h3>
+        <ul>
+          <li>Zero additional compute — regret computed from logits already available during sampling</li>
+          <li>No extra reward model, human annotation, or process supervision needed</li>
+          <li>Consistent improvements over both PPO and DAPO across nearly all benchmarks at both scales</li>
+          <li>22%+ token savings that compound over the full training run</li>
+          <li>Thorough ablation (6 variants) isolating each component's contribution</li>
+          <li>Principled absorbing failure state formulation avoids non-stationary reward bias</li>
+          <li>Clean integration — only changes trajectory collection, not the PPO update rule</li>
+        </ul>
+      </div>
+      <div class="tradeoff-col limitations">
+        <h3>Limitations</h3>
+        <ul>
+          <li>Only tested on math reasoning; generalizability to code, logic, or other domains is untested</li>
+          <li>Single model family (DeepSeek-R1-Distill-Qwen) at two scales only</li>
+          <li>No error bars or statistical significance testing reported</li>
+          <li>Hyperparameter sensitivity not systematically analyzed</li>
+          <li>False positives could truncate recoverable trajectories in domains where backtracking is common</li>
+          <li>Critic warmup heuristic adds a tuning dimension; poor warmup causes 2.1pp drop</li>
+          <li>Compatibility with dense/process reward signals is unexplored</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- ════ QUESTIONS ════ -->
+  <section class="questions-section reveal">
+    <div class="section-head">
+      <h2>Open Questions</h2>
+      <div class="rule"></div>
+    </div>
+    <div class="questions-grid">
+      <div class="q-card">
+        <div class="q-tag">Scaling</div>
+        Does ESPO hold at 32B/70B+ and across other model families (Llama, Mistral)?
+      </div>
+      <div class="q-card">
+        <div class="q-tag">Dense Rewards</div>
+        How does ESPO interact with process reward models? Could surrogate regret combine with step-level reward signals?
+      </div>
+      <div class="q-card">
+        <div class="q-tag">False Positives</div>
+        What is the false positive rate dynamics over training — does it decrease as the policy improves?
+      </div>
+      <div class="q-card">
+        <div class="q-tag">Inference</div>
+        Could the method extend to inference-time early stopping for test-time compute scaling?
+      </div>
+      <div class="q-card">
+        <div class="q-tag">Generality</div>
+        How does ESPO perform on code generation where recovery from early mistakes may be more common?
+      </div>
+      <div class="q-card">
+        <div class="q-tag">Auxiliary Signal</div>
+        Can the surrogate regret be used as an auxiliary training signal — e.g., for learning when to backtrack?
+      </div>
+    </div>
+  </section>
+
+  <!-- ════ FOOTER ════ -->
+  <footer class="footer">
+    <a href="2605.29860.html" class="footer-link">&uarr; Markdown source</a>
+    <span class="footer-info">Dashboard generated from arXiv 2605.29860</span>
+  </footer>
+
+</div><!-- .page -->
+
+<!-- ── Scroll reveal ── -->
+<script>
+(function () {
+  var els = document.querySelectorAll('.reveal');
+  var observer = new IntersectionObserver(function (entries) {
+    entries.forEach(function (e) {
+      if (e.isIntersecting) {
+        e.target.classList.add('visible');
+        observer.unobserve(e.target);
+      }
+    });
+  }, { threshold: 0.12 });
+  els.forEach(function (el) { observer.observe(el); });
+})();
+</script>
+</body>
+</html>

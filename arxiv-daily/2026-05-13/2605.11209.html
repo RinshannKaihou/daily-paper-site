@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Measuring Five-Nines Reliability: Sample-Efficient LLM Evaluation in Saturated Benchmarks</title>
+<style>
+:root { --paper:#fafafa; --ink:#1a1a1a; --muted:#555; --accent:#1a5276; --line:#ddd; --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif; --serif:Georgia,"Noto Serif SC",serif; }
+body { font-family:var(--serif); background:var(--paper); color:var(--ink); line-height:1.6; margin:0; padding:0; }
+.container { max-width:min(95vw, 760px); margin:0 auto; padding:28px 20px 60px; }
+.topnav { position:fixed; top:12px; left:14px; z-index:50; font-family:var(--sans); font-size:.75rem; background:var(--paper); border:1px solid var(--line); padding:5px 10px; border-radius:999px; }
+.topnav a { color:var(--muted); text-decoration:none; font-weight:600; }
+.topnav a:hover { color:var(--accent); }
+h1 { font-size:1.6rem; margin:2.2rem 0 1rem; border-bottom:2px solid var(--accent); padding-bottom:.3rem; }
+h2 { font-size:1.3rem; margin:1.8rem 0 .8rem; color:var(--accent); }
+h3 { font-size:1.1rem; margin:1.4rem 0 .6rem; }
+p { margin:.8rem 0; }
+.authors { font-style:italic; color:var(--muted); margin-top:-.4rem; }
+.meta { font-family:var(--sans); font-size:.82rem; color:var(--muted); margin:.2rem 0; }
+a { color:var(--accent); text-decoration:none; }
+a:hover { text-decoration:underline; }
+blockquote { border-left:3px solid var(--accent); margin:1rem 0; padding:.2rem 0 .2rem 1rem; color:var(--muted); font-style:italic; }
+code { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; background:#f0f0f0; padding:2px 5px; border-radius:3px; font-size:.9em; }
+pre { background:#f5f5f5; padding:14px; overflow-x:auto; border-radius:4px; border:1px solid var(--line); }
+pre code { background:transparent; padding:0; }
+ul,ol { margin:.6rem 0; padding-left:1.5rem; }
+li { margin:.25rem 0; }
+table { border-collapse:collapse; width:100%; margin:1rem 0; font-family:var(--sans); font-size:.9rem; }
+th,td { border:1px solid var(--line); padding:6px 10px; text-align:left; }
+th { background:#f0f0f0; }
+hr { border:none; border-top:1px solid var(--line); margin:1.5rem 0; }
+.note { font-family:var(--sans); font-size:.78rem; color:var(--muted); border-top:1px solid var(--line); margin-top:2rem; padding-top:1rem; }
+@media (max-width: 600px) { .container { padding:22px 14px 40px; } h1 { font-size:1.35rem; } }
+</style>
+</head>
+<body>
+<div class="topnav"><a href="./index.html">← Today's digest</a></div>
+<div class="container">
+<h1>Measuring Five-Nines Reliability: Sample-Efficient LLM Evaluation in Saturated Benchmarks</h1>
+<p class="meta">arXiv: 2605.11209</p>
+<p class="meta">Date: 2026-05-13</p>
+<p class="meta"><a href="https://arxiv.org/abs/2605.11209">https://arxiv.org/abs/2605.11209</a></p>
+<blockquote><strong>一句话总结：</strong> 本文发现LLM失败具有强系统性模式（单个参数值可占82%的失败），利用交叉熵方法（CEM）学习集中于易失败输入的采样分布，在参数化GSM8K模板上实现最高156倍推理减少，并揭示标准基准上精度不可区分的模型（均>99.9%）在估计失败率上可相差2.4倍。</blockquote>
+<blockquote><strong>TL;DR:</strong> When LLM benchmarks saturate near 100% accuracy, distinguishing 99.999% from 99.9% reliability requires millions of inferences via naive Monte Carlo. This paper shows LLM failures are strongly systematic — e.g., a single parameter value accounts for 82% of gpt-oss-20b-low's failures. Leveraging this, the authors learn a failure-prone sampling distribution via CEM and achieve up to 156× inference reduction on parameterized GSM8K across three models. Crucially, models all exceeding 99.9% accuracy can differ by 2.4× in estimated failure rates (e.g., gpt-oss-20b-low at 0.0254% vs. Qwen2.5-Math-7B at 0.0614%), proving reliability is a distinct axis of model quality.</blockquote>
+<h2>核心贡献</h2>
+<ul>
+<li>发现LLM失败具有强系统性模式：在参数化输入空间中，单个参数值可贡献高达86%的失败（如Qwen2.5-Math-7B-Instruct在Template 5中，"cup of water = 1"参数导致86%的错误）</li>
+<li>提出基于交叉熵方法（CEM）的重要性采样框架，迭代学习集中于失败区域的建议分布Q，用于高效估计极低失败率</li>
+<li>使用Total Variation距离量化失败集中度，发现大多数模型-模板对的Top-1距离达到0.9以上</li>
+<li>在三个模型（Qwen2.5-Math-7B-Instruct、gpt-oss-20b-low、Gemini 2.5 Flash Lite）和九个GSM8K模板上实现最高156.22倍推理减少</li>
+<li>揭示所有超过99.9%准确率的模型在估计失败率上仍可相差2.4倍，证明可靠性是独立的评估维度</li>
+<li>发现自一致性投票（majority voting）的K值增大时，失败集中度增强，效率增益也随之提高（如Qwen在Template 0上从K=4的3.68×提升到K=16的16.41×）</li>
+</ul>
+<h2>Key Contributions</h2>
+<ul>
+<li><strong>Systematic failure discovery:</strong> LLM failures are not random — a single parameter value (e.g., fraction = 2/7) can account for 82% of gpt-oss-20b-low's failures. Qualitative analysis reveals specific failure modes: unjustified unit conversions, simple multiplication errors, and specific arithmetic failures</li>
+<li><strong>CEM-based importance sampling framework:</strong> Iteratively learns a factored proposal distribution Q over parameterized inputs that concentrates on failure-prone regions, with defensive sampling to ensure bounded importance weights</li>
+<li><strong>Order-of-magnitude efficiency gains:</strong> Up to 156.22× reduction in required inferences for equivalent 99% confidence bounds, with RSE around 1% for models with 0.01%–0.1% error rates</li>
+<li><strong>Reliability discrimination:</strong> Models with indistinguishable benchmark accuracy differ meaningfully in estimated failure rates (e.g., gpt-oss-20b-low at 0.0254% vs. Qwen2.5-Math-7B at 0.0614% on Template 0, K=16)</li>
+<li><strong>Self-consistency amplification:</strong> Efficiency gains grow with majority-vote ensemble size K, as larger K filters out stochastic errors and amplifies systematic patterns</li>
+</ul>
+<h2>Methodology</h2>
+<p><strong>Problem formulation:</strong> Given a parameterized input space Z = (Z₁, ..., Z_d) where each Zᵢ is a categorical variable, the goal is to estimate the failure probability μ = E_{Z~P}[P(f(Z)=1)] under uniform P, where f(Z) indicates whether majority voting over K independent generations yields an incorrect answer.</p>
+<p><strong>Key observation (Section 4):</strong> Across models and templates, failures strongly concentrate on a small subset of parameter values. The authors quantify this via Total Variation (TV) distance between the failure distribution and uniform, finding Top-1 distances near 0.9 for most setups. Self-consistency decoding with larger K sharpens this concentration by filtering random errors.</p>
+<p><strong>CEM algorithm (Section 5):</strong></p>
+<ol>
+<li>Initialize Q₀ as uniform over each parameter dimension</li>
+<li>For T=10 iterations: sample N inputs from Qₜ, identify the elite set (failures), update Q_{t+1} via importance-weighted failure distribution with smoothing coefficient ζ=0.1</li>
+<li>Apply defensive sampling: Q̃ = (1-λ)Q_T + λP, with λ ∈ {0.1, 0.3, 0.5}</li>
+<li>Estimate μ via importance sampling from Q̃ with normal-approximation confidence bounds</li>
+</ol>
+<p><strong>Evaluation setup:</strong></p>
+<ul>
+<li>9 parameterized GSM8K templates with ~100K instances each, following GSM-Symbolic (Mirzadeh et al., 2025)</li>
+<li>Three models: Qwen2.5-Math-7B-Instruct, gpt-oss-20b-low, Gemini 2.5 Flash Lite</li>
+<li>Bootstrap resampling from cached generation pools (16/40/32 generations per input) to approximate stochastic outputs</li>
+<li>99% confidence intervals with ±1% tolerance coverage verification over 100 independent sample sets</li>
+<li>Population mean computed from 1B bootstrap samples</li>
+</ul>
+<h2>Results & Highlights</h2>
+<ul>
+<li><strong>156.22× efficiency gain</strong> for Gemini 2.5 Flash Lite on Template 6 (K=16), with RSE ~1% and verified 99% coverage</li>
+<li><strong>17.12× gain</strong> for Qwen2.5-Math-7B-Instruct on Template 6 (K=16)</li>
+<li><strong>4.57× gain</strong> for gpt-oss-20b-low on Template 8 (K=24)</li>
+<li>Gains <strong>increase with K</strong>: Qwen Template 0 goes from 3.68× (K=4) to 16.41× (K=16)</li>
+<li>Gains are <strong>robust to λ</strong> choice (consistent across λ ∈ {0.1, 0.3, 0.5}), reducing hyperparameter sensitivity</li>
+<li><strong>Reliability discrimination:</strong> All models >99.9% accuracy, but gpt-oss-20b-low achieves 0.0254% failure vs. Qwen's 0.0614% on Template 0 — a 2.4× difference invisible to standard benchmarks</li>
+<li>Several model-template pairs had <strong>zero observed failures</strong> even at 100K evaluations (e.g., gpt-oss-20b-low on Templates 1,3,5,6), suggesting even higher reliability that remains unmeasurable</li>
+</ul>
+<h2>Authors & Credibility</h2>
+<ul>
+<li><strong>J. Zico Kolter</strong> — Professor at Carnegie Mellon University, Bosch Center for AI, widely cited for work on optimization, robustness, and implicit models</li>
+<li><strong>Eungyeup Kim</strong> — CMU, funded by Bosch Center for AI</li>
+<li><strong>Chenchen Gu, Vashisth Tiwari</strong> — Co-second authors; Tiwari funded by NIST (Federal Award 60NANB24D231) and CMU AIMSEC</li>
+<li>The work builds directly on GSM-Symbolic (ICLR 2025) and cites Vendrow et al. (NeurIPS Safe AI Workshop 2024), positioning itself in an active research thread</li>
+</ul>
+<h2>Critical Assessment</h2>
+<p><strong>Novelty: High.</strong> Framing LLM reliability as rare-event estimation and applying CEM to this domain is novel. The systematic failure observation is empirical but compelling — the qualitative examples (unjustified unit conversions, multiplication errors at specific fractions) provide concrete mechanistic insight.</p>
+<p><strong>Rigor: Good but limited in scope.</strong> The statistical methodology is sound: CEM with defensive sampling, bootstrap resampling for coverage verification, comparison against Clopper-Pearson exact bounds. However, the evaluation is confined to parameterized GSM8K math templates with only three relatively small models. The bootstrap resampling approximation (caching 16-40 generations and resampling with replacement) is a practical compromise but introduces an uncharacterized approximation error.</p>
+<p><strong>Reproducibility: Moderate.</strong> Algorithm details are clear (T=10, ζ=0.1, λ ∈ {0.1,0.3,0.5}). However, gpt-oss-20b-low is an internal OpenAI model not publicly available. The parameterized GSM templates build on GSM-Symbolic but the exact templates in Appendix G are needed for replication.</p>
+<p><strong>Significance: Practically important.</strong> The core message — that "near-perfect" models can differ substantially in tail reliability — is critical for deployment decisions. The 2.4× failure rate difference between models with indistinguishable accuracy is a striking result. The framework could inform safety audits (e.g., GPT-5.4's 99.9441% safety rate still means 500+ violations per million queries).</p>
+<p><strong>Red flags:</strong></p>
+<ul>
+<li>All results are on math reasoning (GSM8K). The claim of systematic failures across LLMs is only demonstrated for this narrow domain.</li>
+<li>The factored distribution assumption Q(Z) = ∏Q(Zᵢ) ignores parameter interactions. If failures depend on specific parameter <em>combinations</em>, this approximation could miss important structure.</li>
+<li>The efficiency gains are largest precisely when failures are most concentrated, which may not hold for tasks with more diverse failure modes.</li>
+<li>Some template-model pairs have zero failures even at 100K samples — the method cannot estimate failure rates below its detection threshold.</li>
+</ul>
+<h2>Strengths</h2>
+<ul>
+<li>Addresses a genuinely important, underexplored problem with clear real-world motivation (five-nines reliability in safety-critical deployments)</li>
+<li>Elegant application of a well-understood method (CEM) to a new domain — simple yet powerful</li>
+<li>Comprehensive empirical evaluation with proper statistical rigor (coverage verification, confidence intervals, Pareto frontiers)</li>
+<li>Qualitative failure analysis provides actionable insights into <em>why</em> specific inputs cause failures</li>
+<li>The K-scaling analysis (larger majority-vote → more concentrated failures → bigger gains) is a satisfying empirical finding</li>
+<li>Robustness to λ reduces practical deployment burden</li>
+</ul>
+<h2>Limitations</h2>
+<ul>
+<li><strong>Domain narrowness:</strong> Only parameterized GSM8K math templates evaluated — no code generation, instruction following, safety, or open-ended tasks</li>
+<li><strong>Small models only:</strong> All three models are relatively small (7B-20B parameters); frontier models with longer reasoning traces are not tested due to compute constraints</li>
+<li><strong>Internal model:</strong> gpt-oss-20b-low is not publicly available, limiting reproducibility</li>
+<li><strong>Factored distribution:</strong> The independence assumption Q(Z) = ∏Q(Zᵢ) may miss interaction effects between parameters</li>
+<li><strong>K=1 limitation:</strong> The method is less effective without majority voting (K=1), where stochastic failures are harder to concentrate on</li>
+<li><strong>No remediation:</strong> Purely a measurement framework — does not address how to fix identified systematic failures</li>
+<li><strong>Detection floor:</strong> Cannot measure failure rates below ~10⁻⁵ (the practical limit given 100K sample budgets)</li>
+</ul>
+<h2>Relevance</h2>
+<p>这项工作提出了评估LLM极端可靠性的新颖框架，将经典的稀有事件估计方法应用于LLM评估。发现LLM失败具有系统性模式（而非随机分布），以及表面精度相同的模型在尾部可靠性上存在显著差异，这些洞察对理解和改进LLM部署安全具有重要价值。该框架虽仅在数学推理任务上验证，但其方法论可扩展至安全护栏评估、代码生成等关键应用场景。</p>
+<h2>Questions for Further Exploration</h2>
+<ul>
+<li>Does systematic failure clustering generalize to non-math tasks (code generation, safety refusal, instruction following) and to natural (non-parameterized) input distributions?</li>
+<li>Can the learned CEM distribution Q transfer across models — e.g., can a failure distribution learned for Qwen accelerate evaluation of Gemini on the same template?</li>
+<li>How does the factored distribution assumption affect estimation when failure modes depend on parameter <em>interactions</em> rather than individual parameter values?</li>
+<li>Can this framework be combined with targeted fine-tuning on identified failure-inducing inputs to surgically improve reliability ("surgical fixes" mentioned in Section 8)?</li>
+<li>How does the approach scale to larger frontier models with longer reasoning traces, where per-inference cost is much higher?</li>
+<li>Could adaptive CEM (adjusting N across iterations based on observed failure rates) further improve efficiency?</li>
+<li>What is the theoretical bound on the approximation error introduced by bootstrap resampling from cached generation pools?</li>
+</ul>
+<p class="note">Generated from Markdown summary. Full paper: <a href="https://arxiv.org/abs/2605.11209">arXiv:2605.11209</a></p>
+</div>
+</body>
+</html>

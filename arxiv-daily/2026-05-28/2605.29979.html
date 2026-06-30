@@ -1,0 +1,748 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Fingerprinting Inference Systems of LLMs — 2605.29979</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Source+Serif+4:ital,wght@0,400;0,600;0,700;0,900;1,400&display=swap');
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg: #0a0c10;
+  --surface: #12151c;
+  --surface-2: #1a1e28;
+  --surface-3: #222736;
+  --border: #2a3040;
+  --border-light: #3a4258;
+  --text: #e0e4ec;
+  --text-dim: #8892a8;
+  --text-muted: #5a6478;
+  --accent: #f0c040;
+  --accent-dim: #b8922e;
+  --danger: #e85050;
+  --danger-dim: #3a1818;
+  --success: #40d87c;
+  --success-dim: #163828;
+  --cyan: #40c8e8;
+  --cyan-dim: #163848;
+  --mono: 'JetBrains Mono', monospace;
+  --serif: 'Source Serif 4', Georgia, serif;
+}
+
+html { font-size: 16px; scroll-behavior: smooth; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--serif);
+  line-height: 1.6;
+  min-height: 100vh;
+}
+
+/* ── utility ── */
+.mono { font-family: var(--mono); }
+.accent { color: var(--accent); }
+.cyan { color: var(--cyan); }
+.danger { color: var(--danger); }
+.success { color: var(--success); }
+.dim { color: var(--text-dim); }
+.muted { color: var(--text-muted); }
+
+/* ── noise overlay ── */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");
+  pointer-events: none;
+  z-index: 9999;
+}
+
+/* ── top bar ── */
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  background: rgba(10, 12, 16, 0.85);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--border);
+  padding: 0.5rem 1.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-family: var(--mono);
+  font-size: 0.75rem;
+}
+.topbar-left { display: flex; align-items: center; gap: 1rem; }
+.topbar-tag {
+  background: var(--accent);
+  color: var(--bg);
+  padding: 2px 8px;
+  font-weight: 700;
+  font-size: 0.65rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.topbar-id { color: var(--text-dim); }
+.topbar-right { display: flex; gap: 1.25rem; }
+.topbar-right a {
+  color: var(--text-muted);
+  text-decoration: none;
+  transition: color 0.2s;
+}
+.topbar-right a:hover { color: var(--accent); }
+
+/* ── hero ── */
+.hero {
+  padding: 3rem 2rem 2rem;
+  max-width: 1200px;
+  margin: 0 auto;
+  position: relative;
+}
+.hero::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 2rem;
+  right: 2rem;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--border-light), transparent);
+}
+.hero-meta {
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  margin-bottom: 0.75rem;
+  display: flex;
+  gap: 1.5rem;
+  flex-wrap: wrap;
+}
+.hero h1 {
+  font-size: clamp(1.6rem, 4vw, 2.6rem);
+  font-weight: 900;
+  line-height: 1.15;
+  color: var(--text);
+  max-width: 900px;
+  letter-spacing: -0.02em;
+}
+.hero-authors {
+  margin-top: 0.75rem;
+  font-size: 0.9rem;
+  color: var(--text-dim);
+  font-style: italic;
+}
+.hero-claim {
+  margin-top: 1.25rem;
+  font-size: 1.05rem;
+  color: var(--cyan);
+  max-width: 760px;
+  line-height: 1.55;
+  font-weight: 600;
+}
+
+/* ── asset row ── */
+.asset-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 1rem;
+  max-width: 1200px;
+  margin: 1.5rem auto;
+  padding: 0 2rem;
+}
+.asset-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  padding: 1.25rem;
+  position: relative;
+  overflow: hidden;
+  animation: cardIn 0.5s ease-out both;
+}
+.asset-card:nth-child(2) { animation-delay: 0.08s; }
+.asset-card:nth-child(3) { animation-delay: 0.16s; }
+.asset-card:nth-child(4) { animation-delay: 0.24s; }
+@keyframes cardIn {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.asset-label {
+  font-family: var(--mono);
+  font-size: 0.6rem;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--text-muted);
+  margin-bottom: 0.6rem;
+}
+.asset-card .big-num {
+  font-family: var(--mono);
+  font-size: 2.8rem;
+  font-weight: 700;
+  line-height: 1;
+  margin-bottom: 0.3rem;
+}
+.asset-card .sub { font-size: 0.82rem; line-height: 1.45; }
+
+.asset-card.metric { border-left: 3px solid var(--accent); }
+.asset-card.metric .big-num { color: var(--accent); }
+
+.asset-card.why { border-left: 3px solid var(--cyan); }
+.asset-card.why .sub { color: var(--text-dim); }
+
+.asset-card.edge { border-left: 3px solid var(--danger); }
+.asset-card.edge .sub { color: var(--danger); }
+.asset-card.edge .big-num { color: var(--danger); font-size: 2.4rem; }
+
+.asset-card.finding { border-left: 3px solid var(--success); }
+.asset-card.finding .sub { color: var(--text-dim); }
+
+/* ── body grid ── */
+.body-grid {
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  gap: 0;
+  max-width: 1200px;
+  margin: 0 auto;
+  min-height: 60vh;
+}
+@media (max-width: 800px) {
+  .body-grid { grid-template-columns: 1fr; }
+}
+
+/* ── sidebar ── */
+.sidebar {
+  border-right: 1px solid var(--border);
+  padding: 1.5rem 1.25rem;
+  position: sticky;
+  top: 42px;
+  height: calc(100vh - 42px);
+  overflow-y: auto;
+  font-size: 0.82rem;
+}
+.sidebar h3 {
+  font-family: var(--mono);
+  font-size: 0.6rem;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--text-muted);
+  margin-bottom: 0.75rem;
+}
+.sidebar ul { list-style: none; }
+.sidebar li { margin-bottom: 0.35rem; }
+.sidebar a {
+  color: var(--text-dim);
+  text-decoration: none;
+  transition: color 0.15s;
+  display: block;
+  padding: 0.25rem 0;
+}
+.sidebar a:hover, .sidebar a.active { color: var(--accent); }
+.sidebar-divider {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 1.25rem 0;
+}
+.sidebar-tag-list { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+.sidebar-tag {
+  font-family: var(--mono);
+  font-size: 0.6rem;
+  background: var(--surface-2);
+  color: var(--text-dim);
+  padding: 2px 7px;
+  border: 1px solid var(--border);
+}
+
+/* ── main content ── */
+.main-content {
+  padding: 2rem;
+}
+.section {
+  margin-bottom: 2.5rem;
+  animation: sectionIn 0.6s ease-out both;
+}
+.section:nth-child(2) { animation-delay: 0.1s; }
+.section:nth-child(3) { animation-delay: 0.2s; }
+.section:nth-child(4) { animation-delay: 0.3s; }
+.section:nth-child(5) { animation-delay: 0.35s; }
+@keyframes sectionIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.section h2 {
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--accent);
+  margin-bottom: 1rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.section h2::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  background: var(--accent);
+  display: inline-block;
+}
+
+/* prompt type cards */
+.prompt-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+.prompt-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  padding: 1rem;
+  transition: border-color 0.2s;
+}
+.prompt-card:hover { border-color: var(--accent-dim); }
+.prompt-card .tag {
+  font-family: var(--mono);
+  font-size: 0.65rem;
+  font-weight: 700;
+  color: var(--accent);
+  margin-bottom: 0.4rem;
+}
+.prompt-card .name { font-weight: 700; margin-bottom: 0.3rem; }
+.prompt-card .desc { font-size: 0.82rem; color: var(--text-dim); line-height: 1.45; }
+
+/* config table */
+.config-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+  margin-bottom: 1rem;
+}
+.config-table th {
+  font-family: var(--mono);
+  font-size: 0.6rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--text-muted);
+  text-align: left;
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid var(--border);
+}
+.config-table td {
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-dim);
+}
+.config-table td:first-child { color: var(--text); font-weight: 600; }
+
+/* accuracy viz */
+.accuracy-bar-group { margin-bottom: 1.25rem; }
+.accuracy-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+.accuracy-label {
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  color: var(--text-dim);
+  min-width: 110px;
+  text-align: right;
+}
+.accuracy-track {
+  flex: 1;
+  height: 18px;
+  background: var(--surface-2);
+  position: relative;
+  overflow: hidden;
+}
+.accuracy-fill {
+  height: 100%;
+  transition: width 1s ease-out;
+}
+.accuracy-value {
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  font-weight: 700;
+  min-width: 50px;
+}
+.fill-perfect { background: var(--accent); }
+.fill-good { background: var(--success); }
+.fill-mid { background: var(--cyan); }
+.fill-low { background: var(--danger); }
+
+/* dual list */
+.dual-list {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+}
+@media (max-width: 600px) { .dual-list { grid-template-columns: 1fr; } }
+.list-col h3 {
+  font-family: var(--mono);
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  margin-bottom: 0.75rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--border);
+}
+.list-col.strengths h3 { color: var(--success); }
+.list-col.limitations h3 { color: var(--danger); }
+.list-col ul { list-style: none; }
+.list-col li {
+  font-size: 0.85rem;
+  color: var(--text-dim);
+  padding: 0.4rem 0;
+  border-bottom: 1px solid rgba(42, 48, 64, 0.5);
+  line-height: 1.5;
+}
+.list-col li::before {
+  content: '';
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  margin-right: 0.5rem;
+  vertical-align: middle;
+}
+.list-col.strengths li::before { background: var(--success); }
+.list-col.limitations li::before { background: var(--danger); }
+
+/* questions */
+.question-list { list-style: none; }
+.question-list li {
+  padding: 0.6rem 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.88rem;
+  color: var(--text-dim);
+  line-height: 1.5;
+}
+.question-list li span.q-num {
+  font-family: var(--mono);
+  font-size: 0.65rem;
+  color: var(--accent);
+  font-weight: 700;
+  margin-right: 0.5rem;
+}
+
+/* ── scroll spy ── */
+.sidebar a { position: relative; }
+
+/* ── responsive ── */
+@media (max-width: 800px) {
+  .hero { padding: 2rem 1.25rem 1.5rem; }
+  .asset-row { padding: 0 1.25rem; }
+  .main-content { padding: 1.5rem 1.25rem; }
+  .sidebar {
+    position: relative;
+    top: 0;
+    height: auto;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+    padding: 1rem 1.25rem;
+  }
+}
+</style>
+</head>
+<body>
+
+<!-- top bar -->
+<nav class="topbar">
+  <div class="topbar-left">
+    <span class="topbar-tag">arxiv daily</span>
+    <span class="topbar-id mono">2605.29979</span>
+    <span class="muted">2026-05-28</span>
+  </div>
+  <div class="topbar-right">
+    <a href="./index.html">Index</a>
+    <a href="2605.29979.html">Markdown</a>
+    <a href="https://arxiv.org/abs/2605.29979" target="_blank" rel="noopener">arxiv.org &nearr;</a>
+  </div>
+</nav>
+
+<!-- hero -->
+<header class="hero">
+  <div class="hero-meta">
+    <span>cs.CR / cs.LG</span>
+    <span>BIFOLD &amp; TU Berlin</span>
+    <span>4 inference engines &middot; 6 attention backends &middot; 3 GPUs</span>
+  </div>
+  <h1>Fingerprinting Inference Systems of Large Language Models</h1>
+  <p class="hero-authors">Anna Wimbauer, Jonas M&ouml;ller, Erik Imgrund, Konrad Rieck</p>
+  <p class="hero-claim">
+    The first black-box method that identifies an LLM's entire inference stack &mdash; engine, attention backend, and GPU &mdash; using only text responses, with zero logit access.
+  </p>
+</header>
+
+<!-- asset row -->
+<section class="asset-row">
+  <div class="asset-card metric">
+    <div class="asset-label">Key Metric</div>
+    <div class="big-num">100%</div>
+    <div class="sub dim">accuracy at T&nbsp;=&nbsp;0 across all 30 system configurations</div>
+  </div>
+  <div class="asset-card finding">
+    <div class="asset-label">Key Finding</div>
+    <div class="sub" style="color:var(--text)">
+      Four crafted prompt types targeting distinct computational stages (autoregressive decode, prefill, chunked prefill, KV-cache reuse) produce characteristic numerical deviations that propagate into text output &mdash; enabling full system fingerprinting from black-box queries alone.
+    </div>
+  </div>
+  <div class="asset-card why">
+    <div class="asset-label">Why This Matters</div>
+    <div class="sub">Any API-deployed LLM leaks infrastructure details through text responses. No logit access needed.</div>
+  </div>
+  <div class="asset-card edge">
+    <div class="asset-label">Critical Edge</div>
+    <div class="big-num">30%</div>
+    <div class="sub">worst-case accuracy on unseen components; drops sharply at T&nbsp;>&nbsp;0.6. Hundreds of queries needed &mdash; detectable via rate limiting.</div>
+  </div>
+</section>
+
+<!-- body grid -->
+<div class="body-grid">
+
+  <!-- sidebar -->
+  <aside class="sidebar">
+    <h3>Jump</h3>
+    <ul>
+      <li><a href="#methodology" data-section="methodology">Methodology</a></li>
+      <li><a href="#results" data-section="results">Results</a></li>
+      <li><a href="#robustness" data-section="robustness">Robustness</a></li>
+      <li><a href="#assessment" data-section="assessment">Assessment</a></li>
+      <li><a href="#questions" data-section="questions">Open Questions</a></li>
+    </ul>
+    <hr class="sidebar-divider">
+    <h3>Models</h3>
+    <ul>
+      <li><a href="#">Llama-3.2-3B</a></li>
+      <li><a href="#">Qwen2.5-7B</a></li>
+      <li><a href="#">Qwen3-4B</a></li>
+    </ul>
+    <hr class="sidebar-divider">
+    <h3>Tags</h3>
+    <div class="sidebar-tag-list">
+      <span class="sidebar-tag">llm-fingerprinting</span>
+      <span class="sidebar-tag">inference-system-id</span>
+      <span class="sidebar-tag">numerical-deviations</span>
+      <span class="sidebar-tag">security-privacy</span>
+      <span class="sidebar-tag">model-serving</span>
+    </div>
+  </aside>
+
+  <!-- main -->
+  <main class="main-content">
+
+    <!-- methodology -->
+    <section class="section" id="methodology">
+      <h2>Methodology</h2>
+      <p style="color:var(--text-dim); margin-bottom:1.25rem; font-size:0.9rem;">
+        The attack operates in three stages: <strong style="color:var(--text)">prompt design</strong>,
+        <strong style="color:var(--text)">embedding via scoring functions</strong>, and
+        <strong style="color:var(--text)">random forest classification</strong> per component.
+      </p>
+      <div class="prompt-grid">
+        <div class="prompt-card">
+          <div class="tag">P1</div>
+          <div class="name">Rare Token Prompts</div>
+          <div class="desc">Generate rare tokens to amplify autoregressive decoding differences &mdash; small logit deviations flip selections at low-probability positions.</div>
+        </div>
+        <div class="prompt-card">
+          <div class="tag">P2</div>
+          <div class="name">Binary Decision</div>
+          <div class="desc">Force a single yes/no response, isolating the prefill stage with virtually no autoregressive generation.</div>
+        </div>
+        <div class="prompt-card">
+          <div class="tag">P3</div>
+          <div class="name">Long Context Recall</div>
+          <div class="desc">Embed a number in long text and ask for recall, triggering chunked prefill where chunking-strategy divergences manifest.</div>
+        </div>
+        <div class="prompt-card">
+          <div class="tag">P4</div>
+          <div class="name">Sentence Repetition</div>
+          <div class="desc">Repeat a sentence N times to activate KV-cache prefill reuse, revealing differences in cache management.</div>
+        </div>
+      </div>
+      <table class="config-table">
+        <thead>
+          <tr><th>Component</th><th>Configurations</th><th>Entries</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Inference Engines</td><td>vLLM, SGLang, TensorRT-LLM, LMDeploy</td><td>4</td></tr>
+          <tr><td>Attention Backends</td><td>Various implementations</td><td>6</td></tr>
+          <tr><td>GPUs</td><td>A100, H100, L40S</td><td>3</td></tr>
+          <tr><td>LLM Families</td><td>Llama-3.2, Qwen2.5, Qwen3</td><td>3</td></tr>
+          <tr><td colspan="2" style="color:var(--accent); font-weight:700;">Total system configurations</td><td style="color:var(--accent); font-weight:700;">30</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- results -->
+    <section class="section" id="results">
+      <h2>Results</h2>
+      <p style="color:var(--text-dim); margin-bottom:1rem; font-size:0.88rem;">
+        Accuracy by temperature and component (majority voting over multiple samples for T&nbsp;>&nbsp;0).
+      </p>
+      <div class="accuracy-bar-group">
+        <!-- T=0 -->
+        <div class="accuracy-row">
+          <span class="accuracy-label">T=0 (all)</span>
+          <div class="accuracy-track"><div class="accuracy-fill fill-perfect" style="width:100%"></div></div>
+          <span class="accuracy-value accent">100%</span>
+        </div>
+        <!-- T>0 -->
+        <div class="accuracy-row">
+          <span class="accuracy-label">T=0.3 engine</span>
+          <div class="accuracy-track"><div class="accuracy-fill fill-good" style="width:80%"></div></div>
+          <span class="accuracy-value success">~80%</span>
+        </div>
+        <div class="accuracy-row">
+          <span class="accuracy-label">T=0.3 backend</span>
+          <div class="accuracy-track"><div class="accuracy-fill fill-mid" style="width:72%"></div></div>
+          <span class="accuracy-value cyan">~72%</span>
+        </div>
+        <div class="accuracy-row">
+          <span class="accuracy-label">T=0.3 GPU</span>
+          <div class="accuracy-track"><div class="accuracy-fill fill-mid" style="width:76%"></div></div>
+          <span class="accuracy-value cyan">~76%</span>
+        </div>
+        <div class="accuracy-row">
+          <span class="accuracy-label">T=0.6 backend</span>
+          <div class="accuracy-track"><div class="accuracy-fill fill-low" style="width:40%"></div></div>
+          <span class="accuracy-value danger">33-46%</span>
+        </div>
+      </div>
+      <p style="font-family:var(--mono); font-size:0.7rem; color:var(--text-muted); margin-bottom:1.5rem;">
+        Performance saturates at 10&ndash;20 samples for stochastic decoding. Qwen2.5-7B is most robust across temperatures.
+      </p>
+    </section>
+
+    <!-- robustness -->
+    <section class="section" id="robustness">
+      <h2>Robustness Analysis</h2>
+      <div class="accuracy-bar-group">
+        <div class="accuracy-row">
+          <span class="accuracy-label" style="min-width:180px">System prompt change</span>
+          <div class="accuracy-track"><div class="accuracy-fill fill-perfect" style="width:99.7%"></div></div>
+          <span class="accuracy-value accent">~99.7%</span>
+        </div>
+        <div class="accuracy-row">
+          <span class="accuracy-label" style="min-width:180px">Batch size gen. (Qwen)</span>
+          <div class="accuracy-track"><div class="accuracy-fill fill-good" style="width:94%"></div></div>
+          <span class="accuracy-value success">94-97%</span>
+        </div>
+        <div class="accuracy-row">
+          <span class="accuracy-label" style="min-width:180px">Batch size gen. (Llama)</span>
+          <div class="accuracy-track"><div class="accuracy-fill fill-mid" style="width:85%"></div></div>
+          <span class="accuracy-value cyan">84-90%</span>
+        </div>
+        <div class="accuracy-row">
+          <span class="accuracy-label" style="min-width:180px">Unseen components (Qwen3)</span>
+          <div class="accuracy-track"><div class="accuracy-fill fill-good" style="width:86%"></div></div>
+          <span class="accuracy-value success">86-95%</span>
+        </div>
+        <div class="accuracy-row">
+          <span class="accuracy-label" style="min-width:180px">Unseen components (Llama)</span>
+          <div class="accuracy-track"><div class="accuracy-fill fill-low" style="width:30%"></div></div>
+          <span class="accuracy-value danger">30%</span>
+        </div>
+        <div class="accuracy-row">
+          <span class="accuracy-label" style="min-width:180px">Cross-temp (train&ne;test)</span>
+          <div class="accuracy-track"><div class="accuracy-fill fill-low" style="width:43%"></div></div>
+          <span class="accuracy-value danger">37-49%</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- assessment -->
+    <section class="section" id="assessment">
+      <h2>Assessment</h2>
+      <div class="dual-list">
+        <div class="list-col strengths">
+          <h3>Strengths</h3>
+          <ul>
+            <li>First text-only black-box fingerprinting method &mdash; no logit access required</li>
+            <li>Clever prompt design systematically targeting distinct computational stages</li>
+            <li>100% accuracy at T=0 across all 30 configurations is striking</li>
+            <li>Comprehensive robustness analysis across multiple real-world axes</li>
+            <li>Honest discussion of defense difficulty; connects to real CVEs in vLLM and SGLang</li>
+          </ul>
+        </div>
+        <div class="list-col limitations">
+          <h3>Limitations</h3>
+          <ul>
+            <li>Only 4 engines, 6 backends, 3 GPUs &mdash; real-world diversity is far larger</li>
+            <li>Accuracy collapses at T&nbsp;>&nbsp;0.6 and for unseen components</li>
+            <li>Requires hundreds of queries &mdash; detectable via rate limiting</li>
+            <li>No defense evaluation beyond theoretical discussion</li>
+            <li>Not tested against reasoning/trace models (o1-style) where output patterns may differ</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- questions -->
+    <section class="section" id="questions">
+      <h2>Open Questions</h2>
+      <ul class="question-list">
+        <li><span class="q-num">Q1</span>How does output filtering, content moderation, or structured output constraints alter fingerprinting signal?</li>
+        <li><span class="q-num">Q2</span>Can prompt designs be made more query-efficient (fewer than hundreds) while preserving accuracy?</li>
+        <li><span class="q-num">Q3</span>How well does fingerprinting transfer across model families unseen during classifier training?</li>
+        <li><span class="q-num">Q4</span>What is the minimum noise level to mask the signal, and what utility degradation does it cause?</li>
+        <li><span class="q-num">Q5</span>Could this combine with model fingerprinting (LLMmap) for comprehensive system profiling?</li>
+        <li><span class="q-num">Q6</span>How do quantization variants (INT8, INT4, FP8) affect the numerical deviation signal?</li>
+      </ul>
+    </section>
+
+  </main>
+</div>
+
+<script>
+// Scroll spy for sidebar
+(function() {
+  const links = document.querySelectorAll('.sidebar a[data-section]');
+  const sections = [];
+  links.forEach(link => {
+    const id = link.getAttribute('data-section');
+    const el = document.getElementById(id);
+    if (el) sections.push({ link, el });
+  });
+
+  function onScroll() {
+    const top = window.scrollY + 120;
+    let active = sections[0];
+    sections.forEach(s => {
+      if (s.el.offsetTop <= top) active = s;
+    });
+    links.forEach(l => l.classList.remove('active'));
+    if (active) active.link.classList.add('active');
+  }
+
+  window.addEventListener('scroll', onScroll, { passive: true });
+  onScroll();
+
+  // Animate accuracy bars on scroll into view
+  // Store target widths from HTML, then collapse to 0 for animation
+  const bars = document.querySelectorAll('.accuracy-fill');
+  bars.forEach(bar => {
+    const current = bar.style.width;
+    bar.dataset.target = current;
+    bar.style.width = '0%';
+  });
+
+  const observer = new IntersectionObserver(entries => {
+    entries.forEach(entry => {
+      if (entry.isIntersecting) {
+        const bar = entry.target;
+        requestAnimationFrame(() => {
+          bar.style.width = bar.dataset.target;
+        });
+        observer.unobserve(bar);
+      }
+    });
+  }, { threshold: 0.3 });
+
+  bars.forEach(bar => observer.observe(bar));
+})();
+</script>
+</body>
+</html>

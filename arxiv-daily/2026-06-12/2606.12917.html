@@ -1,0 +1,567 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Where Computation Lives Inside TabPFN — 2606.12917</title>
+<style>
+  /* ── Design tokens ── */
+  :root {
+    --bg: #f6f7f8;
+    --surface: #ffffff;
+    --text: #1a1a1a;
+    --text-muted: #5f6368;
+    --border: #dfe1e5;
+    --accent: #0a7e8c;
+    --accent-light: #e6f4f6;
+    --critical: #b33a2b;
+    --critical-bg: #fdf0ee;
+    --critical-border: #e8a09a;
+    --mono: 'SFMono-Regular', 'Menlo', 'Consolas', monospace;
+    --body: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans SC', 'PingFang SC', 'Hiragino Sans GB', sans-serif;
+    --max-w: min(95vw, 1100px);
+    --radius: 6px;
+  }
+
+  /* ── Reset & base ── */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    font-family: var(--body);
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+    font-size: 15px;
+    -webkit-font-smoothing: antialiased;
+    padding-bottom: 48px;
+  }
+
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  /* ── Top nav ── */
+  .top-nav {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 100;
+    background: rgba(246, 247, 248, 0.92);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+    border-bottom: 1px solid var(--border);
+    padding: 10px 24px;
+    font-size: 13px;
+    color: var(--text-muted);
+  }
+  .top-nav a { font-weight: 500; }
+
+  /* ── Main wrapper ── */
+  .wrapper {
+    margin: 0 auto;
+    max-width: var(--max-w);
+    padding: 56px 20px 0;
+  }
+
+  /* ── Hero band ── */
+  .hero {
+    padding: 40px 0 28px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 28px;
+    opacity: 0;
+    animation: fadeUp 0.5s ease forwards;
+  }
+
+  .key-finding {
+    font-size: clamp(1.55rem, 3.2vw, 2.15rem);
+    font-weight: 700;
+    line-height: 1.25;
+    letter-spacing: -0.02em;
+    color: var(--text);
+    max-width: 42em;
+  }
+
+  .key-finding .accent { color: var(--accent); }
+
+  .meta-line {
+    margin-top: 14px;
+    font-size: 13.5px;
+    color: var(--text-muted);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 16px;
+    align-items: center;
+    line-height: 1.5;
+  }
+
+  .meta-line .paper-title a {
+    font-weight: 600;
+    color: var(--text);
+  }
+
+  .tag {
+    display: inline-block;
+    font-size: 11.5px;
+    font-family: var(--mono);
+    background: var(--accent-light);
+    color: var(--accent);
+    padding: 2px 8px;
+    border-radius: 3px;
+    white-space: nowrap;
+  }
+
+  /* ── Asset row ── */
+  .asset-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 16px;
+    margin-bottom: 36px;
+    opacity: 0;
+    animation: fadeUp 0.5s ease 0.1s forwards;
+  }
+
+  .asset-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 22px 20px;
+  }
+
+  .asset-label {
+    font-size: 10.5px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-muted);
+    margin-bottom: 10px;
+  }
+
+  /* Metric card */
+  .metric-card {
+    border-left: 3px solid var(--accent);
+  }
+
+  .metric-value {
+    font-size: 3.2rem;
+    font-weight: 800;
+    line-height: 1;
+    color: var(--accent);
+    letter-spacing: -0.03em;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .metric-context {
+    margin-top: 8px;
+    font-size: 13px;
+    color: var(--text-muted);
+    line-height: 1.45;
+  }
+
+  /* Why it matters card */
+  .matters-card {
+    border-left: 3px solid var(--text);
+  }
+
+  .matters-text {
+    font-size: 14.5px;
+    line-height: 1.55;
+    color: var(--text);
+  }
+
+  /* Critical edge card */
+  .critical-card {
+    background: var(--critical-bg);
+    border: 1px solid var(--critical-border);
+    border-left: 3px solid var(--critical);
+  }
+
+  .critical-card .asset-label { color: var(--critical); }
+
+  .critical-text {
+    font-size: 13.5px;
+    line-height: 1.55;
+    color: var(--critical);
+  }
+
+  /* ── Body grid ── */
+  .body-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    opacity: 0;
+    animation: fadeUp 0.5s ease 0.2s forwards;
+  }
+
+  .body-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 22px 20px;
+  }
+
+  .body-card.full-width {
+    grid-column: 1 / -1;
+  }
+
+  .card-head {
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: var(--accent);
+    margin-bottom: 12px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .body-card ul {
+    list-style: none;
+    padding: 0;
+  }
+
+  .body-card li {
+    position: relative;
+    padding-left: 16px;
+    margin-bottom: 8px;
+    font-size: 13.5px;
+    line-height: 1.55;
+    color: var(--text);
+  }
+
+  .body-card li::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 8px;
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: var(--accent);
+  }
+
+  .body-card p {
+    font-size: 13.5px;
+    line-height: 1.6;
+    color: var(--text);
+    margin-bottom: 10px;
+  }
+
+  .body-card p:last-child { margin-bottom: 0; }
+
+  /* Inline mono for code/dimension references */
+  .mono {
+    font-family: var(--mono);
+    font-size: 0.92em;
+    background: var(--accent-light);
+    padding: 1px 5px;
+    border-radius: 3px;
+    color: var(--accent);
+    white-space: nowrap;
+  }
+
+  /* Results table */
+  .results-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+    margin-top: 6px;
+  }
+
+  .results-table th {
+    text-align: left;
+    font-weight: 600;
+    font-size: 11.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-muted);
+    padding: 6px 10px 6px 0;
+    border-bottom: 2px solid var(--border);
+  }
+
+  .results-table td {
+    padding: 7px 10px 7px 0;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+    line-height: 1.45;
+  }
+
+  .results-table tr:last-child td { border-bottom: none; }
+
+  .num {
+    font-family: var(--mono);
+    font-size: 0.95em;
+    font-weight: 600;
+  }
+
+  /* Strengths / Limitations side-by-side */
+  .panel-pair {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0 16px;
+  }
+
+  .strengths-panel li::before { background: var(--accent); }
+  .limitations-panel li::before { background: var(--critical); }
+
+  .limitations-panel .card-head {
+    color: var(--critical);
+  }
+
+  /* Questions panel */
+  .questions-panel ol {
+    padding-left: 20px;
+    counter-reset: q;
+    list-style: none;
+  }
+
+  .questions-panel li {
+    counter-increment: q;
+    margin-bottom: 8px;
+    font-size: 13.5px;
+    line-height: 1.55;
+    position: relative;
+    padding-left: 4px;
+  }
+
+  .questions-panel li::before {
+    content: counter(q) '.';
+    font-weight: 700;
+    color: var(--accent);
+    margin-right: 6px;
+  }
+
+  /* Footer */
+  .footer {
+    margin-top: 32px;
+    padding: 16px 0;
+    border-top: 1px solid var(--border);
+    font-size: 12.5px;
+    color: var(--text-muted);
+    opacity: 0;
+    animation: fadeUp 0.5s ease 0.3s forwards;
+  }
+
+  /* ── Animation ── */
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(12px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  /* ── Responsive ── */
+  @media (max-width: 720px) {
+    .wrapper { padding: 52px 14px 0; }
+
+    .hero { padding: 28px 0 20px; }
+
+    .key-finding { font-size: 1.35rem; }
+
+    .asset-row {
+      grid-template-columns: 1fr;
+      gap: 12px;
+    }
+
+    .body-grid {
+      grid-template-columns: 1fr;
+    }
+
+    .panel-pair {
+      grid-template-columns: 1fr;
+      gap: 16px 0;
+    }
+
+    .metric-value { font-size: 2.6rem; }
+
+    .meta-line { gap: 4px 12px; }
+  }
+
+  @media (min-width: 721px) and (max-width: 960px) {
+    .asset-row {
+      grid-template-columns: 1fr 1fr;
+    }
+    .critical-card {
+      grid-column: 1 / -1;
+    }
+  }
+</style>
+</head>
+<body>
+
+<!-- Top-left fixed nav -->
+<nav class="top-nav">
+  <a href="./index.html">↩ Today's digest</a>
+</nav>
+
+<div class="wrapper">
+
+  <!-- ═══════ HERO BAND ═══════ -->
+  <header class="hero">
+    <h1 class="key-finding">
+      One attention head in TabPFN drives <span class="accent">2–5×</span> more causal computation than all others — and its dominant layer shifts with task complexity.
+    </h1>
+    <div class="meta-line">
+      <span class="paper-title"><a href="https://arxiv.org/abs/2606.12917">Where Computation Lives Inside TabPFN: Causal Localisation of Attention Head Function</a></span>
+      <span>Atharva Gupta, Dhruv Kumar, Murari Mandal, Saurabh Deshpande</span>
+      <span>2026-06-12</span>
+      <span class="tag">mechanistic-interpretability</span>
+      <span class="tag">tabular-foundation-models</span>
+      <span class="tag">activation-patching</span>
+    </div>
+  </header>
+
+  <!-- ═══════ ASSET ROW ═══════ -->
+  <section class="asset-row" aria-label="Key assets">
+
+    <!-- KEY METRIC -->
+    <div class="asset-card metric-card">
+      <div class="asset-label">Key Metric</div>
+      <div class="metric-value">2–5×</div>
+      <div class="metric-context">
+        Head 2's ablation effect (0.074–0.076σ) vs. all other head-layer combinations — the single largest causal driver across two tasks.
+      </div>
+    </div>
+
+    <!-- WHY THIS MATTERS -->
+    <div class="asset-card matters-card">
+      <div class="asset-label">Why This Matters</div>
+      <div class="matters-text">
+        First mechanistic look inside a tabular foundation model — reveals functional head specialization and shows LLM interpretability methods don't always transfer.
+      </div>
+    </div>
+
+    <!-- CRITICAL EDGE -->
+    <div class="asset-card critical-card">
+      <div class="asset-label">⚠ Critical Edge</div>
+      <div class="critical-text">
+        Tested on only two synthetic datasets with known closed-form solutions — no real-world tabular benchmarks, no classification tasks, no noisy data.
+      </div>
+    </div>
+
+  </section>
+
+  <!-- ═══════ BODY GRID ═══════ -->
+  <div class="body-grid">
+
+    <!-- Methodology -->
+    <article class="body-card">
+      <div class="card-head">Methodology</div>
+      <p>
+        The authors dissect <strong>TabPFN-2.5</strong>'s feature-wise self-attention module
+        (<span class="mono">18 layers · 3 heads · d=192</span>) on two synthetic regression tasks:
+      </p>
+      <ul>
+        <li><strong>Multiplication</strong> (<span class="mono">d=3</span>): y&nbsp;=&nbsp;a·b&nbsp;+&nbsp;c</li>
+        <li><strong>Pairwise-50</strong> (<span class="mono">d=50</span>): y&nbsp;=&nbsp;(Σx<sub>i</sub>)² — requires global feature aggregation</li>
+      </ul>
+      <p>Three convergent causal methods are applied:</p>
+      <ul>
+        <li><strong>Activation patching</strong> — swap corrupted→clean activations, measure recovery</li>
+        <li><strong>Ablation</strong> — zero a component, measure prediction deviation in σ units</li>
+        <li><strong>Attention entropy</strong> — Shannon entropy of per-head attention; low = concentrated computation</li>
+      </ul>
+      <p>
+        An additional <strong>contrastive activation steering</strong> experiment tests whether a task-representing direction (mean-diff) can shift outputs at inference — the LLM-style approach.
+      </p>
+    </article>
+
+    <!-- Results -->
+    <article class="body-card">
+      <div class="card-head">Results & Findings</div>
+      <table class="results-table">
+        <thead>
+          <tr>
+            <th>Finding</th>
+            <th>Multiplication (d=3)</th>
+            <th>Pairwise-50 (d=50)</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Head 2 peak ablation</td>
+            <td><span class="num">0.076σ</span> at L0</td>
+            <td><span class="num">0.074σ</span> at L16</td>
+          </tr>
+          <tr>
+            <td>Head 2 peak patching layer</td>
+            <td><span class="num">L6</span></td>
+            <td><span class="num">L13</span></td>
+          </tr>
+          <tr>
+            <td>Entropy minima</td>
+            <td><span class="num">0.21</span> at L6</td>
+            <td><span class="num">0.31</span> at L13</td>
+          </tr>
+          <tr>
+            <td>Layer-level patch recovery</td>
+            <td>~<span class="num">100%</span></td>
+            <td>—</td>
+          </tr>
+          <tr>
+            <td>Activation steering MSE Δ</td>
+            <td colspan="2"><span class="num">+0.0%</span> (direction stable at cosine&nbsp;sim&nbsp;0.71, but impotent)</td>
+          </tr>
+        </tbody>
+      </table>
+      <p style="margin-top: 12px;">
+        <strong>Selectivity ≠ causal necessity:</strong> Head 0 is equally selective at L0 (entropy 0.22) yet has near-zero ablation effect — concentrated attention alone doesn't mean causal importance.
+      </p>
+      <p>
+        <strong>Stability:</strong> Head 2's L0 effect is <span class="num">0.078σ</span> at n=64 vs. <span class="num">0.076σ</span> at n=512 — not a batch artifact.
+      </p>
+    </article>
+
+    <!-- Strengths / Limitations — side by side -->
+    <article class="body-card full-width" style="padding: 0; border: none; background: none;">
+      <div class="panel-pair">
+        <div class="body-card strengths-panel">
+          <div class="card-head">Strengths</div>
+          <ul>
+            <li>Pioneering causal MI for tabular foundation models — a genuinely understudied area.</li>
+            <li>Three convergent methods (patching + ablation + entropy) independently identify the same computational sites.</li>
+            <li>Elegant disentangling of attentional selectivity from causal necessity (Head 0 vs. Head 2 at L0).</li>
+            <li>The negative steering result yields a real architectural insight: pure ICL ≠ function-vector-mediated ICL.</li>
+            <li>Commendable transparency — all tentative claims and scope limits are explicitly flagged.</li>
+          </ul>
+        </div>
+        <div class="body-card limitations-panel">
+          <div class="card-head">Limitations</div>
+          <ul>
+            <li>Only two synthetic datasets with known closed-form solutions. Zero real-world benchmarks.</li>
+            <li>Whether the two head classes generalize beyond these tasks is entirely unknown.</li>
+            <li>Identifies <em>where</em> computation happens, not <em>what</em> computation is performed.</li>
+            <li>Steering null result tested with a single estimator on a single task — may not hold with better methods.</li>
+            <li>No comparison with probing or other MI approaches to validate patching-based findings.</li>
+            <li>TabPFN's non-commercial license may limit some reproducibility scenarios.</li>
+          </ul>
+        </div>
+      </div>
+    </article>
+
+    <!-- Questions for Further Exploration -->
+    <article class="body-card full-width questions-panel">
+      <div class="card-head">Questions for Further Exploration</div>
+      <ol>
+        <li>Do the two head classes (dominant + symmetric) persist across sinusoidal, polynomial, or real-world tabular benchmarks?</li>
+        <li>What specific feature-block pairs does Head 2 attend to at its entropy minima (L6, L13)? Attention weight visualization could reveal the actual computation.</li>
+        <li>Can linear probes, PCA, or sparse autoencoder features overcome the activation steering failure — or is this a fundamental ICL limitation?</li>
+        <li>How do the head classes differ between the 18-layer regression and 24-layer classification variants of TabPFN-2.5?</li>
+        <li>Is Head 2's dominant layer position related to the circuit depth required by the structural causal model in TabPFN's training data?</li>
+      </ol>
+    </article>
+
+  </div><!-- /body-grid -->
+
+  <!-- Footer -->
+  <footer class="footer">
+    <a href="2606.12917.html">↗ Markdown source</a>
+    &nbsp;·&nbsp;
+    <a href="https://github.com/atharva7-g/tabfm-interp">Code repository</a>
+    &nbsp;·&nbsp;
+    <span>ICML 2026 Workshop on Foundation Models for Structured Data</span>
+  </footer>
+
+</div><!-- /wrapper -->
+
+</body>
+</html>

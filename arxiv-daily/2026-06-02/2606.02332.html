@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Forget Attention: Importance-Aware Attention Is All You Need</title>
+<style>
+:root { --paper:#fafafa; --ink:#1a1a1a; --muted:#555; --accent:#1a5276; --line:#ddd; --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif; --serif:Georgia,"Noto Serif SC",serif; }
+body { font-family:var(--serif); background:var(--paper); color:var(--ink); line-height:1.6; margin:0; padding:0; }
+.container { max-width:min(95vw, 760px); margin:0 auto; padding:28px 20px 60px; }
+.topnav { position:fixed; top:12px; left:14px; z-index:50; font-family:var(--sans); font-size:.75rem; background:var(--paper); border:1px solid var(--line); padding:5px 10px; border-radius:999px; }
+.topnav a { color:var(--muted); text-decoration:none; font-weight:600; }
+.topnav a:hover { color:var(--accent); }
+h1 { font-size:1.6rem; margin:2.2rem 0 1rem; border-bottom:2px solid var(--accent); padding-bottom:.3rem; }
+h2 { font-size:1.3rem; margin:1.8rem 0 .8rem; color:var(--accent); }
+h3 { font-size:1.1rem; margin:1.4rem 0 .6rem; }
+p { margin:.8rem 0; }
+.authors { font-style:italic; color:var(--muted); margin-top:-.4rem; }
+.meta { font-family:var(--sans); font-size:.82rem; color:var(--muted); margin:.2rem 0; }
+a { color:var(--accent); text-decoration:none; }
+a:hover { text-decoration:underline; }
+blockquote { border-left:3px solid var(--accent); margin:1rem 0; padding:.2rem 0 .2rem 1rem; color:var(--muted); font-style:italic; }
+code { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; background:#f0f0f0; padding:2px 5px; border-radius:3px; font-size:.9em; }
+pre { background:#f5f5f5; padding:14px; overflow-x:auto; border-radius:4px; border:1px solid var(--line); }
+pre code { background:transparent; padding:0; }
+ul,ol { margin:.6rem 0; padding-left:1.5rem; }
+li { margin:.25rem 0; }
+table { border-collapse:collapse; width:100%; margin:1rem 0; font-family:var(--sans); font-size:.9rem; }
+th,td { border:1px solid var(--line); padding:6px 10px; text-align:left; }
+th { background:#f0f0f0; }
+hr { border:none; border-top:1px solid var(--line); margin:1.5rem 0; }
+.note { font-family:var(--sans); font-size:.78rem; color:var(--muted); border-top:1px solid var(--line); margin-top:2rem; padding-top:1rem; }
+@media (max-width: 600px) { .container { padding:22px 14px 40px; } h1 { font-size:1.35rem; } }
+</style>
+</head>
+<body>
+<div class="topnav"><a href="./index.html">← Today's digest</a></div>
+<div class="container">
+<h1>Forget Attention: Importance-Aware Attention Is All You Need</h1>
+<p class="meta">arXiv: 2606.02332</p>
+<p class="meta">Date: 2026-06-02</p>
+<p class="meta"><a href="https://arxiv.org/abs/2606.02332">https://arxiv.org/abs/2606.02332</a></p>
+<blockquote><strong>一句话总结：</strong> SISA 通过在注意力分数中直接注入 SSM 导出的重要性信号，实现了分数级融合，在保持完美检索能力（NIAH 100%）的同时显著提升了语言理解性能，且无需自定义 CUDA 内核即可兼容 FlashAttention。</blockquote>
+<blockquote><strong>TL;DR:</strong> SISA introduces score-level fusion by injecting an SSM-derived importance signal directly into the attention score, achieving significant gains in language understanding while maintaining perfect retrieval (NIAH 100%) and full FlashAttention compatibility without custom CUDA kernels.</blockquote>
+<h2>核心贡献</h2>
+<ul>
+<li><strong>分数级融合新范式：</strong> 提出了继块级（block-level，如 Jamba）和头级（head-level，如 Hymba）之后的第三种 SSM-注意力融合范式——分数级融合（score-level fusion），将 SSM 信号直接注入注意力分数内部。</li>
+<li><strong>SISA 架构：</strong> 设计了 SSM-Informed Softmax Attention（SISA），在标准注意力分数上添加一个 SSM 导出的重要性项，使每个注意力权重同时由内容相似度和序列重要性共同决定。</li>
+<li><strong>单 SDPA 调用实现：</strong> 通过增广 Q/K 向量的代数技巧，将整个计算归约为一次标准 PyTorch SDPA 调用，无需循环状态、无需自定义内核，原生兼容 FlashAttention。</li>
+<li><strong>卓越的性能表现：</strong> 在 152M 参数/5B tokens 设置下，SISA 在 LAMBADA 上达到 17.3%（Transformer 13.9%，Mamba-3 15.5%），NIAH 从训练第 1K 步即达 100%。</li>
+<li><strong>系统性消融研究：</strong> 在三个尺度（50M/152M/369M）上对 SSM 通道维度 d_s 进行系统消融，量化了 SSM 与 FFN 之间的参数权衡。</li>
+</ul>
+<h2>Key Contributions</h2>
+<ul>
+<li><strong>Score-level fusion paradigm:</strong> Proposes a third integration point for SSM-attention hybrids—score-level fusion—beyond existing block-level (Jamba) and head-level (Hymba) approaches, injecting the SSM signal directly into the attention score itself.</li>
+<li><strong>SISA architecture:</strong> Designs SSM-Informed Softmax Attention (SISA), which augments standard content-based attention with an SSM-derived importance term so every attention weight is jointly determined by content similarity and sequential importance.</li>
+<li><strong>Single-SDPA realization:</strong> Through an elegant augmented Q/K construction, the entire operation reduces to one standard PyTorch SDPA call—no recurrent state, no custom CUDA kernels, and native FlashAttention compatibility.</li>
+<li><strong>Strong empirical results:</strong> At 152M parameters / 5B tokens, SISA achieves 17.3% on LAMBADA (vs. Transformer 13.9% and Mamba-3 15.5%) and reaches 100% NIAH from training step 1K.</li>
+<li><strong>Systematic ablation study:</strong> Conducts a d_s scaling study across three model sizes (50M/152M/369M), quantifying the trade-off between SSM channel size and FFN capacity.</li>
+</ul>
+<h2>Methodology</h2>
+<p>The core idea of SISA is to add an SSM-derived importance term directly into the attention score:</p>
+<p>$$s^{SISA}_{ij} = \frac{q_i^\top k_j}{\sqrt{d_h}} + \lambda \cdot \bar{C}_i^\top \bar{B}_j$$</p>
+<p>The first term is standard content similarity; the second term encodes sequential importance derived from Mamba-3's mathematical framework. The SSM channels are constructed as follows:</p>
+<ol>
+<li><strong>Projections:</strong> From input $x_t$, compute $B_t = W_B x_t$ and $C_t = W_C x_t$ (both in $\mathbb{R}^{d_s}$), where $d_s$ is the SSM channel dimension.</li>
+<li><strong>Decay:</strong> $\alpha_t = \exp(-\text{softplus}(w_\alpha^\top x_t + b_\alpha)) \in (0,1)$, with $b_\alpha$ initialized to $-5$ for a half-life of ~100 tokens.</li>
+<li><strong>Phase (data-dependent rotation):</strong> $\theta_t = W_\theta x_t \in \mathbb{R}^{d_s/2}$ provides per-head, per-dimension rotation frequencies.</li>
+<li><strong>Cumulative quantities:</strong> Compute $g_t = \sum_{k \leq t} \log \alpha_k$ (log-decay) and $\Phi_t = \sum_{k \leq t} \theta_k$ using <code>torch.cumsum</code> (O(L) operation). A minimax offset $c$ ensures numerical stability.</li>
+<li><strong>Final channels:</strong> $\bar{C}_i = e^{g_i - c} \cdot R(\Phi_i) \cdot C_i$ and $\bar{B}_j = e^{-(g_j - c)} \cdot R(\Phi_j) \cdot B_j$, where $R(\Phi)$ is a block-diagonal 2×2 rotation matrix.</li>
+</ol>
+<p><strong>Key insight—augmented Q/K:</strong> By setting $s = d_h^{1/4} \sqrt{\lambda}$ and defining $\hat{Q}_i = [q_i; s\bar{C}_i]$ and $\hat{K}_j = [k_j; s\bar{B}_j]$, the entire SISA score becomes a standard SDPA call: $\hat{Q}_i^\top \hat{K}_j / \sqrt{d_h} = s^{SISA}_{ij}$. This requires the SDPA scale to be $1/\sqrt{d_h}$ (not $1/\sqrt{d_h + d_s}$).</p>
+<p><strong>Parameter budget:</strong> SISA adds SSM projections ($W_B$, $W_C$, $w_\alpha$, $W_\theta$, $\lambda$) but offsets this by shrinking the FFN hidden dimension, keeping total parameters matched with the Transformer baseline.</p>
+<h2>Results & Highlights</h2>
+<p><strong>Main Results at 152M / 5B tokens:</strong></p>
+<p>| Model | LAMBADA↑ | NIAH↑ | HellaSwag↑ | ARC-E↑ | WinoG↑ |</p>
+<p>|-------|----------|-------|------------|--------|--------|</p>
+<p>| Transformer | 13.9 | 100.0 | 25.4 | 33.3 | 51.2 |</p>
+<p>| Mamba-3 | 15.5 | 99.0 | 26.0 | 34.9 | 52.7 |</p>
+<p>| <strong>SISA (best)</strong> | <strong>17.3</strong> | <strong>100.0</strong> | <strong>26.9</strong> | <strong>34.7</strong> | <strong>52.5</strong> |</p>
+<ul>
+<li><strong>LAMBADA:</strong> SISA achieves 17.3%, outperforming Transformer by +3.4 pp (+24.5% relative) and Mamba-3 by +1.8 pp (+11.6%).</li>
+<li><strong>NIAH convergence:</strong> SISA reaches 100% from step 1K (only 10% of training), which is <strong>7× faster</strong> than Transformer (step 7K) and superior to Mamba-3 (stabilizes at 99% by step 8K). Mamba-2 plateaus at 82.5%.</li>
+<li><strong>Scaling behavior:</strong></li>
+<li><strong>50M:</strong> SISA with $d_s=64$ achieves LAMBADA 14.4%, beating both Transformer (13.4%) and Mamba-3 (12.7%).</li>
+<li><strong>152M:</strong> SISA with $d_s=16$ is best overall, winning on 3 of 5 benchmarks.</li>
+<li><strong>369M:</strong> Mamba-3 leads on LAMBADA (17.4% vs. 14.8%), but SISA preserves perfect NIAH (100% vs. 86.5%) and offers +25% throughput over Mamba-3.</li>
+</ul>
+<p><strong>Throughput at 152M:</strong></p>
+<ul>
+<li>Transformer: 27,714 tok/s (baseline)</li>
+<li>SISA: 16,783 tok/s (0.61× Transformer, 1.25× Mamba-3)</li>
+<li>Mamba-3: 13,460 tok/s</li>
+</ul>
+<p>The 39% slowdown vs. Transformer comes from the augmented inner dimension ($d_h + d_s = 96$ vs. $d_h = 64$), but SISA runs on stock PyTorch SDPA without custom kernels.</p>
+<p><strong>Long-context NIAH:</strong> At the training length of 2,048, SISA achieves 91% vs. Transformer's 82%, showing the SSM bias helps boundary retrieval. All attention-based models fail beyond training length due to RoPE extrapolation limits.</p>
+<h2>Authors & Credibility</h2>
+<ul>
+<li><strong>Suhyeong Shin</strong> and <strong>Yeongwook Yang</strong> (corresponding author) from the Department of Computer Engineering, Kangwon National University, South Korea.</li>
+<li>The paper is well-situated in the literature, with thorough comparisons against major baselines (Transformer, Mamba-2, Mamba-3, Jamba, Hymba, FoX, ALiBi, DAPE) and a comprehensive survey of SSM-attention hybrids in Appendix I.</li>
+<li>The experimental protocol is rigorous: controlled retraining with matched micro-batch (mb=4), multi-seed NIAH evaluation (5 seeds), and transparent disclosure of both controlled and historical runs.</li>
+<li>The mathematical formulation is clean and formally proven (Proposition 1), with careful attention to numerical stability (bf16 clamp, fp32 λ, minimax offset).</li>
+</ul>
+<h2>Critical Assessment</h2>
+<p><strong>Novelty:</strong> High. Score-level fusion represents a genuinely new design axis for SSM-attention hybrids. The augmented Q/K construction that reduces the operation to a single SDPA call is elegant and practically valuable. The authors' survey of prior hybrids (Appendix I) supports their claim that no prior work uses a vector-valued, data-dependent score bias of this kind.</p>
+<p><strong>Rigor:</strong> Generally strong. The paper provides formal proofs, detailed implementation notes, multi-seed validation, and controlled retraining protocols. However, the 369M results show some sensitivity to micro-batch size (mb=2 vs. mb=4), and the authors appropriately disclose this.</p>
+<p><strong>Reproducibility:</strong> Good. The method reduces to standard PyTorch operations (projections, cumsum, SDPA), avoiding the custom CUDA kernels that complicate Mamba reproduction. The detailed implementation notes (SDPA scale, bf16 clamp, λ in fp32) are valuable for replication.</p>
+<p><strong>Significance:</strong> Potentially high for the efficient architecture community. The work identifies the attention score as a natural interface between Transformers and SSMs, opening a third design space. The FlashAttention compatibility is a major practical advantage.</p>
+<p><strong>Red flags / concerns:</strong></p>
+<ul>
+<li>The 369M scale is relatively modest, and models are trained on only 5B tokens (13.5× tokens/param at 369M, below Chinchilla-optimal 20×).</li>
+<li>The LAMBADA advantage at 152M does not fully scale to 369M, where Mamba-3 overtakes SISA.</li>
+<li>The 39% throughput overhead vs. Transformer is non-trivial, though better than Mamba variants.</li>
+<li>The RoPE limit of 2,048 means long-context generalization is unproven.</li>
+</ul>
+<h2>Strengths</h2>
+<ul>
+<li><strong>Novel conceptual contribution:</strong> Score-level fusion is a clean, principled idea that addresses a real limitation in existing hybrids.</li>
+<li><strong>Practical compatibility:</strong> Single SDPA call means no custom kernels, full FlashAttention support, and easy integration into existing training stacks.</li>
+<li><strong>Strong retrieval performance:</strong> Perfect NIAH from early training is a compelling result, especially compared to Mamba's struggles with information recovery.</li>
+<li><strong>Mathematical elegance:</strong> The augmented Q/K construction is simple yet powerful, with a straightforward proof.</li>
+<li><strong>Honest trade-off analysis:</strong> The paper does not oversell; it clearly identifies where SISA wins (retrieval, compatibility) and where Mamba-3 wins (sample efficiency at 369M).</li>
+<li><strong>Thorough ablations:</strong> The $d_s$ scaling study across three model sizes provides useful guidance for practitioners.</li>
+</ul>
+<h2>Limitations</h2>
+<ul>
+<li><strong>Scale ceiling:</strong> Maximum tested scale is 369M parameters with 5B tokens—well below production model scales. Performance at multi-billion parameter scales is unknown.</li>
+<li><strong>Training efficiency:</strong> 39% throughput overhead versus pure Transformer, and the 369M models are undertrained by Chinchilla standards.</li>
+<li><strong>Context length:</strong> Limited to 2,048 during training; RoPE extrapolation failures prevent generalization to longer contexts.</li>
+<li><strong>Softmax dilution:</strong> The additive SSM bias is diluted by softmax normalization, especially on tasks where many tokens are roughly equally relevant. The authors hypothesize that sigmoid attention (SISA-2) could address this.</li>
+<li><strong>FFN trade-off:</strong> The parameter budget requires shrinking the FFN to accommodate SSM projections, which may hurt tasks benefiting from large FFN capacity.</li>
+<li><strong>Micro-batch sensitivity:</strong> Results at 369M vary with micro-batch size, suggesting some training instability or optimizer interaction.</li>
+</ul>
+<h2>Relevance</h2>
+<p>本文对高效语言模型架构和混合 SSM-Transformer 设计的研究具有重要参考价值，提出的分数级融合范式为注意力机制与状态空间模型的结合开辟了新的设计空间，且其实现方式完全兼容现有训练基础设施。</p>
+<h2>Questions for Further Exploration</h2>
+<ol>
+<li>How does SISA perform at multi-billion parameter scales with Chinchilla-optimal training budgets? Does the LAMBADA advantage re-emerge, or does Mamba-3's sample efficiency continue to dominate?</li>
+<li>Can the softmax dilution problem be addressed by combining SISA with sigmoid attention, and what would be the training stability implications?</li>
+<li>How well does SISA generalize to context lengths beyond 2,048 with advanced positional encoding methods (e.g., YaRN, positional interpolation) or with learned positional embeddings?</li>
+<li>Would applying SISA selectively to certain layers or heads (rather than uniformly) improve the efficiency-performance trade-off?</li>
+<li>Can the SSM importance signal be pre-computed or cached across layers to reduce the O(L) cumsum overhead in inference scenarios?</li>
+<li>How does SISA perform on code generation and reasoning benchmarks (e.g., HumanEval, MATH, GSM8K), which test different capabilities than the five benchmarks used here?</li>
+<li>Can the score-level fusion principle be extended to other attention variants, such as multi-query attention (MQA) or grouped-query attention (GQA)?</li>
+</ol>
+<p class="note">Generated from Markdown summary. Full paper: <a href="https://arxiv.org/abs/2606.02332">arXiv:2606.02332</a></p>
+</div>
+</body>
+</html>

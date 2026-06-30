@@ -1,0 +1,464 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NITP: Next Implicit Token Prediction for LLM Pre-training</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --accent: #B45309;
+  --accent-light: #FEF3C7;
+  --accent-muted: #92400E;
+  --bg: #FAFAF9;
+  --surface: #FFFFFF;
+  --border: #E7E5E4;
+  --text: #1C1917;
+  --text-secondary: #57534E;
+  --text-tertiary: #A8A29E;
+  --radius: 6px;
+}
+
+html { font-size: 16px; -webkit-font-smoothing: antialiased; }
+body {
+  font-family: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Palatino, Georgia, serif;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.55;
+}
+
+.sans {
+  font-family: "SF Pro Text", "Helvetica Neue", "Segoe UI", system-ui, sans-serif;
+}
+
+.shell {
+  max-width: min(95vw, 1100px);
+  margin: 0 auto;
+  padding: 0 24px;
+}
+
+/* ── NAV ── */
+nav {
+  padding: 20px 0 0;
+  font-family: "SF Mono", "Fira Code", "Cascadia Code", monospace;
+  font-size: 0.8rem;
+}
+nav a {
+  color: var(--accent);
+  text-decoration: none;
+  letter-spacing: 0.02em;
+}
+nav a:hover { text-decoration: underline; }
+
+/* ── HERO ── */
+.hero {
+  padding: 56px 0 36px;
+  border-bottom: 1px solid var(--border);
+}
+.hero-badge {
+  display: inline-block;
+  font-family: "SF Mono", "Fira Code", "Cascadia Code", monospace;
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent-muted);
+  background: var(--accent-light);
+  padding: 3px 10px;
+  border-radius: 3px;
+  margin-bottom: 16px;
+}
+.hero h1 {
+  font-size: clamp(1.8rem, 4vw, 2.6rem);
+  font-weight: 700;
+  line-height: 1.15;
+  letter-spacing: -0.025em;
+  max-width: 42ch;
+  margin-bottom: 12px;
+}
+.hero-meta {
+  font-family: "SF Pro Text", "Helvetica Neue", "Segoe UI", system-ui, sans-serif;
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+  margin-bottom: 20px;
+}
+.hero-meta span + span::before { content: " · "; }
+.hero-tldr {
+  font-size: 1.05rem;
+  color: var(--text-secondary);
+  line-height: 1.6;
+  max-width: 62ch;
+  border-left: 3px solid var(--accent);
+  padding-left: 16px;
+}
+.hero-links {
+  margin-top: 16px;
+  display: flex;
+  gap: 16px;
+  font-family: "SF Pro Text", "Helvetica Neue", "Segoe UI", system-ui, sans-serif;
+  font-size: 0.82rem;
+}
+.hero-links a {
+  color: var(--accent);
+  text-decoration: none;
+  font-weight: 500;
+}
+.hero-links a:hover { text-decoration: underline; }
+
+/* ── ASSET ROW ── */
+.assets {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+  padding: 28px 0;
+  border-bottom: 1px solid var(--border);
+}
+.asset-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px 18px;
+  display: flex;
+  flex-direction: column;
+  min-height: 140px;
+  transition: border-color 0.15s;
+}
+.asset-card:hover { border-color: var(--accent); }
+.asset-label {
+  font-family: "SF Pro Text", "Helvetica Neue", "Segoe UI", system-ui, sans-serif;
+  font-size: 0.65rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+  margin-bottom: 12px;
+  font-weight: 600;
+}
+.asset-card.finding .asset-label { color: var(--accent-muted); }
+.asset-card.metric .asset-value { color: var(--accent); }
+.asset-value {
+  font-size: 2.4rem;
+  font-weight: 800;
+  line-height: 1;
+  margin-bottom: 6px;
+  letter-spacing: -0.03em;
+}
+.asset-body {
+  font-family: "SF Pro Text", "Helvetica Neue", "Segoe UI", system-ui, sans-serif;
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  flex: 1;
+}
+.asset-card.edge {
+  background: #FFF7ED;
+  border-color: #FED7AA;
+}
+.asset-card.edge .asset-label { color: #C2410C; }
+
+/* ── BODY GRID ── */
+.body-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0;
+  padding-bottom: 40px;
+}
+.body-grid > section {
+  padding: 32px 28px 32px 0;
+  border-bottom: 1px solid var(--border);
+}
+.body-grid > section:nth-child(odd) {
+  border-right: 1px solid var(--border);
+  padding-right: 28px;
+}
+.body-grid > section:nth-child(even) {
+  padding-left: 28px;
+  padding-right: 0;
+}
+.body-grid > section.wide {
+  grid-column: 1 / -1;
+  padding-right: 0;
+  border-right: none;
+}
+
+section h2 {
+  font-family: "SF Pro Text", "Helvetica Neue", "Segoe UI", system-ui, sans-serif;
+  font-size: 0.7rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+  margin-bottom: 16px;
+  font-weight: 600;
+}
+section h3 {
+  font-size: 1rem;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+section p, section li {
+  font-family: "SF Pro Text", "Helvetica Neue", "Segoe UI", system-ui, sans-serif;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+section ul {
+  list-style: none;
+  padding: 0;
+}
+section ul li {
+  padding: 5px 0 5px 16px;
+  position: relative;
+}
+section ul li::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 12px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.method-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: white;
+  font-size: 0.7rem;
+  font-weight: 700;
+  font-family: "SF Pro Text", "Helvetica Neue", "Segoe UI", system-ui, sans-serif;
+  margin-right: 8px;
+  flex-shrink: 0;
+}
+.method-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+  margin-bottom: 14px;
+}
+.method-item p { margin: 0; }
+
+/* ── RESULTS TABLE ── */
+.results-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: "SF Pro Text", "Helvetica Neue", "Segoe UI", system-ui, sans-serif;
+  font-size: 0.82rem;
+}
+.results-table th {
+  text-align: left;
+  font-weight: 600;
+  color: var(--text-tertiary);
+  font-size: 0.7rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 6px 8px 10px;
+  border-bottom: 2px solid var(--border);
+}
+.results-table td {
+  padding: 8px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-secondary);
+}
+.results-table td:first-child { color: var(--text); font-weight: 500; }
+.delta {
+  color: var(--accent);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── STRENGTHS / LIMITATIONS ── */
+.col-strengths li::before { background: #16A34A; }
+.col-limitations li::before { background: #DC2626; }
+
+/* ── QUESTIONS ── */
+.questions-list li::before { background: var(--text-tertiary); }
+.questions-list li {
+  padding-left: 20px;
+}
+
+/* ── FOOTER ── */
+footer {
+  padding: 24px 0 40px;
+  border-top: 1px solid var(--border);
+  font-family: "SF Mono", "Fira Code", "Cascadia Code", monospace;
+  font-size: 0.8rem;
+}
+footer a {
+  color: var(--accent);
+  text-decoration: none;
+}
+footer a:hover { text-decoration: underline; }
+
+/* ── RESPONSIVE ── */
+@media (max-width: 720px) {
+  .shell { padding: 0 16px; }
+  .assets {
+    grid-template-columns: 1fr 1fr;
+  }
+  .asset-card { min-height: auto; }
+  .body-grid {
+    grid-template-columns: 1fr;
+  }
+  .body-grid > section,
+  .body-grid > section:nth-child(odd),
+  .body-grid > section:nth-child(even) {
+    padding: 24px 0;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+  }
+  .body-grid > section.wide { grid-column: 1; }
+  .hero h1 { max-width: none; }
+  .hero-tldr { max-width: none; }
+}
+@media (max-width: 480px) {
+  .assets { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+
+<nav class="shell">
+  <a href="./index.html">&#8617; Today's digest</a>
+</nav>
+
+<header class="hero shell">
+  <div class="hero-badge sans">ICML 2026 &middot; Pre-training Objective</div>
+  <h1>Next Implicit Token Prediction for LLM Pre-training</h1>
+  <div class="hero-meta">
+    <span>Xiangdong Zhang, Debing Zhang, Shaofeng Zhang, Xiaohan Qin, Yu Cheng, Junchi Yan</span>
+    <span>arXiv 2605.24956</span>
+  </div>
+  <div class="hero-tldr">
+    NITP augments standard next-token prediction with a continuous cosine-similarity loss that trains the last hidden state to predict the shallow-layer representation of the next token &mdash; combating representation degeneration with ~2% training overhead and zero inference cost.
+  </div>
+  <div class="hero-links">
+    <a href="https://arxiv.org/abs/2605.24956">&#8599; arXiv</a>
+    <a href="https://github.com/aHapBean/NITP">&#8599; Code</a>
+  </div>
+</header>
+
+<section class="assets shell">
+  <div class="asset-card finding">
+    <div class="asset-label">Key Finding</div>
+    <div class="asset-body" style="color: var(--text); font-weight:500;">
+      Standard NTP's one-hot supervision leaves hidden representations under-constrained &mdash; NITP fills this geometric blind spot with dense continuous targets from shallow layers.
+    </div>
+  </div>
+  <div class="asset-card metric">
+    <div class="asset-label">Key Metric</div>
+    <div class="asset-value">+5.7%</div>
+    <div class="asset-body">MMLU-Pro on 9B MoE model, with only ~2% additional training FLOPs.</div>
+  </div>
+  <div class="asset-card">
+    <div class="asset-label">Why This Matters</div>
+    <div class="asset-body">
+      A simple, near-free fix to the fundamental pre-training objective that yields consistent gains across all model scales with zero inference cost.
+    </div>
+  </div>
+  <div class="asset-card edge">
+    <div class="asset-label">Critical Edge</div>
+    <div class="asset-body">
+      Target layer at ~20% depth is a heuristic without principled selection. MSE loss causes catastrophic divergence. Untested beyond 45B and non-Transformer architectures.
+    </div>
+  </div>
+</section>
+
+<div class="shell body-grid">
+
+  <!-- METHODOLOGY -->
+  <section class="wide">
+    <h2>Methodology</h2>
+    <div class="method-item">
+      <span class="method-num">1</span>
+      <p><strong>Shallow layers as semantic anchors.</strong> Representations from ~20% depth act as rich contextual encoders that resolve lexical ambiguity and preserve fine-grained semantics. These are extracted with stop-gradient as implicit targets <em>z<sub>t+1</sub></em>.</p>
+    </div>
+    <div class="method-item">
+      <span class="method-num">2</span>
+      <p><strong>Temporal-shifted prediction.</strong> The last hidden state <em>h<sub>t</sub></em> is trained via a SwiGLU projection head to predict <em>z<sub>t+1</sub></em> using cosine similarity loss. Temporal shift is critical &mdash; same-position alignment collapses into trivial solutions.</p>
+    </div>
+    <div class="method-item">
+      <span class="method-num">3</span>
+      <p><strong>Combined training.</strong> Total loss: <em>L<sub>NTP</sub> + &lambda; L<sub>NITP</sub></em> with &lambda; &asymp; 0.6&ndash;1.0. Hessian analysis shows NITP introduces positive curvature in NTP's semantic null space, lifting spectral degeneracy.</p>
+    </div>
+  </section>
+
+  <!-- RESULTS -->
+  <section>
+    <h2>Results &amp; Highlights</h2>
+    <table class="results-table">
+      <thead>
+        <tr><th>Benchmark</th><th>Model</th><th>Gain</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>MMLU-Pro</td><td>9B MoE</td><td class="delta">+5.7%</td></tr>
+        <tr><td>C3</td><td>9B MoE</td><td class="delta">+6.4%</td></tr>
+        <tr><td>CommonsenseQA</td><td>9B MoE</td><td class="delta">+4.3%</td></tr>
+        <tr><td>C-Eval</td><td>9B MoE</td><td class="delta">+3.6%</td></tr>
+        <tr><td>BBH</td><td>9B MoE</td><td class="delta">+3.2%</td></tr>
+        <tr><td>Avg (5 bm)</td><td>3B MoE</td><td class="delta">+2.48</td></tr>
+        <tr><td>Avg</td><td>45B MoE</td><td class="delta">52.4 &rarr; 54.0</td></tr>
+        <tr><td>MTEB</td><td>3B frozen</td><td class="delta">+2.33</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- OVERHEAD -->
+  <section>
+    <h2>Cost Profile</h2>
+    <ul>
+      <li>Training overhead: ~2.3% additional FLOPs, ~1.8% wall-clock</li>
+      <li>Projection head discarded at inference &rarr; zero inference cost</li>
+      <li>Perplexity preserved: validation loss on Pile virtually identical (e.g., 2.006 vs 2.006 for 3B MoE)</li>
+      <li>MTEB frozen representations: 23/25 tasks improved</li>
+    </ul>
+  </section>
+
+  <!-- STRENGTHS -->
+  <section>
+    <h2>Strengths</h2>
+    <ul class="col-strengths">
+      <li>Extremely practical: ~2% training overhead, zero inference cost, easy to implement</li>
+      <li>Strong theoretical grounding via Hessian spectral analysis connecting representation degeneration to NTP's rank-deficient Hessian</li>
+      <li>Comprehensive evaluation across 6 model scales, both dense and MoE</li>
+      <li>Frozen-representation MTEB evaluation directly demonstrates improved representation quality</li>
+      <li>Important negative result: same-position alignment achieves low loss but degrades performance</li>
+    </ul>
+  </section>
+
+  <!-- LIMITATIONS -->
+  <section>
+    <h2>Limitations</h2>
+    <ul class="col-limitations">
+      <li>Additional hyperparameters (target layer, loss weight &lambda;) require tuning</li>
+      <li>Untested on models &gt;45B and non-Transformer architectures</li>
+      <li>Target layer heuristic (~20% depth) lacks principled selection criterion</li>
+      <li>Does not explore interaction with other auxiliary objectives (e.g., multi-token prediction)</li>
+      <li>Only evaluated on Chinese and English benchmarks</li>
+    </ul>
+  </section>
+
+  <!-- QUESTIONS -->
+  <section class="wide">
+    <h2>Questions for Further Exploration</h2>
+    <ul class="questions-list">
+      <li>How does NITP interact with multi-token prediction (MTP) objectives &mdash; could they be combined for even greater gains?</li>
+      <li>Does NITP's representation regularization benefit RLHF/post-training stages by providing better initialization?</li>
+      <li>Can the target layer be adaptively selected during training rather than fixed at a heuristic depth?</li>
+      <li>How does NITP affect representation quality in multilingual or code-generation settings?</li>
+      <li>Does NITP change the scaling laws &mdash; does it shift the compute-optimal frontier?</li>
+    </ul>
+  </section>
+
+</div>
+
+<footer class="shell">
+  <a href="2605.24956.html">&#8599; Markdown source</a>
+</footer>
+
+</body>
+</html>

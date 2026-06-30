@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MGUP: A Momentum-Gradient Alignment Update Policy for Stochastic Optimization</title>
+<style>
+:root { --paper:#fafafa; --ink:#1a1a1a; --muted:#555; --accent:#1a5276; --line:#ddd; --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif; --serif:Georgia,"Noto Serif SC",serif; }
+body { font-family:var(--serif); background:var(--paper); color:var(--ink); line-height:1.6; margin:0; padding:0; }
+.container { max-width:min(95vw, 760px); margin:0 auto; padding:28px 20px 60px; }
+.topnav { position:fixed; top:12px; left:14px; z-index:50; font-family:var(--sans); font-size:.75rem; background:var(--paper); border:1px solid var(--line); padding:5px 10px; border-radius:999px; }
+.topnav a { color:var(--muted); text-decoration:none; font-weight:600; }
+.topnav a:hover { color:var(--accent); }
+h1 { font-size:1.6rem; margin:2.2rem 0 1rem; border-bottom:2px solid var(--accent); padding-bottom:.3rem; }
+h2 { font-size:1.3rem; margin:1.8rem 0 .8rem; color:var(--accent); }
+h3 { font-size:1.1rem; margin:1.4rem 0 .6rem; }
+p { margin:.8rem 0; }
+.authors { font-style:italic; color:var(--muted); margin-top:-.4rem; }
+.meta { font-family:var(--sans); font-size:.82rem; color:var(--muted); margin:.2rem 0; }
+a { color:var(--accent); text-decoration:none; }
+a:hover { text-decoration:underline; }
+blockquote { border-left:3px solid var(--accent); margin:1rem 0; padding:.2rem 0 .2rem 1rem; color:var(--muted); font-style:italic; }
+code { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; background:#f0f0f0; padding:2px 5px; border-radius:3px; font-size:.9em; }
+pre { background:#f5f5f5; padding:14px; overflow-x:auto; border-radius:4px; border:1px solid var(--line); }
+pre code { background:transparent; padding:0; }
+ul,ol { margin:.6rem 0; padding-left:1.5rem; }
+li { margin:.25rem 0; }
+table { border-collapse:collapse; width:100%; margin:1rem 0; font-family:var(--sans); font-size:.9rem; }
+th,td { border:1px solid var(--line); padding:6px 10px; text-align:left; }
+th { background:#f0f0f0; }
+hr { border:none; border-top:1px solid var(--line); margin:1.5rem 0; }
+.note { font-family:var(--sans); font-size:.78rem; color:var(--muted); border-top:1px solid var(--line); margin-top:2rem; padding-top:1rem; }
+@media (max-width: 600px) { .container { padding:22px 14px 40px; } h1 { font-size:1.35rem; } }
+</style>
+</head>
+<body>
+<div class="topnav"><a href="./index.html">← Today's digest</a></div>
+<div class="container">
+<h1>MGUP: A Momentum-Gradient Alignment Update Policy for Stochastic Optimization</h1>
+<p class="authors">[&quot;Da Chang&quot;, &quot;Ganzhao Yuan&quot;]</p>
+<p class="meta">arXiv: 2606.17526</p>
+<p class="meta">Date: 2026-06-16</p>
+<p class="meta">Tags: [&quot;optimization&quot;, &quot;large-language-models&quot;, &quot;selective-updates&quot;, &quot;momentum-gradient-alignment&quot;, &quot;AdamW&quot;, &quot;Lion&quot;, &quot;Muon&quot;, &quot;convergence-analysis&quot;]</p>
+<p class="meta"><a href="https://arxiv.org/abs/2606.17526">https://arxiv.org/abs/2606.17526</a></p>
+<blockquote><strong>一句话总结：</strong> MGUP 提出一种“动量-梯度对齐”的层内选择性更新策略——先按 $s_t = u_t \odot g_t$ 排序，选出 top-$\tau d$ 个参数施以放大的步长 $\eta_t/\tau$，其余施以缩小的步长 $\tau\eta_t$，以即插即用的方式增强 AdamW/Lion/Muon，并附带 MGUP-AdamW 的 $O(\log T/\sqrt{T})$ 收敛率证明。</blockquote>
+<blockquote><strong>TL;DR:</strong> MGUP is a plug-and-play intra-layer selective update rule built around momentum–gradient alignment. For each parameter it computes an alignment score $s_{t,i}=u_{t,i}\cdot g_{t,i}$ (where $u_t$ is the base optimizer's update vector), sorts all coordinates, gives the top $\lfloor\tau d\rfloor$ a <em>boosted</em> step $\eta_t/\tau$ and the rest a <em>shrunk but strictly non-zero</em> step $\tau\eta_t$. The default $\tau=1/2$ guarantees the average update magnitude is larger than vanilla Adam's. The paper proves an $O(\log T/\sqrt{T})$ expected-convergence rate and a $O(\mathrm{poly}(\log T)/\sqrt{T})$ high-probability rate for MGUP-AdamW (without weight decay), and shows consistent speedups over AdamW/Lion/Muon and the recent Cautious Optimizers on ViT MAE pretraining, LLaMA-71M / Qwen-150M language modeling on WikiText-103, RoBERTa-base on GLUE, and LLaMA-2-7B fine-tuning on GSM-8K. Code: https://github.com/MaeChd/MGUP.</blockquote>
+<h2>核心贡献</h2>
+<ul>
+<li>提出 <strong>MGUP (Momentum-Gradient alignment Update Policy)</strong>：基于 $u_t \odot g_t$ 的排序-选择机制，对固定比例 $\tau$ 的参数施以放大步长 $(1/\tau)\eta_t$，对剩余参数施以<strong>严格非零</strong>的缩小步长 $\tau\eta_t$。</li>
+<li><strong>即插即用</strong>：可包装 AdamW、Lion、Muon 等任何动量类优化器，分别得到 MGUP-AdamW、MGUP-Lion、MGUP-Muon（Lion/Muon 因为不含 Adam 的二阶矩可直接用 $m_t\odot g_t$ 作为对齐分）。</li>
+<li><strong>理论收敛性</strong>：在标准非凸随机优化假设下，证明 MGUP-AdamW（无 weight decay）具有 $O(\log T/\sqrt{T})$ 期望收敛率与 $O(\mathrm{poly}(\log T)/\sqrt{T})$ 高概率收敛率；并通过反例说明将 $\gamma$ 设为 0（即类似 Cautious Optimizers 的硬置零）会导致条件 $\rho > 10Lu_{\max}^3/u_{\min}^4$ 无法成立，进而破坏收敛性。</li>
+<li><strong>实证增益</strong>：覆盖 ViT MAE 预训练（CIFAR-10）、LLaMA2-71M / Qwen2.5-150M 语言建模（WikiText-103）、RoBERTa-base 微调（GLUE）、LLaMA2-7B 微调（GSM-8K）四类任务。</li>
+<li>提供与 <strong>Cautious Optimizers (C-AdamW/C-Lion/C-Muon)、GaLore、LDAdam、Adam-mini、Adam-8Bit</strong> 的 head-to-head 对比。</li>
+</ul>
+<h2>Key Contributions</h2>
+<ul>
+<li>Introduces <strong>MGUP</strong>, an intra-layer parameter selection mechanism that ranks parameters by alignment between the base optimizer's update direction and the gradient ($u_t \odot g_t$), then applies a <strong>two-tier step-size policy</strong>: top $\lfloor\tau d\rfloor$ coords get $\eta_t/\tau$, the rest get $\tau\eta_t$.</li>
+<li>Provides a <strong>nearly plug-and-play wrapper</strong> for AdamW, Lion, Muon, yielding MGUP-AdamW, MGUP-Lion, MGUP-Muon.</li>
+<li>Establishes both <strong>expected-convergence</strong> ($O(\log T/\sqrt{T})$) and <strong>high-probability</strong> ($O(\mathrm{poly}(\log T)/\sqrt{T})$) rates for MGUP-AdamW in the standard non-convex stochastic setting.</li>
+<li>Theoretically explains <em>why</em> Cautious-style hard masking ($\gamma=0$) breaks Adam's stochastic convergence, while the strictly-positive $\gamma$ in MGUP does not.</li>
+<li>Empirically validates the policy on pretraining (ViT MAE on CIFAR-10, LLaMA-71M / Qwen-150M on WikiText-103) and fine-tuning (RoBERTa-base on GLUE, LLaMA-2-7B on GSM-8K), beating or matching AdamW/Lion/Muon and their Cautious variants.</li>
+</ul>
+<h2>Methodology</h2>
+<p><strong>Algorithm 2 (MGUP core).</strong></p>
+<ol>
+<li>Compute the alignment score $s_t = u_t \odot g_t \in \mathbb{R}^d$, where $u_t$ is the update vector produced by the wrapped optimizer (for AdamW: $u_t = m_t/\sqrt{\hat v_t}+\epsilon$; for Lion/Muon/SGD-M: $u_t = m_t$).</li>
+<li>Let $K = \lfloor\tau\cdot d\rfloor$ with $\tau\in(0,1)$. Sort $s_t$ and identify the index set $\mathcal I_{\text{topK}}$ of the $K$ largest entries.</li>
+<li>Set the per-coordinate step modifier</li>
+</ol>
+<p>\[</p>
+<p>\phi_{t,i} = \begin{cases} 1/\tau & \text{if } i\in\mathcal I_{\text{topK}}, \\ \tau & \text{otherwise.} \end{cases}</p>
+<p>\]</p>
+<ol>
+<li>Replace the original step size $\eta_t$ by $\eta_t\cdot\phi_{t,i}$ when applying $u_t$.</li>
+</ol>
+<p><strong>MGUP-AdamW (Algorithm 1).</strong> Standard AdamW bookkeeping plus the MGUP scaling:</p>
+<p>$g_t = \nabla f(x_t;\xi_t)$, $m_t = \beta_1 m_{t-1}+(1-\beta_1)g_t$, $v_t = \beta_2 v_{t-1}+(1-\beta_2)g_t^2$, $\hat u_t = m_t/(\sqrt{v_t}+\epsilon)$, $\phi_t = \text{MGUP}(\hat u_t\odot g_t)$, $x_t = (1-\eta_t\lambda)x_t$, $x_{t+1} = x_t - \eta_t\phi_t\odot\hat u_t$.</p>
+<p><strong>Cautious-MGUP (sign-only variant).</strong> For comparison the paper defines a sign-based mask $\phi_{t,i}=1/\tau$ when $m_{t,i}g_{t,i}>0$ and $\tau$ otherwise — empirically worse than the top-K variant.</p>
+<p><strong>Why it accelerates (Remark 3.2).</strong> The average update magnitude is $\tau\cdot\eta_t/\tau + (1-\tau)\cdot\eta_t\tau = \eta_t(1+\tau-\tau^2) > \eta_t$. With $\tau=1/2$ the factor is $1.25\times$; with $\tau=1/2$ also maximising $1+\tau-\tau^2$, the paper recommends $\tau=1/2$ as default (so $\gamma = 1/\alpha = 1/2$).</p>
+<p><strong>Selection criterion (Remarks 3.1 and discussion).</strong> For AdamW, $u_t$ differs from $m_t$ by an element-wise scale $1/\sqrt{v_t+\epsilon}$. Empirically the per-layer second moment is approximately uniform (citing Adafactor / Adam-mini literature), so the <em>ranking</em> induced by $u_t\odot g_t$ closely tracks the ranking by $m_t\odot g_t$. For Lion / Muon / SGD-M, $m_t\odot g_t$ is used directly.</p>
+<h2>Results & Highlights</h2>
+<p><strong>Hardware.</strong> Two NVIDIA V100 (32GB) + four NVIDIA RTX 4090 (24GB) GPUs.</p>
+<p><strong>ViT MAE pretraining on CIFAR-10 (200 epochs, lr=1.5e-4, mask=75%).</strong></p>
+<ul>
+<li>MGUP-AdamW achieves consistently lower training and validation loss than AdamW throughout training.</li>
+<li>C-AdamW gradually falls behind AdamW — direct evidence that hard masking <em>hurts</em> Adam.</li>
+</ul>
+<p><strong>LLaMA-71M on WikiText-103 (lr=3e-4, batch=480, 2000 steps).</strong></p>
+<ul>
+<li>MGUP-AdamW: <strong>1.6× speedup</strong> over AdamW to reach the same loss, better generalization than C-AdamW.</li>
+<li>MGUP-Lion: <strong>2.5× speedup</strong> over Lion; unlike C-Lion (which shows early loss spikes), MGUP-Lion stays stable.</li>
+<li>MGUP-Muon: <strong>~1.2× speedup</strong> over Muon, better generalization than C-Muon.</li>
+<li>Sensitivity sweep $\tau\in\{0.3,0.5,0.7\}$, $\gamma\in\{0,0.1,0.5,0.9\}$: increasing $\tau$ beyond a threshold degrades performance; for fixed $\tau$, <strong>larger $\gamma$ improves performance</strong> — corroborates the theory that $\gamma>0$ is required for stable convergence.</li>
+</ul>
+<p><strong>Qwen-150M on WikiText-103 (lr=1e-3, batch=160, 1500 steps).</strong></p>
+<ul>
+<li>MGUP-AdamW: faster convergence than AdamW, better generalization than C-AdamW.</li>
+<li>MGUP-Muon: <strong>1.1× speedup</strong> over Muon, better generalization than C-Muon.</li>
+</ul>
+<p><strong>RoBERTa-base fine-tuning on GLUE (lr sweep 1e-5–5e-5; Lion-type 1e-6–5e-6).</strong></p>
+<p>| Method | RTE | MRPC | STS-B | CoLA | SST-2 | QNLI | QQP | <strong>Avg</strong> |</p>
+<p>|---|---|---|---|---|---|---|---|---|</p>
+<p>| AdamW | 72.93 | 90.44 | 90.55 | 60.32 | 94.84 | 92.79 | 91.34 | 84.74 |</p>
+<p>| Lion  | 67.15 | 87.50 | 89.39 | 60.57 | 94.84 | 93.00 | 91.32 | 83.39 |</p>
+<p>| Muon  | 64.62 | 81.13 | 87.33 | 59.34 | 94.27 | 93.11 | 91.72 | 81.65 |</p>
+<p>| Adam-mini | 56.32 | 87.01 | 89.49 | 56.32 | 93.35 | 92.02 | 89.58 | 80.44 |</p>
+<p>| GaLore (r=8) | 69.45 | 86.19 | 88.97 | 55.12 | 94.15 | 92.01 | 89.86 | 82.25 |</p>
+<p>| LDAdamW (r=8) | 67.58 | 88.32 | 90.03 | 60.60 | 94.49 | 92.82 | 91.23 | 83.58 |</p>
+<p>| C-AdamW | 71.12 | 89.22 | 90.25 | 57.29 | 93.92 | 92.62 | 91.39 | 83.69 |</p>
+<p>| C-Lion | 67.87 | 88.73 | 89.58 | 57.78 | 94.50 | 92.81 | 91.41 | 83.23 |</p>
+<p>| C-Muon | 70.04 | 88.24 | 90.04 | 59.81 | 94.84 | 93.19 | 91.75 | 83.98 |</p>
+<p>| <strong>MGUP-Lion</strong> | 71.12 | 88.24 | 90.07 | <strong>61.23</strong> | 94.27 | 93.04 | 91.33 | 84.18 |</p>
+<p>| <strong>MGUP-Muon</strong> | 70.40 | 88.24 | 89.84 | 61.07 | 94.61 | <strong>93.24</strong> | 91.78 | 84.17 |</p>
+<p>| <strong>MGUP-AdamW</strong> | <strong>75.81</strong> | <strong>90.44</strong> | <strong>90.54</strong> | 59.83 | <strong>94.95</strong> | 93.08 | 91.43 | <strong>85.15</strong> |</p>
+<ul>
+<li>MGUP-AdamW reaches the <strong>best average GLUE score (85.15)</strong> among all 12 methods.</li>
+<li>All three MGUP variants are <strong>more robust across learning rates</strong> than their Cautious counterparts (Figure 5).</li>
+</ul>
+<p><strong>LLaMA-2-7B fine-tuning on GSM-8K (lr grid 1e-5–5e-5).</strong></p>
+<p>| Optimizer | Accuracy | Train loss |</p>
+<p>|---|---|---|</p>
+<p>| AdamW | 34.53 | 0.064 |</p>
+<p>| AdamW-8bit | 34.42 | 0.069 |</p>
+<p>| LDAdamW (r=512) | 34.88 | 0.073 |</p>
+<p>| GaLore (r=512) | 34.62 | 0.070 |</p>
+<p>| C-AdamW | 34.68 | 0.081 |</p>
+<p>| MicroAdamW (m=10) | 34.58 | 0.057 |</p>
+<p>| <strong>MGUP-AdamW</strong> | <strong>34.96</strong> | <strong>0.056</strong> |</p>
+<ul>
+<li>MGUP-AdamW is best by ~0.08–0.43 accuracy points and has the <strong>lowest training loss</strong> among all listed methods.</li>
+</ul>
+<p><strong>Theory (MGUP-AdamW without weight decay).</strong></p>
+<ul>
+<li><em>Theorem 4.1 (expected):</em> Under L-smoothness, unbiased stochastic gradient with bounded variance, and gradient Lipschitz bound, $\frac{1}{T}\sum_t \mathbb E\|\nabla f(x_{t+1})\|^2 \le \hat G$ where $\hat G = O(\log T/\sqrt T)$. Requires $\rho > 10L u_{\max}^3/u_{\min}^4$, which is <strong>only well-defined when $\gamma>0$</strong> (otherwise $u_{\max}\to\infty$).</li>
+<li><em>Theorem 4.2 (high-probability):</em> Under coordinate-wise variance, with $\beta_2=1-1/T$, $\gamma\in(\sqrt{\beta_2},1)$, $\omega$ as defined in the paper, $\beta_3$ as defined, and $\beta>2$, with prob $\ge 1-2\delta$, $\frac{1}{T}\sum_t\|\nabla f(x_t)\|^2 = \tilde O(T^{-1/2})$.</li>
+<li>The proofs introduce <strong>surrogate step sizes</strong> $b_t$ to handle the $\phi_t/\phi_{t-1}$ ratio; when $\gamma=0$ this ratio can blow up and break the proof, giving a clean theoretical justification for MGUP's $\gamma>0$ design choice.</li>
+</ul>
+<h2>Authors & Credibility</h2>
+<ul>
+<li><strong>Da Chang</strong> (Pengcheng Lab / UCAS / SIAT) and <strong>Ganzhao Yuan</strong> (Shenzhen University of Advanced Technology; corresponding author). Ganzhao Yuan has prior work in optimization and learning theory, lending weight to the theoretical contribution.</li>
+<li>Single research-group effort; no multi-lab industrial-scale training.</li>
+<li>Acceptance context: marked as a <strong>NeurIPS 2025</strong> paper.</li>
+<li><strong>Code released</strong> at https://github.com/MaeChd/MGUP — concrete reproducibility asset.</li>
+</ul>
+<h2>Critical Assessment</h2>
+<ul>
+<li><strong>Novelty.</strong> MGUP sits in a busy design space of selective / sparse / cautious updates (Cautious Optimizers, AdaBelief, GaLore, LDAdam, Adam-mini, SIFT, AutoFreeze, LOMO, LISA, BAdam). The most direct competitor is <strong>Cautious Optimizers (Liang et al., 2024)</strong>, which hard-zeros the misaligned coordinates; MGUP's two main deltas are (i) <strong>top-K by $u_t\odot g_t$</strong> rather than sign-only, and (ii) <strong>strictly positive $\gamma$</strong> rather than zero on the rest. These two changes are simple, but the <em>theoretical</em> contribution — showing that $\gamma=0$ breaks Adam's stochastic convergence — is genuinely new and clarifies a real gap in the Cautious Optimizers paper.</li>
+<li><strong>Rigor.</strong> Two theorems with explicit assumptions and rates; the analysis is clearly motivated and the surrogate-step-size construction is well-documented in the appendix. <strong>The proved rates assume no weight decay</strong>, while all experiments use AdamW (i.e., with weight decay). This is a real gap. The authors flag it explicitly as a limitation. Practical relevance is high because the experimental improvements are precisely in the weight-decay regime.</li>
+<li><strong>Reproducibility.</strong> Public code; small-scale experiments use widely-available hardware (≤6 consumer/data-center GPUs). The ViT MAE / LLaMA-71M / Qwen-150M / RoBERTa-base setups are easy to replicate. The LLaMA-2-7B GSM-8K fine-tuning is more compute-heavy.</li>
+<li><strong>Significance.</strong> The largest empirical deltas are concentrated in <strong>small models (71M–150M)</strong> where the <strong>1.6–2.5× speedup</strong> is most striking. At LLaMA-2-7B scale the GSM-8K accuracy gap over AdamW is <strong>+0.43 pp (34.53 → 34.96)</strong>, a small but real win. The GLUE improvements (~+0.4 average over AdamW for MGUP-AdamW) are similarly modest.</li>
+<li><strong>Red flags / things to verify:</strong></li>
+<li>The "speedup" definition is <strong>loss-matched</strong> rather than step-matched; at true iso-step compute, MGUP has to do the top-K sort every iteration, which is $O(d\log d)$ per step. The paper does not report wall-clock comparisons at iso-FLOPs.</li>
+<li>The selection uses <strong>$u_t\odot g_t$</strong>, requiring $u_t$ to be materialised — for Adam this is one extra element-wise product. The sort is $O(d\log d)$ and amortized across the model; for billion-parameter models the cost is non-trivial but still likely small relative to the optimizer step.</li>
+<li>The claim that "second moments are approximately uniform within a layer" (justifying using $u_t\odot g_t$ instead of $m_t\odot g_t$) is hand-waved via citations to Adafactor / Adam-mini, not proven.</li>
+<li>Comparisons to <strong>Adam-mini, GaLore, LDAdam</strong> are on GLUE/GSM-8K only — these methods target <em>memory-efficient</em> pretraining, so the comparison is somewhat apples-to-oranges (memory footprint isn't reported alongside speedup).</li>
+<li>The default $\tau=1/2$ gives a <strong>25% larger average update magnitude</strong> than Adam; the paper doesn't fully account for the fact that this implicitly inflates the effective learning rate and may interact poorly with existing LR schedules.</li>
+<li>The high-probability Theorem 4.2 has a fairly tight constraint $\gamma\in(\sqrt{\beta_2}, 1)$ which doesn't cover $\gamma=1/2$ when $\beta_2$ is close to 1.</li>
+</ul>
+<h2>Strengths</h2>
+<ul>
+<li><strong>Simple, drop-in policy</strong> that wraps three different optimizers (AdamW, Lion, Muon) with one rule.</li>
+<li><strong>Theoretically grounded</strong>: the $\gamma>0$ requirement is derived from convergence theory, not a heuristic.</li>
+<li><strong>Clear positioning</strong> against the most recent direct competitor (Cautious Optimizers) with both theory and experiments explaining the difference.</li>
+<li><strong>Solid empirical coverage</strong> across pretraining (vision + LM), standard NLU fine-tuning, and math reasoning fine-tuning.</li>
+<li><strong>Public code</strong> and full algorithmic pseudocode in the paper.</li>
+</ul>
+<h2>Limitations</h2>
+<ul>
+<li><strong>Theory covers only MGUP-AdamW without weight decay</strong>, yet all strong experiments use AdamW <em>with</em> weight decay. The authors acknowledge this but it remains a gap.</li>
+<li><strong>Hyperparameter overhead</strong>: $\tau$ and the implicit $\gamma,\alpha$ add knobs; the paper recommends $\tau=1/2$ without strong justification beyond the average-magnitude formula.</li>
+<li><strong>Top-K sort overhead</strong>: $O(d\log d)$ per iteration. For very large models this needs fused kernels or per-layer bucketing to be cheap.</li>
+<li><strong>Empirical scale ceiling</strong>: largest LLM experiment is LLaMA-2-7B fine-tuning (not pretraining). No results at ≥70B scale or at 100B+ token pretraining, where optimizer choices matter most.</li>
+<li><strong>No wall-clock comparison</strong> at iso-FLOPs vs. baselines — "speedup" is loss-matched.</li>
+<li><strong>Single research group</strong>, no multi-seed reporting standard visible in the abstract; need to check the appendix for variance bars.</li>
+<li>Comparison to <strong>memory-efficient optimizers</strong> (GaLore/LDAdam/Adam-mini) is on accuracy only, not memory.</li>
+</ul>
+<h2>Relevance</h2>
+<ul>
+<li>直接对应“大模型训练优化与稳定性”这一核心兴趣：MGUP 给出一个带收敛率证明的、跨 AdamW/Lion/Muon 的即插即用选择性更新策略，并在 LLM 预训练和微调中均报告了稳定的加速与精度提升，是一篇值得收藏的实用优化器工作；其对 Cautious Optimizers 失败原因的理论解释也具有独立的指导意义。</li>
+</ul>
+<h2>Questions for Further Exploration</h2>
+<ul>
+<li>Does the convergence analysis extend to MGUP-AdamW <strong>with weight decay</strong> (the regime used in all strong experiments), and to <strong>MGUP-Muon / MGUP-Lion</strong> in particular?</li>
+<li>What is the <strong>wall-clock overhead at LLM pretraining scale</strong> (≥1B params, ≥100B tokens)? Can the top-K sort be fused into the optimizer kernel or done at per-layer granularity to avoid $O(d\log d)$ global sorts?</li>
+<li>Is the claim that "$v_t$ is approximately uniform within a layer" actually true at scale, or does the gap between $u_t\odot g_t$ and $m_t\odot g_t$ rankings widen for layers with highly heterogeneous second moments (e.g., embedding vs. output layers)?</li>
+<li>How does MGUP interact with <strong>ZeRO/FSDP/TP sharding</strong> in distributed training — does the global top-K need cross-rank communication?</li>
+<li>What is the <strong>best schedule for $\tau$</strong>: constant, warmup-then-decay, or layer-dependent (e.g., higher $\tau$ for later layers where the gradient is sparser)?</li>
+<li>The paper reports the average update magnitude increases by $1+\tau-\tau^2$; can this be <strong>explicitly decoupled</strong> from the LR schedule so MGUP doesn't change the effective learning rate?</li>
+<li>Head-to-head with <strong>Soap, Shampoo, Sophia, MARS</strong> under matched compute budgets.</li>
+<li>Does MGUP help with <strong>quantization-aware training</strong> (e.g., NF4 / INT8 weights), where selective updates could be a natural fit?</li>
+<li>Does the <strong>strictly positive $\gamma$</strong> principle transfer to <strong>selective <em>layer</em> updates</strong> like LISA / BAdam — i.e., should layer-freezing methods keep frozen layers at a tiny non-zero learning rate rather than a hard zero?</li>
+<li>Multi-seed variance reporting and statistical-significance tests for the GLUE / GSM-8K deltas (some are <0.5 pp).</li>
+</ul>
+<p class="note">Generated from Markdown summary. Full paper: <a href="https://arxiv.org/abs/2606.17526">arXiv:2606.17526</a></p>
+</div>
+</body>
+</html>

@@ -1,0 +1,807 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GPU LLM Serving Memory Aging — 2606.11916</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:ital,wght@0,300;0,400;0,600;0,700;1,300&display=swap');
+
+  :root {
+    --bg:        #0c0e11;
+    --surface:   #131619;
+    --border:    #232830;
+    --muted:     #3a4250;
+    --dim:       #6b7585;
+    --body:      #b8c1cc;
+    --heading:   #e8edf2;
+    --accent:    #ff5c38;     /* hot amber-red — "thermal" theme */
+    --accent-lo: rgba(255,92,56,.12);
+    --accent-mid:rgba(255,92,56,.30);
+    --ok:        #3ddc84;
+    --warn:      #ffd166;
+    --mono: 'IBM Plex Mono', monospace;
+    --sans: 'IBM Plex Sans', system-ui, sans-serif;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html { font-size: 15px; scroll-behavior: smooth; }
+
+  body {
+    background: var(--bg);
+    color: var(--body);
+    font-family: var(--sans);
+    font-weight: 300;
+    line-height: 1.65;
+    min-height: 100vh;
+  }
+
+  /* ── TOP NAV ───────────────────────────────────────────── */
+  .topnav {
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 2rem;
+    height: 44px;
+    background: rgba(12,14,17,.92);
+    backdrop-filter: blur(8px);
+    border-bottom: 1px solid var(--border);
+    font-family: var(--mono);
+    font-size: .75rem;
+    color: var(--dim);
+  }
+  .topnav a { color: var(--dim); text-decoration: none; transition: color .15s; }
+  .topnav a:hover { color: var(--accent); }
+  .topnav .breadcrumb { display: flex; align-items: center; gap: .6rem; }
+  .topnav .breadcrumb span { color: var(--muted); }
+
+  /* ── HERO BAND ─────────────────────────────────────────── */
+  .hero {
+    border-bottom: 1px solid var(--border);
+    padding: 3.5rem 2rem 2.5rem;
+    position: relative;
+    overflow: hidden;
+  }
+  .hero::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background:
+      radial-gradient(ellipse 60% 50% at 100% 0%, rgba(255,92,56,.07) 0%, transparent 70%),
+      radial-gradient(ellipse 40% 60% at 0% 100%, rgba(255,92,56,.04) 0%, transparent 60%);
+    pointer-events: none;
+  }
+  .hero-inner { max-width: 1140px; margin: 0 auto; position: relative; }
+
+  .hero-tag {
+    font-family: var(--mono);
+    font-size: .7rem;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 1.1rem;
+    display: flex;
+    align-items: center;
+    gap: .6rem;
+  }
+  .hero-tag::before {
+    content: '';
+    display: inline-block;
+    width: 28px; height: 2px;
+    background: var(--accent);
+  }
+
+  .hero-finding {
+    font-family: var(--sans);
+    font-weight: 700;
+    font-size: clamp(1.6rem, 3.5vw, 2.6rem);
+    line-height: 1.2;
+    color: var(--heading);
+    max-width: 820px;
+    margin-bottom: 1.4rem;
+    letter-spacing: -.02em;
+  }
+  .hero-finding em {
+    font-style: normal;
+    color: var(--accent);
+  }
+
+  .hero-meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: .6rem;
+    margin-bottom: 1rem;
+  }
+  .hero-meta a {
+    font-family: var(--mono);
+    font-size: .8rem;
+    color: var(--heading);
+    text-decoration: none;
+    border-bottom: 1px solid var(--accent);
+    padding-bottom: 1px;
+    transition: color .15s;
+  }
+  .hero-meta a:hover { color: var(--accent); }
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    padding: .2rem .65rem;
+    border-radius: 3px;
+    font-family: var(--mono);
+    font-size: .7rem;
+    font-weight: 600;
+    letter-spacing: .04em;
+    border: 1px solid var(--border);
+    color: var(--dim);
+    background: var(--surface);
+  }
+  .chip.author { color: var(--body); border-color: var(--muted); }
+  .chip.tag-arxiv { color: var(--accent); border-color: var(--accent-mid); background: var(--accent-lo); }
+
+  /* ── ASSET ROW ─────────────────────────────────────────── */
+  .asset-row {
+    border-bottom: 1px solid var(--border);
+    padding: 0 2rem;
+  }
+  .asset-row-inner {
+    max-width: 1140px;
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 0;
+  }
+
+  .asset-card {
+    padding: 1.8rem 1.5rem;
+    border-right: 1px solid var(--border);
+    animation: fadeUp .5s ease both;
+  }
+  .asset-card:last-child { border-right: none; }
+  .asset-card:nth-child(1) { animation-delay: .05s; }
+  .asset-card:nth-child(2) { animation-delay: .12s; }
+  .asset-card:nth-child(3) { animation-delay: .19s; }
+
+  .asset-label {
+    font-family: var(--mono);
+    font-size: .65rem;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--dim);
+    margin-bottom: .7rem;
+  }
+
+  .asset-metric {
+    font-family: var(--mono);
+    font-size: clamp(2.2rem, 4vw, 3.2rem);
+    font-weight: 600;
+    color: var(--accent);
+    line-height: 1;
+    margin-bottom: .5rem;
+    letter-spacing: -.03em;
+  }
+  .asset-metric-sub {
+    font-family: var(--mono);
+    font-size: .8rem;
+    color: var(--dim);
+  }
+
+  .asset-sowhat {
+    font-size: .95rem;
+    font-weight: 400;
+    color: var(--heading);
+    line-height: 1.55;
+  }
+
+  .asset-critique {
+    font-size: .88rem;
+    color: var(--body);
+    line-height: 1.6;
+    border-left: 2px solid var(--warn);
+    padding-left: .9rem;
+  }
+  .asset-critique strong { color: var(--warn); font-weight: 600; }
+
+  /* ── MAIN GRID ─────────────────────────────────────────── */
+  .main {
+    max-width: 1140px;
+    margin: 0 auto;
+    padding: 2rem 2rem 4rem;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: auto auto auto;
+    gap: 1px;
+    background: var(--border);
+  }
+
+  .panel {
+    background: var(--bg);
+    padding: 1.8rem 1.6rem;
+    animation: fadeUp .5s ease both;
+  }
+  .panel:nth-child(1) { animation-delay: .08s; }
+  .panel:nth-child(2) { animation-delay: .14s; }
+  .panel:nth-child(3) { animation-delay: .20s; }
+  .panel:nth-child(4) { animation-delay: .26s; }
+  .panel:nth-child(5) { animation-delay: .32s; grid-column: 1 / -1; }
+
+  .panel-title {
+    font-family: var(--mono);
+    font-size: .72rem;
+    letter-spacing: .13em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 1.1rem;
+    display: flex;
+    align-items: center;
+    gap: .5rem;
+  }
+  .panel-title::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--border);
+  }
+
+  /* Methodology */
+  .config-table { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: .76rem; margin-top: .5rem; }
+  .config-table th {
+    text-align: left;
+    color: var(--dim);
+    font-weight: 600;
+    padding: .35rem .5rem;
+    border-bottom: 1px solid var(--border);
+    letter-spacing: .06em;
+    font-size: .68rem;
+    text-transform: uppercase;
+  }
+  .config-table td {
+    padding: .45rem .5rem;
+    border-bottom: 1px solid rgba(35,40,48,.5);
+    color: var(--body);
+    vertical-align: top;
+  }
+  .config-table tr:last-child td { border-bottom: none; }
+  .config-table tr:hover td { background: var(--surface); }
+  .badge {
+    display: inline-block;
+    padding: .1rem .4rem;
+    border-radius: 2px;
+    font-size: .65rem;
+    font-weight: 600;
+    letter-spacing: .04em;
+  }
+  .badge-v1 { background: rgba(61,220,132,.15); color: var(--ok); }
+  .badge-v0 { background: rgba(255,209,102,.13); color: var(--warn); }
+  .badge-triton { background: var(--accent-lo); color: var(--accent); }
+
+  .method-steps { list-style: none; counter-reset: step; }
+  .method-steps li {
+    counter-increment: step;
+    padding: .6rem 0 .6rem 2.4rem;
+    position: relative;
+    border-bottom: 1px solid var(--border);
+    font-size: .88rem;
+    color: var(--body);
+  }
+  .method-steps li:last-child { border-bottom: none; }
+  .method-steps li::before {
+    content: counter(step, decimal-leading-zero);
+    position: absolute;
+    left: 0;
+    font-family: var(--mono);
+    font-size: .68rem;
+    font-weight: 600;
+    color: var(--accent);
+    top: .75rem;
+  }
+  .method-steps li strong { color: var(--heading); font-weight: 600; }
+
+  /* Results */
+  .leak-bar-group { margin-bottom: 1.4rem; }
+  .leak-row {
+    display: grid;
+    grid-template-columns: 2.8rem 6.5rem 1fr 5.5rem;
+    align-items: center;
+    gap: .5rem;
+    margin-bottom: .55rem;
+  }
+  .leak-id {
+    font-family: var(--mono);
+    font-size: .72rem;
+    font-weight: 600;
+    color: var(--dim);
+  }
+  .leak-desc {
+    font-family: var(--mono);
+    font-size: .7rem;
+    color: var(--body);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .leak-bar-wrap {
+    height: 14px;
+    background: var(--surface);
+    border-radius: 2px;
+    overflow: hidden;
+    position: relative;
+  }
+  .leak-bar-fill {
+    height: 100%;
+    border-radius: 2px;
+    transition: width .9s cubic-bezier(.16,1,.3,1);
+    width: 0;
+  }
+  .leak-val {
+    font-family: var(--mono);
+    font-size: .75rem;
+    font-weight: 600;
+    text-align: right;
+    color: var(--heading);
+    white-space: nowrap;
+  }
+
+  .factorial-grid {
+    display: grid;
+    grid-template-columns: 5rem 1fr 1fr;
+    gap: 1px;
+    background: var(--border);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    overflow: hidden;
+    font-family: var(--mono);
+    font-size: .76rem;
+  }
+  .fg-cell {
+    background: var(--bg);
+    padding: .65rem .8rem;
+    display: flex;
+    flex-direction: column;
+    gap: .25rem;
+  }
+  .fg-header {
+    background: var(--surface);
+    font-size: .67rem;
+    font-weight: 600;
+    letter-spacing: .08em;
+    color: var(--dim);
+    text-transform: uppercase;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+  }
+  .fg-val { font-size: .95rem; font-weight: 600; color: var(--heading); }
+  .fg-val.best { color: var(--ok); }
+  .fg-val.worst { color: var(--accent); }
+  .fg-sub { font-size: .64rem; color: var(--dim); }
+
+  .insight-box {
+    background: var(--surface);
+    border-left: 3px solid var(--ok);
+    padding: .8rem 1rem;
+    border-radius: 0 3px 3px 0;
+    font-size: .85rem;
+    color: var(--body);
+    margin-top: 1.1rem;
+  }
+  .insight-box strong { color: var(--ok); }
+
+  /* Strengths / Limitations */
+  .sl-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.2rem; }
+  .sl-list { list-style: none; }
+  .sl-list li {
+    padding: .5rem 0 .5rem 1.4rem;
+    position: relative;
+    font-size: .86rem;
+    color: var(--body);
+    border-bottom: 1px solid rgba(35,40,48,.5);
+    line-height: 1.5;
+  }
+  .sl-list li:last-child { border-bottom: none; }
+  .sl-list li::before {
+    position: absolute;
+    left: 0;
+    top: .55rem;
+    font-size: .75rem;
+    font-weight: 700;
+  }
+  .sl-list.strengths li::before { content: '+'; color: var(--ok); }
+  .sl-list.limits li::before { content: '−'; color: var(--accent); }
+  .sl-sublabel {
+    font-family: var(--mono);
+    font-size: .65rem;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    margin-bottom: .7rem;
+    color: var(--dim);
+  }
+
+  /* Questions panel */
+  .questions-list { list-style: none; display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1px; background: var(--border); border: 1px solid var(--border); border-radius: 3px; overflow: hidden; }
+  .q-item {
+    background: var(--bg);
+    padding: 1rem 1.1rem;
+    transition: background .15s;
+  }
+  .q-item:hover { background: var(--surface); }
+  .q-num {
+    font-family: var(--mono);
+    font-size: .65rem;
+    font-weight: 600;
+    color: var(--accent);
+    margin-bottom: .4rem;
+  }
+  .q-text {
+    font-size: .83rem;
+    color: var(--body);
+    line-height: 1.5;
+  }
+
+  /* ── FOOTER ────────────────────────────────────────────── */
+  .footer {
+    border-top: 1px solid var(--border);
+    padding: 1.2rem 2rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-family: var(--mono);
+    font-size: .72rem;
+    color: var(--dim);
+    max-width: 100%;
+  }
+  .footer a { color: var(--dim); text-decoration: none; transition: color .15s; }
+  .footer a:hover { color: var(--accent); }
+
+  /* ── ANIMATIONS ────────────────────────────────────────── */
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(12px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  /* ── RESPONSIVE ────────────────────────────────────────── */
+  @media (max-width: 860px) {
+    .asset-row-inner { grid-template-columns: 1fr; }
+    .asset-card { border-right: none; border-bottom: 1px solid var(--border); }
+    .asset-card:last-child { border-bottom: none; }
+    .main { grid-template-columns: 1fr; }
+    .panel:nth-child(5) { grid-column: 1; }
+    .questions-list { grid-template-columns: 1fr; }
+    .sl-grid { grid-template-columns: 1fr; }
+    .leak-row { grid-template-columns: 2.2rem 5rem 1fr 4.5rem; }
+  }
+  @media (max-width: 560px) {
+    .hero { padding: 2rem 1.2rem 1.8rem; }
+    .asset-row, .main { padding-left: 1.2rem; padding-right: 1.2rem; }
+    .factorial-grid { grid-template-columns: 4rem 1fr 1fr; }
+    .topnav { padding: 0 1.2rem; }
+    .footer { padding: 1rem 1.2rem; flex-direction: column; gap: .4rem; align-items: flex-start; }
+  }
+</style>
+</head>
+<body>
+
+<!-- TOP NAV -->
+<nav class="topnav">
+  <div class="breadcrumb">
+    <a href="./index.html">↩ Today's digest</a>
+    <span>/</span>
+    <span>2606.11916</span>
+  </div>
+  <div>cs.SE · 2026-06-10</div>
+</nav>
+
+<!-- HERO BAND -->
+<section class="hero">
+  <div class="hero-inner">
+    <div class="hero-tag">Key Finding</div>
+    <h1 class="hero-finding">
+      Memory aging in GPU LLM serving is <em>universal</em> —
+      and completely invisible to client-side monitoring.
+    </h1>
+    <div class="hero-meta">
+      <a href="https://arxiv.org/abs/2606.11916" target="_blank" rel="noopener">
+        Characterizing Software Aging in GPU-Based LLM Serving Systems ↗
+      </a>
+      <span class="chip author">Domenico Cotroneo</span>
+      <span class="chip author">Bojan Cukic</span>
+      <span class="chip">UNC Charlotte</span>
+      <span class="chip tag-arxiv">2606.11916</span>
+    </div>
+  </div>
+</section>
+
+<!-- ASSET ROW -->
+<section class="asset-row">
+  <div class="asset-row-inner">
+
+    <div class="asset-card">
+      <div class="asset-label">Key Metric</div>
+      <div class="asset-metric">87×</div>
+      <div class="asset-metric-sub">leak-rate gap across configs</div>
+      <div style="margin-top:.7rem; font-size:.82rem; color:var(--dim); font-family:var(--mono);">
+        Triton+V0: <span style="color:var(--accent)">+157 KB/h</span> &nbsp;vs&nbsp;
+        vLLM V1: <span style="color:var(--ok)">+1.8 KB/h</span>
+      </div>
+    </div>
+
+    <div class="asset-card">
+      <div class="asset-label">Why This Matters</div>
+      <p class="asset-sowhat">
+        Standard latency and throughput dashboards report no anomaly even as host memory slowly bleeds. Production operators are flying blind — their current monitoring cannot detect this class of degradation before it compounds.
+      </p>
+    </div>
+
+    <div class="asset-card">
+      <div class="asset-label">Critical Edge</div>
+      <p class="asset-critique">
+        <strong>Single run per configuration.</strong> Confidence intervals capture only within-run variance. Run-to-run variability is unquantified, making specific slope estimates unreliable until replicated — the authors acknowledge this honestly but it limits actionability.
+      </p>
+    </div>
+
+  </div>
+</section>
+
+<!-- MAIN GRID -->
+<main class="main">
+
+  <!-- METHODOLOGY (left) -->
+  <div class="panel">
+    <div class="panel-title">Methodology — Experimental Setup</div>
+
+    <table class="config-table">
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>Engine</th>
+          <th>Hosting</th>
+          <th>Role</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>E1</td>
+          <td><span class="badge badge-v1">vLLM V1</span></td>
+          <td>Standalone</td>
+          <td style="color:var(--ok)">Best</td>
+        </tr>
+        <tr>
+          <td>E2</td>
+          <td><span class="badge badge-v0">vLLM V0</span></td>
+          <td><span class="badge badge-triton">Triton</span></td>
+          <td style="color:var(--accent)">Worst</td>
+        </tr>
+        <tr>
+          <td>E3</td>
+          <td>PyTorch+HF</td>
+          <td>FastAPI</td>
+          <td>Baseline</td>
+        </tr>
+        <tr>
+          <td>E3b</td>
+          <td>PyTorch+HF</td>
+          <td>FastAPI</td>
+          <td>Low-load ablation</td>
+        </tr>
+        <tr>
+          <td>A1</td>
+          <td><span class="badge badge-v0">vLLM V0</span></td>
+          <td>Standalone</td>
+          <td>2×2 factorial</td>
+        </tr>
+        <tr>
+          <td>A2</td>
+          <td><span class="badge badge-v1">vLLM V1</span></td>
+          <td><span class="badge badge-triton">Triton</span></td>
+          <td>2×2 factorial</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <p style="font-size:.78rem;color:var(--dim);margin:.9rem 0 1rem;font-family:var(--mono);">
+      Hardware: 3× NVIDIA L40S (46 GB VRAM) · Model: Qwen2.5-7B-Instruct bf16
+      · 36 h/run · 216 h total · 34 indicators monitored at ≤5 s cadence
+    </p>
+
+    <div class="panel-title" style="margin-top:1.1rem;">Statistical Pipeline</div>
+    <ol class="method-steps">
+      <li><strong>Hamed-Rao corrected Mann-Kendall</strong> — handles near-unit autocorrelation (ρ ≈ 0.99) by inflating variance via effective sample size from empirical ACF</li>
+      <li><strong>Theil-Sen slope estimator</strong> — robust median-of-pairwise-slopes with CI variance inflated by AR(1) factor (1+ρ)/(1−ρ)</li>
+      <li><strong>Benjamini-Hochberg FDR control</strong> — q = 0.10 across ~200 simultaneous tests; guards against multiple comparison inflation</li>
+      <li>Trend declared significant only when MK rejects null <em>and</em> 95% Theil-Sen CI excludes zero — double gate</li>
+    </ol>
+  </div>
+
+  <!-- RESULTS (right) -->
+  <div class="panel">
+    <div class="panel-title">Results — Leak Rates</div>
+
+    <div class="leak-bar-group" id="leak-bars">
+      <!-- rows injected by JS -->
+    </div>
+
+    <div class="panel-title" style="margin-top:1.4rem;">2×2 Factorial</div>
+    <div class="factorial-grid">
+      <div class="fg-cell fg-header"></div>
+      <div class="fg-cell fg-header">V0 Engine</div>
+      <div class="fg-cell fg-header">V1 Engine</div>
+      <div class="fg-cell fg-header" style="background:var(--surface);">Standalone</div>
+      <div class="fg-cell">
+        <div class="fg-val">+13 KB/h</div>
+        <div class="fg-sub">A1 · vLLM 0.7.3</div>
+      </div>
+      <div class="fg-cell">
+        <div class="fg-val best">+1.8 KB/h</div>
+        <div class="fg-sub">E1 · vLLM 0.21</div>
+      </div>
+      <div class="fg-cell fg-header" style="background:var(--surface);">Triton</div>
+      <div class="fg-cell">
+        <div class="fg-val worst">+157 KB/h</div>
+        <div class="fg-sub">E2 · step-wise pattern</div>
+      </div>
+      <div class="fg-cell">
+        <div class="fg-val">+5.9 KB/h</div>
+        <div class="fg-sub">A2 · 27× less than E2</div>
+      </div>
+    </div>
+
+    <div class="insight-box">
+      <strong>Counterintuitive ordering:</strong> most optimized engine leaks least; naive PyTorch sits in the middle; production-hardened Triton+V0 stack leaks most. Aging source is the <em>runtime/orchestration layer</em>, not the shared CUDA inference path.
+    </div>
+
+    <p style="font-size:.8rem;color:var(--dim);margin-top:1rem;line-height:1.5;">
+      <span style="color:var(--heading)">GPU VRAM:</span> stationary in all runs — paged KV-cache management successfully contains device-side fragmentation.
+      <br>
+      <span style="color:var(--heading)">Load independence:</span> E3b at 0.05 RPS leaks <em>more</em> (+103 KB/h vs +31 KB/h) than high-load E3 — aging is time-driven, not request-volume-driven.
+    </p>
+  </div>
+
+  <!-- STRENGTHS / LIMITATIONS (left) -->
+  <div class="panel">
+    <div class="panel-title">Strengths &amp; Limitations</div>
+    <div class="sl-grid">
+      <div>
+        <div class="sl-sublabel">Strengths</div>
+        <ul class="sl-list strengths">
+          <li>First SAR study targeting GPU-resident, framework-mediated LLM serving with factorial engine comparison</li>
+          <li>Autocorrelation correction + FDR control — above the SAR field norm</li>
+          <li>2×2 factorial disentangles engine generation from hosting layer</li>
+          <li>Qualitatively novel step-wise growth pattern in Triton+V0 with practical relevance</li>
+          <li>Honest scoping; thorough threats-to-validity section; no overselling</li>
+        </ul>
+      </div>
+      <div>
+        <div class="sl-sublabel">Limitations</div>
+        <ul class="sl-list limits">
+          <li>Single run per config — within-run CIs only; run-to-run variance unquantified</li>
+          <li>Version confound in factorial (V0 ≠ V1 engine generation is aliased with vLLM version)</li>
+          <li>Synthetic Poisson workload; no bursty arrivals, cache hits, or temporal locality</li>
+          <li>Single hardware platform (L40S) and single model (Qwen2.5-7B); no H100/B200 data</li>
+          <li>No mechanism identification — heap profiling is listed as future work</li>
+          <li>No rejuvenation strategies proposed or evaluated</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- PRACTICAL IMPLICATIONS (right) -->
+  <div class="panel">
+    <div class="panel-title">Practical Implications</div>
+
+    <p style="font-size:.9rem;color:var(--heading);font-weight:400;margin-bottom:1rem;line-height:1.6;">
+      Extrapolated to a <strong>30-day deployment</strong> (Theil-Sen rates):
+    </p>
+
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--border);border:1px solid var(--border);border-radius:3px;overflow:hidden;margin-bottom:1.2rem;">
+      <div style="background:var(--bg);padding:1rem;text-align:center;">
+        <div style="font-family:var(--mono);font-size:.65rem;color:var(--dim);margin-bottom:.4rem;letter-spacing:.08em;text-transform:uppercase;">vLLM V1<br>standalone</div>
+        <div style="font-family:var(--mono);font-size:1.5rem;font-weight:600;color:var(--ok);">~1 MB</div>
+        <div style="font-family:var(--mono);font-size:.65rem;color:var(--dim);">per replica</div>
+      </div>
+      <div style="background:var(--bg);padding:1rem;text-align:center;">
+        <div style="font-family:var(--mono);font-size:.65rem;color:var(--dim);margin-bottom:.4rem;letter-spacing:.08em;text-transform:uppercase;">PyTorch+HF<br>naive</div>
+        <div style="font-family:var(--mono);font-size:1.5rem;font-weight:600;color:var(--warn);">~22 MB</div>
+        <div style="font-family:var(--mono);font-size:.65rem;color:var(--dim);">per replica</div>
+      </div>
+      <div style="background:var(--bg);padding:1rem;text-align:center;">
+        <div style="font-family:var(--mono);font-size:.65rem;color:var(--dim);margin-bottom:.4rem;letter-spacing:.08em;text-transform:uppercase;">Triton+V0<br>step-wise</div>
+        <div style="font-family:var(--mono);font-size:1.5rem;font-weight:600;color:var(--accent);">~110 MB</div>
+        <div style="font-family:var(--mono);font-size:.65rem;color:var(--dim);margin-top:.1rem;">⚠ potentially unbounded</div>
+      </div>
+    </div>
+
+    <p style="font-size:.83rem;color:var(--body);margin-bottom:.9rem;line-height:1.6;">
+      <span style="color:var(--accent);font-weight:600;">Monitoring blind spot:</span> Latency (p50/p95/p99), TTFT, throughput, and drop rate are stationary in virtually all 36-hour windows. The ~5 ms/h p50 drift in E1 is statistically significant but operationally negligible (~2% over 36 h).
+    </p>
+    <p style="font-size:.83rem;color:var(--body);line-height:1.6;">
+      <span style="color:var(--warn);font-weight:600;">Recommendation:</span> Add USS/RSS process-private memory trending to LLM serving dashboards. Plan periodic <strong>rejuvenation</strong> (rolling restart) for Triton+V0 deployments, especially where step-wise jumps indicate unbounded anonymous mappings.
+    </p>
+  </div>
+
+  <!-- OPEN QUESTIONS (full width) -->
+  <div class="panel">
+    <div class="panel-title">Open Questions</div>
+    <ul class="questions-list">
+      <li class="q-item">
+        <div class="q-num">Q1</div>
+        <div class="q-text">What causes the step-wise growth in Triton+V0? Heap profiling needed to distinguish Python object accumulation, C++ runtime issue, or OS-level anonymous mappings never returned.</div>
+      </li>
+      <li class="q-item">
+        <div class="q-num">Q2</div>
+        <div class="q-text">Do leak rates generalize to larger models (70B, 405B) and newer GPUs (H100, B200)? KV-cache pressure and memory behavior may differ substantially.</div>
+      </li>
+      <li class="q-item">
+        <div class="q-num">Q3</div>
+        <div class="q-text">How do production traffic patterns — bursty arrivals, shared prefix caching, high prompt repetition — alter the aging signature? Synthetic Poisson loads may mask or amplify mechanisms.</div>
+      </li>
+      <li class="q-item">
+        <div class="q-num">Q4</div>
+        <div class="q-text">What is the leak rate after ≥3 independent replications per config? Run-to-run variance is the most urgent empirical gap before acting on specific slope estimates.</div>
+      </li>
+      <li class="q-item">
+        <div class="q-num">Q5</div>
+        <div class="q-text">Does periodic rejuvenation (restart or warm reload) effectively mitigate observed aging? At what interval is the restart cost justified given current leak rates?</div>
+      </li>
+      <li class="q-item">
+        <div class="q-num">Q6</div>
+        <div class="q-text">Can specific vLLM V1 redesigns (async task management, new resource release paths) be credited for the 7–27× reduction in leak rate vs V0?</div>
+      </li>
+    </ul>
+  </div>
+
+</main>
+
+<!-- FOOTER -->
+<footer class="footer">
+  <div>
+    arxiv:2606.11916 · Cotroneo &amp; Cukic · UNC Charlotte · cs.SE
+  </div>
+  <div>
+    <a href="2606.11916.html" target="_blank" rel="noopener">↗ Markdown source</a>
+  </div>
+</footer>
+
+<script>
+  // Leak bar data
+  const leaks = [
+    { id: 'E1', desc: 'vLLM V1 standalone', rate: 1.8,  ci: '[0.7, 23.8]', max: 157, color: 'var(--ok)' },
+    { id: 'A1', desc: 'vLLM V0 standalone', rate: 13,   ci: '—',           max: 157, color: '#b8c1cc' },
+    { id: 'A2', desc: 'vLLM V1 + Triton',   rate: 5.9,  ci: '—',           max: 157, color: '#b8c1cc' },
+    { id: 'E3', desc: 'PyTorch+HF naive',   rate: 31,   ci: '[21, 88]',    max: 157, color: 'var(--warn)' },
+    { id: 'E3b',desc: 'PyTorch low-load',   rate: 103,  ci: '—',           max: 157, color: 'var(--warn)' },
+    { id: 'E2', desc: 'Triton + vLLM V0',   rate: 157,  ci: '[33, 228]',   max: 157, color: 'var(--accent)' },
+  ];
+
+  const container = document.getElementById('leak-bars');
+  leaks.forEach(l => {
+    const pct = (l.rate / 157 * 100).toFixed(1);
+    const row = document.createElement('div');
+    row.className = 'leak-row';
+    row.innerHTML = `
+      <span class="leak-id">${l.id}</span>
+      <span class="leak-desc" title="${l.desc}">${l.desc}</span>
+      <div class="leak-bar-wrap">
+        <div class="leak-bar-fill" style="background:${l.color};width:0%" data-width="${pct}%"></div>
+      </div>
+      <span class="leak-val" style="color:${l.color}">${l.rate} KB/h</span>
+    `;
+    container.appendChild(row);
+  });
+
+  // Animate bars after paint
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      document.querySelectorAll('.leak-bar-fill').forEach((el, i) => {
+        setTimeout(() => {
+          el.style.width = el.dataset.width;
+        }, i * 80);
+      });
+    });
+  });
+</script>
+</body>
+</html>

@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LongLive-2.0: An NVFP4 Parallel Infrastructure for Long Video Generation</title>
+<style>
+:root { --paper:#fafafa; --ink:#1a1a1a; --muted:#555; --accent:#1a5276; --line:#ddd; --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif; --serif:Georgia,"Noto Serif SC",serif; }
+body { font-family:var(--serif); background:var(--paper); color:var(--ink); line-height:1.6; margin:0; padding:0; }
+.container { max-width:min(95vw, 760px); margin:0 auto; padding:28px 20px 60px; }
+.topnav { position:fixed; top:12px; left:14px; z-index:50; font-family:var(--sans); font-size:.75rem; background:var(--paper); border:1px solid var(--line); padding:5px 10px; border-radius:999px; }
+.topnav a { color:var(--muted); text-decoration:none; font-weight:600; }
+.topnav a:hover { color:var(--accent); }
+h1 { font-size:1.6rem; margin:2.2rem 0 1rem; border-bottom:2px solid var(--accent); padding-bottom:.3rem; }
+h2 { font-size:1.3rem; margin:1.8rem 0 .8rem; color:var(--accent); }
+h3 { font-size:1.1rem; margin:1.4rem 0 .6rem; }
+p { margin:.8rem 0; }
+.authors { font-style:italic; color:var(--muted); margin-top:-.4rem; }
+.meta { font-family:var(--sans); font-size:.82rem; color:var(--muted); margin:.2rem 0; }
+a { color:var(--accent); text-decoration:none; }
+a:hover { text-decoration:underline; }
+blockquote { border-left:3px solid var(--accent); margin:1rem 0; padding:.2rem 0 .2rem 1rem; color:var(--muted); font-style:italic; }
+code { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; background:#f0f0f0; padding:2px 5px; border-radius:3px; font-size:.9em; }
+pre { background:#f5f5f5; padding:14px; overflow-x:auto; border-radius:4px; border:1px solid var(--line); }
+pre code { background:transparent; padding:0; }
+ul,ol { margin:.6rem 0; padding-left:1.5rem; }
+li { margin:.25rem 0; }
+table { border-collapse:collapse; width:100%; margin:1rem 0; font-family:var(--sans); font-size:.9rem; }
+th,td { border:1px solid var(--line); padding:6px 10px; text-align:left; }
+th { background:#f0f0f0; }
+hr { border:none; border-top:1px solid var(--line); margin:1.5rem 0; }
+.note { font-family:var(--sans); font-size:.78rem; color:var(--muted); border-top:1px solid var(--line); margin-top:2rem; padding-top:1rem; }
+@media (max-width: 600px) { .container { padding:22px 14px 40px; } h1 { font-size:1.35rem; } }
+</style>
+</head>
+<body>
+<div class="topnav"><a href="./index.html">← Today's digest</a></div>
+<div class="container">
+<h1>LongLive-2.0: An NVFP4 Parallel Infrastructure for Long Video Generation</h1>
+<p class="meta">arXiv: 2605.18739</p>
+<p class="meta">Date: 2026-05-18</p>
+<p class="meta"><a href="https://arxiv.org/abs/2605.18739">https://arxiv.org/abs/2605.18739</a></p>
+<blockquote><strong>一句话总结：</strong> LongLive-2.0 提出首个面向长视频生成的端到端 NVFP4（4-bit浮点）训练与推理系统，通过 Balanced Sequence Parallelism 和算法-基础设施协同设计，在 5B 参数模型上实现 45.7 FPS 实时生成，同时训练加速 2.15 倍、推理加速 1.84 倍。</blockquote>
+<blockquote><strong>TL;DR:</strong> LongLive-2.0 is the first end-to-end NVFP4 training and inference system for long video generation, combining Balanced Sequence Parallelism, W4A4 quantization, and NVFP4 KV-cache compression to achieve 45.7 FPS on a 5B model with 2.15x training speedup and 1.84x inference speedup.</blockquote>
+<h2>核心贡献</h2>
+<ul>
+<li><strong>Balanced Sequence Parallelism (Balanced SP)</strong>：将 AR 训练中的 clean/noisy 对齐分片到每个 GPU rank，解决了传统 SP 在 teacher-forcing 布局下的负载不均衡和 VAE 编码冗余问题，支持 SP-aware 分块 VAE 编码</li>
+<li><strong>端到端 NVFP4 训练与推理对齐</strong>：首次在长视频生成任务中实现从训练到推理的全链路 NVFP4（4-bit 浮点），包括 W4A4 GEMM、NVFP4 KV-cache 压缩（约 3.6 倍压缩），以及 Random Hadamard Transform 稳定梯度</li>
+<li><strong>简洁的训练流水线</strong>：利用高效基础设施直接将双向扩散模型微调为长视频多镜头 AR 模型，无需 Self-Forcing 系列方法所需的 ODE 初始化和多阶段 DMD，仅需独立 LoRA 权重即可实现实时少步生成</li>
+<li><strong>Multi-Shot Attention Sink</strong>：提出双层注意力锚点机制（全局 sink + 镜头级 sink），在滑动窗口推理中同时保持全局身份一致性和镜头内时序连贯性</li>
+<li><strong>异步流式 VAE 解码</strong>：将 VAE 解码与 DiT 去噪异步重叠执行，将端到端延迟从 C(t_DiT + t_VAE) 降至约 C·t_DiT + t_VAE</li>
+</ul>
+<h2>Key Contributions</h2>
+<ul>
+<li>Introduces <strong>Balanced Sequence Parallelism</strong>, a co-design of AR teacher-forcing layout with SP execution that pairs clean-history and noisy-target chunks per rank, enabling balanced loss computation and partitioned VAE encoding</li>
+<li>Demonstrates the <strong>first end-to-end NVFP4 training and inference pipeline</strong> for long video generation, including W4A4 model weights, NVFP4 KV-cache quantization (~3.6x compression), and parallel dequantization kernels</li>
+<li>Achieves a <strong>clean training pipeline</strong> that directly fine-tunes bidirectional diffusion models into long, multi-shot, interactive AR generators without ODE initialization or multi-stage distillation, using standalone LoRA weights for few-step real-time inference</li>
+<li>Proposes <strong>Multi-Shot Attention Sink</strong> with global and shot-level anchor sets to maintain both global identity and intra-shot coherence during sliding-window streaming inference</li>
+<li>Designs <strong>asynchronous streaming VAE decoding</strong> that overlaps denoising and decoding across GPUs, amortizing VAE overhead and enabling memory-efficient streaming generation</li>
+</ul>
+<h2>Methodology</h2>
+<p>LongLive-2.0 is built on top of Wan2.2-TI2V-5B and follows a two-phase training approach:</p>
+<p><strong>Phase 1 — AR Training:</strong> The bidirectional diffusion model is directly fine-tuned on a curated 120K long-video multi-shot dataset using clean-context teacher forcing. Balanced SP partitions temporal chunks across GPUs so each rank owns paired clean/noisy latents from the same temporal range. A natural teacher-forcing mask is constructed directly on the Ulysses All-to-All interleaved order without materializing permutations. NVFP4 quantization (E2M1 FP4 values with E4M3 FP8 block scales + FP32 tensor scales) accelerates GEMMs, with Random Hadamard Transform applied before weight-gradient quantization for stability. Error recycling buffers are SP-sharded to maintain position-dependent rollout error injection.</p>
+<p><strong>Phase 2 — Few-step DMD Distillation:</strong> Distribution Matching Distillation is performed on top of the AR-trained model with a single stage (no ODE init, no progressive long-tuning). Only LoRA adapters (rank 128) are trainable; the backbone stays frozen in NVFP4. The teacher uses a causal AR mask. Scale-search adaptive block scaling (Four Over Six) is used for weight quantization.</p>
+<p><strong>Inference Stack:</strong> W4A4 NVFP4 execution on Blackwell GPUs, NVFP4 KV-cache with K-smoothing and chunkwise quantization, parallel CUDA dequantization (<2% overhead), asynchronous VAE decoding on a dedicated GPU, and SP inference with NVFP4 communication for non-Blackwell GPUs.</p>
+<h2>Results & Highlights</h2>
+<ul>
+<li><strong>Training efficiency:</strong> NVFP4 + Balanced SP achieves 2.15x speedup at 64s video length (639.5s vs 1372.9s per iteration for BF16+SP), with progressive DMD memory reduction from 70.5 GB to 49.0 GB per GPU</li>
+<li><strong>Inference efficiency:</strong> 5B model at 4 steps reaches 29.7 FPS; 2-step variant reaches 45.7 FPS at 1280x720 resolution. Peak memory reduced from 36.4 GB (BF16) to 19.4 GB with NVFP4 + KV-cache quantization. 64s video generation in 36.3s end-to-end</li>
+<li><strong>VBench short-video:</strong> NVFP4 4-step model scores 84.51 Total / 86.43 Quality / 76.81 Semantic — close to BF16 baseline (85.06 / 86.67 / 78.63), outperforming all listed baselines at 720p</li>
+<li><strong>VBench-Long 60s:</strong> NVFP4 model achieves best average rank (3.67) with 97.62 subject consistency, 96.97 background consistency, and 98.94 motion smoothness — surpassing Self-Forcing, Causal-Forcing, and Rolling-Forcing</li>
+<li><strong>SP inference on H100:</strong> 2-GPU SP reduces 64s generation from 85.0s to 62.5s (BF16) or 53.3s (4-bit KV); 4-GPU SP with 4-bit KV achieves 54.8s</li>
+</ul>
+<h2>Authors & Credibility</h2>
+<p>The team is from <strong>NVIDIA</strong> and includes Yukang Chen, Wei Huang, Shuai Yang, Song Han, and Xiaojuan Qi among others. Song Han's group at MIT/NVIDIA has a strong track record in efficient ML (TinyTL, TinyEngine, SVDQuant, AWQ, SmoothQuant, LongVila, LongLive). This is a direct extension of the original LongLive system (ICLR 2026). The work leverages NVIDIA Blackwell hardware (GB200) natively, suggesting close collaboration with NVIDIA's systems team. The paper provides comprehensive ablations, scaling studies, and comparisons against strong baselines.</p>
+<h2>Critical Assessment</h2>
+<ul>
+<li><strong>Novelty:</strong> High. The end-to-end NVFP4 pipeline for video generation is genuinely new — prior work (Quant VideoGen, SVDQuant) applied quantization only at inference via PTQ. Balanced SP's co-design of teacher-forcing layout with sequence parallelism is a meaningful systems contribution. The clean pipeline (bypassing ODE init) is a practical simplification enabled by infrastructure quality.</li>
+<li><strong>Rigor:</strong> Strong. The paper provides progressive ablations for both training (Table 1) and inference (Table 3), isolates quantization effects (Table 7), and compares against multiple baselines on standardized benchmarks. The SP-aware error recycling and halo construction details are thorough.</li>
+<li><strong>Reproducibility:</strong> Limited. The system requires NVIDIA Blackwell GPUs (GB200) for full NVFP4 acceleration. Custom CUDA kernels for NVFP4 GEMM and parallel dequantization are not open-sourced (code link points to github.com/NVlabs/LongLive but kernel availability is unclear). The 120K curated dataset is proprietary.</li>
+<li><strong>Significance:</strong> High for the systems-for-video-generation community. 45.7 FPS at 720p on a 5B model is a compelling result. The training-inference alignment thesis (NVFP4 throughout, not just PTQ) is well-argued and supported by the PTQ vs. pre-trained NVFP4 ablation.</li>
+<li><strong>Red flags:</strong> The Blackwell hardware dependency is a significant limitation — NVFP4 acceleration is unavailable on A100/H100, though SP inference partially compensates. The VBench Total score (84.51 NVFP4 vs 85.06 BF16) shows a non-trivial quality gap. The paper does not compare against concurrent FP4 approaches (e.g., Quartet) or newer forcing methods (Deep Forcing, HiAR). The 2-step model's Semantic score (74.12) drops notably from 4-step (76.81), suggesting quality degradation at extreme speed.</li>
+</ul>
+<h2>Strengths</h2>
+<ul>
+<li>First truly end-to-end NVFP4 system for video generation — training and inference aligned, not PTQ-only</li>
+<li>Clean, simplified training pipeline that eliminates ODE initialization and multi-stage distillation</li>
+<li>Comprehensive systems co-design: Balanced SP, NVFP4 KV-cache, async decoding, multi-shot attention sink</li>
+<li>Strong benchmark results on both VBench and VBench-Long, with best average rank for 60s generation</li>
+<li>Detailed ablation studies progressively isolating each optimization's contribution</li>
+<li>Practical multi-shot interactive generation with per-chunk prompting and attention sink mechanism</li>
+</ul>
+<h2>Limitations</h2>
+<ul>
+<li>NVFP4 inference acceleration requires Blackwell GPUs (GB200); A100/H100 users only get SP speedup</li>
+<li>Quantization quality gap: NVFP4 Total VBench score drops ~0.55 points from BF16; 2-step Semantic drops to 74.12</li>
+<li>Proprietary 120K multi-shot dataset not publicly available</li>
+<li>Custom CUDA/Triton kernels for NVFP4 may not be open-sourced, limiting reproducibility</li>
+<li>No comparison with newer concurrent methods (HiAR, Deep Forcing, VideoSSM) on equal footing</li>
+<li>Memory comparisons at 5B scale; unclear how findings transfer to smaller (1.3B) or larger models</li>
+</ul>
+<h2>Relevance</h2>
+<p>本文与"Computation Reliability & Precision Errors"方向高度相关：NVFP4 作为新型 4-bit 浮点格式，其在视频生成训练/推理中的数值稳定性、量化误差（特别是非均匀 E2M1 格式的 block-scale 选择）、以及梯度敏感性（需 RHT 稳定）是该系统的核心挑战。此外，KV-cache 压缩中的精度损失与 Silent Data Corruption 检测场景有潜在交集。</p>
+<h2>Questions for Further Exploration</h2>
+<ol>
+<li>How does NVFP4 quantization error propagate across autoregressive chunks in minute-scale generation — does error accumulate differently than in BF16, and can it be detected/masked as a form of silent corruption?</li>
+<li>What is the sensitivity of generation quality to the block-scale selection strategy (6 vs. 4 target magnitude) — are there failure modes where adaptive search makes globally suboptimal choices?</li>
+<li>Could the Balanced SP design generalize to other structured long-sequence tasks (e.g., long-context LLM training with interleaved document/query layouts)?</li>
+<li>How does the NVFP4 KV-cache compression interact with attention sink mechanisms under extreme sequence lengths (>1000s of frames)?</li>
+<li>What happens to the quality gap between BF16 and NVFP4 when scaling to 10B+ parameter models — does the relative degradation stay constant or widen?</li>
+</ol>
+<p class="note">Generated from Markdown summary. Full paper: <a href="https://arxiv.org/abs/2605.18739">arXiv:2605.18739</a></p>
+</div>
+</body>
+</html>

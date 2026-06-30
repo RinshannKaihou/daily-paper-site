@@ -1,0 +1,875 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Resolution Diagnostics for Paired LLM Evaluation</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Source+Serif+4:ital,wght@0,400;0,600;0,700;0,900;1,400&display=swap');
+
+:root {
+  --bg: #0a0c10;
+  --bg-elevated: #11141a;
+  --bg-card: #161a22;
+  --bg-card-hover: #1c2130;
+  --fg: #e8e6e1;
+  --fg-muted: #8a8d95;
+  --fg-dim: #5a5d65;
+  --accent: #ff5c5c;
+  --accent-dim: rgba(255,92,92,0.12);
+  --accent-glow: rgba(255,92,92,0.25);
+  --amber: #ffb347;
+  --amber-dim: rgba(255,179,71,0.10);
+  --teal: #3eddc6;
+  --teal-dim: rgba(62,221,198,0.10);
+  --blue: #6b8afd;
+  --blue-dim: rgba(107,138,253,0.10);
+  --border: rgba(255,255,255,0.06);
+  --border-accent: rgba(255,92,92,0.25);
+  --serif: 'Source Serif 4', Georgia, serif;
+  --mono: 'JetBrains Mono', monospace;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { font-size: 16px; scroll-behavior: smooth; }
+
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--serif);
+  line-height: 1.6;
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Subtle cross-hatch noise */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.025'/%3E%3C/svg%3E");
+  pointer-events: none;
+  z-index: 9999;
+}
+
+a { color: var(--accent); text-decoration: none; transition: opacity 0.2s; }
+a:hover { opacity: 0.8; }
+
+/* ---- Top bar ---- */
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  background: rgba(10,12,16,0.88);
+  backdrop-filter: blur(20px);
+  border-bottom: 1px solid var(--border);
+  padding: 0.6rem 2rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-family: var(--mono);
+  font-size: 0.75rem;
+}
+.topbar-left { display: flex; align-items: center; gap: 1rem; }
+.topbar-tag {
+  background: var(--accent-dim);
+  color: var(--accent);
+  padding: 0.2rem 0.6rem;
+  border-radius: 3px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+}
+.topbar-links { display: flex; gap: 1.2rem; }
+.topbar-links a { color: var(--fg-muted); font-size: 0.7rem; }
+
+/* ---- Hero ---- */
+.hero {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 3.5rem 2rem 2rem;
+  animation: fadeUp 0.6s ease-out both;
+}
+.hero-label {
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  color: var(--fg-dim);
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  margin-bottom: 0.75rem;
+}
+.hero h1 {
+  font-size: clamp(1.8rem, 4.2vw, 3rem);
+  font-weight: 900;
+  line-height: 1.12;
+  color: var(--fg);
+  margin-bottom: 1.2rem;
+  max-width: 880px;
+}
+.hero h1 span { color: var(--accent); }
+.hero-subtitle {
+  font-size: 1.05rem;
+  color: var(--fg-muted);
+  max-width: 720px;
+  line-height: 1.65;
+  margin-bottom: 1.5rem;
+}
+.hero-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.5rem;
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  color: var(--fg-dim);
+}
+.hero-meta span { display: flex; align-items: center; gap: 0.4rem; }
+.hero-meta .dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  display: inline-block;
+}
+
+/* ---- Asset row ---- */
+.asset-row {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 0 2rem 2rem;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1rem;
+  animation: fadeUp 0.6s 0.15s ease-out both;
+}
+.asset-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 1.4rem;
+  position: relative;
+  overflow: hidden;
+  transition: border-color 0.3s, transform 0.2s;
+}
+.asset-card:hover {
+  border-color: var(--border-accent);
+  transform: translateY(-2px);
+}
+.asset-card::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 2px;
+}
+.asset-card.finding::before { background: var(--accent); }
+.asset-card.metric::before { background: var(--amber); }
+.asset-card.sowhat::before { background: var(--teal); }
+.asset-card.edge::before { background: var(--blue); }
+
+.asset-card-label {
+  font-family: var(--mono);
+  font-size: 0.6rem;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  margin-bottom: 0.8rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.asset-card.finding .asset-card-label { color: var(--accent); }
+.asset-card.metric .asset-card-label { color: var(--amber); }
+.asset-card.sowhat .asset-card-label { color: var(--teal); }
+.asset-card.edge .asset-card-label { color: var(--blue); }
+
+.asset-card .big-number {
+  font-family: var(--mono);
+  font-size: 2rem;
+  font-weight: 700;
+  line-height: 1.1;
+  margin-bottom: 0.4rem;
+}
+.asset-card.metric .big-number { color: var(--amber); }
+.asset-card .big-fraction {
+  font-family: var(--mono);
+  font-size: 1.6rem;
+  font-weight: 700;
+  line-height: 1.1;
+  margin-bottom: 0.4rem;
+  color: var(--amber);
+}
+.asset-card p {
+  font-size: 0.82rem;
+  color: var(--fg-muted);
+  line-height: 1.55;
+}
+.asset-card.finding p strong { color: var(--accent); font-weight: 600; }
+.asset-card.edge p strong { color: var(--blue); font-weight: 600; }
+
+/* ---- Body grid ---- */
+.body-grid {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 0 2rem 4rem;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+  animation: fadeUp 0.6s 0.3s ease-out both;
+}
+
+.section-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 1.6rem;
+}
+.section-card.full-width { grid-column: 1 / -1; }
+.section-card h2 {
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--fg-dim);
+  margin-bottom: 1rem;
+  padding-bottom: 0.6rem;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.section-card h2 .icon {
+  width: 16px; height: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.8rem;
+}
+
+/* ---- Method pipeline ---- */
+.pipeline {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  margin-bottom: 1.2rem;
+}
+.pipeline-step {
+  flex: 1;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 1rem 0.8rem;
+  text-align: center;
+  position: relative;
+}
+.pipeline-step:not(:last-child)::after {
+  content: '\2192';
+  position: absolute;
+  right: -10px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--accent);
+  font-size: 1.2rem;
+  z-index: 2;
+}
+.pipeline-step .step-num {
+  font-family: var(--mono);
+  font-size: 0.6rem;
+  color: var(--accent);
+  letter-spacing: 0.1em;
+  margin-bottom: 0.4rem;
+}
+.pipeline-step .step-title {
+  font-weight: 700;
+  font-size: 0.85rem;
+  margin-bottom: 0.3rem;
+  color: var(--fg);
+}
+.pipeline-step .step-desc {
+  font-size: 0.72rem;
+  color: var(--fg-muted);
+  line-height: 1.4;
+}
+
+/* ---- Results table ---- */
+.results-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.78rem;
+}
+.results-table th {
+  font-family: var(--mono);
+  font-size: 0.6rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--fg-dim);
+  text-align: left;
+  padding: 0.5rem 0.6rem;
+  border-bottom: 1px solid var(--border);
+}
+.results-table td {
+  padding: 0.55rem 0.6rem;
+  border-bottom: 1px solid var(--border);
+  color: var(--fg-muted);
+}
+.results-table tr:last-child td { border-bottom: none; }
+.results-table .val-alert {
+  color: var(--accent);
+  font-family: var(--mono);
+  font-weight: 600;
+}
+.results-table .val-warn {
+  color: var(--amber);
+  font-family: var(--mono);
+  font-weight: 600;
+}
+.results-table .val-ok {
+  color: var(--teal);
+  font-family: var(--mono);
+  font-weight: 600;
+}
+.results-table .val-base {
+  font-family: var(--mono);
+  color: var(--fg-dim);
+}
+
+/* ---- Bullet lists ---- */
+.bullet-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+.bullet-list li {
+  font-size: 0.82rem;
+  color: var(--fg-muted);
+  line-height: 1.5;
+  padding-left: 1rem;
+  position: relative;
+}
+.bullet-list li::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0.55rem;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+.bullet-list.warn li::before { background: var(--amber); }
+.bullet-list.neutral li::before { background: var(--fg-dim); }
+.bullet-list.teal li::before { background: var(--teal); }
+
+/* ---- Badge row ---- */
+.badge-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  margin-bottom: 1rem;
+}
+.badge {
+  font-family: var(--mono);
+  font-size: 0.65rem;
+  padding: 0.3rem 0.7rem;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.badge.high { background: var(--accent-dim); color: var(--accent); }
+.badge.good { background: var(--teal-dim); color: var(--teal); }
+.badge.moderate { background: var(--blue-dim); color: var(--blue); }
+.badge.warn { background: var(--amber-dim); color: var(--amber); }
+.badge .dot-sm { width: 5px; height: 5px; border-radius: 50%; }
+.badge.high .dot-sm { background: var(--accent); }
+.badge.good .dot-sm { background: var(--teal); }
+.badge.moderate .dot-sm { background: var(--blue); }
+.badge.warn .dot-sm { background: var(--amber); }
+
+/* ---- Tag chips ---- */
+.tag-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-top: 0.8rem;
+}
+.tag {
+  font-family: var(--mono);
+  font-size: 0.6rem;
+  padding: 0.2rem 0.55rem;
+  border-radius: 3px;
+  background: var(--accent-dim);
+  color: var(--accent);
+  border: 1px solid rgba(255,92,92,0.15);
+}
+
+/* ---- Question list ---- */
+.question-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  counter-reset: q;
+}
+.question-list li {
+  counter-increment: q;
+  font-size: 0.8rem;
+  color: var(--fg-muted);
+  line-height: 1.5;
+  padding-left: 2rem;
+  position: relative;
+}
+.question-list li::before {
+  content: 'Q' counter(q);
+  position: absolute;
+  left: 0;
+  font-family: var(--mono);
+  font-size: 0.6rem;
+  font-weight: 700;
+  color: var(--fg-dim);
+  top: 0.2rem;
+}
+
+/* ---- Key term ---- */
+.key-term {
+  font-family: var(--mono);
+  font-size: 0.78em;
+  color: var(--accent);
+  background: var(--accent-dim);
+  padding: 0.1rem 0.35rem;
+  border-radius: 3px;
+}
+
+/* ---- Lemma callout ---- */
+.lemma-box {
+  background: var(--bg-elevated);
+  border: 1px solid rgba(255,92,92,0.15);
+  border-left: 3px solid var(--accent);
+  border-radius: 4px;
+  padding: 1rem 1.2rem;
+  margin-top: 0.8rem;
+}
+.lemma-box .lemma-title {
+  font-family: var(--mono);
+  font-size: 0.65rem;
+  color: var(--accent);
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  margin-bottom: 0.5rem;
+}
+.lemma-box p {
+  font-size: 0.8rem;
+  color: var(--fg-muted);
+  line-height: 1.55;
+}
+
+/* ---- Resolution bar chart (CSS-only) ---- */
+.res-chart {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+  margin-top: 0.6rem;
+}
+.res-bar-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+.res-bar-label {
+  font-family: var(--mono);
+  font-size: 0.62rem;
+  color: var(--fg-dim);
+  width: 120px;
+  text-align: right;
+  flex-shrink: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.res-bar-track {
+  flex: 1;
+  height: 18px;
+  background: var(--bg-elevated);
+  border-radius: 3px;
+  overflow: hidden;
+  position: relative;
+}
+.res-bar-fill {
+  height: 100%;
+  border-radius: 3px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding-right: 0.4rem;
+  font-family: var(--mono);
+  font-size: 0.58rem;
+  font-weight: 600;
+  color: var(--bg);
+  transition: width 1s ease-out;
+  min-width: 2.5rem;
+}
+.res-bar-fill.alert { background: var(--accent); }
+.res-bar-fill.warn { background: var(--amber); }
+.res-bar-fill.ok { background: var(--teal); }
+
+/* ---- Stat callout grid ---- */
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.6rem;
+  margin-top: 0.6rem;
+}
+.stat-item {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 0.8rem;
+  text-align: center;
+}
+.stat-item .stat-val {
+  font-family: var(--mono);
+  font-size: 1.4rem;
+  font-weight: 700;
+  line-height: 1.1;
+}
+.stat-item .stat-val.red { color: var(--accent); }
+.stat-item .stat-val.amber { color: var(--amber); }
+.stat-item .stat-val.teal { color: var(--teal); }
+.stat-item .stat-label {
+  font-size: 0.68rem;
+  color: var(--fg-dim);
+  margin-top: 0.3rem;
+  line-height: 1.3;
+}
+
+/* ---- Animations ---- */
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* ---- Responsive ---- */
+@media (max-width: 900px) {
+  .asset-row { grid-template-columns: repeat(2, 1fr); }
+  .body-grid { grid-template-columns: 1fr; }
+}
+@media (max-width: 600px) {
+  .asset-row { grid-template-columns: 1fr; }
+  .pipeline { flex-direction: column; }
+  .pipeline-step:not(:last-child)::after {
+    content: '\2193';
+    right: 50%;
+    top: auto;
+    bottom: -12px;
+    transform: translateX(50%);
+  }
+  .stat-grid { grid-template-columns: 1fr; }
+  .res-bar-label { width: 80px; font-size: 0.55rem; }
+  .hero { padding: 2.5rem 1.2rem 1.5rem; }
+  .hero h1 { font-size: 1.5rem; }
+  .topbar { padding: 0.5rem 1rem; }
+}
+</style>
+</head>
+<body>
+
+<!-- Top bar -->
+<nav class="topbar">
+  <div class="topbar-left">
+    <span class="topbar-tag">PAPER DASHBOARD</span>
+    <span style="color:var(--fg-dim)">2605.30315</span>
+  </div>
+  <div class="topbar-links">
+    <a href="./index.html">Index</a>
+    <a href="2605.30315.html">Source .md</a>
+    <a href="https://arxiv.org/abs/2605.30315" target="_blank" rel="noopener">arXiv</a>
+    <a href="https://github.com/akotawala10/llm-power" target="_blank" rel="noopener">Code</a>
+  </div>
+</nav>
+
+<!-- Hero -->
+<header class="hero">
+  <div class="hero-label">arXiv 2026-05-28 &middot; LLM Evaluation &middot; Hypothesis Testing &middot; ICML 2026 Workshop</div>
+  <h1>Resolution Diagnostics for <span>Paired LLM Evaluation</span></h1>
+  <p class="hero-subtitle">
+    Leaderboard rankings many practitioners treat as ground truth are statistically underresolved.
+    This paper formalizes paired LLM evaluation as hypothesis testing, introduces the resolution ratio
+    <em>q&nbsp;=&nbsp;N/N*</em>, and proves the widely-used unpaired sample size shortcut
+    underestimates required N by roughly 2x.
+  </p>
+  <div class="hero-meta">
+    <span><span class="dot"></span>Anany Kotawala</span>
+    <span>Princeton University</span>
+    <span>pip: llm-power</span>
+  </div>
+</header>
+
+<!-- Asset row -->
+<section class="asset-row">
+  <div class="asset-card finding">
+    <div class="asset-card-label">&#9670; Key Finding</div>
+    <p>On two public leaderboards, a substantial fraction of model-pair rankings are <strong>statistically unresolved</strong> at (alpha=0.05, power=0.8) -- the data cannot reliably tell which model is better.</p>
+  </div>
+  <div class="asset-card metric">
+    <div class="asset-card-label">&#9670; Key Metric</div>
+    <div class="big-fraction">~2x</div>
+    <p>The unpaired Cohen-h+(1-rho) shortcut underestimates required paired sample size by a factor of two in close-comparison regimes (IQR [0.4999, 0.5035] on 40 OLL v1 pairs).</p>
+  </div>
+  <div class="asset-card sowhat">
+    <div class="asset-card-label">&#9670; Why This Matters</div>
+    <p>Rankings on public leaderboards may be noise, not signal. Every practitioner relying on them to choose models needs this resolution diagnostic before trusting any rank ordering.</p>
+  </div>
+  <div class="asset-card edge">
+    <div class="asset-card-label">&#9670; Critical Edge</div>
+    <p>Restricted to <strong>binary accuracy</strong> only. Does not address pairwise-preference leaderboards like Chatbot Arena, arguably the most influential format today.</p>
+  </div>
+</section>
+
+<!-- Body grid -->
+<main class="body-grid">
+
+  <!-- Method: Pipeline -->
+  <div class="section-card full-width">
+    <h2><span class="icon">&#9881;</span> Method Pipeline</h2>
+    <div class="pipeline">
+      <div class="pipeline-step">
+        <div class="step-num">01</div>
+        <div class="step-title">Paired Framing</div>
+        <div class="step-desc">Two models A, B evaluated on same N prompts. Paired difference D_i = X^A_i - X^B_i with Wald test statistic</div>
+      </div>
+      <div class="pipeline-step">
+        <div class="step-num">02</div>
+        <div class="step-title">Invert the Test</div>
+        <div class="step-desc">Invert level-alpha, power-(1-beta) tests to get delta_MDE, required N*, and resolution ratio q = N/N*</div>
+      </div>
+      <div class="pipeline-step">
+        <div class="step-num">03</div>
+        <div class="step-title">McNemar + Lemma 1</div>
+        <div class="step-desc">For binary accuracy, use McNemar-Connor formula; Lemma 1 derives explicit 2nd-order constant C(p, rho)</div>
+      </div>
+      <div class="pipeline-step">
+        <div class="step-num">04</div>
+        <div class="step-title">Stress Test</div>
+        <div class="step-desc">Robustness under Bonferroni, BH, clustering (ICC), leave-one-subject-out, bootstrap, anytime-valid sequential</div>
+      </div>
+    </div>
+
+    <div class="lemma-box">
+      <div class="lemma-title">Lemma 1 &mdash; The Shortcut Bias</div>
+      <p>
+        The unpaired Cohen-h<sup>2</sup>&middot;(1&minus;&rho;) shortcut yields n<sub>h</sub>/N*&nbsp;&asymp;&nbsp;0.50 in close-comparison regimes.
+        At p&nbsp;=&nbsp;0.5, the second-order constant C(0.5,&nbsp;&rho;)&nbsp;=&nbsp;1/3 independent of &rho; (a clean sanity check).
+        Off-midpoint, C grows with |1&minus;2p| and &rho;. Three major power calculators (Cohen 1988, G*Power 3.1, R pwr) silently inherit this ~2x underestimation.
+      </p>
+    </div>
+  </div>
+
+  <!-- Resolution summary stats -->
+  <div class="section-card">
+    <h2><span class="icon">&#9632;</span> Unresolved Pairs at a Glance</h2>
+    <div class="stat-grid">
+      <div class="stat-item">
+        <div class="stat-val red">11/40</div>
+        <div class="stat-label">OLL v1 pairs unresolved (fixed-n)</div>
+      </div>
+      <div class="stat-item">
+        <div class="stat-val amber">6/9</div>
+        <div class="stat-label">MMLU-Pro adjacent pairs unresolved (clustered)</div>
+      </div>
+      <div class="stat-item">
+        <div class="stat-val teal">0.80&plusmn;0.03</div>
+        <div class="stat-label">Empirical McNemar power at N* (prospective validation)</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Resolution bar chart -->
+  <div class="section-card">
+    <h2><span class="icon">&#9650;</span> Unresolved Counts by Procedure</h2>
+    <div class="res-chart">
+      <div class="res-bar-row">
+        <span class="res-bar-label">Fixed-n</span>
+        <div class="res-bar-track"><div class="res-bar-fill alert" data-width="73%">11/40</div></div>
+      </div>
+      <div class="res-bar-row">
+        <span class="res-bar-label">Bonferroni / Holm</span>
+        <div class="res-bar-track"><div class="res-bar-fill alert" data-width="93%">14/40</div></div>
+      </div>
+      <div class="res-bar-row">
+        <span class="res-bar-label">Anytime-valid</span>
+        <div class="res-bar-track"><div class="res-bar-fill alert" data-width="93%">14/40</div></div>
+      </div>
+      <div class="res-bar-row" style="margin-top:0.4rem; border-top: 1px solid var(--border); padding-top: 0.4rem;">
+        <span class="res-bar-label">MMLU-Pro (IID)</span>
+        <div class="res-bar-track"><div class="res-bar-fill warn" data-width="44%">4/9</div></div>
+      </div>
+      <div class="res-bar-row">
+        <span class="res-bar-label">MMLU-Pro (cluster)</span>
+        <div class="res-bar-track"><div class="res-bar-fill alert" data-width="67%">6/9</div></div>
+      </div>
+      <div class="res-bar-row">
+        <span class="res-bar-label">MMLU-Pro (anytime)</span>
+        <div class="res-bar-track"><div class="res-bar-fill warn" data-width="56%">5/9</div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Results table -->
+  <div class="section-card">
+    <h2><span class="icon">&#9733;</span> Key Results</h2>
+    <table class="results-table">
+      <thead>
+        <tr>
+          <th>Procedure</th>
+          <th>OLL v1</th>
+          <th>MMLU-Pro</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Fixed-n</td>
+          <td class="val-alert">11/40</td>
+          <td class="val-warn">4/9</td>
+        </tr>
+        <tr>
+          <td>Bonferroni / Holm</td>
+          <td class="val-alert">14/40</td>
+          <td class="val-warn">4/9</td>
+        </tr>
+        <tr>
+          <td>Anytime-valid</td>
+          <td class="val-alert">14/40</td>
+          <td class="val-warn">5/9</td>
+        </tr>
+        <tr>
+          <td>Real-ICC clustered</td>
+          <td class="val-base">n/a</td>
+          <td class="val-alert">6/9</td>
+        </tr>
+      </tbody>
+    </table>
+    <p style="font-size:0.7rem;color:var(--fg-dim);margin-top:0.6rem;">
+      Two MMLU-Pro pairs (rank 4 vs 5, rank 5 vs 6) flip from resolved under IID to N*&nbsp;&gt;&nbsp;3N under clustering due to design effects DE&nbsp;=&nbsp;31.5 and 6.7.
+    </p>
+  </div>
+
+  <!-- Additional findings -->
+  <div class="section-card">
+    <h2><span class="icon">&#10003;</span> Additional Findings</h2>
+    <ul class="bullet-list teal">
+      <li><strong>Paired vs unpaired efficiency:</strong> Paired McNemar required-N is a median 2.15x smaller than the unpaired Gaussian formula on the same 40 OLL v1 pairs.</li>
+      <li><strong>Calculator misuse:</strong> At (p_A, p_B, rho) = (0.65, 0.60, 0.30), three of five calculators underestimate required-N by ~2x.</li>
+      <li><strong>Cluster sensitivity:</strong> High design effects (DE = 31.5, 6.7) in MMLU-Pro subject clustering inflate N* dramatically for two pairs.</li>
+      <li><strong>Sequential penalty:</strong> Anytime-valid time-uniform threshold inflates N* by ~2.15x vs fixed-n.</li>
+      <li><strong>Bootstrap support:</strong> 99.9% of category-bootstrap resamples support 5-6/9 unresolved conclusion for MMLU-Pro.</li>
+    </ul>
+  </div>
+
+  <!-- Critical Assessment -->
+  <div class="section-card">
+    <h2><span class="icon">&#9888;</span> Critical Assessment</h2>
+    <div class="badge-row">
+      <div class="badge warn"><span class="dot-sm"></span>Novelty: Moderate-High</div>
+      <div class="badge high"><span class="dot-sm"></span>Rigor: Very High</div>
+      <div class="badge good"><span class="dot-sm"></span>Reproducibility: High</div>
+      <div class="badge high"><span class="dot-sm"></span>Significance: High</div>
+    </div>
+    <ul class="bullet-list">
+      <li>Individual components (McNemar, Bonferroni, cluster effects) are classical -- novelty is in Lemma 1's explicit constant and the end-to-end pipeline integration.</li>
+      <li>Exceptionally rigorous: formal proofs with explicit bounds, numerical cross-checks to 4 significant figures, prospective validation (power 0.80&plusmn;0.03).</li>
+      <li>Single author -- derivations would benefit from independent verification.</li>
+      <li>MMLU-Pro cluster analysis uses only K=14 categories, limiting ICC estimate precision.</li>
+    </ul>
+  </div>
+
+  <!-- Strengths -->
+  <div class="section-card">
+    <h2><span class="icon">&#10003;</span> Strengths</h2>
+    <ul class="bullet-list teal">
+      <li>Lemma 1 provides a genuinely useful closed-form bound, not just an asymptotic statement.</li>
+      <li>Prospective validation (Table 10) proves the framework works in practice.</li>
+      <li>Comprehensive robustness pipeline: multiplicity + clustering + sequential + bootstrap, applied end-to-end.</li>
+      <li>Honest about scope -- explicitly states what is not covered (graded metrics, preference leaderboards).</li>
+      <li>Practical deliverable: <code>pip install llm-power</code> with full diagnostic API.</li>
+    </ul>
+  </div>
+
+  <!-- Limitations -->
+  <div class="section-card">
+    <h2><span class="icon">&#10007;</span> Limitations</h2>
+    <ul class="bullet-list warn">
+      <li>Restricted to binary accuracy; graded metrics validated only to 4-6% on synthetic Beta marginals.</li>
+      <li>K=14 subject categories may be too coarse for precise ICC estimation.</li>
+      <li>Does not address Chatbot Arena-style pairwise-preference leaderboards.</li>
+      <li>Does not survey how prevalent the Cohen-h+(1-rho) misuse is in published LLM evaluation work.</li>
+      <li>Closed-source frontier panel (Section D) is a snapshot, not a durable comparison.</li>
+    </ul>
+  </div>
+
+  <!-- Questions -->
+  <div class="section-card full-width">
+    <h2><span class="icon">?</span> Open Questions for Further Exploration</h2>
+    <ol class="question-list">
+      <li>How would the resolution diagnostic apply to Chatbot Arena via Bradley-Terry e-processes?</li>
+      <li>What is the prevalence of the Cohen-h+(1-rho) misuse pattern in published LLM evaluation papers?</li>
+      <li>As frontier models converge, will the close-comparison regime dominate all cross-tier comparisons?</li>
+      <li>Can resolution ratio q be integrated into automated leaderboard reporting as a standard column?</li>
+      <li>How sensitive are cluster-corrected results to clustering granularity (K=14 vs finer topic clusters)?</li>
+    </ol>
+  </div>
+
+  <!-- Tags -->
+  <div class="section-card full-width" style="padding:1rem 1.6rem;">
+    <div class="tag-row">
+      <span class="tag">llm-evaluation</span>
+      <span class="tag">hypothesis-testing</span>
+      <span class="tag">statistical-power</span>
+      <span class="tag">paired-comparison</span>
+      <span class="tag">leaderboards</span>
+      <span class="tag">McNemar-test</span>
+      <span class="tag">multiplicity-correction</span>
+      <span class="tag">cluster-design</span>
+    </div>
+  </div>
+
+</main>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  // Animate resolution bars on scroll
+  const bars = document.querySelectorAll('.res-bar-fill');
+  bars.forEach(bar => {
+    const target = bar.getAttribute('data-width');
+    bar.style.width = '0%';
+    const barObserver = new IntersectionObserver((entries) => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          setTimeout(() => { bar.style.width = target; }, 200);
+          barObserver.unobserve(entry.target);
+        }
+      });
+    }, { threshold: 0.1 });
+    barObserver.observe(bar);
+  });
+
+  // Scroll-triggered card reveals
+  const cards = document.querySelectorAll('.section-card');
+  cards.forEach(card => {
+    card.style.opacity = '0';
+    card.style.transform = 'translateY(12px)';
+    card.style.transition = 'opacity 0.5s ease-out, transform 0.5s ease-out';
+  });
+
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+      if (entry.isIntersecting) {
+        entry.target.style.opacity = '1';
+        entry.target.style.transform = 'translateY(0)';
+        observer.unobserve(entry.target);
+      }
+    });
+  }, { threshold: 0.08, rootMargin: '0px 0px -40px 0px' });
+
+  cards.forEach(card => observer.observe(card));
+});
+</script>
+
+</body>
+</html>

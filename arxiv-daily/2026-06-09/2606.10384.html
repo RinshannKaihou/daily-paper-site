@@ -1,0 +1,261 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>2606.10384 — Critical Branching in LSTMs</title>
+<style>
+  :root{
+    --bg:#f3ede1;
+    --bg-2:#ebe2d0;
+    --ink:#1a1410;
+    --ink-2:#4a3d31;
+    --muted:#7a6957;
+    --line:#cfc1a8;
+    --accent:#a8292f;
+    --accent-2:#7a1d22;
+    --warn:#3a2a0a;
+    --warn-bg:#f4e4b3;
+    --ok:#2b4a2b;
+    --paper:#fbf7ec;
+    --mono:ui-monospace,SFMono-Regular,Menlo,"JetBrains Mono",Consolas,monospace;
+    --serif:"Source Serif Pro","Source Serif 4","Noto Serif",Georgia,"Songti SC",serif;
+    --sans:-apple-system,BlinkMacSystemFont,"Helvetica Neue","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:15px;line-height:1.5;-webkit-font-smoothing:antialiased}
+  a{color:inherit;text-decoration:none}
+  a:hover{color:var(--accent)}
+
+  /* Fixed top-left nav */
+  .topnav{position:fixed;top:14px;left:14px;z-index:50;background:var(--paper);border:1px solid var(--line);padding:6px 10px;font-family:var(--mono);font-size:12px;letter-spacing:.02em;color:var(--ink-2)}
+  .topnav:hover{border-color:var(--accent);color:var(--accent)}
+
+  .wrap{max-width:1100px;margin:0 auto;padding:48px 28px 80px}
+
+  /* Eyebrow row */
+  .eyebrow{display:flex;flex-wrap:wrap;gap:10px;align-items:baseline;font-family:var(--mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);margin-bottom:18px}
+  .eyebrow .id{color:var(--accent);font-weight:600}
+  .eyebrow .dot{opacity:.4}
+
+  /* HERO */
+  .hero{border-top:1px solid var(--ink);border-bottom:1px solid var(--ink);padding:28px 0 32px;margin-bottom:0}
+  .hero h1{font-family:var(--serif);font-weight:600;font-size:clamp(34px,5.4vw,64px);line-height:1.04;letter-spacing:-.018em;margin:0 0 22px;color:var(--ink);max-width:18ch}
+  .hero h1 em{font-style:italic;color:var(--accent);font-weight:600}
+  .hero .deck{font-family:var(--serif);font-size:clamp(15px,1.4vw,18px);line-height:1.55;color:var(--ink-2);max-width:62ch;margin:0 0 22px}
+  .meta-row{display:flex;flex-wrap:wrap;gap:8px 18px;align-items:center;font-size:13px;color:var(--ink-2);margin-bottom:14px}
+  .meta-row a{color:var(--accent);border-bottom:1px solid currentColor}
+  .meta-row .sep{color:var(--muted)}
+  .chips{display:flex;flex-wrap:wrap;gap:6px}
+  .chip{font-family:var(--mono);font-size:11px;letter-spacing:.04em;padding:3px 8px;border:1px solid var(--line);background:var(--paper);color:var(--ink-2);text-transform:lowercase}
+  .chip.crit{color:var(--accent);border-color:var(--accent);background:#fbe8e9}
+
+  /* ASSET ROW */
+  .assets{display:grid;grid-template-columns:repeat(3,1fr);gap:0;border-bottom:1px solid var(--ink);background:var(--paper)}
+  .asset{padding:24px 22px 26px;border-right:1px solid var(--line);position:relative}
+  .asset:last-child{border-right:0}
+  .asset .label{font-family:var(--mono);font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--muted);margin-bottom:10px;display:flex;align-items:center;gap:8px}
+  .asset .label::before{content:"";display:inline-block;width:18px;height:1px;background:var(--muted)}
+  .asset.metric .value{font-family:var(--serif);font-size:clamp(54px,7.5vw,96px);line-height:.95;font-weight:600;letter-spacing:-.03em;color:var(--accent);margin:4px 0 10px}
+  .asset.metric .value sub,.asset.metric .value sup{font-size:.42em;font-weight:500;color:var(--accent-2);vertical-align:baseline;margin-left:.1em}
+  .asset.metric .unit{font-family:var(--mono);font-size:12px;color:var(--ink-2);margin-bottom:8px;letter-spacing:.02em}
+  .asset .body{font-size:13.5px;line-height:1.55;color:var(--ink-2)}
+  .asset.why .body{font-family:var(--serif);font-size:clamp(16px,1.7vw,19px);line-height:1.4;color:var(--ink);font-style:italic}
+  .asset.edge{background:#1a1410;color:#f3ede1;border-right:0}
+  .asset.edge .label{color:#c8a9ab}
+  .asset.edge .label::before{background:#c8a9ab}
+  .asset.edge .body{color:#f3ede1;font-family:var(--serif);font-size:16px;line-height:1.45}
+  .asset.edge .tag{display:inline-block;font-family:var(--mono);font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:#a8292f;background:#f3ede1;padding:2px 6px;margin-bottom:8px}
+
+  /* BODY GRID */
+  .body-grid{display:grid;grid-template-columns:repeat(12,1fr);gap:0;border-bottom:1px solid var(--ink)}
+  .card{padding:30px 26px 32px;border-right:1px solid var(--line);border-bottom:1px solid var(--line);background:var(--bg)}
+  .card h2{font-family:var(--mono);font-size:10.5px;letter-spacing:.18em;text-transform:uppercase;color:var(--muted);margin:0 0 14px;font-weight:500;display:flex;align-items:center;gap:8px}
+  .card h2::after{content:"";flex:1;height:1px;background:var(--line)}
+  .card h3{font-family:var(--serif);font-size:20px;line-height:1.25;margin:0 0 10px;color:var(--ink);font-weight:600;letter-spacing:-.01em}
+  .card p{margin:0 0 12px;color:var(--ink-2);font-size:14px;line-height:1.6}
+  .card ul{margin:0;padding:0;list-style:none}
+  .card li{position:relative;padding:6px 0 6px 18px;font-size:14px;line-height:1.5;color:var(--ink-2)}
+  .card li::before{content:"›";position:absolute;left:2px;top:6px;color:var(--accent);font-weight:600}
+  .card.method{grid-column:span 5}
+  .card.results{grid-column:span 7}
+  .card.results table{width:100%;border-collapse:collapse;margin-top:6px;font-size:13px}
+  .card.results th,.card.results td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+  .card.results th{font-family:var(--mono);font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);font-weight:500;background:var(--bg-2)}
+  .card.results td.num{font-family:var(--mono);color:var(--accent);font-weight:600;white-space:nowrap}
+  .card.results td.neg{color:var(--ink-2);font-family:var(--mono);opacity:.75}
+  .card.results tr:last-child td{border-bottom:0}
+  .card.results .legend{font-size:12px;color:var(--muted);font-family:var(--mono);margin-top:12px;letter-spacing:.04em}
+
+  .card.strengths{grid-column:span 6;background:var(--bg-2)}
+  .card.limits{grid-column:span 6;background:var(--bg-2);border-right:0}
+  .card.limits li::before{content:"–";color:var(--accent-2);font-weight:700}
+  .card.questions{grid-column:span 12;border-right:0;border-bottom:0;background:var(--paper)}
+  .card.questions ol{margin:0;padding:0;list-style:none;counter-reset:q;display:grid;grid-template-columns:repeat(2,1fr);gap:14px 28px}
+  .card.questions li{counter-increment:q;padding:10px 0 10px 34px;position:relative;border-top:1px solid var(--line);font-size:14px;line-height:1.5;color:var(--ink-2)}
+  .card.questions li::before{content:counter(q,decimal-leading-zero);position:absolute;left:0;top:10px;font-family:var(--mono);font-size:11px;color:var(--accent);font-weight:600;letter-spacing:.04em}
+  .card.questions li::after{display:none}
+
+  /* Bottom source link */
+  .foot{display:flex;justify-content:space-between;align-items:center;margin-top:36px;padding-top:18px;border-top:1px solid var(--line);font-family:var(--mono);font-size:12px;color:var(--muted);letter-spacing:.04em}
+  .foot a{color:var(--accent);border-bottom:1px solid currentColor;padding-bottom:1px}
+  .foot a:hover{color:var(--accent-2)}
+
+  @media (max-width:860px){
+    .assets{grid-template-columns:1fr}
+    .asset{border-right:0;border-bottom:1px solid var(--line)}
+    .asset:last-child{border-bottom:0}
+    .body-grid{grid-template-columns:1fr}
+    .card.method,.card.results,.card.strengths,.card.limits,.card.questions{grid-column:span 1;border-right:0}
+    .card.questions ol{grid-template-columns:1fr}
+    .topnav{font-size:11px;padding:5px 8px}
+  }
+
+  /* Stagger reveal */
+  @keyframes rise{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+  .hero,.assets,.body-grid,.foot{animation:rise .55s ease-out both}
+  .assets{animation-delay:.08s}
+  .body-grid{animation-delay:.16s}
+  .foot{animation-delay:.24s}
+</style>
+</head>
+<body>
+
+<a class="topnav" href="./index.html">↩&nbsp; Today's digest</a>
+
+<main class="wrap">
+
+  <div class="eyebrow">
+    <span class="id">arXiv 2606.10384</span>
+    <span class="dot">·</span>
+    <span>stat.ML / cs.LG</span>
+    <span class="dot">·</span>
+    <span>2026-06-09</span>
+  </div>
+
+  <!-- HERO -->
+  <header class="hero">
+    <h1>Small LSTMs drift toward <em>criticality</em> during training; large ones don't.</h1>
+    <p class="deck">A Mixture Branching Process framework reconciles short-range neural avalanches with long-range 1/f<sup>β</sup> noise, and shows the branching parameter approaches unity only in low-capacity networks at the optimal epoch.</p>
+    <div class="meta-row">
+      <a href="https://arxiv.org/abs/2606.10384" target="_blank" rel="noopener">arxiv.org/abs/2606.10384</a>
+      <span class="sep">|</span>
+      <span>Feixiang Ren (NUS Physics) · Ling Feng (A*STAR IHPC)</span>
+    </div>
+    <div class="chips">
+      <span class="chip crit">criticality</span>
+      <span class="chip">LSTM</span>
+      <span class="chip">branching process</span>
+      <span class="chip">neural dynamics</span>
+      <span class="chip">1/f noise</span>
+      <span class="chip">avalanche</span>
+    </div>
+  </header>
+
+  <!-- ASSET ROW -->
+  <section class="assets" aria-label="Key findings">
+    <div class="asset metric">
+      <div class="label">Anchor metric</div>
+      <div class="value">m&nbsp;≈&nbsp;0.9</div>
+      <div class="unit">branching parameter · hidden dim = 8 · optimal epoch</div>
+      <div class="body">Subcritical for dim 128 across all epochs — capacity gates criticality.</div>
+    </div>
+
+    <div class="asset why">
+      <div class="label">Why this matters</div>
+      <div class="body">A single, analytically tractable branching-process model unifies short-range power-law avalanches with long-range 1/f<sup>β</sup> noise — reframing criticality as a capacity-dependent, training-emergent state rather than a fixed property.</div>
+    </div>
+
+    <div class="asset edge">
+      <span class="tag">Critical edge</span>
+      <div class="label">Limitation</div>
+      <div class="body">Restricted to small, single-layer LSTMs on binary sentiment; transfer to Transformers, Mamba, or larger-scale tasks is unverified.</div>
+    </div>
+  </section>
+
+  <!-- BODY GRID -->
+  <section class="body-grid">
+
+    <!-- METHODOLOGY -->
+    <article class="card method">
+      <h2>Methodology</h2>
+      <h3>Hidden units as a driven branching process</h3>
+      <p>Train LSTMs on 50K IMDb reviews (binary sentiment), sweeping hidden dimension across {8, 16, 32, 48, 64, 80, 96, 112, 128} × 28 random seeds. Each hidden unit is treated as a pseudo-neuron; activities are z-score normalised and binarised to define avalanches.</p>
+      <ul>
+        <li><strong>MR estimator</strong> on the autocorrelation function yields the branching parameter <em>m</em>.</li>
+        <li><strong>Detrended Fluctuation Analysis</strong> produces the spectral exponent <em>β</em> for long-range correlations.</li>
+        <li>ACF fit to <span style="font-family:var(--mono);font-size:13px">C[τ] ~ τ<sup>−η</sup>e<sup>−τ/τ<sub>c</sub></sup></span> over two decades.</li>
+        <li>Mixture Branching Process: each review <em>r</em> drives its own process with parameter <em>m<sub>r</sub></em>; distribution <em>W(m<sub>r</sub>)</em> derived analytically from the ACF.</li>
+      </ul>
+    </article>
+
+    <!-- RESULTS -->
+    <article class="card results">
+      <h2>Results &amp; highlights</h2>
+      <h3>Capacity gates the approach to criticality</h3>
+      <table>
+        <thead>
+          <tr><th>Quantity</th><th>dim 8 (optimal)</th><th>dim 128</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Branching parameter <em>m</em></td><td class="num">≈ 0.9</td><td class="neg">≲ 0.7</td></tr>
+          <tr><td>DFA spectral β</td><td class="num">→ 0.8</td><td class="neg">lower</td></tr>
+          <tr><td>Avalanche size P(S)</td><td class="num">power-law + cutoff</td><td class="neg">no power law</td></tr>
+          <tr><td>ACF tail</td><td class="num">heavy-tailed (η + τ<sub>c</sub>)</td><td class="neg">pure exponential</td></tr>
+          <tr><td>MBP ensemble ⟨m<sub>r</sub>⟩</td><td class="num">tracks training m</td><td class="neg">subcritical</td></tr>
+          <tr><td>Predicted τ<sub>s</sub> = 3/2 + η</td><td class="num">matches numerics</td><td class="neg">—</td></tr>
+        </tbody>
+      </table>
+      <p class="legend">All effects robust across discrete-count and continuous-valued X<sub>t</sub> definitions; ⟨m<sub>r</sub>⟩ is closed-form via the incomplete Gamma function.</p>
+    </article>
+
+    <!-- STRENGTHS -->
+    <article class="card strengths">
+      <h2>Strengths</h2>
+      <h3>Where the argument holds</h3>
+      <ul>
+        <li>Unified, analytically tractable MBP explains both avalanche statistics and 1/f noise from a single object.</li>
+        <li>Four independent analyses — avalanche, branching, DFA, ACF fit — converge on the same picture.</li>
+        <li>Capacity-dependent criticality is intuitive, well-supported, and consistent across random seeds.</li>
+        <li>Closed-form τ<sub>s</sub> = 3/2 + η directly explains why measured exponents exceed mean-field 3/2.</li>
+        <li>Discrete and continuous X<sub>t</sub> definitions give consistent results.</li>
+      </ul>
+    </article>
+
+    <!-- LIMITATIONS -->
+    <article class="card limits">
+      <h2>Limitations</h2>
+      <h3>Where the claim is thin</h3>
+      <ul>
+        <li>Single-layer LSTMs only, max 128 hidden units — far from modern architectures.</li>
+        <li>Binary sentiment is a simple task; criticality may behave differently in richer settings.</li>
+        <li>Avalanche threshold θ is manually chosen; affects exponent estimates (authors acknowledge).</li>
+        <li>Criticality–generalisation link is correlational (both peak near optimal epoch), not causal.</li>
+        <li>No head-to-head comparison with GRU, Transformer, or Mamba despite the authors' own suggestion.</li>
+      </ul>
+    </article>
+
+    <!-- QUESTIONS -->
+    <article class="card questions">
+      <h2>Questions for further exploration</h2>
+      <ol>
+        <li>Does criticality emerge in Transformer hidden states during pretraining or fine-tuning?</li>
+        <li>Is the criticality–generalisation link causal, or merely a shared signature of training progress?</li>
+        <li>Can the branching parameter serve as a training diagnostic — e.g. an early-stopping signal?</li>
+        <li>Does MBP extend to attention patterns, with "avalanches" defined as activation cascades across layers?</li>
+        <li>Would regularising training toward m = 1 improve generalisation, or break optimisation entirely?</li>
+        <li>Why does capacity suppress criticality — a saturation effect, an optimisation bias, or both?</li>
+      </ol>
+    </article>
+
+  </section>
+
+  <div class="foot">
+    <span>Paper dashboard · bilingual source available in vault</span>
+    <a href="2606.10384.html">↗ Markdown source</a>
+  </div>
+
+</main>
+
+</body>
+</html>

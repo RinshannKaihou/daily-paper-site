@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mitigating Hallucinations in Large Vision-Language Models without Performance Degradation</title>
+<style>
+:root { --paper:#fafafa; --ink:#1a1a1a; --muted:#555; --accent:#1a5276; --line:#ddd; --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif; --serif:Georgia,"Noto Serif SC",serif; }
+body { font-family:var(--serif); background:var(--paper); color:var(--ink); line-height:1.6; margin:0; padding:0; }
+.container { max-width:min(95vw, 760px); margin:0 auto; padding:28px 20px 60px; }
+.topnav { position:fixed; top:12px; left:14px; z-index:50; font-family:var(--sans); font-size:.75rem; background:var(--paper); border:1px solid var(--line); padding:5px 10px; border-radius:999px; }
+.topnav a { color:var(--muted); text-decoration:none; font-weight:600; }
+.topnav a:hover { color:var(--accent); }
+h1 { font-size:1.6rem; margin:2.2rem 0 1rem; border-bottom:2px solid var(--accent); padding-bottom:.3rem; }
+h2 { font-size:1.3rem; margin:1.8rem 0 .8rem; color:var(--accent); }
+h3 { font-size:1.1rem; margin:1.4rem 0 .6rem; }
+p { margin:.8rem 0; }
+.authors { font-style:italic; color:var(--muted); margin-top:-.4rem; }
+.meta { font-family:var(--sans); font-size:.82rem; color:var(--muted); margin:.2rem 0; }
+a { color:var(--accent); text-decoration:none; }
+a:hover { text-decoration:underline; }
+blockquote { border-left:3px solid var(--accent); margin:1rem 0; padding:.2rem 0 .2rem 1rem; color:var(--muted); font-style:italic; }
+code { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; background:#f0f0f0; padding:2px 5px; border-radius:3px; font-size:.9em; }
+pre { background:#f5f5f5; padding:14px; overflow-x:auto; border-radius:4px; border:1px solid var(--line); }
+pre code { background:transparent; padding:0; }
+ul,ol { margin:.6rem 0; padding-left:1.5rem; }
+li { margin:.25rem 0; }
+table { border-collapse:collapse; width:100%; margin:1rem 0; font-family:var(--sans); font-size:.9rem; }
+th,td { border:1px solid var(--line); padding:6px 10px; text-align:left; }
+th { background:#f0f0f0; }
+hr { border:none; border-top:1px solid var(--line); margin:1.5rem 0; }
+.note { font-family:var(--sans); font-size:.78rem; color:var(--muted); border-top:1px solid var(--line); margin-top:2rem; padding-top:1rem; }
+@media (max-width: 600px) { .container { padding:22px 14px 40px; } h1 { font-size:1.35rem; } }
+</style>
+</head>
+<body>
+<div class="topnav"><a href="./index.html">← Today's digest</a></div>
+<div class="container">
+<h1>Mitigating Hallucinations in Large Vision-Language Models without Performance Degradation</h1>
+<p class="meta">arXiv: 2604.20366v1</p>
+<p class="meta">Date: 2026-04-22</p>
+<p class="meta"><a href="https://arxiv.org/abs/2604.20366v1">https://arxiv.org/abs/2604.20366v1</a></p>
+<blockquote><strong>一句话总结：</strong> 本文提出 MPD，一个无需微调的两阶段框架，通过对比式幻觉/真实提示对的隐藏表示做正交投影来"解耦出纯净的幻觉方向"，并仅对与幻觉方向余弦相似度最高的 top-K 权重行做选择性投影编辑，从而在 LLaVA-1.5-7B、MiniGPT-4、mPLUG-Owl2 上把 CHAIR_S 降低约 23.4%，同时保留 97.4% 的生成能力且几乎不增加推理开销。</blockquote>
+<blockquote><strong>TL;DR:</strong> MPD is a training-free, dual-stage hidden-state editing method for LVLMs: (1) extract a "pure" hallucination direction via orthogonal projection onto the faithful subspace built from contrastive (hallucinatory vs. faithful) prompt pairs, and (2) selectively project only the top-K weight rows most cosine-aligned with that direction onto its null space. It reduces hallucinations by ~23.4% on CHAIR while retaining 97.4% of generative capacity on LLaVA-Bench/MME, updating ~40% fewer parameters than Nullu and adding negligible inference latency (3.7s vs 3.1s greedy).</blockquote>
+<h2>核心贡献</h2>
+<ul>
+<li>指出现有表示干预类方法（如 Nullu、latent steering）存在两大缺陷：(i) 提取出的"幻觉成分"与通用语义高度耦合，(ii) 对目标层的全部权重做大范围扰动，导致干预后生成质量下降、分布漂移。</li>
+<li>提出语义感知的幻觉成分解耦：用辅助 LLM 为同一图像生成"幻觉诱导问题 x⁻"与"语义等价真实问题 x⁺"的对比对，对 X⁺ 做 SVD 得到忠实子空间投影 P_ℓ，再用 (I−P_ℓ)X⁻ 抽取与忠实语义正交的幻觉方向 X̃_ℓ。</li>
+<li>给出理论证明（Proposition 1）：在 ε⁻ ∼ N(0, σ²I) 且 X^real 位于忠实子空间的假设下，投影残差 (I−P_ℓ)X⁻ 在期望平方误差上严格优于朴素差分 X⁻−X⁺ 作为正交幻觉成分 X^hall,⊥ 的估计量。</li>
+<li>可解释的选择性参数更新：按 w^(i)_ℓ 与 X̃_ℓ 的平均余弦相似度排序，只对 top-K=6000 个权重行用零空间投影算子 Q̃_ℓ = I − X̃^⊤(X̃X̃^⊤)^{-1}X̃ 做更新，避免大规模扰动。</li>
+<li>在 CHAIR、POPE、HallusionBench、MME、LLaVA-Bench、OPOPE、AMBER、MMHalBench、V*、MMMU、MathVision 等 11 个基准上、3 个主干（MiniGPT-4、mPLUG-Owl2、LLaVA-1.5-7B）系统验证；参数更新量较 Nullu 减少 42%/37%，推理延迟 3.7s，GPU 内存 15019 MB，均优于 OPERA/HALC 等优化类方法。</li>
+</ul>
+<h2>Key Contributions</h2>
+<ul>
+<li>Diagnoses two failure modes of prior representation-intervention hallucination mitigation (Nullu, latent steering, ITI): entanglement of the extracted "hallucinatory component" with general semantics, and indiscriminate updates to hundreds of millions of parameters that cause distribution drift and lexical repetition.</li>
+<li>Proposes a semantic-aware disentanglement via contrastive (x⁻ hallucinatory vs. x⁺ faithful) prompt pairs generated by an auxiliary LLM; uses SVD on the faithful matrix X⁺ to form a projector P_ℓ and defines the hallucination component as the orthogonal residual X̃_ℓ = (I − P_ℓ)X⁻.</li>
+<li>Provides a theoretical justification (Proposition 1) that, under ε⁻ ∼ N(0, σ²I) and X^real ⊂ faithful subspace, the projection-based residual is a strictly tighter estimator of the true orthogonal hallucinatory signal than the naive difference X⁻ − X⁺ in expected squared Frobenius error.</li>
+<li>Introduces interpretable, selective parameter editing: rank weight rows by average cosine similarity with X̃_ℓ, update only top-K=6000 rows per layer via null-space projection Q̃_ℓ w^(i)_ℓ, reducing parameter perturbation by 42% (mPLUG-Owl2) and 37% (MiniGPT-4) vs Nullu.</li>
+<li>Achieves SOTA across CHAIR, POPE (random/popular/adversarial), HallusionBench, MME (Existence/Count/Position/Color), LLaVA-Bench, OPOPE, AMBER, MMHalBench, and partially V*/MMMU/MathVision, on three base LVLMs, with no extra inference cost.</li>
+</ul>
+<h2>Methodology</h2>
+<ol>
+<li>Setup: Standard LVLM (vision encoder → projector → LLM decoder). A dataset D = {(x⁺_i, x⁻_i)}ᴺ of contrastive prompt pairs is generated offline by an auxiliary LLM (GPT-3.5 in main experiments; GPT-5.1 in ablation) given the same image — x⁻ introduces non-existent objects/attributes, x⁺ is grounded. The LURE recipe is reused.</li>
+<li>Hidden-state differencing: For each layer ℓ ∈ {L₀,…,L}, average token embeddings into matrices X⁺_ℓ, X⁻_ℓ ∈ R^{N×D}. Model the hallucinatory representation as X⁻_ℓ = X^real_ℓ + X^hall_ℓ + ε⁻.</li>
+<li>Faithful subspace & orthogonal residual: Apply SVD on X⁺_ℓ, keep top-C=2500 singular vectors U_ℓ, form projector P_ℓ = U_ℓU_ℓ⊤. The hallucinatory component estimate is X̃_ℓ = (I − P_ℓ)X⁻_ℓ.</li>
+<li>Parameter selection: For each weight row w^(i)_ℓ in the selected layer's MLP/attention weight matrix, compute s_i = mean over j of cos(w^(i), x̃_{ℓ,j}) / norms. Keep top-K=6000 rows → index set I^hall_ℓ.</li>
+<li>Null-space projection update: Build Q̃_ℓ = I − X̃⊤(X̃X̃⊤)^{-1}X̃ (projection onto the null space of the hallucination subspace). Update: w^(i)_ℓ ← Q̃_ℓ w^(i)_ℓ for i ∈ I^hall_ℓ only. Applied to layers ℓ ∈ [16, 32] (LLaVA-1.5-7B) per ablation.</li>
+<li>Proof sketch (Proposition 1): The projection residual error norm is σ²_−(D−C)N, while the difference residual has additional non-negative terms ‖X^hall,‖‖²_F + σ²_+DN; hence the former is tighter in E‖·‖²_F.</li>
+<li>Inference: Zero-overhead — edits are baked into weights offline; beam search num_beams=3 used at decoding. Experiments run on a single A40 40GB GPU.</li>
+</ol>
+<h2>Results & Highlights</h2>
+<ul>
+<li>CHAIR (max 64 tokens) on MSCOCO: MPD achieves the lowest CHAIR_S across all three backbones — MiniGPT-4 19.40 (vs Nullu 21.40, Greedy 32.40), mPLUG-Owl2 14.00 (vs Nullu 15.60, Greedy 22.90), LLaVA-1.5-7B 12.80 (vs Nullu 15.20, Greedy 20.40). BLEU is preserved or improved (e.g., mPLUG-Owl2 16.06, highest).</li>
+<li>POPE: MPD achieves the best F1 across random/popular/adversarial sampling on all three models; e.g., LLaVA-1.5 random F1 88.20 (vs Original 86.03, Nullu 87.43). Recall on MiniGPT-4 adversarial remains 98.53 without precision collapse.</li>
+<li>HallusionBench: MPD beats Nullu on aACC for LLaVA-1.5 (44.3 vs 44.2) and MiniGPT-4 (37.3 vs 36.8). On mPLUG-Owl2, however, Nullu/MPD both substantially regress vs Original (aACC 37.3 vs 47.3) — a caveat the paper does not foreground.</li>
+<li>LLaVA-Bench (GPT-4V judge): consistent gains in both Accuracy and Detailedness across three backbones (e.g., LLaVA-1.5: 5.59→6.39 accuracy, 4.72→5.52 detailedness).</li>
+<li>MME: best on Existence and Count; competitive on Position/Color.</li>
+<li>Efficiency (Table 12): 3.7s latency, 15019 MB GPU memory, CHAIR_S 12.8 — dominates OPERA (23.5s, 23742MB, 17.5) and HALC (20.1s, 22135MB, 16.9) and matches greedy-class latency while beating Nullu (3.9s, 15183MB, 15.2).</li>
+<li>Ablations: Editing layers [16,32] is optimal; K=5000 saturates; Deeper-only edits (22–32 or 24–32) under-perform; auxiliary LLM choice (GPT-3.5 vs GPT-5.1) yields comparable CHAIR_S (12.80 vs 12.60).</li>
+<li>PCA visualization (Fig. 3) shows post-MPD hidden-state distributions remain close to the original model, while Nullu drifts noticeably — consistent with the design claim, though only shown on 1000 prompts projected to 2D.</li>
+</ul>
+<h2>Authors & Credibility</h2>
+<ul>
+<li>First author Xingyu Zhu and senior author Xiangnan He (corresponding) are at the MoE Key Lab of BIPC, USTC — a well-known ML/recommendation/LVLM group. Junfeng Fang (co-corresponding) is associated with NUS and authored AlphaEdit (null-space knowledge editing for LLMs), which is the conceptual predecessor of this work's projection operator — strong methodological lineage.</li>
+<li>The team has a dense recent track record on LVLM hallucination mitigation (Zhu et al. 2026a LookCarefully, 2026b GuardAlign, 2026c Principled Steering), which both strengthens expertise and raises a mild concern about incremental self-citation in a crowded subarea.</li>
+<li>Funding: NSFC U24B20180, 62525211, 62576330; Anhui NSF. Single A40 GPU experiments — reproducible scale.</li>
+</ul>
+<h2>Critical Assessment</h2>
+<p><strong>Novelty (moderate-to-good).</strong> The orthogonal-residual estimator is a conceptually clean upgrade over naive X⁻−X⁺ differencing (Nullu/ITI-style), and the cosine-similarity weight selection is a simple but intuitive locality constraint. However, both ingredients are well-known in isolation: null-space projection for editing is from AlphaEdit/ROME-family; cosine-based weight localization resembles OPT/ROME's causal tracing and AnyEdit. The contribution is more a careful combination and theoretical tightening than a conceptual leap.</p>
+<p><strong>Rigor.</strong> Proposition 1 is a clean variance-comparison result but rests on two strong assumptions that the paper does not empirically validate: (i) residual noise is isotropic Gaussian, and (ii) X^real lies exactly in the span of the top-C=2500 singular vectors of X⁺. Both are convenient rather than justified. The proof shows the projection estimator is tighter only by dropping a ‖X^{hall,‖}‖²_F term — i.e., it ignores the in-subspace hallucinatory energy. Whether that term is actually small in practice is not measured.</p>
+<p><strong>Reproducibility.</strong> Strong: single-GPU, hyperparameters disclosed (C=2500, K=6000, layers 16–32, num_beams=3, LURE pairs). Auxiliary-LLM ablation (GPT-3.5 vs GPT-5.1) is a helpful robustness check. No code link visible in the main text.</p>
+<p><strong>Significance.</strong> Practical and deployment-friendly — the training-free, zero-inference-overhead story is the real selling point for real-world LVLM serving. The 97.4% generative-capacity retention claim is, however, the average of a specific set of LLaVA-Bench/MME scores; it is a marketing-weighted metric, not a rigorous information-theoretic measure.</p>
+<p><strong>Red flags / overclaiming.</strong></p>
+<ul>
+<li>Abstract says "23.4% hallucination reduction" — this appears to be a relative reduction on a specific subset (e.g., CHAIR_S on LLaVA-1.5: (20.40→12.80)/20.40 ≈ 37%; averaged across models ≈ 35–40%). The 23.4% figure is not derived in the body and may be cherry-picked or conservatively re-averaged.</li>
+<li>HallusionBench aACC on mPLUG-Owl2 drops from 47.3 (original) to 37.3 (MPD) — a sizable regression that is not discussed in the narrative, which instead says "MPDconsistently improves all metrics over the base models and Nullu". This is technically false for mPLUG-Owl2 on that benchmark.</li>
+<li>Baselines are all older (DoLa 2023, OPERA, VCD, LURE 2023, HALC 2024, Nullu 2025). No comparison against very recent RLHF-based or instruction-tuning anti-hallucination methods, which would put the "no performance degradation" claim in sharper relief.</li>
+<li>The POPE gains over "Nullu" are often modest (1–2 F1 points); the reader would benefit from std-dev/significance testing across seeds beyond the small ± values reported.</li>
+<li>MMMU/MathVision improvements are tiny (35.7→36.5; 10.1→11.0) and may be within noise given these benchmarks' known variance.</li>
+</ul>
+<h2>Strengths</h2>
+<ul>
+<li>Clean mathematical story linking contrastive representations, SVD-based subspace recovery, and null-space weight editing.</li>
+<li>Excellent efficiency–effectiveness Pareto position (Table 12).</li>
+<li>Thorough benchmark coverage (11 datasets) and three heterogeneous backbones reduces cherry-pick risk for the headline results.</li>
+<li>Parameter-update reduction (42%/37% vs Nullu) is a concrete, verifiable win.</li>
+<li>Ablations over layers, K, sample size, and auxiliary LLM are present and sensible.</li>
+<li>The PCA visualization is a nice interpretability touch that directly supports the "less distribution drift" claim.</li>
+</ul>
+<h2>Limitations</h2>
+<ul>
+<li>Stated limits (authors): does not address hallucinations from data biases or prompt limitations; automated benchmarks may miss long-form coherence/stylistic diversity; robustness under ambiguous visual inputs not evaluated.</li>
+<li>Unstated limits: Gaussian-noise and full-rank-faithful-subspace assumptions in the proposition are unverified; no ablation on C (kept singular vectors) sensitivity; only decoder-LLM weights are edited — vision-encoder and cross-attention contributions to hallucination are untouched; the auxiliary-LLM dependency imports biases from GPT-3.5/5.1 into the contrastive pairs; no robustness test against adversarial or OOD images beyond POPE-adversarial (which is still in-distribution w.r.t. MSCOCO object vocabulary).</li>
+<li>HallusionBench on mPLUG-Owl2 regression suggests the method can over-edit on some backbones.</li>
+<li>No evaluation of how editing interacts with RLHF/DPO-style safety alignment already present in LLaVA-1.5 — could silently erode calibration or refusal behavior.</li>
+</ul>
+<h2>Relevance</h2>
+<p>高度相关：论文直击隐藏状态层面的干预与可解释性（SVD 构造忠实子空间、余弦相似度定位关键权重），且其正交投影 vs 朴素差分的理论对比贴近你关注的 LLM 推理评估与数学基础。对于"修改权重导致的静默性能退化（silent degradation）"风险、以及表示干预方法在系统卡中如何量化上报，本文的 97.4% 保留率与 Nullu 对比研究是一个直接可借鉴的评测范式。</p>
+<h2>Questions for Further Exploration</h2>
+<ul>
+<li>Does the Gaussian-noise assumption in Proposition 1 hold empirically? A QQ-plot or Shapiro–Wilk test on residuals per layer would strengthen the claim.</li>
+<li>How sensitive is MPD to C (kept singular vectors)? If C is too large, P_ℓ absorbs hallucinatory variance; if too small, X^real leaks out. No curve is shown.</li>
+<li>Why does MPD regress on HallusionBench for mPLUG-Owl2? Is it a backbone-specific over-edit, and can per-layer K-selection fix it?</li>
+<li>Can the method be extended to the vision encoder or the projector, given that many hallucinations are grounded in mis-projected visual tokens rather than LLM-side priors?</li>
+<li>How stable are the edits under subsequent instruction tuning or LoRA adaptation? Does the null-space projection survive a single SGD step on downstream data?</li>
+<li>What is the overlap between MPD's top-K weight rows and the neurons identified by causal-tracing methods (ROME/AnyEdit)? Are they hitting the same "hallucination circuit" or a different one?</li>
+<li>Does the 97.4% generative-capacity retention hold on long-form generation (2K+ tokens), where representation drift typically compounds?</li>
+<li>Can contrastive pairs be generated self-distilled from the LVLM itself, removing the auxiliary-LLM dependency and its bias surface?</li>
+</ul>
+<p class="note">Generated from Markdown summary. Full paper: <a href="https://arxiv.org/abs/2604.20366v1">arXiv:2604.20366v1</a></p>
+</div>
+</body>
+</html>

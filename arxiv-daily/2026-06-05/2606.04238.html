@@ -1,0 +1,533 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Recover-LoRA: Reclaiming 2-Bit Accuracy via Distillation</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Syne:wght@400;700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --accent: #0D9488;
+    --accent-light: #5EEAD4;
+    --accent-dim: #134E4A;
+    --bg: #030C0B;
+    --bg2: #071311;
+    --bg3: #0B1A18;
+    --surface: #102321;
+    --border: #1A3835;
+    --text: #E2F5F3;
+    --text-dim: #7DB5B0;
+    --text-muted: #3D6B66;
+  }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    font-family: 'Inter', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    font-size: 15px;
+    line-height: 1.6;
+    min-height: 100vh;
+  }
+
+  /* NAV */
+  nav {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    z-index: 100;
+    background: rgba(3,12,11,0.93);
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--border);
+    padding: 0 2rem;
+    height: 48px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  nav a {
+    color: var(--text-dim);
+    text-decoration: none;
+    font-size: 13px;
+    font-family: 'DM Mono', monospace;
+    letter-spacing: 0.05em;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    transition: color 0.2s;
+  }
+  nav a:hover { color: var(--accent-light); }
+  .nav-tag {
+    font-family: 'DM Mono', monospace;
+    font-size: 11px;
+    color: var(--text-muted);
+    letter-spacing: 0.08em;
+  }
+
+  /* HERO */
+  .hero {
+    padding: 96px 2rem 0;
+    max-width: 1100px;
+    margin: 0 auto;
+  }
+  .hero-label {
+    font-family: 'DM Mono', monospace;
+    font-size: 11px;
+    color: var(--accent);
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    margin-bottom: 1.5rem;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .hero-label::before {
+    content: '';
+    display: inline-block;
+    width: 32px; height: 1px;
+    background: var(--accent);
+  }
+  .hero-title {
+    font-family: 'Syne', sans-serif;
+    font-size: clamp(2.1rem, 5vw, 3.8rem);
+    font-weight: 800;
+    line-height: 1.07;
+    color: var(--text);
+    letter-spacing: -0.02em;
+    margin-bottom: 1.8rem;
+    max-width: 850px;
+  }
+  .hero-title a {
+    color: inherit;
+    text-decoration: none;
+    border-bottom: 3px solid var(--accent);
+    padding-bottom: 2px;
+    transition: color 0.2s, border-color 0.2s;
+  }
+  .hero-title a:hover { color: var(--accent-light); border-color: var(--accent-light); }
+
+  .hero-claim {
+    font-size: 1.15rem;
+    font-weight: 400;
+    color: var(--text-dim);
+    max-width: 720px;
+    line-height: 1.6;
+    border-left: 3px solid var(--accent);
+    padding-left: 1.2rem;
+    margin-bottom: 3rem;
+    font-style: italic;
+  }
+
+  /* ASSET ROW */
+  .asset-row {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1px;
+    background: var(--border);
+    border: 1px solid var(--border);
+    max-width: 1100px;
+    margin: 0 auto 1px;
+  }
+  .asset-card {
+    background: var(--bg2);
+    padding: 1.8rem;
+    position: relative;
+    overflow: hidden;
+    transition: background 0.2s;
+  }
+  .asset-card:hover { background: var(--bg3); }
+  .asset-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: var(--accent);
+    opacity: 0;
+    transition: opacity 0.2s;
+  }
+  .asset-card:hover::before { opacity: 1; }
+  .asset-card:nth-child(2)::before { background: var(--accent-light); }
+  .asset-card:nth-child(3)::before { background: #F87171; }
+
+  .asset-label {
+    font-family: 'DM Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    margin-bottom: 0.8rem;
+  }
+  .asset-number {
+    font-family: 'Syne', sans-serif;
+    font-size: clamp(2.4rem, 4vw, 3.6rem);
+    font-weight: 800;
+    color: var(--accent-light);
+    line-height: 1;
+    margin-bottom: 0.4rem;
+    letter-spacing: -0.02em;
+  }
+  .asset-number.warn { color: #FCA5A5; }
+  .asset-desc {
+    font-size: 13px;
+    color: var(--text-dim);
+    line-height: 1.5;
+  }
+
+  /* PIPELINE STEPS */
+  .pipeline {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    margin-top: 1rem;
+  }
+  .pipeline-step {
+    display: flex;
+    gap: 1rem;
+    align-items: flex-start;
+    padding: 0.8rem 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .pipeline-step:last-child { border-bottom: none; }
+  .step-num {
+    font-family: 'DM Mono', monospace;
+    font-size: 11px;
+    color: var(--accent);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    width: 22px; height: 22px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    margin-top: 1px;
+  }
+  .step-text {
+    font-size: 13px;
+    color: var(--text-dim);
+    line-height: 1.5;
+  }
+  .step-text strong { color: var(--text); }
+
+  /* BODY GRID */
+  .body-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1px;
+    background: var(--border);
+    border: 1px solid var(--border);
+    border-top: none;
+    max-width: 1100px;
+    margin: 0 auto;
+  }
+  .body-card {
+    background: var(--bg2);
+    padding: 2rem;
+    transition: background 0.2s;
+  }
+  .body-card:hover { background: var(--bg3); }
+  .body-card.full { grid-column: 1 / -1; }
+
+  .section-label {
+    font-family: 'DM Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 1.2rem;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .section-label::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--border);
+  }
+
+  h3 {
+    font-family: 'Syne', sans-serif;
+    font-size: 1rem;
+    font-weight: 700;
+    color: var(--text);
+    margin-bottom: 0.8rem;
+    letter-spacing: -0.01em;
+  }
+
+  ul {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 0.55rem;
+  }
+  ul li {
+    font-size: 13.5px;
+    color: var(--text-dim);
+    padding-left: 1.1rem;
+    position: relative;
+    line-height: 1.55;
+  }
+  ul li::before {
+    content: '▸';
+    position: absolute;
+    left: 0;
+    color: var(--accent);
+    font-size: 10px;
+    top: 4px;
+  }
+
+  /* RECOVERY TABLE */
+  .results-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+    font-family: 'DM Mono', monospace;
+    margin-top: 1rem;
+  }
+  .results-table th {
+    text-align: left;
+    font-size: 10px;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    padding: 0.5rem 0.7rem;
+    border-bottom: 1px solid var(--border);
+  }
+  .results-table td {
+    padding: 0.45rem 0.7rem;
+    color: var(--text-dim);
+    border-bottom: 1px solid var(--surface);
+  }
+  .results-table tr:last-child td { border-bottom: none; }
+  .results-table .good { color: var(--accent-light); }
+  .results-table .bad  { color: #FCA5A5; }
+
+  /* EDGE CALLOUT */
+  .edge-callout {
+    background: #120606;
+    border: 1px solid #7F1D1D;
+    border-left: 3px solid #EF4444;
+    padding: 1.2rem 1.4rem;
+    margin-top: 1.2rem;
+    border-radius: 0 2px 2px 0;
+  }
+  .edge-callout .edge-label {
+    font-family: 'DM Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 0.18em;
+    color: #FCA5A5;
+    text-transform: uppercase;
+    margin-bottom: 0.4rem;
+  }
+  .edge-callout p {
+    font-size: 13px;
+    color: #FCA5A5;
+    line-height: 1.55;
+    opacity: 0.85;
+  }
+
+  /* QUESTIONS */
+  .q-list {
+    counter-reset: q;
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 0.8rem;
+  }
+  .q-list li {
+    counter-increment: q;
+    padding-left: 2rem;
+    position: relative;
+    font-size: 13.5px;
+    color: var(--text-dim);
+    line-height: 1.55;
+  }
+  .q-list li::before {
+    content: counter(q);
+    position: absolute;
+    left: 0;
+    font-family: 'DM Mono', monospace;
+    font-size: 11px;
+    color: var(--accent);
+    background: var(--surface);
+    width: 18px; height: 18px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    top: 2px;
+    border: 1px solid var(--border);
+  }
+
+  footer {
+    max-width: 1100px;
+    margin: 2rem auto 0;
+    padding: 1.5rem 2rem;
+    border-top: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+  footer span {
+    font-family: 'DM Mono', monospace;
+    font-size: 11px;
+    color: var(--text-muted);
+  }
+  footer a {
+    font-family: 'DM Mono', monospace;
+    font-size: 11px;
+    color: var(--accent);
+    text-decoration: none;
+  }
+  footer a:hover { color: var(--accent-light); }
+
+  @media (max-width: 700px) {
+    .asset-row { grid-template-columns: 1fr; }
+    .body-grid { grid-template-columns: 1fr; }
+    .body-card.full { grid-column: 1; }
+    .hero-title { font-size: 2rem; }
+  }
+
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(16px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  .hero-label { animation: fadeUp 0.4s ease both; }
+  .hero-title { animation: fadeUp 0.5s 0.1s ease both; }
+  .hero-claim { animation: fadeUp 0.5s 0.2s ease both; }
+  .asset-row  { animation: fadeUp 0.5s 0.3s ease both; }
+  .body-grid  { animation: fadeUp 0.5s 0.4s ease both; }
+</style>
+</head>
+<body>
+
+<nav>
+  <a href="./index.html">↩ Today's digest</a>
+  <span class="nav-tag">2606.04238 · Edge Inference</span>
+</nav>
+
+<main>
+  <div class="hero">
+    <div class="hero-label">Recover-LoRA · AMD · 2026-06-05</div>
+    <h1 class="hero-title">
+      <a href="https://arxiv.org/abs/2606.04238" target="_blank" rel="noopener">
+        10k synthetic samples recover 80–95% of 2-bit quantization accuracy loss — no labeled data required
+      </a>
+    </h1>
+    <p class="hero-claim">
+      Selectively push MLP gate and up projections to INT2, then attach LoRA adapters trained via logit distillation on synthetic data alone — achieving 7.5–23.3% throughput gains while nearly closing the accuracy gap on Qwen3-4B.
+    </p>
+  </div>
+
+  <div class="asset-row">
+    <div class="asset-card">
+      <div class="asset-label">Accuracy Recovery · MMLU</div>
+      <div class="asset-number">82.2%</div>
+      <div class="asset-desc">Recovered from 24.5% (2-bit) toward teacher's 68.3%. Synthetic data AR% = 82.2 vs. OpenHermes 83.7 — statistically indistinguishable</div>
+    </div>
+    <div class="asset-card">
+      <div class="asset-label">Throughput Gain · Dense Model</div>
+      <div class="asset-number">+23%</div>
+      <div class="asset-desc">TPS increase on Qwen3-4B at 1k-token context (roofline model, Device A). Long context (32k) yields only 7.5% due to KV-cache bandwidth dominance</div>
+    </div>
+    <div class="asset-card">
+      <div class="asset-label">Hard Ceiling · Math Reasoning</div>
+      <div class="asset-number warn">48%</div>
+      <div class="asset-desc">TinyGSM8k recovery rate — the only benchmark where 2-bit damage is not structurally recoverable by logit distillation alone</div>
+    </div>
+  </div>
+
+  <div class="body-grid">
+
+    <!-- METHODOLOGY -->
+    <div class="body-card">
+      <div class="section-label">Methodology</div>
+      <h3>5-Step Deployment Pipeline</h3>
+      <div class="pipeline">
+        <div class="pipeline-step">
+          <div class="step-num">1</div>
+          <div class="step-text"><strong>Selective quantization:</strong> Gate + up projection layers → INT2 (group size 32), rest remains BF16</div>
+        </div>
+        <div class="pipeline-step">
+          <div class="step-num">2</div>
+          <div class="step-text"><strong>Synthetic data generation:</strong> Teacher generates first 3–5 tokens deterministically, then random sampling for diversity — 10k sequences total</div>
+        </div>
+        <div class="pipeline-step">
+          <div class="step-num">3</div>
+          <div class="step-text"><strong>Recover-LoRA:</strong> LoRA adapters (rank=32, α=64) on quantized gate/up layers, trained via KL divergence against teacher logits</div>
+        </div>
+        <div class="pipeline-step">
+          <div class="step-num">4</div>
+          <div class="step-text"><strong>INT4 remaining layers:</strong> Apply AWQ to non-2-bit layers → complete W4/W2-GateUp configuration</div>
+        </div>
+        <div class="pipeline-step">
+          <div class="step-num">5</div>
+          <div class="step-text"><strong>Deploy:</strong> No labeled data, no full-model retraining, single-GPU execution</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- RESULTS -->
+    <div class="body-card">
+      <div class="section-label">Results</div>
+      <h3>Accuracy Recovery on Qwen3-4B</h3>
+      <table class="results-table">
+        <thead>
+          <tr><th>Benchmark</th><th>Teacher</th><th>INT2</th><th>Recovered</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>MMLU</td><td>68.3</td><td class="bad">24.5</td><td class="good">82.2%</td></tr>
+          <tr><td>BoolQ</td><td>84.9</td><td class="bad">38.4</td><td class="good">94.9%</td></tr>
+          <tr><td>HellaSwag</td><td>52.2</td><td class="bad">28.0</td><td class="good">80.3%</td></tr>
+          <tr><td>ARC-Challenge</td><td>50.4</td><td class="bad">19.0</td><td class="good">82.6%</td></tr>
+          <tr><td>OpenBookQA</td><td>29.6</td><td class="bad">12.4</td><td class="good">90.7%</td></tr>
+          <tr><td>TinyGSM8k</td><td>56.3</td><td class="bad">1.5</td><td class="bad">48.0%</td></tr>
+        </tbody>
+      </table>
+      <div style="margin-top:1rem;font-size:12px;color:var(--text-muted);">AR% = (recovered − INT2) / (teacher − INT2). OOD: LAMBADA 89–93%, TruthfulQA 75–91%.</div>
+    </div>
+
+    <!-- STRENGTHS / LIMITATIONS -->
+    <div class="body-card">
+      <div class="section-label">Strengths &amp; Limitations</div>
+      <h3>What Works</h3>
+      <ul>
+        <li>Label-free: synthetic data matches curated OpenHermes on 5/9 benchmarks</li>
+        <li>Single GPU, 10k samples — far below the 90–120k required for random corruption recovery</li>
+        <li>OOD generalization (LAMBADA, TruthfulQA) matches in-distribution — distillation aligns general capability</li>
+        <li>3-bit variant shows &gt;100% recovery on some tasks (regularization bonus)</li>
+      </ul>
+      <h3 style="margin-top:1.4rem;">Failure Modes</h3>
+      <div class="edge-callout">
+        <div class="edge-label">Critical edge</div>
+        <p>Validated on Qwen3-4B only — no evidence of generalization to other architectures or sizes. Math reasoning (TinyGSM8k) recovers only 48–55%. No comparison against AQLM or QuIP# at 2-bit. AMD's internal LIFE throughput tool is not independently reproducible.</p>
+      </div>
+    </div>
+
+    <!-- QUESTIONS -->
+    <div class="body-card">
+      <div class="section-label">Open Questions</div>
+      <h3>Further Exploration</h3>
+      <ol class="q-list">
+        <li>How does W4/W2-GateUp + Recover-LoRA compare to AQLM or QuIP# on the accuracy-throughput Pareto frontier?</li>
+        <li>Can combining KV-cache quantization with W4/W2-GateUp close the long-context (32k) throughput gap?</li>
+        <li>Is TinyGSM8k's weak recovery a data problem (need math-specific synthetic data) or a structural one?</li>
+        <li>Can adapters trained on Qwen3-4B transfer partially to Qwen3-14B — same family, scaled up?</li>
+        <li>Does iterating Recover-LoRA (distill→quantize→distill again) yield diminishing returns or compounding gains?</li>
+      </ol>
+    </div>
+
+  </div>
+</main>
+
+<footer>
+  <span>arxiv.org/abs/2606.04238 · Das et al. (AMD) · 2026-06-05</span>
+  <a href="https://arxiv.org/abs/2606.04238" target="_blank" rel="noopener">View paper ↗</a>
+</footer>
+
+</body>
+</html>

@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Accelerating Speculative Decoding with Block Diffusion Draft Trees</title>
+<style>
+:root { --paper:#fafafa; --ink:#1a1a1a; --muted:#555; --accent:#1a5276; --line:#ddd; --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif; --serif:Georgia,"Noto Serif SC",serif; }
+body { font-family:var(--serif); background:var(--paper); color:var(--ink); line-height:1.6; margin:0; padding:0; }
+.container { max-width:min(95vw, 760px); margin:0 auto; padding:28px 20px 60px; }
+.topnav { position:fixed; top:12px; left:14px; z-index:50; font-family:var(--sans); font-size:.75rem; background:var(--paper); border:1px solid var(--line); padding:5px 10px; border-radius:999px; }
+.topnav a { color:var(--muted); text-decoration:none; font-weight:600; }
+.topnav a:hover { color:var(--accent); }
+h1 { font-size:1.6rem; margin:2.2rem 0 1rem; border-bottom:2px solid var(--accent); padding-bottom:.3rem; }
+h2 { font-size:1.3rem; margin:1.8rem 0 .8rem; color:var(--accent); }
+h3 { font-size:1.1rem; margin:1.4rem 0 .6rem; }
+p { margin:.8rem 0; }
+.authors { font-style:italic; color:var(--muted); margin-top:-.4rem; }
+.meta { font-family:var(--sans); font-size:.82rem; color:var(--muted); margin:.2rem 0; }
+a { color:var(--accent); text-decoration:none; }
+a:hover { text-decoration:underline; }
+blockquote { border-left:3px solid var(--accent); margin:1rem 0; padding:.2rem 0 .2rem 1rem; color:var(--muted); font-style:italic; }
+code { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; background:#f0f0f0; padding:2px 5px; border-radius:3px; font-size:.9em; }
+pre { background:#f5f5f5; padding:14px; overflow-x:auto; border-radius:4px; border:1px solid var(--line); }
+pre code { background:transparent; padding:0; }
+ul,ol { margin:.6rem 0; padding-left:1.5rem; }
+li { margin:.25rem 0; }
+table { border-collapse:collapse; width:100%; margin:1rem 0; font-family:var(--sans); font-size:.9rem; }
+th,td { border:1px solid var(--line); padding:6px 10px; text-align:left; }
+th { background:#f0f0f0; }
+hr { border:none; border-top:1px solid var(--line); margin:1.5rem 0; }
+.note { font-family:var(--sans); font-size:.78rem; color:var(--muted); border-top:1px solid var(--line); margin-top:2rem; padding-top:1rem; }
+@media (max-width: 600px) { .container { padding:22px 14px 40px; } h1 { font-size:1.35rem; } }
+</style>
+</head>
+<body>
+<div class="topnav"><a href="./index.html">← Today's digest</a></div>
+<div class="container">
+<h1>Accelerating Speculative Decoding with Block Diffusion Draft Trees</h1>
+<p class="authors">Liran Ringel, Yaniv Romano</p>
+<p class="meta">arXiv: 2604.12989v1</p>
+<p class="meta">Date: 2026-04-13</p>
+<p class="meta"><a href="https://arxiv.org/abs/2604.12989v1">https://arxiv.org/abs/2604.12989v1</a></p>
+<h1>Accelerating Speculative Decoding with Block Diffusion Draft Trees</h1>
+<blockquote><strong>一句话总结：</strong> 本文提出 DDTree，通过将块扩散草稿模型（DFlash）单次前向传播产生的逐位置边际分布构建为最优草稿树，在固定节点预算下用树注意力一次性验证多条候选路径，从而在各类任务和模型上持续提升投机解码的端到端加速比。</blockquote>
+<blockquote><strong>TL;DR:</strong> This paper introduces DDTree, which constructs an optimal draft tree from the per-position marginals of a single block diffusion drafter (DFlash) pass, verifies multiple candidate continuations in one target-model forward pass with tree attention, and consistently improves end-to-end speculative decoding speedups across models and tasks.</blockquote>
+<h2>核心贡献</h2>
+<ul>
+<li>将块扩散草稿模型的单次前向输出（逐位置边际分布）扩展为可验证的草稿树，突破了 DFlash 每轮仅验证单条路径的限制</li>
+<li>在固定节点预算下，证明并实现了基于代理目标（草稿模型期望接受长度）的最优树构建，可通过简单的最佳优先堆算法在 O(B log B) 时间内完成</li>
+<li>在 Qwen3-4B/8B/30B-MoE 上覆盖推理、代码、对话等 10 个数据集，所有 60 组设定均取得一致提升</li>
+</ul>
+<h2>Key Contributions</h2>
+<ul>
+<li>Extends the single-pass output of a block diffusion drafter (DFlash) into a verifiable draft tree, overcoming the limitation of verifying only one trajectory per round</li>
+<li>Proves and implements optimal tree construction under a fixed node budget via a surrogate objective (expected acceptance length under the draft model), solvable with a simple best-first heap algorithm in O(B log B) time</li>
+<li>Evaluates on Qwen3-4B/8B/30B-MoE across 10 datasets spanning reasoning, code, and dialogue, showing consistent gains in all 60 settings</li>
+</ul>
+<h2>Methodology</h2>
+<p>DDTree operates in four steps per decoding round:</p>
+<ol>
+<li><strong>Single drafter pass:</strong> Run the block diffusion drafter once to obtain per-position marginal distributions for the next L positions after the bonus token.</li>
+<li><strong>Tree construction:</strong> Under a node budget B, use a best-first heap (Algorithm 1) to select the B highest-probability prefixes from the factorized draft distribution. The algorithm is provably optimal for the surrogate objective and runs in O(B log B).</li>
+<li><strong>Target verification:</strong> Flatten the draft tree into input tensors and run one target-model forward pass with tree attention (ancestor-only mask).</li>
+<li><strong>Verifier walk:</strong> Starting from the bonus token, follow the target model's decoding rule. Accept tokens while they match children in the tree; the first mismatch becomes the next round's bonus token.</li>
+</ol>
+<h2>Results & Highlights</h2>
+<ul>
+<li><strong>Consistent gains across all settings:</strong> DDTree improves over vanilla DFlash on all 10 datasets × 3 models × 2 temperatures (60 total configurations).</li>
+<li><strong>Temperature 0.0 speedups (selected):</strong> Qwen3-4B peaks at 7.5× (MATH-500), Qwen3-8B at 7.5× (MATH-500), and Qwen3-30B-MoE at 8.2× (HumanEval).</li>
+<li><strong>Mean acceptance length τ:</strong> Increases significantly (e.g., MATH-500 Qwen3-8B rises from 7.79 to 10.73 tokens at temp 0.0), explaining the speedup.</li>
+<li><strong>Budget tradeoff:</strong> Speedup typically peaks at node budgets of 256–512; larger budgets increase acceptance length but verifier overhead begins to dominate.</li>
+<li><strong>Distribution shift:</strong> DDTree shifts substantial probability mass toward longer accepted prefixes, making full-block acceptances (length 16) much more common.</li>
+</ul>
+<h2>Authors & Credibility</h2>
+<p>Liran Ringel and Yaniv Romano, Department of Computer Science and Department of Electrical and Computer Engineering, Technion – Israel Institute of Technology. The paper includes formal propositions with proofs, builds on a leading diffusion-based drafter (DFlash), and evaluates on a comprehensive suite of standard benchmarks.</p>
+<h2>Critical Assessment</h2>
+<ul>
+<li><strong>Novelty:</strong> High. The key insight is leveraging the per-position marginals from a single block diffusion pass to construct an optimal draft tree, rather than treating diffusion drafters as single-trajectory proposers. This bridges block diffusion and tree-based speculative decoding in a principled way.</li>
+<li><strong>Experimental rigor:</strong> Strong. Covers three model sizes, ten diverse datasets, two temperatures, and multiple node budgets. Baselines include vanilla DFlash with favorable attention-backend selection.</li>
+<li><strong>Significance:</strong> Important for inference systems. Block diffusion drafters already achieve SOTA drafting quality; DDTree extracts more value from the same single pass, pushing the Pareto frontier of speed vs. overhead.</li>
+</ul>
+<h2>Strengths</h2>
+<ul>
+<li>Theoretical grounding: Proves optimality of the heap-based tree construction under the surrogate objective</li>
+<li>Low overhead: Retains DFlash’s single drafter pass per round while exploring multiple continuations</li>
+<li>Broad and consistent empirical gains across domains and model scales</li>
+<li>Practical implementation details (tree attention, KV cache compaction) are clearly described</li>
+</ul>
+<h2>Limitations</h2>
+<ul>
+<li>Tree attention currently uses standard PyTorch scaled dot-product attention rather than FlashAttention-2, which adds some verifier overhead compared to the baseline’s fastest possible backend</li>
+<li>The surrogate objective optimizes expected acceptance under the <em>draft</em> model, not the true target model; the paper correctly notes this as an approximation</li>
+<li>Optimal node budget varies by hardware and implementation, requiring tuning</li>
+<li>Does not compare directly against recent autoregressive tree-based methods (e.g., EAGLE-3) in the same experimental setup, only citing prior DFlash comparisons</li>
+</ul>
+<h2>Relevance</h2>
+<p>这篇论文直接关联你的「LLM Inference Evaluation」兴趣点——它在不修改目标模型输出分布的前提下，通过更高效的草稿树结构显著提升了投机解码的加速比。对于理解扩散模型在推理加速中的潜力、以及树注意力验证策略的优化边界，具有直接的参考价值。</p>
+<h2>Questions for Further Exploration</h2>
+<ul>
+<li>How much additional speedup could be unlocked if tree attention were implemented with a custom FlashAttention-style kernel?</li>
+<li>Would directly modeling target-model-conditioned probabilities (rather than draft-model marginals) further improve tree selection, and at what cost?</li>
+<li>How does DDTree interact with advanced sampling methods (e.g., top-p, min-p, speculative rejection sampling)?</li>
+</ul>
+<p>---</p>
+<p><em>Generated on 2026-04-14 | <a href="https://arxiv.org/abs/2604.12989v1">arxiv</a> | <a href="https://arxiv.org/pdf/2604.12989.pdf">pdf</a></em></p>
+<p class="note">Generated from Markdown summary. Full paper: <a href="https://arxiv.org/abs/2604.12989v1">arXiv:2604.12989v1</a></p>
+</div>
+</body>
+</html>

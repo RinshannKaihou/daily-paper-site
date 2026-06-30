@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>QKVShare: Quantized KV-Cache Handoff for Multi-Agent On-Device LLMs</title>
+<style>
+:root { --paper:#fafafa; --ink:#1a1a1a; --muted:#555; --accent:#1a5276; --line:#ddd; --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif; --serif:Georgia,"Noto Serif SC",serif; }
+body { font-family:var(--serif); background:var(--paper); color:var(--ink); line-height:1.6; margin:0; padding:0; }
+.container { max-width:min(95vw, 760px); margin:0 auto; padding:28px 20px 60px; }
+.topnav { position:fixed; top:12px; left:14px; z-index:50; font-family:var(--sans); font-size:.75rem; background:var(--paper); border:1px solid var(--line); padding:5px 10px; border-radius:999px; }
+.topnav a { color:var(--muted); text-decoration:none; font-weight:600; }
+.topnav a:hover { color:var(--accent); }
+h1 { font-size:1.6rem; margin:2.2rem 0 1rem; border-bottom:2px solid var(--accent); padding-bottom:.3rem; }
+h2 { font-size:1.3rem; margin:1.8rem 0 .8rem; color:var(--accent); }
+h3 { font-size:1.1rem; margin:1.4rem 0 .6rem; }
+p { margin:.8rem 0; }
+.authors { font-style:italic; color:var(--muted); margin-top:-.4rem; }
+.meta { font-family:var(--sans); font-size:.82rem; color:var(--muted); margin:.2rem 0; }
+a { color:var(--accent); text-decoration:none; }
+a:hover { text-decoration:underline; }
+blockquote { border-left:3px solid var(--accent); margin:1rem 0; padding:.2rem 0 .2rem 1rem; color:var(--muted); font-style:italic; }
+code { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; background:#f0f0f0; padding:2px 5px; border-radius:3px; font-size:.9em; }
+pre { background:#f5f5f5; padding:14px; overflow-x:auto; border-radius:4px; border:1px solid var(--line); }
+pre code { background:transparent; padding:0; }
+ul,ol { margin:.6rem 0; padding-left:1.5rem; }
+li { margin:.25rem 0; }
+table { border-collapse:collapse; width:100%; margin:1rem 0; font-family:var(--sans); font-size:.9rem; }
+th,td { border:1px solid var(--line); padding:6px 10px; text-align:left; }
+th { background:#f0f0f0; }
+hr { border:none; border-top:1px solid var(--line); margin:1.5rem 0; }
+.note { font-family:var(--sans); font-size:.78rem; color:var(--muted); border-top:1px solid var(--line); margin-top:2rem; padding-top:1rem; }
+@media (max-width: 600px) { .container { padding:22px 14px 40px; } h1 { font-size:1.35rem; } }
+</style>
+</head>
+<body>
+<div class="topnav"><a href="./index.html">← Today's digest</a></div>
+<div class="container">
+<h1>QKVShare: Quantized KV-Cache Handoff for Multi-Agent On-Device LLMs</h1>
+<p class="meta">arXiv: 2605.03884</p>
+<p class="meta">Date: 2026-05-05</p>
+<p class="meta"><a href="https://arxiv.org/abs/2605.03884">https://arxiv.org/abs/2605.03884</a></p>
+<blockquote><strong>一句话总结：</strong> QKVShare 提出了一种面向边缘设备多智能体 LLM 的量化 KV 缓存传递框架，通过 token 级自适应混合精度分配和 CacheCard 表示实现跨智能体状态传递，在 8K 上下文下将 TTFT 从 1029.7ms 降至 397.1ms，但拓扑感知控制器相比局部自适应的优势尚未被充分验证。</blockquote>
+<blockquote><strong>TL;DR:</strong> QKVShare enables quantized KV-cache handoff between agents in on-device multi-agent LLM systems. It extends the "Don't Waste Bits" adaptive quantization controller with cross-agent features (downstream demand, segment type) and packages the result into a portable CacheCard. On Llama-3.1-8B-Instruct over 150 GSM8K problems, adaptive Q8 allocation reaches 82.67% accuracy at 5 hops (vs. 71.33% for uniform Q8), and TTFT drops from 1029.7ms to 397.1ms at 8K context vs. re-prefill. However, the topology-aware contribution over local-only adaptation is not conclusively isolated—the paper honestly frames this as an open hypothesis.</blockquote>
+<h2>核心贡献</h2>
+<ul>
+<li>提出跨智能体感知的 token 评分机制，在"Don't Waste Bits"控制器基础上增加下游需求信号和片段类型特征，使位宽分配同时考虑本地保真度和下游智能体需求。</li>
+<li>设计了 CacheCard 表示格式，封装量化 KV 组、位宽分配向量、序列长度和模型元数据，支持跨智能体可移植传递。</li>
+<li>提供端到端原型评估，覆盖多跳 GSM8K 准确率和传递 TTFT，并给出阶段级延迟分解（卡创建/注入/生成）。</li>
+<li>在 8K 上下文下将 TTFT 从 1029.7ms（全量 re-prefill）降至 397.1ms，展示了量化 KV 传递在边缘设备上的实际延迟收益。</li>
+</ul>
+<h2>Key Contributions</h2>
+<ul>
+<li>Extend the "Don't Waste Bits" per-token bit-width controller with two cross-agent features: downstream demand signal (via segment priors and attention anchor overlap) and segment type, producing a 6-dimensional feature vector for a lightweight 2-layer MLP controller.</li>
+<li>Define CacheCard, a self-contained artifact for inter-agent transfer that packages quantized KV groups, bit-width assignments, sequence length, model/sender identifiers, and average-bit statistics.</li>
+<li>Provide a HuggingFace-compatible receiver-side injection path that reconstructs FP16 past_key_values from the CacheCard, enabling practical deployment today while a fused quantized attention kernel remains future work.</li>
+<li>Deliver a measured prototype analysis including multi-hop accuracy (2–5 hops on 150 GSM8K problems), TTFT benchmarks at 1K/4K/8K contexts, and stage-level latency breakdowns showing post-injection generation dominates the current path.</li>
+</ul>
+<h2>Methodology</h2>
+<p>QKVShare targets the problem of efficient latent context transfer between agents in a multi-agent on-device LLM system, formulated as a directed agent graph G = (A, E). The framework has three components:</p>
+<p><strong>Agent-Topology-Aware Importance Scoring:</strong> The "Don't Waste Bits" controller uses four per-token features (frequency, quality score, attention variance, entropy). QKVShare adds (1) a downstream demand signal combining segment-level priors (shared context segments get a baseline boost) with attention anchor overlap (nearest-neighbor lookup in an anchor pool of previously shared tokens), and (2) a segment type feature. The combined importance score S(t) = α·I(t) + (1−α)·T(t) drives bit-width assignment b(t) ∈ {2, 4, 8, 16} via a 512-parameter 2-layer MLP trained on a held-out calibration set. The optimization minimizes weighted quantization error subject to a memory budget M.</p>
+<p><strong>CacheCard Format:</strong> A compact artifact containing quantized KV groups, token-level bit-width vector, sequence length, model/sender identifiers, position-offset placeholder, and average-bit statistics.</p>
+<p><strong>Receiver-side Injection:</strong> For HuggingFace compatibility, the current path dequantizes CacheCard entries to FP16 past_key_values before the receiving model's forward pass. A native fused quantized attention kernel is identified as future work.</p>
+<p>Experiments run on a 12GB NVIDIA RTX 5070 Ti Laptop GPU with Llama-3.1-8B-Instruct (4-bit weight quantization for adaptive experiments; llama.cpp for baselines). Three experiments: E1 (2–5 hop GSM8K accuracy, 150 problems), E2 (paired controller comparisons, 300 problems), E3 (TTFT benchmarks at 1K/4K/8K nominal contexts, n=2).</p>
+<h2>Results & Highlights</h2>
+<ul>
+<li><strong>Multi-hop accuracy (E1):</strong> At ~8-bit budget, adaptive topology-aware QKVShare reaches 82.67% at 5 hops vs. 71.33% for uniform Q8 and 82.00% for adaptive-local Q8. At ~4-bit, results are mixed—topology Q4 is 72.00% at 5 hops vs. 76.67% for uniform Q4.</li>
+<li><strong>Controller ablation (E2):</strong> On 300 GSM8K problems at ~4 bits, topology-aware allocation nets +2 wins over local-only (10 vs. 8 unique correct) and is essentially tied with uniform Q4 (16 vs. 17). The topology-aware advantage remains an open hypothesis.</li>
+<li><strong>TTFT (E3):</strong> QKVShare uniform Q4 handoff: 130.7ms (1K), 152.5ms (4K), 397.1ms (8K). FP16 re-prefill: 150.2ms (1K), 565.3ms (4K), 1029.7ms (8K). FP16 cache copy (llama.cpp): 21.7–26.5ms (specialized lower bound).</li>
+<li><strong>Stage timing at 8K:</strong> CacheCard creation 71.3ms / injection 92.8ms / generation 232.9ms—post-injection forward pass dominates.</li>
+<li><strong>Memory density:</strong> Uniform Q4 supports 64 concurrent 8K contexts vs. 23 for FP16 on the same GPU (2.8× improvement), though a direct QKVShare density measurement is deferred.</li>
+</ul>
+<h2>Authors & Credibility</h2>
+<p>Two authors (Pratik Honavar, Tejpratap GVSL), appearing to be independent researchers without prior high-visibility publications in this area. The paper is notably transparent: it explicitly identifies what the current evidence does and does not support, acknowledges the mixed-runtime limitation (PyTorch/HuggingFace vs. llama.cpp), and frames the topology-aware controller contribution as an "open hypothesis" rather than a settled result. The AI assistance disclosure (Cursor + Claude Code) is upfront. The related work section is thorough and well-positioned against concurrent work like Q-KVComm.</p>
+<h2>Critical Assessment</h2>
+<ul>
+<li><strong>Novelty:</strong> Moderate-to-good. Token-level mixed-precision for cross-agent KV transfer is a natural but non-trivial extension of "Don't Waste Bits." The CacheCard abstraction and topology-aware features are clean engineering contributions. The paper is honest that the topology-aware signal is not yet conclusively validated.</li>
+<li><strong>Rigor:</strong> The paper's biggest weakness. Evaluation is limited to 150 GSM8K problems (E1) and 300 problems (E2) on a single model. The mixed-runtime stack (PyTorch vs. llama.cpp) confounds latency comparisons. E3 uses n=2 samples, making TTFT estimates noisy. No comparison with KV-cache eviction methods (H2O, SnapKV) or the concurrent Q-KVComm at matched settings.</li>
+<li><strong>Reproducibility:</strong> Reasonable. The method is described concretely (512-param MLP, 6 features, specific bit-width set {2,4,8,16}). However, no code repository link is provided in the paper.</li>
+<li><strong>Significance:</strong> The direction is timely—on-device multi-agent LLM handoff is a real and growing need. The TTFT improvements at longer contexts are practically meaningful. But the evidence is preliminary and the paper reads more like a workshop/short paper than a full conference submission.</li>
+<li><strong>Red flags:</strong> (1) The paper's own strongest claimed contribution (topology-aware allocation) is not robustly validated—the E2 results show essentially no consistent advantage. (2) Mixed runtimes make apples-to-apples comparison impossible. (3) Only one benchmark, one model, small sample sizes. (4) The current injection path dequantizes to FP16, so the actual quantized attention benefit during generation is not measured. (5) E3 latency uses uniform Q4 only, not the adaptive path, making the connection between the accuracy and latency stories incomplete.</li>
+</ul>
+<h2>Strengths</h2>
+<ul>
+<li>Addresses a practically important and underexplored systems problem (quantized cross-agent KV handoff on edge devices).</li>
+<li>Exceptional intellectual honesty: clearly separates demonstrated results from open questions.</li>
+<li>Thorough related work positioning against concurrent work (Q-KVComm, KVCOMM, C2C, LatentMAS).</li>
+<li>The stage-level latency breakdown is valuable for the community—it identifies where future optimization effort should focus.</li>
+<li>Consistent TTFT improvement over re-prefill at all tested context lengths.</li>
+</ul>
+<h2>Limitations</h2>
+<ul>
+<li>Single benchmark (GSM8K), single model (Llama-3.1-8B-Instruct), small sample sizes (150/300 problems).</li>
+<li>Mixed-runtime stack confounds latency comparisons; apples-to-apples evaluation deferred.</li>
+<li>Topology-aware controller advantage over local-only adaptation not conclusively demonstrated.</li>
+<li>No comparison with KV-cache eviction/compression baselines or concurrent quantized transfer methods.</li>
+<li>Current injection path dequantizes to FP16—a fused quantized kernel is future work.</li>
+<li>No evaluation on heterogeneous model architectures, mobile NPUs, or real multi-agent application workflows.</li>
+</ul>
+<h2>Relevance</h2>
+<p>该论文研究了边缘设备上多智能体 LLM 系统中量化 KV 缓存的跨智能体传递问题，与推理系统优化和高效 LLM 部署直接相关。其 token 级自适应量化分配和 CacheCard 设计思路对于降低多智能体协作场景下的延迟和内存开销具有实际参考价值，尤其适合关注 on-device 部署和推理加速的研究者。</p>
+<h2>Questions for Further Exploration</h2>
+<ul>
+<li>How does QKVShare compare to KV-cache eviction methods (H2O, SnapKV, ZipCache) when used as an alternative compression strategy for handoff?</li>
+<li>Can the topology-aware controller be validated on larger-scale benchmarks (MATH, HumanEval, LongBench) and with heterogeneous model pairs?</li>
+<li>What is the accuracy-cost Pareto frontier when a native fused quantized attention kernel replaces the current dequantize-to-FP16 injection path?</li>
+<li>Does the downstream demand signal provide consistent value in non-sequential topologies (trees, DAGs) where multiple receivers exist?</li>
+<li>How does quantization error interact with position-encoding realignment in cross-prefix settings, especially for RoPE-based models?</li>
+<li>What is the energy consumption profile of quantized KV handoff vs. re-prefill on actual edge SoCs (Snapdragon, Apple M-series)?</li>
+</ul>
+<p class="note">Generated from Markdown summary. Full paper: <a href="https://arxiv.org/abs/2605.03884">arXiv:2605.03884</a></p>
+</div>
+</body>
+</html>

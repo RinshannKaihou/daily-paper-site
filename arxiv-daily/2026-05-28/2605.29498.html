@@ -1,0 +1,574 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mask the Target — TMKL vs LoRA Forgetting</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Source+Serif+4:ital,opsz,wght@0,8..60,300;0,8..60,600;0,8..60,900;1,8..60,400&family=Inter:wght@300;400;600&display=swap');
+
+  :root {
+    --bg: #0c0e12;
+    --bg-raised: #13161c;
+    --bg-card: #181c24;
+    --fg: #e8e6e1;
+    --fg-dim: #8a8d95;
+    --fg-muted: #555963;
+    --accent: #ff5c39;
+    --accent-glow: rgba(255, 92, 57, 0.15);
+    --teal: #2dd4a8;
+    --teal-glow: rgba(45, 212, 168, 0.12);
+    --amber: #f5b731;
+    --border: #252930;
+    --radius: 6px;
+    --mono: 'JetBrains Mono', monospace;
+    --serif: 'Source Serif 4', Georgia, serif;
+    --sans: 'Inter', system-ui, sans-serif;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html { font-size: 15px; scroll-behavior: smooth; }
+
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: var(--sans);
+    line-height: 1.6;
+    min-height: 100vh;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ── noise overlay ── */
+  body::before {
+    content: '';
+    position: fixed; inset: 0;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");
+    pointer-events: none;
+    z-index: 9999;
+  }
+
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  /* ── top bar ── */
+  .topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 28px;
+    border-bottom: 1px solid var(--border);
+    font-size: 0.8rem;
+    color: var(--fg-dim);
+    position: sticky; top: 0;
+    background: rgba(12,14,18,0.92);
+    backdrop-filter: blur(12px);
+    z-index: 100;
+  }
+  .topbar-links { display: flex; gap: 18px; }
+  .topbar-links a { color: var(--fg-dim); font-family: var(--mono); font-size: 0.72rem; letter-spacing: 0.04em; }
+  .topbar-links a:hover { color: var(--accent); text-decoration: none; }
+
+  /* ── hero ── */
+  .hero {
+    padding: 64px 28px 48px;
+    max-width: 1120px;
+    margin: 0 auto;
+    position: relative;
+  }
+  .hero-tag {
+    display: inline-block;
+    font-family: var(--mono);
+    font-size: 0.68rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--accent);
+    border: 1px solid var(--accent);
+    padding: 3px 10px;
+    border-radius: 3px;
+    margin-bottom: 20px;
+    opacity: 0;
+    animation: fadeUp 0.6s 0.1s forwards;
+  }
+  .hero h1 {
+    font-family: var(--serif);
+    font-weight: 900;
+    font-size: clamp(2rem, 5vw, 3.2rem);
+    line-height: 1.12;
+    max-width: 740px;
+    color: var(--fg);
+    margin-bottom: 16px;
+    opacity: 0;
+    animation: fadeUp 0.6s 0.2s forwards;
+  }
+  .hero-sub {
+    font-size: 1rem;
+    color: var(--fg-dim);
+    max-width: 620px;
+    line-height: 1.65;
+    opacity: 0;
+    animation: fadeUp 0.6s 0.35s forwards;
+  }
+  .hero-sub strong { color: var(--teal); font-weight: 600; }
+
+  /* ── asset row ── */
+  .asset-row {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 16px;
+    max-width: 1120px;
+    margin: 0 auto 56px;
+    padding: 0 28px;
+  }
+  .asset-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 22px 20px 18px;
+    position: relative;
+    overflow: hidden;
+    opacity: 0;
+    animation: fadeUp 0.5s forwards;
+  }
+  .asset-card:nth-child(1) { animation-delay: 0.45s; }
+  .asset-card:nth-child(2) { animation-delay: 0.55s; }
+  .asset-card:nth-child(3) { animation-delay: 0.65s; }
+  .asset-card:nth-child(4) { animation-delay: 0.75s; }
+
+  .asset-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+  }
+  .asset-card:nth-child(1)::before { background: var(--accent); }
+  .asset-card:nth-child(2)::before { background: var(--teal); }
+  .asset-card:nth-child(3)::before { background: var(--amber); }
+  .asset-card:nth-child(4)::before { background: var(--fg-muted); }
+
+  .asset-label {
+    font-family: var(--mono);
+    font-size: 0.6rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--fg-muted);
+    margin-bottom: 10px;
+  }
+  .asset-value {
+    font-family: var(--serif);
+    font-weight: 600;
+    font-size: 1.3rem;
+    line-height: 1.25;
+    color: var(--fg);
+  }
+  .asset-card:nth-child(1) .asset-value { color: var(--accent); }
+  .asset-card:nth-child(2) .asset-value { color: var(--teal); }
+  .asset-card:nth-child(3) .asset-value { color: var(--amber); }
+  .asset-detail {
+    margin-top: 8px;
+    font-size: 0.78rem;
+    color: var(--fg-dim);
+    line-height: 1.5;
+  }
+
+  /* ── body grid ── */
+  .body-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    max-width: 1120px;
+    margin: 0 auto;
+    padding: 0 28px 80px;
+  }
+  .panel {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 24px 22px 20px;
+    opacity: 0;
+    animation: fadeUp 0.5s forwards;
+  }
+  .panel:nth-child(1) { animation-delay: 0.85s; }
+  .panel:nth-child(2) { animation-delay: 0.92s; }
+  .panel:nth-child(3) { animation-delay: 0.99s; }
+  .panel:nth-child(4) { animation-delay: 1.06s; }
+  .panel:nth-child(5) { animation-delay: 1.13s; }
+  .panel:nth-child(6) { animation-delay: 1.2s; }
+
+  .panel.full-width {
+    grid-column: 1 / -1;
+  }
+  .panel-label {
+    font-family: var(--mono);
+    font-size: 0.6rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--fg-muted);
+    margin-bottom: 14px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .panel-label .dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    display: inline-block;
+  }
+  .panel h3 {
+    font-family: var(--serif);
+    font-size: 1.1rem;
+    font-weight: 600;
+    margin-bottom: 10px;
+    color: var(--fg);
+  }
+  .panel p, .panel li {
+    font-size: 0.85rem;
+    color: var(--fg-dim);
+    line-height: 1.6;
+  }
+  .panel ul { list-style: none; padding: 0; }
+  .panel li { padding: 4px 0 4px 16px; position: relative; }
+  .panel li::before {
+    content: '';
+    position: absolute;
+    left: 0; top: 12px;
+    width: 5px; height: 5px;
+    border-radius: 50%;
+    background: var(--border);
+  }
+
+  /* ── comparison table ── */
+  .compare-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.78rem;
+    margin-top: 6px;
+  }
+  .compare-table th {
+    text-align: left;
+    font-family: var(--mono);
+    font-size: 0.6rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--fg-muted);
+    padding: 6px 10px 8px;
+    border-bottom: 1px solid var(--border);
+  }
+  .compare-table td {
+    padding: 7px 10px;
+    color: var(--fg-dim);
+    border-bottom: 1px solid var(--border);
+    font-family: var(--mono);
+    font-size: 0.75rem;
+  }
+  .compare-table tr:last-child td { border-bottom: none; }
+  .compare-table .method { color: var(--fg); font-family: var(--sans); font-weight: 600; }
+  .compare-table .good { color: var(--teal); }
+  .compare-table .bad { color: var(--accent); }
+  .compare-table .dim { color: var(--fg-muted); }
+
+  /* ── formula block ── */
+  .formula-block {
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 14px 18px;
+    font-family: var(--mono);
+    font-size: 0.82rem;
+    color: var(--fg);
+    margin: 10px 0;
+    overflow-x: auto;
+  }
+  .formula-block .keyword { color: var(--accent); }
+  .formula-block .param { color: var(--teal); }
+
+  /* ── mechanism diagram ── */
+  .mechanism-flow {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin: 12px 0;
+  }
+  .flow-step {
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 8px 12px;
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    color: var(--fg-dim);
+    white-space: nowrap;
+  }
+  .flow-step.active { border-color: var(--accent); color: var(--accent); }
+  .flow-arrow {
+    color: var(--fg-muted);
+    font-size: 0.7rem;
+    font-family: var(--mono);
+  }
+
+  /* ── tag chips ── */
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+  .chip {
+    font-family: var(--mono);
+    font-size: 0.62rem;
+    padding: 3px 9px;
+    border-radius: 3px;
+    border: 1px solid var(--border);
+    color: var(--fg-dim);
+    letter-spacing: 0.02em;
+  }
+
+  /* ── footnote ── */
+  .footnote {
+    max-width: 1120px;
+    margin: 0 auto;
+    padding: 0 28px 40px;
+    font-size: 0.72rem;
+    color: var(--fg-muted);
+    display: flex;
+    justify-content: space-between;
+    border-top: 1px solid var(--border);
+    padding-top: 20px;
+  }
+
+  /* ── animations ── */
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(14px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  /* ── responsive ── */
+  @media (max-width: 800px) {
+    .asset-row { grid-template-columns: repeat(2, 1fr); }
+    .body-grid { grid-template-columns: 1fr; }
+    .hero h1 { font-size: 1.8rem; }
+  }
+  @media (max-width: 480px) {
+    .asset-row { grid-template-columns: 1fr; }
+    .topbar { padding: 10px 16px; }
+    .hero { padding: 40px 16px 32px; }
+    .asset-row, .body-grid { padding: 0 16px; }
+    .footnote { padding: 20px 16px 32px; flex-direction: column; gap: 8px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- top bar -->
+<nav class="topbar">
+  <span>arXiv:2605.29498</span>
+  <div class="topbar-links">
+    <a href="./index.html">&larr; Index</a>
+    <a href="2605.29498.html">.md</a>
+    <a href="https://arxiv.org/abs/2605.29498">arXiv</a>
+  </div>
+</nav>
+
+<!-- hero -->
+<section class="hero">
+  <div class="hero-tag">LoRA &middot; Regularization &middot; 2026-05-28</div>
+  <h1>Mask the Target: A Plug-and-Play Regularizer Against LoRA Forgetting</h1>
+  <p class="hero-sub">
+    Target-Masked KL (TMKL) drops LoRA catastrophic forgetting from <strong>20-42% down to 1-4%</strong>
+    with a single loss term, no replay data, and zero inference overhead.
+  </p>
+</section>
+
+<!-- 4 asset cards -->
+<section class="asset-row">
+  <div class="asset-card">
+    <div class="asset-label">Headline Claim</div>
+    <div class="asset-value">20-42% &rarr; 1-4%</div>
+    <div class="asset-detail">Retention drift slashed. WikiText PPL drift drops from +37% to +4% on Qwen2.5-0.5B adapted to OpenR1-Math.</div>
+  </div>
+  <div class="asset-card">
+    <div class="asset-label">Anchor Fact</div>
+    <div class="asset-value">89-95%</div>
+    <div class="asset-detail">Of retention drift prevented. &lambda;=1 is Pareto-optimal at both 0.5B and 7B scales without tuning.</div>
+  </div>
+  <div class="asset-card">
+    <div class="asset-label">So What</div>
+    <div class="asset-value">One-line loss, zero overhead</div>
+    <div class="asset-detail">A drop-in regularizer compatible with any LoRA variant. No replay data, no architecture change, no inference cost.</div>
+  </div>
+  <div class="asset-card">
+    <div class="asset-label">Critical Edge</div>
+    <div class="asset-value">~50% train cost</div>
+    <div class="asset-detail">Extra frozen-base forward pass per step. Scoped to single-target, text-only autoregressive LLMs.</div>
+  </div>
+</section>
+
+<!-- body grid -->
+<section class="body-grid">
+
+  <!-- mechanism -->
+  <div class="panel">
+    <div class="panel-label"><span class="dot" style="background:var(--accent)"></span> Mechanism</div>
+    <h3>How TMKL Works</h3>
+    <div class="mechanism-flow">
+      <span class="flow-step">Base + Adapted distributions</span>
+      <span class="flow-arrow">&rarr;</span>
+      <span class="flow-step active">Remove ground-truth token</span>
+      <span class="flow-arrow">&rarr;</span>
+      <span class="flow-step">Renormalize</span>
+      <span class="flow-arrow">&rarr;</span>
+      <span class="flow-step">KL divergence</span>
+    </div>
+    <div class="formula-block">
+      <span class="keyword">L</span> = <span class="keyword">L_CE</span> + <span class="param">&lambda;</span> &middot; <span class="keyword">L_TMKL</span>
+      &nbsp;&nbsp;&mdash;&mdash;&nbsp;&nbsp;
+      <span class="param">&lambda; = 1</span> Pareto-optimal across scales
+    </div>
+    <p>Masking the target token eliminates the gradient conflict between cross-entropy and the regularizer that plagues standard full-KL distillation (LwF).</p>
+  </div>
+
+  <!-- results comparison table -->
+  <div class="panel">
+    <div class="panel-label"><span class="dot" style="background:var(--teal)"></span> Baseline Comparison</div>
+    <h3>0.5B LoRA &middot; Retention Drift Prevention</h3>
+    <table class="compare-table">
+      <thead>
+        <tr>
+          <th>Method</th>
+          <th>WT-103 Drift</th>
+          <th>Prevented</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="method">TMKL</td>
+          <td class="good">+4%</td>
+          <td class="good">89%</td>
+        </tr>
+        <tr>
+          <td class="method dim">LwF / Full-KL</td>
+          <td>+12%</td>
+          <td>73%</td>
+        </tr>
+        <tr>
+          <td class="method dim">STABLE</td>
+          <td>+14%</td>
+          <td>68%</td>
+        </tr>
+        <tr>
+          <td class="method dim">O-LoRA</td>
+          <td>+22%</td>
+          <td>41%</td>
+        </tr>
+        <tr>
+          <td class="method dim">L2-SP</td>
+          <td>+32%</td>
+          <td>14%</td>
+        </tr>
+        <tr>
+          <td class="method dim">EWC</td>
+          <td>+37%</td>
+          <td class="bad">-24%</td>
+        </tr>
+        <tr>
+          <td class="method dim">CE only</td>
+          <td class="bad">+37%</td>
+          <td class="dim">baseline</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- scale results -->
+  <div class="panel">
+    <div class="panel-label"><span class="dot" style="background:var(--teal)"></span> Scale Transfer</div>
+    <h3>7B Results &middot; Qwen2.5-7B &rarr; PubMed</h3>
+    <table class="compare-table">
+      <thead>
+        <tr><th>Metric</th><th>CE only</th><th>+ TMKL</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="method">WikiText drift</td>
+          <td class="bad">+15-20%</td>
+          <td class="good">-2%</td>
+        </tr>
+        <tr>
+          <td class="method">LAMBADA drift</td>
+          <td class="bad">+25-33%</td>
+          <td class="good">-0.5%</td>
+        </tr>
+        <tr>
+          <td class="method">Target PPL cost</td>
+          <td class="dim">&mdash;</td>
+          <td>~0.13</td>
+        </tr>
+      </tbody>
+    </table>
+    <p style="margin-top:10px;">Retention within 1.5% of base across factual recall, math, code, multilingual, instruction following, and refusal calibration.</p>
+  </div>
+
+  <!-- theory -->
+  <div class="panel">
+    <div class="panel-label"><span class="dot" style="background:var(--amber)"></span> Theory</div>
+    <h3>Fisher-Weighted Jacobian Interpretation</h3>
+    <div class="formula-block">
+      TMKL &asymp; &Delta;&phi;<sup>T</sup> &middot; J<sup>T</sup> &middot; F &middot; J &middot; &Delta;&phi;<br>
+      <span style="font-size:0.7rem;color:var(--fg-dim)">J = LoRA Jacobian &nbsp;|&nbsp; F = Fisher of non-target categorical</span>
+    </div>
+    <p>The penalty depends only on the adapter's effect on non-target logits, not its parameterization. This explains adapter-agnosticity.</p>
+    <p style="margin-top:8px;">Empirical <strong>1/&lambda; scaling law</strong>: WT-103 drift slope = -0.94 vs predicted -1.0 (6% error).</p>
+  </div>
+
+  <!-- strengths -->
+  <div class="panel">
+    <div class="panel-label"><span class="dot" style="background:var(--teal)"></span> Strengths</div>
+    <h3>Why This Matters</h3>
+    <ul>
+      <li>Elegantly simple core idea with deep theoretical justification (Fisher, Pinsker, scaling law).</li>
+      <li>Adapter-agnostic: works with LoRA, SineLoRA, RandLoRA, DoRA, PISSA, AdaLoRA, VeRA unmodified.</li>
+      <li>Zero inference overhead &mdash; regularizer is discarded after training.</li>
+      <li>Exceptionally thorough evaluation: 5 adapters, 6 backbones, 3-seed averages, all baselines tuned on same validation slice.</li>
+      <li>Target-token gradient conflict analysis is a clear conceptual contribution beyond the method itself.</li>
+    </ul>
+  </div>
+
+  <!-- limitations -->
+  <div class="panel">
+    <div class="panel-label"><span class="dot" style="background:var(--accent)"></span> Limitations</div>
+    <h3>Caveats &amp; Scope</h3>
+    <ul>
+      <li>Single-target adaptation only; sequential continual learning not addressed.</li>
+      <li>Text-only autoregressive LLMs; no vision-language or multimodal evaluation.</li>
+      <li>~50% training overhead from extra base model forward pass per step.</li>
+      <li>Gains most dramatic under distribution shift; related-domain fine-tuning sees smaller benefits.</li>
+      <li>Retention probes primarily perplexity-based; broader functional evaluations would strengthen claims.</li>
+      <li>Renormalization over ~152K tokens could amplify noise from very low-probability entries.</li>
+    </ul>
+  </div>
+
+  <!-- full-width: authors & tags -->
+  <div class="panel full-width" style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:20px;">
+    <div style="flex:1; min-width:240px;">
+      <div class="panel-label"><span class="dot" style="background:var(--fg-muted)"></span> Authors</div>
+      <p style="margin-bottom:4px;"><strong style="color:var(--fg)">Runze Xu*</strong>, <strong style="color:var(--fg)">Arpit Garg*</strong>, Hemanth Saratchandran, Simon Lucey</p>
+      <p style="font-size:0.75rem;color:var(--fg-muted)">Australian Institute for Machine Learning (AIML), University of Adelaide. *Equal contribution. Lucey is AIML Director (formerly CMU, Google).</p>
+    </div>
+    <div>
+      <div class="panel-label">Tags</div>
+      <div class="chips">
+        <span class="chip">LoRA</span>
+        <span class="chip">catastrophic-forgetting</span>
+        <span class="chip">regularization</span>
+        <span class="chip">LLM-adaptation</span>
+        <span class="chip">efficient-finetuning</span>
+      </div>
+    </div>
+  </div>
+
+</section>
+
+<!-- footnote -->
+<div class="footnote">
+  <span>Dashboard for arXiv:2605.29498 &middot; Xu et al. 2026</span>
+  <span><a href="./index.html">Index</a> &nbsp;&middot;&nbsp; <a href="2605.29498.html">Markdown</a> &nbsp;&middot;&nbsp; <a href="https://arxiv.org/abs/2605.29498">arXiv</a></span>
+</div>
+
+</body>
+</html>

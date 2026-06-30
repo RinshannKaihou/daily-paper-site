@@ -1,0 +1,284 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>GNMR — Runtime Stability Control for Low-Precision LLM Training</title>
+<style>
+  :root{
+    --accent:#0d9488;        /* teal — "stability / control loop" */
+    --accent-soft:#ccfbf1;
+    --ink:#0b1220;
+    --ink-2:#3f4858;
+    --ink-3:#6b7484;
+    --line:#e6e8ee;
+    --line-2:#eef0f4;
+    --bg:#fafbfc;
+    --card:#ffffff;
+    --warn:#b45309;
+    --warn-soft:#fef3c7;
+    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
+    --sans:ui-sans-serif,system-ui,-apple-system,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:15px;line-height:1.55;-webkit-font-smoothing:antialiased}
+  a{color:inherit;text-decoration:none}
+  a:hover{text-decoration:underline;text-decoration-color:var(--accent);text-underline-offset:3px}
+
+  /* Fixed top-left nav */
+  .nav{
+    position:fixed;top:14px;left:14px;z-index:50;
+    background:var(--card);border:1px solid var(--line);border-radius:999px;
+    padding:6px 12px;font-size:12.5px;font-weight:600;color:var(--ink-2);
+    box-shadow:0 1px 2px rgba(15,23,42,.04);
+    display:inline-flex;align-items:center;gap:6px;
+  }
+  .nav:hover{color:var(--accent);text-decoration:none}
+
+  /* Layout */
+  .wrap{max-width:min(95vw,1100px);margin:0 auto;padding:64px 24px 96px}
+
+  /* Hero */
+  .hero{border-top:4px solid var(--accent);padding-top:22px;padding-bottom:28px;border-bottom:1px solid var(--line)}
+  .kicker{display:inline-flex;align-items:center;gap:8px;font-family:var(--mono);font-size:11.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--accent);margin-bottom:14px}
+  .kicker .dot{width:6px;height:6px;border-radius:50%;background:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+  h1.finding{
+    font-size:clamp(28px,4.4vw,46px);line-height:1.12;letter-spacing:-.02em;
+    margin:0 0 18px;font-weight:700;color:var(--ink);max-width:62ch;
+  }
+  h1.finding em{font-style:normal;color:var(--accent)}
+  .title{
+    font-size:18px;font-weight:600;color:var(--ink-2);margin:0 0 10px;line-height:1.35;
+  }
+  .title a{border-bottom:1px dashed var(--line)}
+  .meta{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:13px;color:var(--ink-3);align-items:center}
+  .meta .dotsep{color:var(--line)}
+  .chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:14px}
+  .chip{
+    font-family:var(--mono);font-size:11px;letter-spacing:.02em;
+    border:1px solid var(--line);border-radius:4px;padding:3px 8px;color:var(--ink-2);background:#fff;
+  }
+  .chip.alive{border-color:var(--accent);color:var(--accent);background:var(--accent-soft)}
+
+  /* Asset row */
+  .assets{
+    display:grid;grid-template-columns:repeat(3,minmax(0,1fr));
+    gap:14px;margin:22px 0 32px;
+  }
+  .asset{
+    background:var(--card);border:1px solid var(--line);border-radius:8px;
+    padding:18px 18px 16px;display:flex;flex-direction:column;gap:6px;
+    position:relative;overflow:hidden;
+  }
+  .asset::before{
+    content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--accent);
+  }
+  .asset.warn::before{background:var(--warn)}
+  .asset .label{
+    font-family:var(--mono);font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);
+  }
+  .asset .value{
+    font-size:22px;font-weight:700;color:var(--ink);line-height:1.15;letter-spacing:-.01em;
+  }
+  .asset .value.big{
+    font-size:44px;font-weight:800;color:var(--accent);letter-spacing:-.025em;line-height:1;
+  }
+  .asset .sub{font-size:13px;color:var(--ink-2);line-height:1.45}
+  .asset .source{font-family:var(--mono);font-size:10.5px;color:var(--ink-3);margin-top:auto;padding-top:6px}
+
+  /* Body grid */
+  .grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+  .card{
+    background:var(--card);border:1px solid var(--line);border-radius:8px;
+    padding:20px 20px 18px;
+  }
+  .card.full{grid-column:1/-1}
+  .card h2{
+    margin:0 0 10px;font-size:13px;font-family:var(--mono);letter-spacing:.14em;text-transform:uppercase;
+    color:var(--ink-3);display:flex;align-items:center;gap:8px;font-weight:600;
+  }
+  .card h2::before{content:"";display:inline-block;width:8px;height:8px;background:var(--accent);border-radius:2px}
+  .card h3{font-size:16px;margin:14px 0 6px;color:var(--ink);font-weight:700;letter-spacing:-.005em}
+  .card p{margin:6px 0;color:var(--ink-2);font-size:14px;line-height:1.55}
+  .card ul{margin:6px 0 0;padding-left:18px;color:var(--ink-2)}
+  .card li{margin:4px 0;font-size:13.5px;line-height:1.5}
+  .card li b{color:var(--ink);font-weight:600}
+  .card code{font-family:var(--mono);font-size:12.5px;background:var(--line-2);padding:1px 5px;border-radius:3px;color:var(--ink)}
+  .card .formula{
+    font-family:var(--mono);font-size:12.5px;background:var(--line-2);
+    padding:10px 12px;border-left:3px solid var(--accent);border-radius:3px;
+    color:var(--ink);margin:8px 0;overflow-x:auto;white-space:nowrap;
+  }
+
+  /* Strengths / Limitations two-up inside a single row */
+  .row-split{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  .row-split .card{padding:18px}
+  .row-split h2{margin-bottom:8px}
+  .row-split ul{padding-left:16px}
+  .row-split li{font-size:13px}
+
+  /* Questions list */
+  .qlist{display:grid;grid-template-columns:1fr 1fr;gap:8px 18px}
+  .qlist li{font-size:13px}
+
+  /* Footer */
+  footer{
+    margin-top:30px;padding-top:18px;border-top:1px solid var(--line);
+    display:flex;justify-content:space-between;align-items:center;
+    font-size:12.5px;color:var(--ink-3);
+  }
+  footer a{color:var(--accent);font-weight:600}
+  footer a:hover{text-decoration:underline}
+
+  /* Responsive */
+  @media (max-width:780px){
+    .assets{grid-template-columns:1fr}
+    .grid,.row-split,.qlist{grid-template-columns:1fr}
+    .wrap{padding:54px 16px 64px}
+    .nav{font-size:11.5px;padding:5px 10px}
+  }
+</style>
+</head>
+<body>
+
+<a class="nav" href="./index.html">↩ Today's digest</a>
+
+<main class="wrap">
+
+  <!-- HERO -->
+  <section class="hero">
+    <div class="kicker"><span class="dot"></span>Paper · arXiv:2606.00539 · runtime control</div>
+    <h1 class="finding">
+      Low-precision LLM training is reframed as a <em>runtime control problem</em>: a dimensionless <em>gradient-norm ratio</em> triggers a higher-precision recovery path for &lt;0.2% of operators, preserving near-BF16 quality.
+    </h1>
+    <p class="title">
+      <a href="https://arxiv.org/abs/2606.00539">GNMR: Runtime Stability Control for Low-Precision Large Language Model Training</a>
+    </p>
+    <div class="meta">
+      <span>Boao Kong, Weichen Jia, Engao Zhang, Guohong Li, Yonghan Dong, Yao Wang, Yaoyuan Wang, Yunke Peng, Kun Yuan</span>
+      <span class="dotsep">·</span>
+      <span>Peking University &nbsp;·&nbsp; Huawei Technologies Ltd.</span>
+      <span class="dotsep">·</span>
+      <span>2026-06-23</span>
+    </div>
+    <div class="chips">
+      <span class="chip alive">FP8 / INT8 / FP4</span>
+      <span class="chip">mixed precision</span>
+      <span class="chip">training stability</span>
+      <span class="chip">runtime control</span>
+      <span class="chip">gradient norm-to-mean ratio</span>
+    </div>
+  </section>
+
+  <!-- ASSET ROW -->
+  <section class="assets" aria-label="Key takeaways">
+    <div class="asset">
+      <div class="label">Key Metric</div>
+      <div class="value big">&lt;0.2%</div>
+      <div class="sub">of eligible operators are routed to a higher-fidelity recovery path per step — yet 4-bit activations on LLaMA-2 1.3B reach <b>PPL 15.71</b>, matching BF16's 15.56.</div>
+      <div class="source">Tables 1, 3 — activation-quantization stress bench</div>
+    </div>
+    <div class="asset">
+      <div class="label">Why This Matters</div>
+      <div class="value">A drop-in stabilizer.</div>
+      <div class="sub">Teams running FP8 / INT8 / NVFP4 stacks get a low-overhead, kernel-agnostic patch for occasional loss or gradient spikes — no recipe rewrite, no measurable per-step penalty.</div>
+      <div class="source">Throughput: 1.264 s/step · 103,696 tok/s (Table 4)</div>
+    </div>
+    <div class="asset warn">
+      <div class="label">Critical Edge</div>
+      <div class="value">Bound-level, not convergence.</div>
+      <div class="sub">Theorem 1 quantifies a surrogate smoothness gap, not an end-to-end training rate; the four control knobs <code>α, β, Tlock, maxO</code> have no automated calibration procedure.</div>
+      <div class="source">Critical Assessment · Minor concern (iii)</div>
+    </div>
+  </section>
+
+  <!-- BODY GRID -->
+  <section class="grid">
+
+    <!-- Methodology -->
+    <div class="card full">
+      <h2>Methodology</h2>
+      <p>The training stack is decomposed into nested transformer blocks; inside each block, sibling operators (attention heads, MLP projections, MoE experts) are monitored via their current gradient norm <code>n<sub>b,t</sub> = ‖g<sub>b,t</sub>‖₂</code>. Two dimensionless scores quantify local risk:</p>
+      <div class="formula">GNMR<sub>t</sub>(θ<sup>[u,k]</sup>) = ‖g<sub>t</sub><sup>[u,k]</sup>‖ / mean<sub>τ&lt;t</sub> ‖g<sub>τ</sub><sup>[u,k]</sup>‖      &nbsp;|&nbsp;      ∆-GNMR<sub>t</sub> = GNMR<sub>t</sub> / mean of last δ GNMR values</div>
+      <p>At each step, the controller computes <code>R<sub>b,t</sub> = max{GNMR/α<sub>t</sub>, ∆-GNMR/β<sub>t</sub>}</code>, forms a candidate pool <code>C<sub>t</sub> = {b : R &gt; 1} ∪ {locked units}</code>, and routes the top-<code>maxO</code> ranked units to a higher-fidelity path — capping instantaneous memory and casting overhead.</p>
+      <div class="formula">ΔM<sub>t</sub> = Σ<sub>b ∈ A<sub>t</sub></sub> c<sub>b</sub>  ≤  maxO · c<sub>max</sub>      &nbsp;|&nbsp;      Lock counters reset to T<sub>lock</sub> on selection, decay otherwise (anti-thrashing).</div>
+      <p><b>Granularity:</b> projection operators in LLaMA attention + SwiGLU MLP (activations 4-bit, weights/optimizer BF16); whole-block recovery for DeepSeek-style recipes (24 layers, <code>maxO=6</code> ⇒ at most 25% layers per step).</p>
+    </div>
+
+    <!-- Results -->
+    <div class="card full">
+      <h2>Results &amp; Highlights</h2>
+      <div class="grid" style="gap:10px">
+        <div class="card" style="padding:14px">
+          <h3>4-bit activation stress (LLaMA-2 / C4-en)</h3>
+          <p>Naïve token-wise 4-bit fails to converge at 1.3B (✗). GNMR-controlled 4/8-bit reaches PPL <b>30.59 / 24.66 / 18.84 / 15.71</b> across 60M→1.3B, matching the fixed 8-bit baseline (<b>30.88 / 25.13 / 18.59 / 15.68</b>) and BF16 references (<b>30.79 / 25.06 / 18.80 / 15.56</b>).</p>
+        </div>
+        <div class="card" style="padding:14px">
+          <h3>DeepSeek-V3-style hierarchy</h3>
+          <p>Dynamic 6/8-bit at 13.1B tokens: <b>15.20 PPL</b> vs 15.18 (fixed 8-bit) and 15.06 (fixed 16-bit). Dynamic 8/16-bit: <b>15.10 PPL</b> vs 15.06. Two-stage threshold (1.5 init / 1.1 main) is robust throughout training.</p>
+        </div>
+        <div class="card" style="padding:14px">
+          <h3>Throughput preserved</h3>
+          <p>LLaMA-2 1.3B with dynamic 8/16-bit runs at <b>1.264 s/step · 103,696 tok/s</b> — marginally faster than fixed 8-bit (1.266 s) and within 2.4% of fixed 16-bit. Recovery overhead is in the noise.</p>
+        </div>
+        <div class="card" style="padding:14px">
+          <h3>LLaMA-2 13B LoRA (maxO=10)</h3>
+          <p>INT8/BF16 with GNMR+∆: GSM8K <b>15.01</b> (BF16: 15.09, fixed INT8: 14.71), MMLU <b>29.92</b> (matches BF16), HellaSwag <b>64.67</b>, WikiText-2 PPL <b>5.4511</b>. Beats fixed INT8 on every metric.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Strengths / Limitations -->
+    <div class="row-split">
+      <div class="card">
+        <h2>Strengths</h2>
+        <ul>
+          <li><b>Clean abstraction.</b> Reframes low-precision instability as budgeted runtime control, decoupling controller quality from kernels.</li>
+          <li><b>Cheap, online signals.</b> Only the current gradient norm and a running mean — no extra backward, no Jacobian estimation.</li>
+          <li><b>Strong quality preservation.</b> Near-BF16 PPL at 4-bit activations, fixed-16-bit PPL at 8/16-bit dynamic, with &lt;0.2% trigger rate.</li>
+          <li><b>Multi-level evidence.</b> Pre-training (60M–3B), recipe integration (DeepSeek-V3), and 13B LoRA fine-tuning separated cleanly.</li>
+          <li><b>Theoretical motivation.</b> Theorem 1 + Corollary 1 + Theorem 2 give a coherent narrative even without end-to-end convergence.</li>
+          <li><b>Implementation clarity.</b> Operator vs. block granularity and dual-path interface spelled out per setting.</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h2>Limitations</h2>
+        <ul>
+          <li><b>Backend coupling.</b> Requires the stack to expose both a low-cost and a higher-fidelity path for some units.</li>
+          <li><b>Engineering overhead unquantified</b> at production scale; the 1.3B throughput number may not extrapolate to larger clusters.</li>
+          <li><b>No automated calibration</b> of <code>α<sub>t</sub>, β<sub>t</sub>, T<sub>lock</sub>, maxO</code>; the two-stage schedule is heuristic.</li>
+          <li><b>Limited architecture coverage.</b> All pre-training is LLaMA-2 / C4-en; MoE / PanGu are appendix-only.</li>
+          <li><b>No end-to-end convergence theorem.</b> Theory is bound-level and diagnostic, not finite-sample.</li>
+          <li><b>Fine-tuning is LoRA-only at 13B.</b> Not a full-scale pre-training of a 13B+ model.</li>
+          <li><b>Partial comparisons.</b> SPAM, GSNR, GSS, spike-aware Adam are not head-to-head in the main text.</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- Questions -->
+    <div class="card full">
+      <h2>Questions for Further Exploration</h2>
+      <ul class="qlist">
+        <li>Can <code>Top<sub>maxO</sub></code> be replaced with a learnable bandit / small RL controller using GNMR / ∆-GNMR as state features, adapting α, β, T<sub>lock</sub> online?</li>
+        <li>How does GNMR behave when the recovery path is itself approximate (e.g. FP4 → FP8 instead of FP8 → BF16), and at what c<sub>max</sub> does maxO bind?</li>
+        <li>Is there a principled calibration for α, β based on training-trace statistics (e.g. a high quantile of historical GNMR) that removes the two-stage schedule?</li>
+        <li>Can operator-level GNMR be aggregated into a layer- or block-level risk score with approximation guarantees, cutting monitoring overhead at very large scales?</li>
+        <li>How does GNMR interact with optimizer-level stabilizers (SPAM, spike-aware Adam) — complementary, redundant, or antagonistic?</li>
+        <li>What is the cost of providing the dual-path interface (low-cost + recovery) at production scale in Megatron-LM, FSDP, or DeepSpeed?</li>
+        <li>Can GNMR be extended to MoE training, where expert-level gradient statistics have very different typical scales and recovery at expert granularity may be more natural?</li>
+        <li>Does the same controller transfer to non-Transformer architectures (state-space, hybrid SSM-Attention) and to other modalities (vision, multimodal)?</li>
+        <li>How sensitive is the LLaMA-2 13B downstream preservation to <code>maxO = 10</code> — is there a sweet spot in the recovery-overhead trade-off at large scale?</li>
+        <li>Can historical GNMR statistics serve as a curriculum signal (layer-wise "stability maturation") to inform LR schedules or precision warm-up?</li>
+      </ul>
+    </div>
+
+  </section>
+
+  <footer>
+    <span>Daily digest · 2026-06-23</span>
+    <a href="2606.00539.html">↗ Markdown source</a>
+  </footer>
+</main>
+
+</body>
+</html>

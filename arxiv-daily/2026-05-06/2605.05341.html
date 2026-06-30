@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Feature Starvation as Geometric Instability in Sparse Autoencoders</title>
+<style>
+:root { --paper:#fafafa; --ink:#1a1a1a; --muted:#555; --accent:#1a5276; --line:#ddd; --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif; --serif:Georgia,"Noto Serif SC",serif; }
+body { font-family:var(--serif); background:var(--paper); color:var(--ink); line-height:1.6; margin:0; padding:0; }
+.container { max-width:min(95vw, 760px); margin:0 auto; padding:28px 20px 60px; }
+.topnav { position:fixed; top:12px; left:14px; z-index:50; font-family:var(--sans); font-size:.75rem; background:var(--paper); border:1px solid var(--line); padding:5px 10px; border-radius:999px; }
+.topnav a { color:var(--muted); text-decoration:none; font-weight:600; }
+.topnav a:hover { color:var(--accent); }
+h1 { font-size:1.6rem; margin:2.2rem 0 1rem; border-bottom:2px solid var(--accent); padding-bottom:.3rem; }
+h2 { font-size:1.3rem; margin:1.8rem 0 .8rem; color:var(--accent); }
+h3 { font-size:1.1rem; margin:1.4rem 0 .6rem; }
+p { margin:.8rem 0; }
+.authors { font-style:italic; color:var(--muted); margin-top:-.4rem; }
+.meta { font-family:var(--sans); font-size:.82rem; color:var(--muted); margin:.2rem 0; }
+a { color:var(--accent); text-decoration:none; }
+a:hover { text-decoration:underline; }
+blockquote { border-left:3px solid var(--accent); margin:1rem 0; padding:.2rem 0 .2rem 1rem; color:var(--muted); font-style:italic; }
+code { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; background:#f0f0f0; padding:2px 5px; border-radius:3px; font-size:.9em; }
+pre { background:#f5f5f5; padding:14px; overflow-x:auto; border-radius:4px; border:1px solid var(--line); }
+pre code { background:transparent; padding:0; }
+ul,ol { margin:.6rem 0; padding-left:1.5rem; }
+li { margin:.25rem 0; }
+table { border-collapse:collapse; width:100%; margin:1rem 0; font-family:var(--sans); font-size:.9rem; }
+th,td { border:1px solid var(--line); padding:6px 10px; text-align:left; }
+th { background:#f0f0f0; }
+hr { border:none; border-top:1px solid var(--line); margin:1.5rem 0; }
+.note { font-family:var(--sans); font-size:.78rem; color:var(--muted); border-top:1px solid var(--line); margin-top:2rem; padding-top:1rem; }
+@media (max-width: 600px) { .container { padding:22px 14px 40px; } h1 { font-size:1.35rem; } }
+</style>
+</head>
+<body>
+<div class="topnav"><a href="./index.html">← Today's digest</a></div>
+<div class="container">
+<h1>Feature Starvation as Geometric Instability in Sparse Autoencoders</h1>
+<p class="meta">arXiv: 2605.05341v1</p>
+<p class="meta">Date: 2026-05-06</p>
+<p class="meta"><a href="https://arxiv.org/abs/2605.05341v1">https://arxiv.org/abs/2605.05341v1</a></p>
+<blockquote><strong>一句话总结：</strong> 本文将 SAE 中的"特征饥饿"（dead neurons）重新解释为过完备字典上 $\ell_1$ 稀疏编码图的几何不稳定性问题，提出 Adaptive Elastic Net SAE（AEN-SAE）：以 $\ell_2$ 项保证强凸性与 Lipschitz 稳定性、以基于 EMA 在线计算的自适应 $\ell_1$ 重加权消除 shrinkage 偏差，在 Pythia 70M 与 Llama 3.1 8B 上将 TopK 高达 80–95% 的死特征率降至 39–55%，同时无需重采样或 ghost gradient 等辅助启发式。</blockquote>
+<blockquote><strong>TL;DR:</strong> The authors recast SAE feature starvation as a geometric pathology of the $\ell_1$-induced polyhedral sparse coding map—shallow amortized encoders cannot stably approximate it under the high mutual coherence of LLM dictionaries. They introduce AEN-SAE, a fully differentiable architecture combining a fixed $\ell_2$ anchor (strong convexity, bounded Hoffman/stability constant) with adaptive $\ell_1$ weights computed via an EMA of activations (online adaptive LASSO). On Pythia 70M and Llama 3.1 8B, AEN-SAE reduces TopK's 80–95% dead-neuron rates to ~3–55% across sparsity targets, lowers max coherence dramatically (e.g., 1.000 → 0.585 on Llama at $\ell_0\approx 32$), and avoids resampling/ghost-gradient hacks—at the cost of a modest drop in raw explained variance. Worth reading if you care about SAE training stability or want a principled bridge between classical sparse recovery theory and interpretability-driven dictionary learning.</blockquote>
+<h2>核心贡献</h2>
+<ul>
+<li><strong>理论重构</strong>：将 SAE 的 feature starvation 与 shrinkage 归因于过完备字典在高相关性下 $\ell_1$ 稀疏编码图的多面体几何不稳定性（Hoffman 常数 $H_\mathcal{A} \sim \mathcal{O}(\|D_{\mathcal{A}^c}^\top D_\mathcal{A}\|_2 / \lambda_{\min}(D_\mathcal{A}^\top D_\mathcal{A}))$ 发散），而非单纯的数据多样性问题。</li>
+<li><strong>AEN-SAE 架构</strong>：在标准 SAE 损失上同时叠加固定 $\ell_2$ 结构项（强凸/Lipschitz 稳定）与自适应 $\ell_1$ 重加权 $w_i \propto |\hat{h}_i|^{-\gamma}$，二者分别控制 active Gram 矩阵的曲率与活跃—非活跃特征间的相互作用泄露。</li>
+<li><strong>可流式自适应权重</strong>：用 EMA 在线估计 $\bar{h}^{(t)}$，配合 top-percentile 参考集做尺度无关归一化和延迟 warmup，避免传统 adaptive LASSO 的两阶段流程，FLOPs 增量 < 0.1%。</li>
+<li><strong>理论保证</strong>：在时间尺度分离假设下证明 oracle-like support recovery，并显式给出稀疏编码图的 Lipschitz 上界。</li>
+<li><strong>跨规模实证</strong>：在合成 spiked 字典（$\rho=0.9$）、Pythia 70M（$d_{dict}=4096/131072$）和 Llama 3.1 8B（$d_{dict}=131072$）上验证，且结构超参（$\lambda_2,\gamma,\beta,p,w_{\min/\max}$）可从小模型直接迁移到 8B（与 $\mu P$ 思想一致）。</li>
+</ul>
+<h2>Key Contributions</h2>
+<ul>
+<li><strong>Diagnosing the failure mode geometrically:</strong> Reframes feature starvation/shrinkage in $\ell_1$-SAEs as instability of the polyhedral LASSO solution map under high mutual coherence, formalized through the Hoffman constant $H_\mathcal{A}$ and the conditioning of the active Gram matrix.</li>
+<li><strong>AEN-SAE objective:</strong> $\mathcal{L}_{AEN} = \tfrac{1}{2}\|x - (Dh(x)+b_{dec})\|_2^2 + \lambda_1 \sum_i w_i |h_i(x)| + \lambda_2 \|h(x)\|_2^2$, jointly controlling curvature ($\ell_2$) and feature interaction leakage (adaptive $w_i$).</li>
+<li><strong>Streaming online adaptive weights:</strong> Replaces two-pass adaptive LASSO with EMA-based feature-activity estimates plus a top-percentile reference set $\mathcal{S}_p^{(t)}$ for scale-invariant normalization and a delayed warmup $\rho(t)$ to prevent premature feature death.</li>
+<li><strong>Theoretical guarantees:</strong> Oracle-like support recovery under timescale separation, plus explicit Lipschitz continuity of the induced sparse coding map (Appendix A).</li>
+<li><strong>End-to-end empirical validation</strong> at three scales (spiked synthetic, Pythia 70M, Llama 3.1 8B) with hyperparameter transfer across model sizes and no resampling/ghost-gradient auxiliaries.</li>
+</ul>
+<h2>Methodology</h2>
+<p>The authors begin by formalizing SAE training as <strong>amortized LASSO</strong>: a shallow ReLU encoder $h(x)=\text{ReLU}(W_{enc}x+b_{enc})$ tries to approximate the optimal sparse code $h^*(x)=\arg\min_h \tfrac{1}{2}\|x-Dh\|_2^2 + \lambda_1\|h\|_1$. Two geometric properties of the LASSO solution map determine whether such a shallow approximator can succeed: (i) the <strong>irrepresentability condition (IRC)</strong> governing whether inactive features are sufficiently uncorrelated with the active set, and (ii) the <strong>conditioning of the active Gram matrix</strong> $D_\mathcal{A}^\top D_\mathcal{A}$. In overcomplete LLM SAE dictionaries both fail, so the solution map develops large Hoffman constant $H_\mathcal{A}$ and becomes nearly nonsmooth—exactly what a single linear-projection encoder cannot track.</p>
+<p>To stabilize the map without resorting to nondifferentiable hard masking (TopK/JumpReLU/BatchTopK), AEN-SAE adds two terms to the standard loss:</p>
+<ol>
+<li><strong>A fixed $\ell_2$ structural anchor</strong> $\lambda_2\|h\|_2^2$ enforces strong convexity, explicitly bounding the stability constant of the sparse coding map.</li>
+<li><strong>An adaptive $\ell_1$ reweighting</strong> $\lambda_1 \sum_i w_i|h_i(x)|$ where $w_i$ shrinks for consistently active features (eliminating shrinkage bias on true signals) and grows for inactive/spurious features (effectively pruning interaction leakage from inactive directions).</li>
+</ol>
+<p>The crucial engineering contribution is making the adaptive weights <strong>streaming-compatible</strong>. Classical adaptive LASSO needs an initial estimate $\hat{h}$, infeasible for token-streaming LLM SAEs. They instead maintain an EMA $\bar{h}^{(t)} = \beta\bar{h}^{(t-1)} + (1-\beta)\frac{1}{B}\sum_b |h_b^{(t)}|$ of post-ReLU activations, then compute weights $w_i^{(t)} = \text{clip}((\bar{h}_{ref}^{(t)}/(\bar{h}_i^{(t)}+\epsilon))^\gamma, w_{min}, w_{max})$ where $\bar{h}_{ref}^{(t)}$ averages the top-$p$ percentile of features for scale invariance. A delayed linear warmup $\rho(t)$ interpolates from uniform $\ell_1$ to the adaptive regime to avoid killing features before their EMA stabilizes.</p>
+<p>Theoretical analysis (Appendix A) shows oracle-like support recovery under a timescale separation assumption (EMA mixes faster than weight evolution) and Lipschitz continuity of the induced sparse coding map.</p>
+<p>Empirically the authors test three regimes: (1) a controlled synthetic <strong>spiked dictionary</strong> $d_j = (\sqrt{1-\rho}u_j+\sqrt{\rho}v)/\|\cdot\|_2$ with tunable coherence $\rho$; (2) <strong>Pythia 70M</strong> layer-3 residuals with an 8x overcomplete dictionary; (3) <strong>Llama 3.1 8B</strong> layer-16 residuals with a 32x overcomplete dictionary ($d_{dict}=131{,}072$), trained for 100k steps (~400M tokens) with structural hyperparameters transferred directly from Pythia. Activations are $\ell_2$-normalized per token. Metrics include MSE, explained variance, $\ell_0$, dead-neuron rate, dictionary coherence (p50/p90/max), Gini coefficient, normalized entropy of feature usage, and top-10% activation mass.</p>
+<h2>Results & Highlights</h2>
+<ul>
+<li><strong>Synthetic, low coherence ($\rho=0$):</strong> All architectures perform comparably; AEN-SAE shows 0% dead features with a small explained-variance penalty from $\ell_2$ regularization (Figure 2).</li>
+<li><strong>Synthetic, high coherence ($\rho=0.9$, Table 1):</strong> TopK collapses—97.7% dead neurons at $\ell_0\approx 16$ and 96.5% at $\ell_0\approx 32$. AEN-SAE drops these to <strong>40.9%</strong> and <strong>41.0%</strong> respectively, with higher explained variance (0.507 vs 0.470; 0.665 vs 0.547) and better-conditioned active Gram matrix ($\kappa\approx 21$ vs 769).</li>
+<li><strong>Pythia 70M (Table 2 & 3):</strong> At $\ell_0\approx 32$, TopK has 13.9% dead neurons with max coherence ~0.989 and Gini 0.903 (86% of activation mass on top 10% of features). AEN-SAE: 1.3% dead, max coherence 0.963, Gini 0.670. At $\ell_0\approx 128$, AEN's Gini drops to 0.670 vs TopK's 0.903; entropy rises to 0.899 vs 0.755—indicating fundamentally more distributed feature usage. AEN's max coherence 0.876 vs TopK's 0.954.</li>
+<li><strong>Llama 3.1 8B (Table 4):</strong> TopK exhibits <strong>80–88% dead features across all sparsity bottlenecks</strong> ($\ell_0\in\{32,64,128\}$) with max coherence pinned at 1.000 (degenerate). AEN-SAE: dead rate <strong>39.3–55.4%</strong>, max coherence reduced to <strong>0.585–0.989</strong>, p90 coherence cut roughly in half (e.g., 0.438 → 0.218 at $\ell_0\approx 128$). Explained variance is lower (e.g., 0.469 vs 0.656)—a deliberate trade-off documented by the authors.</li>
+<li><strong>Hyperparameter transfer:</strong> Structural hyperparameters fixed at $\lambda_2=10^{-4},\gamma=0.5,\beta=0.9999,p=0.05,w_{min}=0.01,w_{max}=10$ from Pythia transfer directly to Llama 3.1 8B; only $\lambda_1$ is retuned for sparsity targets.</li>
+<li><strong>Computational overhead:</strong> <0.1% FLOPs increase versus TopK; no auxiliary resampling, ghost gradients, or proxy losses.</li>
+</ul>
+<h2>Authors & Credibility</h2>
+<ul>
+<li><strong>Faris Chaudhry</strong> — Imperial College London (corresponding author).</li>
+<li><strong>Keisuke Yano</strong> — Institute for Statistical Mathematics, Tokyo. Statistician with prior work in high-dimensional inference, lending credibility to the sparse-recovery theory components.</li>
+<li><strong>Anthea Monod</strong> — Imperial College London. Known for work in topological/statistical methods for ML; supported by EPSRC AI Hub on Mathematical Foundations of Intelligence ("Erlangen Programme for AI"), a serious mathematical ML programme.</li>
+<li>Funding (EPSRC EP/Y028872/1; JSPS KAKENHI 24K15120, 24H00247, 26K02871) is concrete and disclosed.</li>
+<li>The paper is a preprint; not yet peer-reviewed at the time of posting (May 6, 2026).</li>
+</ul>
+<h2>Critical Assessment</h2>
+<p><strong>Novelty:</strong> Moderate-to-high. The reformulation of dead neurons as a geometric instability of the amortized LASSO map is a clean conceptual contribution and connects SAE training to a well-developed classical theory (adaptive LASSO, elastic net, irrepresentability). The streaming EMA-based adaptive reweighting is a useful engineering innovation. However, elastic net regularization and adaptive LASSO are individually decades old, and recent SAE work (Chanin et al. 2025, Bussmann et al.) already moves toward geometry-aware regularization. The novelty is in the synthesis and the streaming-compatible online estimator, not the underlying tools.</p>
+<p><strong>Rigor:</strong> The theoretical claims (Lipschitz continuity, oracle-like support recovery) live in Appendix A and rely on a "timescale separation assumption" that is invoked but not deeply stress-tested in the main text. The empirical comparison against TopK is the headline; vanilla $\ell_1$, elastic net (no adaptation), and adaptive LASSO (no $\ell_2$) are included in synthetic plots but the LLM tables focus narrowly on AEN vs TopK. Other strong baselines (JumpReLU, BatchTopK with proper resampling, gated SAEs, Matryoshka SAEs, attribution-distilled methods) are discussed in Related Work but not included in head-to-head LLM comparisons—a meaningful gap.</p>
+<p><strong>Reproducibility:</strong> Hyperparameters are listed concretely; training setup is specified (Adam, batch 4096, lr $5\times 10^{-4}$, 100k steps, 4k warmup, BF16 LLM/FP32 SAE, deduplicated Pile). However, no code release is mentioned in the readable portion. Random seeds (three) are reported with [min, max] bounds, which is good practice; the variance bands are tight in most tables.</p>
+<p><strong>Significance:</strong> Genuine. The headline result that TopK starves 80–95% of features at 8B scale (Table 4) is striking and—if it generalizes—suggests the field's reliance on hard masking is masking (no pun intended) severe geometric pathology. AEN-SAE's roughly halved max coherence and order-of-magnitude reduction in dead features at modest reconstruction cost is a meaningful operating-point shift that interpretability practitioners should evaluate.</p>
+<p><strong>Red flags / things to scrutinize:</strong></p>
+<ul>
+<li>AEN-SAE still has 39–55% dead features at the 8B scale. The authors concede this, but it complicates the framing as a feature-starvation solution—it remains a substantial mitigation, not a cure.</li>
+<li>Lower explained variance (e.g., 0.469 vs 0.656 on Llama at $\ell_0\approx 128$) is a real cost. Whether the geometric improvements translate to better downstream interpretability (probing, circuit recovery, attribution) is asserted but not demonstrated; human-centered interpretability evaluation is explicitly deferred to future work.</li>
+<li>TopK is reported with max coherence $=1.000$ "immediately at $\ell_0\geq 32$" on Llama 3.1 8B—this is a near-pathological characterization of the baseline. Worth checking whether the TopK baseline used standard tricks like decoder normalization, AuxK loss (Bussmann's BatchTopK paper), or resampling; if the comparison is to a vanilla TopK without these patches, the gap may be overstated relative to a well-tuned production baseline.</li>
+<li>"Hyperparameter transfer is successful" is asserted on the basis of one fixed setting on Llama 3.1 8B. A genuine $\mu P$-style claim would need a sweep at the target scale.</li>
+</ul>
+<h2>Strengths</h2>
+<ul>
+<li>Clean conceptual reframing tying mechanistic-interpretability practice to classical high-dimensional statistics (irrepresentability, adaptive LASSO, elastic net Hoffman bounds).</li>
+<li>Fully differentiable—no resampling heuristics, no proxy gradients, no auxiliary losses required.</li>
+<li>Streaming/online adaptive weight estimator with negligible compute overhead is a real contribution that solves a genuine engineering obstacle.</li>
+<li>Multi-scale empirical evaluation including a frontier-relevant 8B model with a 32x overcomplete dictionary; reports variance across three seeds.</li>
+<li>Geometric diagnostics (coherence, Gini, entropy, condition number) provide a richer evaluation lens than reconstruction-only comparisons.</li>
+<li>Honest reporting of the explained-variance trade-off rather than cherry-picking.</li>
+</ul>
+<h2>Limitations</h2>
+<ul>
+<li>Reconstruction (explained variance) is consistently lower than TopK; whether the geometric improvements yield measurable interpretability gains remains untested.</li>
+<li>39–55% dead features at 8B scale is still high; authors speculate this may be partly a sampling/training-horizon issue, but no scaling study with longer training is shown.</li>
+<li>$\lambda_1$ still requires tuning to hit a sparsity target—less ergonomic than fixed-$k$ TopK.</li>
+<li>Theoretical guarantees rely on a timescale separation assumption that is not empirically verified.</li>
+<li>LLM-side baselines are restricted; no head-to-head against JumpReLU, BatchTopK with AuxK, gated SAEs, or Matryoshka SAEs.</li>
+<li>Evaluated only on residual-stream activations at single mid-layers; transfer to other layers/sites (MLP outputs, attention outputs) and to instruction-tuned models is not addressed.</li>
+</ul>
+<h2>Relevance</h2>
+<p>与你关注的 LLM 可解释性、训练稳定性、SAE 字典学习方向高度相关：本文用经典稀疏恢复理论解释了 SAE 训练失败的几何根源，并提出了一个可微、低开销、可在 8B 规模迁移的替代方案，对评估当前 mainstream TopK/JumpReLU SAE 的潜在脆弱性、思考"reconstruction vs feature utilization"权衡极有参考价值。</p>
+<h2>Questions for Further Exploration</h2>
+<ul>
+<li>How do AEN-SAE features compare to TopK features on <strong>downstream interpretability tasks</strong>—probing, circuit recovery, steering, automated feature labeling—where the lower explained variance might or might not matter?</li>
+<li>Would the same geometric framework justify a <strong>principled scheduler</strong> for $\lambda_1$ (analogous to TopK's $k$), eliminating the remaining tuning ergonomics gap?</li>
+<li>How does AEN-SAE compare against <strong>JumpReLU, BatchTopK + AuxK, and Matryoshka SAEs</strong> in a controlled head-to-head on the same 8B dictionary?</li>
+<li>Does the <strong>timescale separation assumption</strong> in the theory hold empirically? What happens when $\beta$ is varied or training is shortened?</li>
+<li>Could the $\ell_2$ anchor and adaptive reweighting be combined with <strong>hard masking</strong> (a hybrid AEN-TopK) to capture the best of both regimes, as the authors suggest in future work?</li>
+<li>Does the dramatic max-coherence collapse of TopK at 8B reproduce when the TopK baseline uses standard production patches (AuxK, decoder column renormalization, resampling), or is the comparison reflective of a particularly weak baseline?</li>
+<li>Does the geometric stability translate to better <strong>cross-seed feature reproducibility</strong>—a key desideratum for using SAE features in mechanistic studies?</li>
+</ul>
+<p class="note">Generated from Markdown summary. Full paper: <a href="https://arxiv.org/abs/2605.05341v1">arXiv:2605.05341v1</a></p>
+</div>
+</body>
+</html>

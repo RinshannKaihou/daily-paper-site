@@ -1,0 +1,686 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>2606.27679 — Probe-Based Uncertainty Estimation in LLMs</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=IBM+Plex+Sans:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ink:#161b27;
+    --ink-soft:#3b4256;
+    --paper:#f1ece0;
+    --paper-2:#e7e0cd;
+    --paper-3:#dcd2b9;
+    --line:#c7bb9b;
+    --line-soft:#d8cfb5;
+    --probe:#0d5a6b;        /* deep teal — internal signals / probing */
+    --probe-deep:#073945;
+    --probe-soft:#cbe2e6;
+    --transfer:#c8553d;     /* coral — transfer / deployment */
+    --transfer-deep:#8e3526;
+    --transfer-soft:#f1d8d0;
+    --muted:#756d59;
+    --warn:#9a3b0c;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    font-family:"IBM Plex Sans",sans-serif;
+    color:var(--ink);
+    background:var(--paper);
+    background-image:
+      radial-gradient(circle at 8% -4%, rgba(13,90,107,.09), transparent 42%),
+      radial-gradient(circle at 96% 2%, rgba(200,85,61,.085), transparent 40%);
+    -webkit-font-smoothing:antialiased;
+    line-height:1.5;
+  }
+  body::before{
+    content:"";position:fixed;inset:0;pointer-events:none;z-index:1;opacity:.35;
+    background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='180' height='180'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2'/><feColorMatrix values='0 0 0 0 0.09 0 0 0 0 0.11 0 0 0 0 0.16 0 0 0 .35 0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
+    mix-blend-mode:multiply;
+  }
+  .wrap{position:relative;z-index:2;max-width:1240px;margin:0 auto;padding:0 32px;}
+
+  /* ---------- NAV ---------- */
+  .topnav{
+    position:fixed;top:18px;left:18px;z-index:50;
+    font-family:"IBM Plex Mono",monospace;font-size:12.5px;letter-spacing:.02em;
+  }
+  .topnav a{
+    display:inline-flex;align-items:center;gap:7px;
+    padding:9px 14px;border-radius:999px;
+    background:var(--ink);color:var(--paper);
+    text-decoration:none;font-weight:500;
+    box-shadow:0 6px 18px rgba(23,28,40,.22);
+    transition:transform .18s ease, background .18s ease;
+  }
+  .topnav a:hover{transform:translateY(-1px);background:#0f1420;}
+
+  /* ---------- META STRIP ---------- */
+  .meta-strip{
+    display:flex;flex-wrap:wrap;align-items:baseline;gap:14px;
+    padding-top:74px;border-bottom:1px solid var(--line-soft);padding-bottom:14px;
+  }
+  .strip-id{font-family:"IBM Plex Mono",monospace;font-size:12px;color:var(--muted);letter-spacing:.06em;}
+  .strip-title a{font-size:14.5px;font-weight:600;color:var(--ink);text-decoration:none;border-bottom:1.5px solid transparent;line-height:1.3;}
+  .strip-title a:hover{border-bottom-color:var(--ink);}
+  .strip-authors{font-size:13.5px;color:var(--ink-soft);margin-left:auto;}
+  .strip-authors b{font-weight:600;color:var(--ink);}
+  .strip-date{font-family:"IBM Plex Mono",monospace;font-size:12px;color:var(--muted);}
+
+  .chips{display:flex;flex-wrap:wrap;gap:7px;padding:12px 0 4px;}
+  .chip{
+    font-family:"IBM Plex Mono",monospace;font-size:11px;letter-spacing:.04em;
+    padding:4px 10px;border-radius:4px;border:1px solid var(--line);
+    background:var(--paper-2);color:var(--ink-soft);text-transform:uppercase;
+  }
+  .chip.s{border-color:var(--probe);color:var(--probe-deep);background:var(--probe-soft);}
+  .chip.q{border-color:var(--transfer);color:var(--transfer-deep);background:var(--transfer-soft);}
+
+  /* ---------- HERO ---------- */
+  .hero{padding:34px 0 18px;}
+  .hero-eyebrow{
+    font-family:"IBM Plex Mono",monospace;font-size:12px;letter-spacing:.18em;
+    text-transform:uppercase;color:var(--transfer-deep);margin-bottom:14px;
+    display:flex;align-items:center;gap:10px;
+  }
+  .hero-eyebrow::before{content:"";width:34px;height:2px;background:var(--transfer);}
+  .hero h1{
+    font-family:"Instrument Serif",serif;font-weight:400;
+    font-size:clamp(36px,5.9vw,76px);line-height:1.0;letter-spacing:-.01em;
+    margin:0 0 6px;color:var(--ink);
+  }
+  .hero h1 .sp{color:var(--probe-deep);}
+  .hero h1 .qu{color:var(--transfer-deep);font-style:italic;}
+  .hero-zh{
+    font-size:15px;color:var(--ink-soft);max-width:800px;margin-top:18px;
+    padding-left:14px;border-left:2px solid var(--probe);line-height:1.65;
+  }
+  .hero-zh b{color:var(--probe-deep);font-weight:600;}
+
+  /* ---------- ASSET ROW ---------- */
+  .assets{
+    display:grid;grid-template-columns:1.32fr 1fr 1fr;gap:18px;margin:30px 0 8px;
+  }
+  .card{
+    background:var(--paper-2);border:1px solid var(--line);border-radius:10px;
+    padding:22px 22px 20px;position:relative;overflow:hidden;
+  }
+  .card .lbl{
+    font-family:"IBM Plex Mono",monospace;font-size:10.5px;letter-spacing:.16em;
+    text-transform:uppercase;color:var(--muted);display:flex;align-items:center;gap:8px;margin-bottom:12px;
+  }
+  .dot{width:8px;height:8px;border-radius:50%;display:inline-block;}
+
+  /* metric card */
+  .metric .asym{display:flex;align-items:flex-end;gap:14px;margin-top:4px;}
+  .asym .col{flex:1;}
+  .asym .num{
+    font-family:"Instrument Serif",serif;font-size:clamp(44px,5.4vw,66px);line-height:.9;letter-spacing:-.02em;
+  }
+  .asym .num.qu{color:var(--transfer-deep);}
+  .asym .num.sp{color:var(--probe-deep);font-size:clamp(26px,3.2vw,38px);opacity:.85;}
+  .asym .cap{font-size:12px;color:var(--ink-soft);margin-top:6px;line-height:1.35;}
+  .asym .vs{
+    font-family:"IBM Plex Mono",monospace;font-size:11px;color:var(--muted);
+    align-self:center;padding-bottom:14px;
+  }
+  .metric-foot{
+    margin-top:14px;font-size:12.5px;color:var(--ink-soft);line-height:1.5;
+    border-top:1px dashed var(--line);padding-top:12px;
+  }
+  .metric-foot b{color:var(--ink);}
+  .mini-stats{display:flex;gap:14px;margin-top:10px;flex-wrap:wrap;}
+  .mini-stats .ms{font-family:"IBM Plex Mono",monospace;font-size:11.5px;color:var(--ink-soft);}
+  .mini-stats .ms b{color:var(--probe-deep);}
+
+  /* why card */
+  .why p{font-size:15px;line-height:1.55;margin:6px 0 0;color:var(--ink);}
+  .why .accent-bar{position:absolute;left:0;top:0;bottom:0;width:5px;background:var(--probe);}
+
+  /* edge card */
+  .edge{background:#2a2017;border-color:#5a3a1f;}
+  .edge .lbl{color:#e0b886;}
+  .edge p{color:#f0e4d2;font-size:14px;line-height:1.55;margin:6px 0 0;}
+  .edge .accent-bar{position:absolute;left:0;top:0;bottom:0;width:5px;background:#e0913f;}
+
+  /* ---------- SECTION SHELL ---------- */
+  section{padding:34px 0 6px;animation:rise .7s both;}
+  .sec-head{display:flex;align-items:baseline;gap:14px;margin-bottom:20px;border-bottom:1px solid var(--line-soft);padding-bottom:10px;}
+  .sec-num{font-family:"IBM Plex Mono",monospace;font-size:12px;color:var(--transfer);}
+  .sec-head h2{font-family:"Instrument Serif",serif;font-weight:400;font-size:34px;margin:0;letter-spacing:-.01em;}
+  .sec-head .lead{margin-left:auto;font-size:13px;color:var(--muted);max-width:380px;text-align:right;}
+
+  /* ---------- DIVERGENCE DIAGRAM ---------- */
+  .schematic{
+    background:var(--paper-2);border:1px solid var(--line);border-radius:10px;
+    padding:24px 22px 16px;margin-bottom:6px;position:relative;overflow:hidden;
+  }
+  .schematic svg{width:100%;height:auto;display:block;}
+  .schematic-cap{font-size:12px;color:var(--muted);margin-top:10px;text-align:center;font-family:"IBM Plex Mono",monospace;letter-spacing:.03em;line-height:1.5;}
+  .signal-badge{
+    position:absolute;top:18px;right:18px;
+    font-family:"IBM Plex Mono",monospace;font-size:10.5px;letter-spacing:.1em;
+    background:var(--transfer-soft);color:var(--transfer-deep);border:1px solid var(--transfer);
+    padding:5px 10px;border-radius:4px;text-transform:uppercase;
+  }
+
+  /* ---------- METHODOLOGY ---------- */
+  .method-grid{display:grid;grid-template-columns:1.45fr 1fr;gap:24px;align-items:start;}
+  .method-body p{margin:0 0 12px;font-size:14.5px;line-height:1.62;}
+  .method-body b{color:var(--ink);}
+  .method-body .sp{color:var(--probe-deep);font-weight:600;}
+  .method-body .qu{color:var(--transfer-deep);font-weight:600;}
+  .methods-list{display:flex;flex-direction:column;gap:12px;}
+  .m-item{
+    border:1px solid var(--line);background:var(--paper);border-radius:8px;padding:14px 16px;
+    border-left:4px solid var(--probe);
+  }
+  .m-item .k{font-family:"IBM Plex Mono",monospace;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--probe-deep);margin-bottom:4px;}
+  .m-item .d{font-size:13px;color:var(--ink-soft);line-height:1.45;margin:0;}
+
+  /* feature taxonomy pipeline */
+  .pipeline{
+    margin-top:18px;background:var(--paper);border:1px solid var(--line);border-radius:10px;padding:22px;
+  }
+  .pipe-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;}
+  .pipe-col{
+    border:1px solid var(--line-soft);border-radius:8px;padding:14px 12px;background:var(--paper-2);
+    display:flex;flex-direction:column;
+  }
+  .pipe-col.hero{background:var(--probe-soft);border-color:var(--probe);}
+  .pipe-col .lvl{font-family:"IBM Plex Mono",monospace;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);}
+  .pipe-col.hero .lvl{color:var(--probe-deep);}
+  .pipe-col .nm{font-family:"Instrument Serif",serif;font-size:19px;color:var(--ink);margin:3px 0 8px;line-height:1.1;}
+  .pipe-col ul{margin:0;padding-left:15px;}
+  .pipe-col li{font-size:11.5px;color:var(--ink-soft);line-height:1.5;margin-bottom:3px;}
+  .pipe-col.hero li{color:var(--probe-deep);}
+  .pipe-col .cnt{font-family:"IBM Plex Mono",monospace;font-size:10px;color:var(--transfer-deep);margin-top:auto;padding-top:8px;}
+  .pipe-cap{font-size:12px;color:var(--muted);margin-top:12px;text-align:center;line-height:1.5;}
+  .pipe-cap b{color:var(--ink-soft);}
+
+  /* ---------- RESULTS TABLES ---------- */
+  .tables{display:grid;grid-template-columns:1fr 1fr;gap:18px;}
+  .tcard{background:var(--paper-2);border:1px solid var(--line);border-radius:10px;overflow:hidden;}
+  .tcard h3{
+    margin:0;padding:14px 18px;font-size:13px;font-weight:600;letter-spacing:.03em;
+    background:var(--ink);color:var(--paper);font-family:"IBM Plex Sans",sans-serif;
+    display:flex;justify-content:space-between;align-items:center;
+  }
+  .tcard h3 .tag{font-family:"IBM Plex Mono",monospace;font-size:10.5px;font-weight:400;opacity:.7;letter-spacing:.08em;}
+  table{width:100%;border-collapse:collapse;font-size:13.5px;}
+  th,td{text-align:left;padding:11px 18px;border-bottom:1px solid var(--line-soft);vertical-align:middle;}
+  th{font-family:"IBM Plex Mono",monospace;font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:500;background:var(--paper-3);}
+  td:last-child,th:last-child{text-align:right;font-variant-numeric:tabular-nums;}
+  td .hi-q{color:var(--transfer-deep);font-weight:600;}
+  td .hi-s{color:var(--probe-deep);font-weight:600;}
+  tr:last-child td{border-bottom:none;}
+  .bar-wrap{display:flex;align-items:center;gap:8px;justify-content:flex-end;}
+  .bar{height:7px;border-radius:3px;background:var(--paper-3);position:relative;min-width:60px;flex:0 0 88px;overflow:hidden;}
+  .bar i{position:absolute;left:0;top:0;bottom:0;border-radius:3px;}
+  .bar i.q{background:var(--transfer);}
+  .bar i.s{background:var(--probe);}
+  .bar i.m{background:var(--muted);}
+  .bar-label{font-family:"IBM Plex Mono",monospace;font-size:12px;font-variant-numeric:tabular-nums;}
+  .t-note{font-size:12px;color:var(--muted);padding:10px 18px;margin:0;border-top:1px solid var(--line-soft);line-height:1.45;}
+  .t-note b{color:var(--ink-soft);}
+
+  /* ladder */
+  .ladder{display:flex;align-items:stretch;gap:0;margin-top:4px;}
+  .ladder .rung{
+    flex:1;background:var(--paper);border:1px solid var(--line);padding:14px 16px;
+    text-align:center;position:relative;
+  }
+  .ladder .rung + .rung{border-left:none;}
+  .ladder .rung .rn{font-family:"Instrument Serif",serif;font-size:26px;color:var(--probe-deep);line-height:1;}
+  .ladder .rung .rt{font-size:12.5px;color:var(--ink);font-weight:600;margin-top:6px;}
+  .ladder .rung .rc{font-family:"IBM Plex Mono",monospace;font-size:11.5px;color:var(--transfer-deep);margin-top:4px;}
+  .ladder .rung .rk{font-family:"IBM Plex Mono",monospace;font-size:9.5px;letter-spacing:.1em;color:var(--muted);text-transform:uppercase;margin-bottom:6px;}
+  .arrow-sep{display:flex;align-items:center;color:var(--muted);font-size:16px;padding:0 2px;}
+
+  /* ---------- STRENGTHS / LIMITATIONS ---------- */
+  .duo{display:grid;grid-template-columns:1fr 1fr;gap:18px;}
+  .panel{border-radius:10px;padding:22px;border:1px solid;}
+  .panel.s{background:var(--probe-soft);border-color:#a9cfd6;}
+  .panel.l{background:#f4e3d8;border-color:#e0bda0;}
+  .panel h3{font-family:"Instrument Serif",serif;font-weight:400;font-size:24px;margin:0 0 14px;display:flex;align-items:center;gap:10px;}
+  .panel.s h3{color:var(--probe-deep);}
+  .panel.l h3{color:var(--transfer-deep);}
+  .panel ul{margin:0;padding-left:18px;}
+  .panel li{font-size:13.5px;line-height:1.5;margin-bottom:9px;color:var(--ink);}
+  .panel.l li{color:#3a2a16;}
+
+  /* ---------- QUESTIONS ---------- */
+  .q-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:14px;}
+  .q{
+    border:1px dashed var(--line);border-radius:8px;padding:16px 18px;
+    background:linear-gradient(180deg,var(--paper) 0%, var(--paper-2) 100%);
+    transition:transform .18s ease, border-color .18s ease;
+    cursor:default;
+  }
+  .q:hover{transform:translateY(-2px);border-style:solid;border-color:var(--probe);}
+  .q .qn{font-family:"IBM Plex Mono",monospace;font-size:11px;color:var(--probe);letter-spacing:.08em;margin-bottom:6px;}
+  .q .qt{font-size:14px;line-height:1.5;color:var(--ink);margin:0;}
+
+  /* ---------- FOOTER ---------- */
+  footer{margin-top:48px;padding:30px 0 60px;border-top:1px solid var(--line-soft);display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:14px;}
+  .md-src{
+    font-family:"IBM Plex Mono",monospace;font-size:13px;text-decoration:none;
+    color:var(--paper);background:var(--ink);padding:11px 18px;border-radius:6px;
+    display:inline-flex;align-items:center;gap:8px;transition:transform .18s;
+  }
+  .md-src:hover{transform:translateY(-2px);}
+  .cred{font-size:12.5px;color:var(--muted);max-width:600px;line-height:1.55;}
+  .cred b{color:var(--ink-soft);font-weight:600;}
+
+  /* ---------- ANIM ---------- */
+  @keyframes rise{from{opacity:0;transform:translateY(14px);}to{opacity:1;transform:none;}}
+  .a1{animation:rise .6s both;animation-delay:.05s;}
+  .a2{animation:rise .6s both;animation-delay:.15s;}
+  .a3{animation:rise .6s both;animation-delay:.25s;}
+  .card{animation:rise .6s both;animation-delay:.3s;}
+  .card:nth-child(2){animation-delay:.4s;}
+  .card:nth-child(3){animation-delay:.5s;}
+
+  /* ---------- RESPONSIVE ---------- */
+  @media(max-width:920px){
+    .assets{grid-template-columns:1fr;}
+    .method-grid,.tables,.duo,.q-grid,.pipe-grid{grid-template-columns:1fr;}
+    .sec-head .lead{display:none;}
+    .strip-authors{margin-left:0;}
+  }
+  @media(max-width:560px){
+    .wrap{padding:0 18px;}
+    .pipe-grid{grid-template-columns:1fr 1fr;}
+    .hero{padding-top:18px;}
+    .ladder{flex-direction:column;}
+    .ladder .rung + .rung{border-left:1px solid var(--line);border-top:none;}
+    .arrow-sep{transform:rotate(90deg);justify-content:center;padding:4px 0;}
+  }
+</style>
+</head>
+<body>
+
+<nav class="topnav"><a href="./index.html">↩ Today's digest</a></nav>
+
+<div class="wrap">
+
+  <!-- META STRIP -->
+  <header class="meta-strip a1">
+    <span class="strip-id">arXiv:2606.27679</span>
+    <span class="strip-title"><a href="https://arxiv.org/abs/2606.27679" target="_blank" rel="noopener">From Signals to Transfer: A Factorised Study of Probe-Based Uncertainty Estimation in LLMs</a></span>
+    <span class="strip-authors"><b>Ponhvoan Srey</b> et al. · <span class="strip-date">2026-06-26</span></span>
+  </header>
+  <div class="chips a1">
+    <span class="chip s">Probe-Based Uncertainty</span>
+    <span class="chip s">Hidden-State Geometry</span>
+    <span class="chip q">Distribution Shift</span>
+    <span class="chip">LLM-as-a-Judge</span>
+    <span class="chip">Interpretability</span>
+    <span class="chip">NTU · SJTU · VinUniv · KAIST</span>
+  </div>
+
+  <!-- HERO -->
+  <div class="hero a2">
+    <div class="hero-eyebrow">Key Finding</div>
+    <h1>
+      Simple hidden-state <span class="sp">probes dominate</span><br>
+      in-domain — but <span class="qu">structured</span> features<br>
+      survive the <span class="qu">transfer</span> to new tasks.
+    </h1>
+    <p class="hero-zh">
+      <b>一句话总结：</b>本文对基于探针的 LLM 不确定性估计进行因子化研究——域内简单隐状态/注意力特征难以被超越，但在分布偏移下结构化压缩特征更鲁棒，据此训练的预训练探针可作为无需目标标签即可迁移到开放式生成的稳定基线。
+    </p>
+  </div>
+
+  <!-- ASSET ROW -->
+  <div class="assets a3">
+    <!-- KEY METRIC -->
+    <div class="card metric">
+      <div class="lbl"><span class="dot" style="background:var(--transfer)"></span> Key Metric · label-free vs. supervised transfer</div>
+      <div class="asym">
+        <div class="col">
+          <div class="num qu">68.73</div>
+          <div class="cap">OOD AUROC · <b>Layer Top-m Prob.</b> probe <i>pretrained</i> on benchmarks, no target labels</div>
+        </div>
+        <div class="vs">vs</div>
+        <div class="col">
+          <div class="num sp">61.98</div>
+          <div class="cap">OOD AUROC · supervised Linear(#256) trained on 256 in-domain instances</div>
+        </div>
+      </div>
+      <div class="metric-foot">A <b>label-free</b> pretrained probe beats a fully supervised baseline on cross-task transfer — Internal Variance follows at <b>68.14</b>.
+        <span class="mini-stats">
+          <span class="ms">judge–human <b>κ ≈ 0.82–0.96</b></span>
+          <span class="ms"><b>5</b> LLMs · <b>7</b> datasets</span>
+        </span>
+      </div>
+    </div>
+
+    <!-- WHY THIS MATTERS -->
+    <div class="card why">
+      <span class="accent-bar"></span>
+      <div class="lbl"><span class="dot" style="background:var(--probe)"></span> Why This Matters</div>
+      <p>Quantifies which internal-signal probe features stay robust in-domain and under transfer — a clear empirical guide to reading model uncertainty straight from hidden states.</p>
+    </div>
+
+    <!-- CRITICAL EDGE -->
+    <div class="card edge">
+      <span class="accent-bar"></span>
+      <div class="lbl"><span class="dot" style="background:#e0913f"></span> Critical Edge</div>
+      <p>Open-ended evaluation is limited to <b style="color:#f3c89a">entity-centric factual continuation</b> — not dialogue, multi-turn, or code — so "deployment-oriented" claims are narrower than they sound; absolute AUROC stays moderate (~0.55–0.78).</p>
+    </div>
+  </div>
+
+  <!-- TRANSFER DIVERGENCE DIAGRAM -->
+  <section>
+    <div class="sec-head">
+      <span class="sec-num">01 / SIGNAL</span>
+      <h2>Where probe signals hold — and where they break</h2>
+      <span class="lead">Feature families re-rank as conditions shift from matched in-domain to out-of-distribution transfer.</span>
+    </div>
+    <div class="schematic">
+      <span class="signal-badge">feature re-ranking</span>
+      <svg viewBox="0 0 1040 320" role="img" aria-label="Bump chart of probe feature family ranks in-domain versus under out-of-distribution transfer">
+        <!-- column headers -->
+        <text x="230" y="30" text-anchor="middle" font-family="IBM Plex Mono" font-size="12" fill="#073945" letter-spacing="1.2">IN-DOMAIN · MATCHED</text>
+        <text x="810" y="30" text-anchor="middle" font-family="IBM Plex Mono" font-size="12" fill="#8e3526" letter-spacing="1.2">UNDER TRANSFER · OOD</text>
+
+        <!-- guide columns -->
+        <line x1="230" y1="48" x2="230" y2="290" stroke="#d8cfb5" stroke-width="1.5"/>
+        <line x1="810" y1="48" x2="810" y2="290" stroke="#d8cfb5" stroke-width="1.5"/>
+        <!-- rank gridlines -->
+        <g stroke="#e3dcc6" stroke-width="1" stroke-dasharray="3 5">
+          <line x1="240" y1="68" x2="800" y2="68"/>
+          <line x1="240" y1="112" x2="800" y2="112"/>
+          <line x1="240" y1="156" x2="800" y2="156"/>
+          <line x1="240" y1="200" x2="800" y2="200"/>
+          <line x1="240" y1="244" x2="800" y2="244"/>
+          <line x1="240" y1="288" x2="800" y2="288"/>
+        </g>
+
+        <!-- ===== CONNECTORS (drawn before nodes so nodes sit on top) ===== -->
+        <!-- Embedding mean/last: in#1(68) -> OOD#5(244)  drops (teal) -->
+        <path d="M230,68 C 450,68, 590,244, 810,244" fill="none" stroke="#0d5a6b" stroke-width="3" opacity=".55"/>
+        <!-- Attention recent: in#3(156) -> OOD#4(200) slight drop (teal) -->
+        <path d="M230,156 C 450,156, 590,200, 810,200" fill="none" stroke="#0d5a6b" stroke-width="2.4" opacity=".45"/>
+        <!-- MSP/Entropy: in#6(288) -> OOD#6(288) flat (muted) -->
+        <path d="M230,288 C 450,288, 590,288, 810,288" fill="none" stroke="#756d59" stroke-width="2" opacity=".4" stroke-dasharray="2 4"/>
+        <!-- Internal Variance: in#4(200) -> OOD#2(112) rises (coral, hero) -->
+        <path d="M230,200 C 450,200, 590,112, 810,112" fill="none" stroke="#c8553d" stroke-width="4"/>
+        <!-- Layer Top-m Prob: in#5(244) -> OOD#3(156) rises (coral, hero) -->
+        <path d="M230,244 C 450,244, 590,156, 810,156" fill="none" stroke="#c8553d" stroke-width="4"/>
+        <!-- Lookback Ratio: in#2(112) -> OOD#1(68) rises, robust both (coral, hero) -->
+        <path d="M230,112 C 450,112, 590,68, 810,68" fill="none" stroke="#c8553d" stroke-width="4.4"/>
+
+        <!-- ===== NODES (left, in-domain) ===== -->
+        <!-- Embedding -->
+        <circle cx="230" cy="68" r="7" fill="#0d5a6b" stroke="#f1ece0" stroke-width="2.5"/>
+        <text x="218" y="72" text-anchor="end" font-family="IBM Plex Sans" font-size="12.5" font-weight="600" fill="#073945">Embedding (mean/last)</text>
+        <text x="218" y="86" text-anchor="end" font-family="IBM Plex Mono" font-size="9.5" fill="#756d59">hidden-state</text>
+        <!-- Lookback -->
+        <circle cx="230" cy="112" r="7" fill="#c8553d" stroke="#f1ece0" stroke-width="2.5"/>
+        <text x="218" y="116" text-anchor="end" font-family="IBM Plex Sans" font-size="12.5" font-weight="600" fill="#8e3526">Lookback Ratio</text>
+        <text x="218" y="130" text-anchor="end" font-family="IBM Plex Mono" font-size="9.5" fill="#756d59">attention</text>
+        <!-- Attention -->
+        <circle cx="230" cy="156" r="7" fill="#0d5a6b" stroke="#f1ece0" stroke-width="2.5"/>
+        <text x="218" y="160" text-anchor="end" font-family="IBM Plex Sans" font-size="12.5" fill="#073945">Attention (recent)</text>
+        <!-- Internal Variance -->
+        <circle cx="230" cy="200" r="7" fill="#c8553d" stroke="#f1ece0" stroke-width="2.5"/>
+        <text x="218" y="204" text-anchor="end" font-family="IBM Plex Sans" font-size="12.5" fill="#8e3526">Internal Variance</text>
+        <!-- Layer Top-m -->
+        <circle cx="230" cy="244" r="7" fill="#c8553d" stroke="#f1ece0" stroke-width="2.5"/>
+        <text x="218" y="248" text-anchor="end" font-family="IBM Plex Sans" font-size="12.5" fill="#8e3526">Layer Top-m Prob.</text>
+        <!-- MSP/Entropy -->
+        <circle cx="230" cy="288" r="6.5" fill="#756d59" stroke="#f1ece0" stroke-width="2.5"/>
+        <text x="218" y="292" text-anchor="end" font-family="IBM Plex Sans" font-size="12.5" fill="#5e584a">MSP / Entropy</text>
+
+        <!-- ===== NODES (right, OOD) ===== -->
+        <!-- Lookback #1 -->
+        <circle cx="810" cy="68" r="8" fill="#c8553d" stroke="#f1ece0" stroke-width="2.5"/>
+        <text x="822" y="64" font-family="IBM Plex Sans" font-size="12.5" font-weight="700" fill="#8e3526">Lookback Ratio</text>
+        <text x="822" y="78" font-family="IBM Plex Mono" font-size="9.5" fill="#8e3526">most robust OOD</text>
+        <!-- Internal Variance #2 -->
+        <circle cx="810" cy="112" r="8" fill="#c8553d" stroke="#f1ece0" stroke-width="2.5"/>
+        <text x="822" y="116" font-family="IBM Plex Sans" font-size="12.5" font-weight="600" fill="#8e3526">Internal Variance</text>
+        <!-- Layer Top-m #3 -->
+        <circle cx="810" cy="156" r="8" fill="#c8553d" stroke="#f1ece0" stroke-width="2.5"/>
+        <text x="822" y="160" font-family="IBM Plex Sans" font-size="12.5" font-weight="600" fill="#8e3526">Layer Top-m Prob.</text>
+        <!-- Attention #4 -->
+        <circle cx="810" cy="200" r="7" fill="#0d5a6b" stroke="#f1ece0" stroke-width="2.5"/>
+        <text x="822" y="204" font-family="IBM Plex Sans" font-size="12.5" fill="#073945">Attention</text>
+        <!-- Embedding #5 -->
+        <circle cx="810" cy="244" r="7" fill="#0d5a6b" stroke="#f1ece0" stroke-width="2.5"/>
+        <text x="822" y="241" font-family="IBM Plex Sans" font-size="12.5" fill="#073945">Embedding</text>
+        <text x="822" y="255" font-family="IBM Plex Mono" font-size="9.5" fill="#756d59">advantage narrows</text>
+        <!-- MSP #6 -->
+        <circle cx="810" cy="288" r="6.5" fill="#756d59" stroke="#f1ece0" stroke-width="2.5"/>
+        <text x="822" y="292" font-family="IBM Plex Sans" font-size="12.5" fill="#5e584a">MSP / Entropy</text>
+
+        <!-- rank tick labels -->
+        <text x="200" y="71" text-anchor="end" font-family="IBM Plex Mono" font-size="9" fill="#b3a988">#1</text>
+        <text x="840" y="312" text-anchor="start" font-family="IBM Plex Mono" font-size="9" fill="#b3a988">rank #1 (top) → #6 (bottom)</text>
+      </svg>
+      <div class="schematic-cap">Raw embeddings dominate in-domain yet <b>narrow their advantage out-of-distribution</b>; structured / compressed features (Internal Variance, Layer Top-m Prob., Lookback Ratio) <b>retain or gain</b> performance under transfer. Read top-to-bottom as feature rank within each regime.</div>
+    </div>
+  </section>
+
+  <!-- METHODOLOGY -->
+  <section>
+    <div class="sec-head">
+      <span class="sec-num">02 / METHOD</span>
+      <h2>One design axis varied at a time</h2>
+      <span class="lead">A controlled factorisation across feature representation, data construction, and transfer setting.</span>
+    </div>
+    <div class="method-grid">
+      <div class="method-body">
+        <p>The authors run a <b>controlled, factorised</b> study: hold all design dimensions fixed, vary <i>one</i> at a time across three axes — <span class="sp">feature representation</span>, <span class="sp">training-data construction</span>, and <span class="qu">transfer setting</span>. For each query they greedy-decode and extract <b>19 feature representations</b> from the LLM's internal generation trace, grouped into four <i>information levels</i> (taxonomy below).</p>
+        <p>Lightweight <b>binary probes</b> — linear by default, with MLP and CNN variants — are trained on BCE loss with Adam, feature normalisation and early stopping. They probe <b>five LLMs</b> (Llama-3.1-8B, Qwen-3-4B/8B, Qwen-3.5-9B, Gemma-3-12B) across <b>seven datasets</b> spanning QA, verification and MCQ, scored by <span class="sp">AUROC</span> (discriminability) and <span class="sp">ECE</span> (calibration).</p>
+        <p>Correctness labels come from <span class="qu">Gemini-3.1-Flash-Lite</span> as an LLM-as-a-judge, <b>human-validated</b> via Cohen's κ. The deployment-oriented arm applies <b>benchmark-pretrained</b> probes to entity-centric long-form generation (9 domains, ~600–800 atomic claims each), benchmarked against supervised linear/MLP probes trained on 64–256 in-domain instances.</p>
+      </div>
+      <div class="methods-list">
+        <div class="m-item">
+          <div class="k">Deconfounding discipline</div>
+          <p class="d">Varying a single factor at a time under matched conditions is what lets the study attribute performance differences to a specific design choice rather than confounded setup.</p>
+        </div>
+        <div class="m-item" style="border-left-color:var(--transfer)">
+          <div class="k" style="color:var(--transfer-deep)">Deployment reframing</div>
+          <p class="d">Shifts the field's goalpost from in-domain AUROC chasing toward transfer-robust, simple configurations — and a reusable label-free baseline.</p>
+        </div>
+        <div class="m-item" style="border-left-color:#6b6555">
+          <div class="k" style="color:#5e584a">Metrics &amp; validation</div>
+          <p class="d">AUROC + ECE with bootstrapped standard errors; judge labels validated against human agreement (κ ≈ 0.82–0.96) rather than asserted.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- FEATURE TAXONOMY PIPELINE -->
+    <div class="pipeline">
+      <div class="pipe-grid">
+        <div class="pipe-col hero">
+          <div class="lvl">Level 1</div>
+          <div class="nm">Hidden-state summaries</div>
+          <ul>
+            <li>Embedding last / mean / all</li>
+            <li>CoE-R / CoE-C</li>
+            <li>Circular Variance</li>
+            <li>Cov. Determinant · SATMD</li>
+          </ul>
+          <div class="cnt">dominant in-domain</div>
+        </div>
+        <div class="pipe-col">
+          <div class="lvl">Level 2</div>
+          <div class="nm">Probability</div>
+          <ul>
+            <li>MSP · Entropy · Perplexity</li>
+            <li>Energy</li>
+            <li>Top-m Prob.</li>
+          </ul>
+          <div class="cnt">weak, but Top-m rises OOD</div>
+        </div>
+        <div class="pipe-col hero">
+          <div class="lvl">Level 3</div>
+          <div class="nm">Attention</div>
+          <ul>
+            <li>Recent-token Attention</li>
+            <li>Lookback Ratio</li>
+          </ul>
+          <div class="cnt">robust both regimes</div>
+        </div>
+        <div class="pipe-col">
+          <div class="lvl">Level 4</div>
+          <div class="nm">Combined</div>
+          <ul>
+            <li>Hidden + logit fusion</li>
+            <li>Complementary-signal mix</li>
+          </ul>
+          <div class="cnt">fusion helps; all-layer concat does not</div>
+        </div>
+      </div>
+      <p class="pipe-cap">Nineteen features across four <b>information levels</b> — distilled from a single greedy-decoded generation trace per query, then fed to a lightweight binary probe.</p>
+    </div>
+  </section>
+
+  <!-- RESULTS -->
+  <section>
+    <div class="sec-head">
+      <span class="sec-num">03 / RESULTS</span>
+      <h2>The numbers, at a glance</h2>
+      <span class="lead">Structured features win the transfer story; data-construction choices quietly move every other result.</span>
+    </div>
+    <div class="tables">
+      <!-- open-ended transfer -->
+      <div class="tcard">
+        <h3>Open-ended transfer · OOD avg AUROC <span class="tag">label-free beats supervised</span></h3>
+        <table>
+          <thead><tr><th>Configuration</th><th>OOD AUROC</th></tr></thead>
+          <tbody>
+            <tr><td><b>Layer Top-m Prob.</b> <span style="color:var(--muted);font-size:11px">(pretrained, no target labels)</span></td>
+              <td><div class="bar-wrap"><div class="bar"><i class="q" style="width:92%"></i></div><span class="bar-label hi-q">68.73</span></div></td></tr>
+            <tr><td><b>Internal Variance</b> <span style="color:var(--muted);font-size:11px">(pretrained)</span></td>
+              <td><div class="bar-wrap"><div class="bar"><i class="q" style="width:88%"></i></div><span class="bar-label hi-q">68.14</span></div></td></tr>
+            <tr><td>Supervised Linear(#256) <span style="color:var(--muted);font-size:11px">(256 in-domain labels)</span></td>
+              <td><div class="bar-wrap"><div class="bar"><i class="s" style="width:74%"></i></div><span class="bar-label hi-s">61.98</span></div></td></tr>
+          </tbody>
+        </table>
+        <p class="t-note">A <b>label-free</b> benchmark-pretrained probe clears the fully supervised baseline on cross-task transfer — the paper's headline off-the-shelf baseline.</p>
+      </div>
+
+      <!-- data efficiency -->
+      <div class="tcard">
+        <h3>Data efficiency &amp; probe architecture <span class="tag">factuality is linearly accessible</span></h3>
+        <table>
+          <thead><tr><th>Finding</th><th>Value</th></tr></thead>
+          <tbody>
+            <tr><td>AUROC plateau</td><td><span class="bar-label hi-s">~128–256</span> training examples</td></tr>
+            <tr><td>Embedding (last-tok) needs</td><td><span class="bar-label">very few labels</span></td></tr>
+            <tr><td>MLP / CNN vs. linear (weak feats)</td><td><span class="bar-label hi-s">improve</span></td></tr>
+            <tr><td>MLP / CNN vs. linear (strong feats)</td><td><span class="bar-label hi-q">little gain, worse transfer</span></td></tr>
+          </tbody>
+        </table>
+        <p class="t-note"><b>Linear probes are more stable</b> for transfer; complex architectures only rescue weak low-dimensional signals.</p>
+      </div>
+
+      <!-- annotation -->
+      <div class="tcard">
+        <h3>Annotation quality · judge vs. human <span class="tag">avoid lexical labels</span></h3>
+        <table>
+          <thead><tr><th>Label source</th><th>κ vs. human</th></tr></thead>
+          <tbody>
+            <tr><td><b>LLM-as-a-judge</b> (Gemini-Flash)</td>
+              <td><div class="bar-wrap"><div class="bar"><i class="s" style="width:96%"></i></div><span class="bar-label hi-s">0.82–0.96</span></div></td></tr>
+            <tr><td>AlignScore (lexical)</td><td><div class="bar-wrap"><div class="bar"><i class="m" style="width:34%"></i></div><span class="bar-label">far below</span></div></td></tr>
+            <tr><td>Rouge (lexical)</td><td><div class="bar-wrap"><div class="bar"><i class="m" style="width:28%"></i></div><span class="bar-label">far below</span></div></td></tr>
+          </tbody>
+        </table>
+        <p class="t-note">Lexical-matching labels should be <b>avoided</b>; reasoning-based (CoT) prompting also degrades probe AUROC despite comparable accuracy.</p>
+      </div>
+
+      <!-- in-domain winners -->
+      <div class="tcard">
+        <h3>In-domain top features <span class="tag">matched conditions</span></h3>
+        <table>
+          <thead><tr><th>Feature</th><th>Verdict</th></tr></thead>
+          <tbody>
+            <tr><td>Lookback Ratio</td><td style="text-align:right"><span class="bar-label hi-s">consistently top</span></td></tr>
+            <tr><td>Embedding (mean / last)</td><td style="text-align:right"><span class="bar-label hi-s">top, hard to beat</span></td></tr>
+            <tr><td>Attention (recent)</td><td style="text-align:right"><span class="bar-label hi-s">strong</span></td></tr>
+            <tr><td>All-layer concat</td><td style="text-align:right"><span class="bar-label hi-q">no reliable gain</span></td></tr>
+            <tr><td>Hidden + logit fusion</td><td style="text-align:right"><span class="bar-label hi-s">helps (complementary)</span></td></tr>
+          </tbody>
+        </table>
+        <p class="t-note">Complex feature engineering brings <b>no consistent in-domain lift</b> over raw hidden states and attention.</p>
+      </div>
+    </div>
+
+    <div class="ladder" style="margin-top:18px;">
+      <div class="rung"><div class="rk">LLMs probed</div><div class="rn">5</div><div class="rt">Llama / Qwen / Gemma</div><div class="rc">8B–12B scale</div></div>
+      <div class="arrow-sep">·</div>
+      <div class="rung"><div class="rk">datasets</div><div class="rn">7</div><div class="rt">QA · verify · MCQ</div><div class="rc">in-domain + transfer</div></div>
+      <div class="arrow-sep">·</div>
+      <div class="rung"><div class="rk">features</div><div class="rn">19</div><div class="rt">4 information levels</div><div class="rc">per generation trace</div></div>
+      <div class="arrow-sep">·</div>
+      <div class="rung"><div class="rk">long-form domains</div><div class="rn">9</div><div class="rt">entity-centric</div><div class="rc">~600–800 claims each</div></div>
+    </div>
+  </section>
+
+  <!-- STRENGTHS / LIMITATIONS -->
+  <section>
+    <div class="sec-head">
+      <span class="sec-num">04 / VERDICT</span>
+      <h2>Strengths &amp; limitations</h2>
+    </div>
+    <div class="duo">
+      <div class="panel s">
+        <h3>◆ Strengths</h3>
+        <ul>
+          <li><b>Clean, well-motivated factorised design</b> that directly deconfounds an over-engineered literature — varying one axis at a time under matched conditions.</li>
+          <li>Practically <b>actionable, simple recipes</b>: linear probes, concise generation, LLM-as-a-judge, structured/compressed features.</li>
+          <li>Comprehensive coverage — five model families, seven datasets, nineteen features, multiple supervision regimes.</li>
+          <li><b>Honest</b> about probe brittleness and the in-domain vs. transfer gap; bootstrapped errors and human-validated labels.</li>
+          <li>Ships a <b>reusable label-free baseline</b> plus open-source code (github.com/ponhvoan/ProbeUE).</li>
+        </ul>
+      </div>
+      <div class="panel l">
+        <h3>◇ Limitations</h3>
+        <ul>
+          <li>Open-ended evaluation is restricted to <b>entity-centric factual continuation</b>; dialogue, multi-turn, code and non-factual tasks are untested.</li>
+          <li>Detailed analysis is anchored to a <b>single base model (Qwen-3-8B)</b>; larger (70B+) validation is deferred.</li>
+          <li>Reliance on <b>closed-source judge LLMs</b> (Gemini-3.1-Flash-Lite, GPT-5.4-Mini) introduces label-noise and reproducibility drift over time.</li>
+          <li>Addresses only <b>detection</b>, not probe-guided hallucination mitigation at decoding time.</li>
+          <li>Absolute AUROC in open-ended settings remains <b>moderate (~0.55–0.78)</b>, limiting immediate deployment readiness.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- QUESTIONS -->
+  <section>
+    <div class="sec-head">
+      <span class="sec-num">05 / OPEN</span>
+      <h2>Questions for further work</h2>
+    </div>
+    <div class="q-grid">
+      <div class="q"><div class="qn">Q1 · UNCONSTRAINED SETTINGS</div><p class="qt">Do these findings transfer to genuinely unconstrained generation — dialogue, multi-turn reasoning, or code?</p></div>
+      <div class="q"><div class="qn">Q2 · SCALE</div><p class="qt">Does the structured-feature robustness advantage hold at much larger (70B+) instruction-tuned scale, or diminish with it?</p></div>
+      <div class="q"><div class="qn">Q3 · LIGHTWEIGHT ADAPTATION</div><p class="qt">Can a few labelled target-domain claims substantially narrow the gap to fully supervised probes?</p></div>
+      <div class="q"><div class="qn">Q4 · JUDGE DEPENDENCE</div><p class="qt">How much do feature rankings depend on the specific judge LLM — would an open-source judge reorder them?</p></div>
+      <div class="q"><div class="qn">Q5 · FROM DETECTION TO MITIGATION</div><p class="qt">Could these probe configurations extend from uncertainty <i>detection</i> to guiding decoding-time hallucination mitigation?</p></div>
+      <div class="q"><div class="qn">Q6 · WHY LINEAR WORKS</div><p class="qt">What in the geometry of hidden states makes factuality so cleanly linearly accessible, and where does that linearity break?</p></div>
+    </div>
+  </section>
+
+  <!-- FOOTER -->
+  <footer>
+    <div class="cred">
+      <b>Credibility:</b> Team spans NTU, Shanghai Jiao Tong University, VinUniversity and KAIST, with prior published work on probe-based uncertainty and hidden-state geometry (Srey et al. 2025/2026b). Public code at <b>github.com/ponhvoan/ProbeUE</b>. Methodology is carefully scoped with honest limitation reporting; main reproducibility caveat is dependence on proprietary judge LLMs whose versions may drift.
+    </div>
+    <a class="md-src" href="2606.27679.html">↗ Markdown source</a>
+  </footer>
+
+</div>
+</body>
+</html>

@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Understanding and Preventing Entropy Collapse in RLVR with On-Policy Entropy Flow Optimization</title>
+<style>
+:root { --paper:#fafafa; --ink:#1a1a1a; --muted:#555; --accent:#1a5276; --line:#ddd; --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif; --serif:Georgia,"Noto Serif SC",serif; }
+body { font-family:var(--serif); background:var(--paper); color:var(--ink); line-height:1.6; margin:0; padding:0; }
+.container { max-width:min(95vw, 760px); margin:0 auto; padding:28px 20px 60px; }
+.topnav { position:fixed; top:12px; left:14px; z-index:50; font-family:var(--sans); font-size:.75rem; background:var(--paper); border:1px solid var(--line); padding:5px 10px; border-radius:999px; }
+.topnav a { color:var(--muted); text-decoration:none; font-weight:600; }
+.topnav a:hover { color:var(--accent); }
+h1 { font-size:1.6rem; margin:2.2rem 0 1rem; border-bottom:2px solid var(--accent); padding-bottom:.3rem; }
+h2 { font-size:1.3rem; margin:1.8rem 0 .8rem; color:var(--accent); }
+h3 { font-size:1.1rem; margin:1.4rem 0 .6rem; }
+p { margin:.8rem 0; }
+.authors { font-style:italic; color:var(--muted); margin-top:-.4rem; }
+.meta { font-family:var(--sans); font-size:.82rem; color:var(--muted); margin:.2rem 0; }
+a { color:var(--accent); text-decoration:none; }
+a:hover { text-decoration:underline; }
+blockquote { border-left:3px solid var(--accent); margin:1rem 0; padding:.2rem 0 .2rem 1rem; color:var(--muted); font-style:italic; }
+code { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; background:#f0f0f0; padding:2px 5px; border-radius:3px; font-size:.9em; }
+pre { background:#f5f5f5; padding:14px; overflow-x:auto; border-radius:4px; border:1px solid var(--line); }
+pre code { background:transparent; padding:0; }
+ul,ol { margin:.6rem 0; padding-left:1.5rem; }
+li { margin:.25rem 0; }
+table { border-collapse:collapse; width:100%; margin:1rem 0; font-family:var(--sans); font-size:.9rem; }
+th,td { border:1px solid var(--line); padding:6px 10px; text-align:left; }
+th { background:#f0f0f0; }
+hr { border:none; border-top:1px solid var(--line); margin:1.5rem 0; }
+.note { font-family:var(--sans); font-size:.78rem; color:var(--muted); border-top:1px solid var(--line); margin-top:2rem; padding-top:1rem; }
+@media (max-width: 600px) { .container { padding:22px 14px 40px; } h1 { font-size:1.35rem; } }
+</style>
+</head>
+<body>
+<div class="topnav"><a href="./index.html">← Today's digest</a></div>
+<div class="container">
+<h1>Understanding and Preventing Entropy Collapse in RLVR with On-Policy Entropy Flow Optimization</h1>
+<p class="meta">arXiv: 2605.11491</p>
+<p class="meta">Date: 2026-05-13</p>
+<p class="meta"><a href="https://arxiv.org/abs/2605.11491">https://arxiv.org/abs/2605.11491</a></p>
+<blockquote><strong>一句话总结：</strong> 本文从token级熵流视角揭示RLVR中熵坍缩源于熵减token持续压倒熵增token的不平衡动态，提出OPEFO方法通过自适应缩放系数λ*在每个batch内平衡熵增/熵减更新梯度，在保持严格on-policy训练的同时，在六个数学推理基准上达到最优平均准确率（Qwen2.5-Math-7B: 52.4%, Qwen3-4B: 51.9%）。</blockquote>
+<blockquote><strong>TL;DR:</strong> OPEFO decomposes per-token entropy change (ΔHt) during RLVR training into entropy-increasing (S⁺) and entropy-decreasing (S⁻) sets, then adaptively reweights their gradient updates via a closed-form coefficient λ* derived from a zero-net-entropy-flow constraint at the batch level. This strictly on-policy method avoids reliance on reference policies or importance-ratio clipping. On Qwen2.5-Math-7B and Qwen3-4B across AIME24/25, AMC23, MATH500, Minerva Math, and OlympiadBench, OPEFO achieves the best average accuracy (52.4% and 51.9%), outperforming GRPO, Clip-higher, Entropy-Reg, Clip-Cov, and KL-Cov, while maintaining the most stable entropy trajectory throughout training.</blockquote>
+<h2>核心贡献</h2>
+<ul>
+<li>从token级熵流（entropy flow）视角揭示RLVR中熵坍缩的根本机制：熵减token的更新量持续大于熵增token，导致净熵变化为强负值</li>
+<li>提供统一解释框架，阐明GRPO及其on-policy变体、Clip-higher等方法的熵动态行为</li>
+<li>提出OPEFO，通过自适应缩放系数λ*平衡熵增/熵减token的梯度更新，保持严格on-policy训练，无需参考策略或重要性采样比</li>
+<li>在两个基座模型（Qwen2.5-Math-7B、Qwen3-4B）和六个数学推理基准上取得最优平均准确率</li>
+<li>实现极为简洁（仅需几行代码修改标准GRPO），计算开销可忽略</li>
+</ul>
+<h2>Key Contributions</h2>
+<ul>
+<li>Introduces the token-level entropy flow perspective for analyzing entropy collapse: decomposes overall entropy change into per-token contributions ΔHt, revealing that entropy-decreasing tokens consistently dominate entropy-increasing ones</li>
+<li>Provides a unified mechanistic explanation of entropy collapse in GRPO (both standard and on-policy variants) and explains why Clip-higher works (it preserves entropy-increasing tokens by relaxing the upper clipping bound)</li>
+<li>Proposes OPEFO (On-Policy Entropy Flow Optimization): adaptively reweights gradients from entropy-increasing set S⁺ by (1+λ<em>) and entropy-decreasing set S⁻ by (1−λ</em>), where λ* is derived in closed form from a batch-level zero-net-entropy-flow constraint</li>
+<li>Achieves best average accuracy on 6 math reasoning benchmarks across 2 base models: 52.4% on Qwen2.5-Math-7B (+1.7% over second-best) and 51.9% on Qwen3-4B (+1.8%)</li>
+<li>Maintains the most stable entropy trajectory among all baselines, avoiding both premature collapse and uncontrolled entropy inflation</li>
+<li>Minimal implementation overhead: only a few lines of code modification to standard GRPO, with negligible computational cost</li>
+</ul>
+<h2>Methodology</h2>
+<p><strong>Entropy Flow Decomposition.</strong> Under a tabular softmax assumption (Assumption 1), the paper derives the first-order token-level entropy change ΔHt (Theorem 1): the change in conditional entropy at each decoding step after a policy-gradient update. Tokens are partitioned into S⁺ (ΔHt > 0, entropy-increasing) and S⁻ (ΔHt < 0, entropy-decreasing). Empirical analysis on GRPO reveals that |Σ S⁻ ΔHt| consistently exceeds Σ S⁺ ΔHt, causing net negative entropy flow and collapse.</p>
+<p><strong>Balanced On-Policy Objective.</strong> OPEFO reweights the standard on-policy gradient by introducing a balancing coefficient λ ∈ (−1, 1): gradients from S⁺ tokens are scaled by (1+λ) and S⁻ tokens by (1−λ). This preserves the optimization direction without introducing auxiliary entropy bonuses.</p>
+<p><strong>Adaptive λ<em>.</strong> The coefficient is computed analytically from each batch by enforcing zero net entropy flow: λ</em> = (Σ S⁻ |ΔHt| − Σ S⁺ ΔHt) / (Σ S⁻ |ΔHt| + Σ S⁺ ΔHt). This closed-form expression requires no hyperparameter tuning and adapts dynamically across training phases. Empirically, λ* remains positive throughout training (reflecting persistent need to encourage entropy), first decreasing then gradually increasing.</p>
+<p><strong>Implementation.</strong> Requires computing ΔHt per token, grouping by sign, computing λ*, and reweighting — approximately 10 lines of code. Strictly on-policy (one update per rollout, no importance ratios, no reference policy).</p>
+<h2>Results & Highlights</h2>
+<ul>
+<li><strong>Qwen2.5-Math-7B:</strong> OPEFO achieves 52.4% average accuracy across 6 benchmarks, outperforming GRPO on-policy (50.1%), Clip-higher (49.8%), Clip-Cov (50.7%), KL-Cov (50.5%), and Entropy-Reg (47.8%)</li>
+<li><strong>Qwen3-4B:</strong> OPEFO achieves 51.9% average accuracy, outperforming all baselines by ≥1.8%</li>
+<li><strong>Entropy stability:</strong> OPEFO maintains a smooth, stable entropy trajectory throughout training, while GRPO collapses rapidly, Entropy-Reg causes uncontrolled inflation after ~400 steps, and Clip-higher shows oscillations</li>
+<li><strong>Exploration:</strong> Pass@k analysis shows OPEFO explores more diverse reasoning paths — higher Pass@k across all k values on AIME24, with the gap widening as k increases (Pass@64: 68.4% vs 66.5% for best baseline)</li>
+<li><strong>Response length:</strong> OPEFO continues to produce longer, controlled responses throughout training (indicating sustained exploration of reasoning paths), while GRPO saturates early</li>
+<li><strong>Training efficiency:</strong> Strict on-policy OPEFO has per-batch runtime of 149s vs ~158s for approximate on-policy methods — no additional overhead</li>
+<li><strong>Ablations confirm:</strong> (1) Adaptive λ* outperforms static λ; (2) Jointly balancing both S⁺ and S⁻ outperforms one-sided variants; (3) Strict on-policy GRPO already outperforms approximate on-policy GRPO</li>
+</ul>
+<h2>Authors & Credibility</h2>
+<ul>
+<li><strong>Huimin Xu, Shuai Zhao, Anh Tuan Luu</strong> — Nanyang Technological University, Singapore</li>
+<li><strong>Xiaobao Wu</strong> — Shanghai Jiao Tong University, China</li>
+<li><strong>Anh Tuan Luu</strong> (corresponding) — also affiliated with VinUniversity, Vietnam</li>
+<li>Supported by Air Traffic Management Research Institute, NTU (grant CAAS_MOA_REQ0392260_NTU)</li>
+<li>Code and models available at https://github.com/Anna7355/Entropy-Flow</li>
+<li>Uses AI-assisted tools only for language polishing (disclosed)</li>
+<li>Experiments conducted on 32 A100 GPUs with established benchmarks and training setups (Verl codebase, DAPO-17K training data)</li>
+</ul>
+<h2>Critical Assessment</h2>
+<ul>
+<li><strong>Novelty (High):</strong> The token-level entropy flow perspective is a genuinely novel reframing. Moving from global entropy regularization to per-token decomposition with adaptive balancing is a meaningful conceptual advance. The closed-form derivation of λ* is elegant.</li>
+<li><strong>Rigor (Moderate-High):</strong> Theoretical derivation relies on a tabular softmax assumption (Assumption 1) and first-order Taylor approximation, which abstracts away higher-order interactions in transformers. The paper is transparent about this limitation. Empirical evaluation is thorough: 2 base models, 6 benchmarks, 6 baselines, plus ablations, exploration analysis, and training dynamics visualization.</li>
+<li><strong>Reproducibility (High):</strong> Code is publicly available. Implementation is minimal (~10 lines). Experimental setup is well-documented (learning rates, batch sizes, hardware, data).</li>
+<li><strong>Significance (High):</strong> Entropy collapse is one of the most pressing practical issues in RLVR. OPEFO offers a principled, simple, and effective solution that is compatible with strict on-policy training. The 1.7-1.8% average improvements over strong baselines are meaningful on these competitive benchmarks.</li>
+<li><strong>Red flags:</strong> (1) The tabular softmax assumption is a significant simplification — the paper acknowledges this but the gap between theory and practice deserves scrutiny. (2) Evaluation is limited to math reasoning only. (3) The zero-entropy-flow criterion is a sufficient condition for stability, not proven to be optimal. (4) The best checkpoint is selected by average accuracy across benchmarks, which could mask per-benchmark variance.</li>
+</ul>
+<h2>Strengths</h2>
+<ul>
+<li>Elegant theoretical motivation from first principles (entropy flow decomposition)</li>
+<li>Extremely simple implementation — minimal code change, negligible overhead</li>
+<li>Strict on-policy with no reliance on stale reference policies</li>
+<li>Comprehensive empirical evaluation with strong baselines and informative ablations</li>
+<li>Adaptive λ* eliminates the need for entropy coefficient tuning (a known pain point with Entropy-Reg)</li>
+<li>Maintains stable entropy dynamics without the oscillation (Clip-higher) or runaway inflation (Entropy-Reg) seen in alternatives</li>
+<li>Pass@k analysis provides direct evidence of improved exploration diversity</li>
+</ul>
+<h2>Limitations</h2>
+<ul>
+<li>First-order approximation under tabular softmax assumption may not fully capture entropy dynamics in large transformers with shared parameters</li>
+<li>Evaluation is limited to mathematical reasoning; generalization to code generation, instruction following, or multi-turn dialogue is untested</li>
+<li>The zero-entropy-flow criterion acts as a local batch-level stabilizer, not a globally optimal objective — its behavior may vary across tasks with different reward structures</li>
+<li>No evaluation under dense rewards or complex credit assignment settings</li>
+<li>The method's interaction with other RLVR techniques (curriculum learning, reward shaping, multi-turn) is unexplored</li>
+</ul>
+<h2>Relevance</h2>
+<p>本文直接解决了RLVR训练中的核心稳定性问题，提出了从token级熵流视角理解和防止熵坍缩的新范式。OPEFO的自适应梯度重加权机制设计简洁、理论清晰，对任何关注大模型强化学习推理能力训练的研究者都具有很高的参考价值。</p>
+<h2>Questions for Further Exploration</h2>
+<ul>
+<li>How does OPEFO interact with larger models (70B+ parameters) where the tabular softmax assumption becomes even more approximate?</li>
+<li>Can the entropy flow analysis be extended to dense-reward settings (e.g., process reward models) where per-token advantages are not shared across the response?</li>
+<li>Does OPEFO's adaptive λ* reveal different entropy dynamics across domains (coding, science, general instruction following)?</li>
+<li>How does OPEFO compose with other training techniques like curriculum learning, reward shaping, or multi-stage training?</li>
+<li>Is there a theoretical connection between OPEFO's zero-entropy-flow criterion and optimal exploration-exploitation trade-offs in policy gradient methods?</li>
+<li>Could the entropy flow perspective inform adaptive learning rate schedules or early stopping criteria?</li>
+</ul>
+<p class="note">Generated from Markdown summary. Full paper: <a href="https://arxiv.org/abs/2605.11491">arXiv:2605.11491</a></p>
+</div>
+</body>
+</html>

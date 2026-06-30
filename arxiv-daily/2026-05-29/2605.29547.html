@@ -1,0 +1,760 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>S-Adam: Singularity-aware Optimization via Randomized Geometric Probing</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Source+Serif+4:ital,wght@0,400;0,600;0,700;0,900;1,400&family=Inter:wght@400;500;600;700&display=swap');
+
+  :root {
+    --bg: #0c0e12;
+    --bg-elevated: #13161c;
+    --bg-card: #181b23;
+    --bg-card-hover: #1e222c;
+    --fg: #e8e6e1;
+    --fg-muted: #8a8d96;
+    --fg-dim: #5a5d66;
+    --accent: #ff6b3d;
+    --accent-glow: rgba(255, 107, 61, 0.15);
+    --accent-secondary: #3dffc2;
+    --accent-secondary-glow: rgba(61, 255, 194, 0.1);
+    --warning: #ffd43b;
+    --warning-glow: rgba(255, 212, 59, 0.1);
+    --border: #2a2d36;
+    --border-light: #33363f;
+    --radius: 8px;
+    --radius-lg: 12px;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html { font-size: 16px; scroll-behavior: smooth; }
+
+  body {
+    font-family: 'Inter', -apple-system, sans-serif;
+    background: var(--bg);
+    color: var(--fg);
+    line-height: 1.6;
+    min-height: 100vh;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* === NOISE OVERLAY === */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    opacity: 0.03;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    pointer-events: none;
+    z-index: 9999;
+  }
+
+  /* === NAV BAR === */
+  .nav-bar {
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    background: rgba(12, 14, 18, 0.85);
+    backdrop-filter: blur(16px);
+    border-bottom: 1px solid var(--border);
+    padding: 12px 32px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .nav-back {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.8rem;
+    color: var(--fg-muted);
+    text-decoration: none;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    transition: color 0.2s;
+    letter-spacing: 0.02em;
+  }
+  .nav-back:hover { color: var(--accent); }
+
+  .nav-meta {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.7rem;
+    color: var(--fg-dim);
+    display: flex;
+    gap: 16px;
+  }
+  .nav-meta span { display: flex; align-items: center; gap: 4px; }
+  .nav-tag {
+    background: var(--accent-glow);
+    color: var(--accent);
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 0.65rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+
+  /* === MAIN CONTAINER === */
+  .container {
+    max-width: 1280px;
+    margin: 0 auto;
+    padding: 0 32px;
+  }
+
+  /* === HERO BAND === */
+  .hero {
+    padding: 56px 0 40px;
+    border-bottom: 1px solid var(--border);
+    animation: fadeUp 0.6s ease-out both;
+  }
+
+  .hero-venue {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.75rem;
+    color: var(--accent);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    font-weight: 600;
+    margin-bottom: 16px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .hero-venue::before {
+    content: '';
+    width: 24px;
+    height: 2px;
+    background: var(--accent);
+  }
+
+  .hero h1 {
+    font-family: 'Source Serif 4', Georgia, serif;
+    font-size: 2.6rem;
+    font-weight: 900;
+    line-height: 1.15;
+    color: var(--fg);
+    max-width: 900px;
+    margin-bottom: 20px;
+    letter-spacing: -0.02em;
+  }
+
+  .hero-subtitle {
+    font-size: 1.05rem;
+    color: var(--fg-muted);
+    max-width: 720px;
+    line-height: 1.7;
+    margin-bottom: 24px;
+  }
+
+  .hero-authors {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.78rem;
+    color: var(--fg-dim);
+  }
+  .hero-authors a {
+    color: var(--fg-muted);
+    text-decoration: none;
+    transition: color 0.2s;
+  }
+  .hero-authors a:hover { color: var(--accent-secondary); }
+
+  /* === ASSET CARDS === */
+  .assets-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 16px;
+    margin-top: 40px;
+    animation: fadeUp 0.6s ease-out 0.15s both;
+  }
+
+  .asset-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 28px 24px;
+    position: relative;
+    overflow: hidden;
+    transition: border-color 0.3s, transform 0.2s;
+  }
+  .asset-card:hover {
+    border-color: var(--border-light);
+    transform: translateY(-2px);
+  }
+
+  .asset-card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 3px;
+  }
+
+  .asset-card--metric::before { background: linear-gradient(90deg, var(--accent), #ff9a3d); }
+  .asset-card--why::before { background: linear-gradient(90deg, var(--accent-secondary), #3dc4ff); }
+  .asset-card--edge::before { background: linear-gradient(90deg, var(--warning), #ff8a3d); }
+
+  .asset-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.65rem;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    font-weight: 600;
+    margin-bottom: 16px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .asset-card--metric .asset-label { color: var(--accent); }
+  .asset-card--why .asset-label { color: var(--accent-secondary); }
+  .asset-card--edge .asset-label { color: var(--warning); }
+
+  .asset-card--metric .asset-value {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 3rem;
+    font-weight: 700;
+    color: var(--accent);
+    line-height: 1.1;
+    margin-bottom: 4px;
+  }
+
+  .asset-card--metric .asset-context {
+    font-size: 0.82rem;
+    color: var(--fg-muted);
+    line-height: 1.5;
+  }
+  .asset-card--metric .asset-context strong {
+    color: var(--fg);
+    font-weight: 600;
+  }
+
+  .asset-card--why .asset-body,
+  .asset-card--edge .asset-body {
+    font-size: 0.92rem;
+    color: var(--fg);
+    line-height: 1.65;
+  }
+
+  .asset-card--edge .asset-body {
+    color: #e8d9a0;
+  }
+
+  /* === SECTION LAYOUT === */
+  .section-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+    margin-top: 40px;
+  }
+
+  .section-grid--three {
+    grid-template-columns: 1fr 1fr 1fr;
+  }
+
+  .section-full {
+    margin-top: 40px;
+  }
+
+  .panel {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 28px;
+    animation: fadeUp 0.5s ease-out both;
+  }
+
+  .panel-header {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    font-weight: 600;
+    color: var(--fg-dim);
+    margin-bottom: 20px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .panel-header::before {
+    content: '';
+    width: 8px;
+    height: 8px;
+    border-radius: 2px;
+  }
+  .panel--method .panel-header::before { background: var(--accent-secondary); }
+  .panel--results .panel-header::before { background: var(--accent); }
+  .panel--strengths .panel-header::before { background: #6ee7b7; }
+  .panel--limits .panel-header::before { background: var(--warning); }
+  .panel--questions .panel-header::before { background: #a78bfa; }
+
+  .panel h3 {
+    font-family: 'Source Serif 4', Georgia, serif;
+    font-size: 1.15rem;
+    font-weight: 700;
+    color: var(--fg);
+    margin-bottom: 12px;
+  }
+
+  .panel p {
+    font-size: 0.88rem;
+    color: var(--fg-muted);
+    line-height: 1.7;
+    margin-bottom: 12px;
+  }
+  .panel p:last-child { margin-bottom: 0; }
+
+  .panel ul {
+    list-style: none;
+    padding: 0;
+  }
+  .panel ul li {
+    font-size: 0.88rem;
+    color: var(--fg-muted);
+    line-height: 1.65;
+    padding: 6px 0 6px 18px;
+    position: relative;
+  }
+  .panel ul li::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 14px;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+  }
+  .panel--strengths ul li::before { background: #6ee7b7; }
+  .panel--limits ul li::before { background: var(--warning); }
+  .panel--questions ul li::before { background: #a78bfa; }
+
+  /* === RESULTS TABLE === */
+  .results-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.78rem;
+    margin-top: 12px;
+  }
+  .results-table th {
+    text-align: left;
+    color: var(--fg-dim);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    font-size: 0.65rem;
+    padding: 8px 12px 8px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .results-table td {
+    padding: 10px 12px 10px 0;
+    border-bottom: 1px solid rgba(42, 45, 54, 0.5);
+    color: var(--fg-muted);
+  }
+  .results-table tr:hover td { color: var(--fg); }
+  .results-table .highlight { color: var(--accent); font-weight: 700; }
+  .results-table .delta { color: var(--accent-secondary); font-weight: 600; }
+
+  /* === FORMULA BLOCK === */
+  .formula-block {
+    background: rgba(61, 255, 194, 0.04);
+    border: 1px solid rgba(61, 255, 194, 0.12);
+    border-radius: var(--radius);
+    padding: 16px 20px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.82rem;
+    color: var(--accent-secondary);
+    margin: 16px 0;
+    line-height: 1.8;
+  }
+
+  .method-step {
+    display: flex;
+    gap: 14px;
+    margin-bottom: 14px;
+  }
+  .method-step:last-child { margin-bottom: 0; }
+  .method-step-num {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.7rem;
+    font-weight: 700;
+    color: var(--accent-secondary);
+    background: rgba(61, 255, 194, 0.08);
+    width: 24px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 4px;
+    flex-shrink: 0;
+    margin-top: 2px;
+  }
+  .method-step-text {
+    font-size: 0.88rem;
+    color: var(--fg-muted);
+    line-height: 1.6;
+  }
+
+  /* === CONVERGENCE PROOF === */
+  .proof-steps {
+    counter-reset: proof;
+    padding-left: 0;
+    list-style: none;
+  }
+  .proof-steps li {
+    counter-increment: proof;
+    font-size: 0.85rem;
+    color: var(--fg-muted);
+    line-height: 1.6;
+    padding: 6px 0 6px 32px;
+    position: relative;
+  }
+  .proof-steps li::before {
+    content: counter(proof);
+    position: absolute;
+    left: 0;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.7rem;
+    font-weight: 700;
+    color: var(--accent);
+    background: var(--accent-glow);
+    width: 22px;
+    height: 22px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 4px;
+  }
+
+  /* === QUESTIONS === */
+  .questions-section {
+    animation-delay: 0.4s;
+  }
+
+  .question-item {
+    padding: 12px 0;
+    border-bottom: 1px solid rgba(42, 45, 54, 0.4);
+    font-size: 0.88rem;
+    color: var(--fg-muted);
+    line-height: 1.65;
+    cursor: pointer;
+    transition: color 0.2s;
+  }
+  .question-item:last-child { border-bottom: none; }
+  .question-item:hover { color: var(--fg); }
+  .question-item::before {
+    content: '?';
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.7rem;
+    font-weight: 700;
+    color: #a78bfa;
+    background: rgba(167, 139, 250, 0.1);
+    border-radius: 4px;
+    margin-right: 10px;
+  }
+
+  /* === FOOTER === */
+  .footer {
+    margin-top: 56px;
+    padding: 24px 0;
+    border-top: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    animation: fadeUp 0.5s ease-out 0.5s both;
+  }
+  .footer a {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.78rem;
+    color: var(--fg-muted);
+    text-decoration: none;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    transition: color 0.2s;
+  }
+  .footer a:hover { color: var(--accent); }
+
+  /* === ANIMATIONS === */
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(12px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .animate-in { animation: fadeUp 0.5s ease-out both; }
+  .delay-1 { animation-delay: 0.1s; }
+  .delay-2 { animation-delay: 0.2s; }
+  .delay-3 { animation-delay: 0.3s; }
+  .delay-4 { animation-delay: 0.4s; }
+  .delay-5 { animation-delay: 0.5s; }
+
+  /* === ARXIV BADGE === */
+  .arxiv-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.7rem;
+    color: var(--fg);
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    padding: 4px 10px;
+    border-radius: 4px;
+    text-decoration: none;
+    transition: border-color 0.2s, background 0.2s;
+  }
+  .arxiv-badge:hover {
+    border-color: var(--accent);
+    background: var(--bg-card-hover);
+  }
+
+  /* === RESPONSIVE === */
+  @media (max-width: 900px) {
+    .assets-grid { grid-template-columns: 1fr; }
+    .section-grid { grid-template-columns: 1fr; }
+    .section-grid--three { grid-template-columns: 1fr; }
+    .hero h1 { font-size: 1.9rem; }
+    .container { padding: 0 20px; }
+    .nav-bar { padding: 10px 20px; }
+  }
+
+  @media (max-width: 600px) {
+    .hero h1 { font-size: 1.5rem; }
+    .hero { padding: 32px 0 24px; }
+    .asset-card--metric .asset-value { font-size: 2.2rem; }
+    .footer { flex-direction: column; gap: 12px; align-items: flex-start; }
+  }
+
+  /* === SCROLL REVEAL === */
+  .reveal {
+    opacity: 0;
+    transform: translateY(16px);
+    transition: opacity 0.5s ease-out, transform 0.5s ease-out;
+  }
+  .reveal.visible {
+    opacity: 1;
+    transform: translateY(0);
+  }
+</style>
+</head>
+<body>
+
+<!-- NAV BAR -->
+<nav class="nav-bar">
+  <a href="./index.html" class="nav-back">&larr; Today's digest</a>
+  <div class="nav-meta">
+    <span class="nav-tag">ICML 2026</span>
+    <span>2605.29547</span>
+    <span>2026-05-28</span>
+  </div>
+</nav>
+
+<!-- HERO BAND -->
+<div class="container">
+  <section class="hero">
+    <div class="hero-venue">ICML 2026 &middot; Seoul &middot; PMLR 306</div>
+    <h1>Singularity-aware Optimization via Randomized Geometric Probing</h1>
+    <p class="hero-subtitle">
+      S-Adam detects non-smooth singularities in loss landscapes by measuring variance of randomized directional derivatives, then adaptively damps its step size &mdash; eliminating gradient chattering while converging to Clarke stationary points at optimal rate.
+    </p>
+    <div class="hero-authors">
+      Ruoran Xu, Borong She, Xiaobo Jin, Qiufeng Wang &mdash; Xi'an Jiaotong-Liverpool University &nbsp;
+      <a href="https://arxiv.org/abs/2605.29547" class="arxiv-badge" target="_blank">arXiv:2605.29547</a>
+    </div>
+  </section>
+
+  <!-- THREE ASSET CARDS -->
+  <div class="assets-grid">
+    <!-- KEY METRIC -->
+    <div class="asset-card asset-card--metric">
+      <div class="asset-label">Key Metric</div>
+      <div class="asset-value">+24.69</div>
+      <div class="asset-context">
+        Accuracy points on <strong>Imagewoof2-160</strong> (ResNet-18, BS=2).<br>
+        S-Adam: <strong>75.87%</strong> vs AdamW: 51.18%.<br>
+        CIFAR-100: +4.99 &middot; CIFAR-10: +5.65
+      </div>
+    </div>
+
+    <!-- WHY THIS MATTERS -->
+    <div class="asset-card asset-card--why">
+      <div class="asset-label">Why This Matters</div>
+      <div class="asset-body">
+        Eliminates training instability in quantized and small-batch deep learning <strong>without Hessian computation</strong>. The LGI metric probes local geometry cheaply and the optimizer degrades gracefully to standard Adam in smooth regions &mdash; zero overhead when not needed.
+      </div>
+    </div>
+
+    <!-- CRITICAL EDGE -->
+    <div class="asset-card asset-card--edge">
+      <div class="asset-label">Critical Edge</div>
+      <div class="asset-body">
+        k extra forward passes per step add real cost at scale. Gains narrow sharply at larger batch sizes (BS=64), and evaluation is limited to image classification with ResNet-18 &mdash; no LLM, ViT, or NLP experiments yet.
+      </div>
+    </div>
+  </div>
+
+  <!-- METHODOLOGY + RESULTS -->
+  <div class="section-grid">
+    <!-- METHODOLOGY -->
+    <div class="panel panel--method reveal">
+      <div class="panel-header">Methodology</div>
+      <h3>From Gradient Chattering to Geometric Braking</h3>
+      <p>Momentum-based optimizers oscillate near non-smooth singularities where the Clarke subdifferential has large diameter, causing conflicting signals to accumulate in the momentum buffer. S-Adam addresses this at the geometry level.</p>
+
+      <div class="formula-block">
+        eta_eff = eta &middot; exp(-&lambda; &middot; &rho;<sub>t</sub>)<br>
+        &rho;<sub>t</sub> = Var[&nabla;f(x<sub>t</sub> + &epsilon;u<sub>i</sub>)] &nbsp; i=1..k
+      </div>
+
+      <div class="method-step">
+        <div class="method-step-num">1</div>
+        <div class="method-step-text">Sample k random perturbation directions u<sub>1</sub>...u<sub>k</sub></div>
+      </div>
+      <div class="method-step">
+        <div class="method-step-num">2</div>
+        <div class="method-step-text">Compute directional derivatives via k additional forward passes</div>
+      </div>
+      <div class="method-step">
+        <div class="method-step-num">3</div>
+        <div class="method-step-text">Estimate LGI as variance of these directional derivatives</div>
+      </div>
+      <div class="method-step">
+        <div class="method-step-num">4</div>
+        <div class="method-step-text">Damp step size: high LGI &rarr; slow down; &rho;&rarr;0 &rarr; standard Adam</div>
+      </div>
+
+      <h3 style="margin-top: 24px;">Convergence Proof</h3>
+      <ol class="proof-steps">
+        <li>Cast S-Adam as stochastic approximation of a differential inclusion with drift F(x) &isin; -&alpha;(x)H(x)</li>
+        <li>Show affine interpolation is an asymptotic pseudotrajectory via Benaim (2006) conditions</li>
+        <li>Establish f as strict Lyapunov function: df/dt &le; -&alpha;<sub>min</sub> &middot; c<sub>1</sub> &middot; dist(0, &part;<sub>C</sub>f(x))<sup>2</sup></li>
+        <li>Apply invariance principle &rarr; limit sets contained in Clarke stationary set &rarr; O(1/&epsilon;<sup>2</sup>) optimal rate</li>
+      </ol>
+    </div>
+
+    <!-- RESULTS -->
+    <div class="panel panel--results reveal delay-1">
+      <div class="panel-header">Results &amp; Highlights</div>
+
+      <h3>QAT: Quantization-Aware Training</h3>
+      <p>S-Adam (k=8) maintains stable loss ~3.4&ndash;3.6 on CIFAR-100 while Prox-SGD rebounds to ~4.6 with large oscillations. AdamW degrades after epoch 3.</p>
+
+      <table class="results-table">
+        <thead>
+          <tr><th>Dataset</th><th>S-Adam</th><th>AdamW</th><th>&Delta;</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Imagewoof2-160 (BS=2)</td>
+            <td class="highlight">75.87%</td>
+            <td>51.18%</td>
+            <td class="delta">+24.69</td>
+          </tr>
+          <tr>
+            <td>CIFAR-100 (BS=2)</td>
+            <td class="highlight">56.11%</td>
+            <td>51.12%</td>
+            <td class="delta">+4.99</td>
+          </tr>
+          <tr>
+            <td>CIFAR-10 (BS=2)</td>
+            <td class="highlight">86.13%</td>
+            <td>80.48%</td>
+            <td class="delta">+5.65</td>
+          </tr>
+          <tr>
+            <td>Imagewoof2-160 (BS=4)</td>
+            <td class="highlight">81.22%</td>
+            <td>56.25%</td>
+            <td class="delta">+24.97</td>
+          </tr>
+          <tr>
+            <td>CIFAR-100 (BS=16)</td>
+            <td class="highlight">74.43%</td>
+            <td>68.09*</td>
+            <td class="delta">+6.34</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3 style="margin-top: 20px;">Learning Rate Sensitivity</h3>
+      <p>S-Adam wins at <em>every</em> tested learning rate (1e-4, 5e-4, 1e-3), improving by +4.02, +8.28, and +4.99 points respectively. Best S-Adam run (70.87% at lr=1e-4) exceeds best AdamW run (66.85%).</p>
+
+      <h3 style="margin-top: 20px;">Key Observation</h3>
+      <p>S-Adam's advantage is largest in small-batch, high-instability regimes and narrows as geometry smooths with larger batches &mdash; consistent with damping driven by local geometry, not gradient noise magnitude.</p>
+    </div>
+  </div>
+
+  <!-- STRENGTHS / LIMITATIONS -->
+  <div class="section-grid">
+    <div class="panel panel--strengths reveal delay-2">
+      <div class="panel-header">Strengths</div>
+      <ul>
+        <li>Clean theoretical framework connecting Clarke subdifferential geometry to practical optimizer design</li>
+        <li>Optimal O(1/&radic;T) convergence rate under clearly stated assumptions</li>
+        <li>LGI metric requires no Hessian &mdash; scalable by design</li>
+        <li>Graceful degradation to standard Adam in smooth regions (&rho;&rarr;0 &rarr; &alpha;&rarr;1)</li>
+        <li>Comprehensive ablations: batch size, learning rate, k-probe tradeoff</li>
+        <li>Consistent improvements across <em>all</em> tested configurations</li>
+        <li>Paradigm shift: randomized smoothing as diagnostic probe, not gradient surrogate</li>
+      </ul>
+    </div>
+
+    <div class="panel panel--limits reveal delay-3">
+      <div class="panel-header">Limitations</div>
+      <ul>
+        <li>Computational overhead: k additional forward passes per step (k=2 fast/low-fidelity; k=8 accurate but ~2&times; forward cost)</li>
+        <li>Evaluated only on image classification with ResNet-18 and a custom CNN &mdash; no ViT, LLM, or NLP experiments</li>
+        <li>QAT CIFAR-100 absolute accuracy ~18.6% suggests an extreme regime where all optimizers struggle</li>
+        <li>Advantage narrows significantly at larger batch sizes (BS=64), limiting standard-regime applicability</li>
+        <li>No comparison with recent optimizers (Adafactor, Lion, Sophia) beyond AdamW and Prox-SGD</li>
+        <li>Additional hyperparameters (k, &lambda;) add tuning complexity</li>
+        <li>No wall-clock comparison normalized to equivalent compute budget</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- QUESTIONS -->
+  <div class="section-full reveal delay-4">
+    <div class="panel panel--questions questions-section">
+      <div class="panel-header">Open Questions</div>
+      <div class="question-item">How does k-forward-pass overhead scale with billion-parameter transformers? Can LGI be computed every N steps to amortize cost?</div>
+      <div class="question-item">Can the LGI metric use cheap gradient approximations or parameter subsets instead of full forward passes?</div>
+      <div class="question-item">Does S-Adam benefit LLM training where ReLU/GELU activations and quantization create non-smooth landscapes?</div>
+      <div class="question-item">Could LGI serve as a generalization predictor, analogous to sharpness-based measures like SAM?</div>
+      <div class="question-item">How does S-Adam interact with gradient accumulation, mixed precision, and distributed data parallel training?</div>
+      <div class="question-item">Is the advantage over AdamW from the damping mechanism itself, or does LGI-guided step size exceed what simple gradient clipping or LR warmup could achieve?</div>
+    </div>
+  </div>
+
+  <!-- FOOTER -->
+  <footer class="footer">
+    <a href="./index.html">&larr; Today's digest</a>
+    <a href="2605.29547.html">&uarr; Markdown source</a>
+  </footer>
+</div>
+
+<script>
+  // Scroll reveal
+  const reveals = document.querySelectorAll('.reveal');
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+      if (entry.isIntersecting) {
+        entry.target.classList.add('visible');
+        observer.unobserve(entry.target);
+      }
+    });
+  }, { threshold: 0.08, rootMargin: '0px 0px -40px 0px' });
+
+  reveals.forEach(el => observer.observe(el));
+</script>
+
+</body>
+</html>

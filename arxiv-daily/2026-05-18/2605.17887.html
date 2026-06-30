@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Attention Sinks and Outliers in Attention Residuals</title>
+<style>
+:root { --paper:#fafafa; --ink:#1a1a1a; --muted:#555; --accent:#1a5276; --line:#ddd; --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif; --serif:Georgia,"Noto Serif SC",serif; }
+body { font-family:var(--serif); background:var(--paper); color:var(--ink); line-height:1.6; margin:0; padding:0; }
+.container { max-width:min(95vw, 760px); margin:0 auto; padding:28px 20px 60px; }
+.topnav { position:fixed; top:12px; left:14px; z-index:50; font-family:var(--sans); font-size:.75rem; background:var(--paper); border:1px solid var(--line); padding:5px 10px; border-radius:999px; }
+.topnav a { color:var(--muted); text-decoration:none; font-weight:600; }
+.topnav a:hover { color:var(--accent); }
+h1 { font-size:1.6rem; margin:2.2rem 0 1rem; border-bottom:2px solid var(--accent); padding-bottom:.3rem; }
+h2 { font-size:1.3rem; margin:1.8rem 0 .8rem; color:var(--accent); }
+h3 { font-size:1.1rem; margin:1.4rem 0 .6rem; }
+p { margin:.8rem 0; }
+.authors { font-style:italic; color:var(--muted); margin-top:-.4rem; }
+.meta { font-family:var(--sans); font-size:.82rem; color:var(--muted); margin:.2rem 0; }
+a { color:var(--accent); text-decoration:none; }
+a:hover { text-decoration:underline; }
+blockquote { border-left:3px solid var(--accent); margin:1rem 0; padding:.2rem 0 .2rem 1rem; color:var(--muted); font-style:italic; }
+code { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; background:#f0f0f0; padding:2px 5px; border-radius:3px; font-size:.9em; }
+pre { background:#f5f5f5; padding:14px; overflow-x:auto; border-radius:4px; border:1px solid var(--line); }
+pre code { background:transparent; padding:0; }
+ul,ol { margin:.6rem 0; padding-left:1.5rem; }
+li { margin:.25rem 0; }
+table { border-collapse:collapse; width:100%; margin:1rem 0; font-family:var(--sans); font-size:.9rem; }
+th,td { border:1px solid var(--line); padding:6px 10px; text-align:left; }
+th { background:#f0f0f0; }
+hr { border:none; border-top:1px solid var(--line); margin:1.5rem 0; }
+.note { font-family:var(--sans); font-size:.78rem; color:var(--muted); border-top:1px solid var(--line); margin-top:2rem; padding-top:1rem; }
+@media (max-width: 600px) { .container { padding:22px 14px 40px; } h1 { font-size:1.35rem; } }
+</style>
+</head>
+<body>
+<div class="topnav"><a href="./index.html">← Today's digest</a></div>
+<div class="container">
+<h1>Attention Sinks and Outliers in Attention Residuals</h1>
+<p class="meta">arXiv: 2605.17887</p>
+<p class="meta">Date: 2026-05-18</p>
+<p class="meta"><a href="https://arxiv.org/abs/2605.17887">https://arxiv.org/abs/2605.17887</a></p>
+<blockquote><strong>一句话总结：</strong> 提出 OASIS 方法，通过在 AttnResidual 架构中引入基于 Softmax1 的空空间（null space）和跨层空信号（inter-layer null signal）机制，从结构层面解决双归一化路由导致的注意力汇聚和激活异常值问题，在 W8A8 量化下困惑度降低 73.55%，W4A4 下 GSM8K Pass@1 提升 23.47%。</blockquote>
+<blockquote><strong>TL;DR:</strong> The paper identifies a structural flaw in AttnResidual architectures: their dual normalization (token-level + depth-level) forces near no-op updates to route through real tokens, amplifying attention sinks and activation outliers. OASIS fixes this by introducing Softmax1-based null channels at both token and depth levels, plus an inter-layer null signal that couples token-level null evidence into depth routing. Tested on Llama-3.2-1B and Qwen3-0.6B with continued pretraining on BookCorpus/Wiki40B, OASIS reduces max infinity norm by 84.14%, average kurtosis by 96.77%, W8A8 perplexity by 73.55%, and improves W4A4 GSM8K Pass@1 by 23.47% relative to vanilla AttnResidual. The theoretical analysis includes formal proofs that dual normalization structurally induces sink/outlier pathology and that Softmax1 provides a feasible null route to alleviate it.</blockquote>
+<h2>核心贡献</h2>
+<ul>
+<li><strong>揭示 AttnResidual 双归一化的结构性缺陷</strong>：理论证明（Lemma 5.1, Proposition 5.1, Theorem 5.1）双归一化设计迫使无操作更新通过真实 token 路由，从而在结构上诱发注意力汇聚、激活异常值和深度路由坍塌</li>
+<li><strong>提出 OASIS 机制</strong>：包含三层设计——(1) token 级 Softmax1 空间，(2) depth 级 Softmax1 空间，(3) 跨层 null 信号耦合，将 token 级空证据注入深度路由</li>
+<li><strong>完整理论分析</strong>：5 个定理/引理形式化证明异常值生成的必然性、AttnResidual 相比 vanilla attention 的病理优势、深度路由坍塌条件、以及 Softmax1 的缓解机制</li>
+<li><strong>显著量化鲁棒性提升</strong>：在 Llama-3.2-1B 和 Qwen3-0.6B 上，W8A8 困惑度降低 73.55%，W4A4 GSM8K Pass@1 提升 23.47%</li>
+<li><strong>全面消融实验</strong>：与 Sparsemax、Entmax15 等稀疏归一化方法对比，OASIS 在所有指标上均为最优</li>
+</ul>
+<h2>Key Contributions</h2>
+<ul>
+<li>Identify and formally prove that AttnResidual's dual normalization (token Softmax + depth Softmax) structurally induces attention sink formation, activation outliers, and depth-routing collapse through a no-op routing mismatch</li>
+<li>Propose OASIS (Outlier- And Sink-aware technique with Inter-layer null Signaling): a three-component mechanism using Softmax1 null channels at token and depth levels, coupled with an inter-layer null signal that propagates token-level null evidence into depth routing via a learnable coupling parameter β</li>
+<li>Provide rigorous theoretical analysis with 5 formal results: Lemma 5.1 (no-op outliers are structurally induced), Proposition 5.1 (AttnResidual pathology dominates vanilla), Theorem 5.1 (conditional depth collapse to vanilla-like residual), Lemma 5.2 (sink preservation across collapse), Theorem 5.2 (Softmax1 reduces structural pressure)</li>
+<li>Achieve consistent improvements on Llama-3.2-1B and Qwen3-0.6B: 84.14% max infinity norm reduction, 96.77% average kurtosis reduction, 73.55% W8A8 perplexity reduction, 23.47% W4A4 GSM8K Pass@1 improvement</li>
+<li>Conduct thorough ablations against sparse attention alternatives (Sparsemax, Entmax15), clipping, gating, and OutEffHop baselines</li>
+</ul>
+<h2>Methodology</h2>
+<p>OASIS is built on three components within the AttnResidual framework:</p>
+<p><strong>1. Token-level Softmax1 (Null-aware attention):</strong> Replaces standard Softmax with Softmax1, which introduces an explicit null channel: <code>p̂(ℓ)_{t,j} = exp(z_{t,j}) / (1 + Σ_k exp(z_{t,k}))</code>, with null mass <code>p̂(ℓ)_{t,∅} = 1 / (1 + Σ_k exp(z_{t,k}))</code>. This allows attention heads to route mass to a null space rather than forcing it onto real tokens.</p>
+<p><strong>2. Depth-level Softmax1 (Null-aware depth routing):</strong> Similarly replaces the depth routing Softmax with Softmax1, allowing the depth router to assign mass to a null branch instead of forcing computation through a specific layer.</p>
+<p><strong>3. Inter-layer null coupling:</strong> The key innovation that distinguishes OASIS from simply applying Softmax1 everywhere. For each source branch i and token t, the method computes a branch-level null statistic <code>ψ_{i,t} = (1/H) Σ_h p̂^{(i,h)}_{t,∅}</code> across H attention heads. This is centered against the mean of candidate branches to get <code>∆ψ_{i→ℓ,t}</code>, which is then subtracted (scaled by learnable β) from the depth routing logit. When a branch has above-average null mass, its depth weight is reduced.</p>
+<p><strong>Training setup:</strong> Continued pretraining of Llama-3.2-1B and Qwen3-0.6B checkpoints on BookCorpus and Wiki40B for 500 steps (seq length 2048, lr 5e-5, batch size 1 with grad accumulation 64). The coupling parameter β is learnable via softplus, initialized at -5 (β ≈ 0.007). Evaluated on WikiText-2 (perplexity) and GSM8K (Pass@1).</p>
+<p><strong>Baselines:</strong> Vanilla attention residual, OutEffHop, Attention-off-Softmax (AoS), Clipped Softmax, Clipped OutEffHop, Clipped AoS, Gated Attention, Gated OutEffHop, Gated AoS, plus Sparsemax and Entmax15 for ablation.</p>
+<h2>Results & Highlights</h2>
+<ul>
+<li><strong>Llama-3.2-1B results (Table 2):</strong> OASIS achieves avg kurtosis 3.024 (vs 91.706 vanilla), max inf norm 12.250 (vs 84.433), FP16 perplexity 8.005, W8A8 perplexity 8.162 (vs 30.189 vanilla, 73.55% reduction), W4A4 GSM8K 13.52% (vs 12.97% vanilla, +4.2% absolute)</li>
+<li><strong>Qwen3-0.6B results (Table 2):</strong> OASIS achieves avg kurtosis 2.949 (vs 93.039 vanilla), max inf norm 12.997 (vs 74.778), FP16 perplexity 9.202, W8A8 perplexity 9.517 (vs 36.642 vanilla), W4A4 GSM8K 58.88% (vs 45.67% vanilla, +28.9% absolute)</li>
+<li><strong>vs AoS specifically:</strong> OASIS further reduces W8A8 perplexity by 6.85% and improves W4A4 GSM8K Pass@1 by 7.18% over AoS</li>
+<li><strong>Ablation (Table 3):</strong> Against Sparsemax (kurtosis 87.322, inf norm 79.991) and Entmax15 (kurtosis 13.134, inf norm 29.381), OASIS (kurtosis 3.024, inf norm 12.250) is far superior. OASIS reduces perplexity degradation by 99.26% and GSM8K quantization-induced accuracy drop by 65.67%</li>
+<li><strong>Attention map visualization (Figure 4):</strong> OASIS produces the cleanest causal attention pattern with suppressed first-token sink and secondary sink bands</li>
+<li><strong>Clipped/Gated combinations (Table 1):</strong> Gated AoS achieves best outlier metrics in the combined setting (kurtosis 3.025, inf norm 13.550 on Qwen3), showing OASIS is complementary to existing techniques</li>
+</ul>
+<h2>Authors & Credibility</h2>
+<ul>
+<li>Haozheng Luo (first author) is at Northwestern University, partially supported by Lambda Researcher Grant and Adobe Fellow; has prior work on outlier removal in genomics foundation models (ICML 2025) and reasoning outlier filtering</li>
+<li>The team spans Northwestern University and other institutions</li>
+<li>The work builds directly on OutEffHop (Hu et al., ICML 2024) and AttnResidual (Kimi Team, 2026), with clear lineage</li>
+<li>The paper includes formal proofs in appendices, ablations against multiple baselines, and disclosure of LLM usage for writing assistance</li>
+</ul>
+<h2>Critical Assessment</h2>
+<ul>
+<li><strong>Novelty: Strong.</strong> The identification of dual normalization as a structural cause of sinks/outliers in AttnResidual is novel and well-motivated. The inter-layer null coupling mechanism is a clean, principled solution. The theoretical analysis goes beyond hand-waving with formal proofs.</li>
+</ul>
+<ul>
+<li><strong>Rigor: Good with caveats.</strong> The theoretical section provides 5 formal results with complete proofs. Experiments use 3 random seeds with mean and standard deviation. However, experiments are limited to small models (1B and 0.6B parameters). The 500-step continued pretraining is relatively short — it is unclear if gains persist with full-scale training.</li>
+</ul>
+<ul>
+<li><strong>Reproducibility: Acceptable.</strong> Code is promised at an anonymous link with open-source after acceptance. The experimental setup (hardware, hyperparameters, training details) is well-documented in Appendix E. The coupling parameter β initialization and learning scheme are clearly specified.</li>
+</ul>
+<ul>
+<li><strong>Significance: Practically relevant but limited in scope.</strong> Quantization robustness is important for LLM deployment, and the improvements are substantial. However, the AttnResidual architecture itself is relatively new (March 2026) and not yet widely adopted, which limits the immediate practical impact. The model sizes tested are small.</li>
+</ul>
+<ul>
+<li><strong>Red flags / concerns:</strong></li>
+</ul>
+<ol>
+<li><strong>Small model sizes only.</strong> Testing on 0.6B and 1B models is a significant limitation. The authors acknowledge this in Appendix F. It is unclear if the null coupling mechanism scales to 7B+ or if the relative improvements hold.</li>
+<li><strong>Short continued pretraining.</strong> 500 steps may not be enough to fully train the coupling parameter β or to observe whether the null channels are stable over longer training.</li>
+<li><strong>The 9.26% / 2.60% numbers in the abstract appear to compare against AoS (not vanilla).</strong> The much larger improvements (84.14% inf norm, 96.77% kurtosis) are relative to vanilla, while the abstract cites more modest improvements. This is honest but slightly misleading in framing.</li>
+<li><strong>Limited downstream task evaluation.</strong> Only perplexity (WikiText-2) and GSM8K are reported. No evaluation on broader benchmarks (MMLU, HumanEval, etc.).</li>
+<li><strong>The attention map visualization (Figure 4) is qualitative only.</strong> No quantitative sink metric (e.g., sink attention mass percentage) is reported.</li>
+</ol>
+<h2>Strengths</h2>
+<ul>
+<li>Clean theoretical framework that precisely characterizes the structural problem</li>
+<li>The Softmax1 null channel is an elegant, low-overhead solution</li>
+<li>Inter-layer null coupling is well-motivated and the mechanism is clearly explained</li>
+<li>Strong quantitative improvements on outlier metrics and quantization robustness</li>
+<li>Comprehensive baseline comparison (9 methods in Table 1, plus sparse attention ablation)</li>
+<li>Formal proofs in appendices add rigor</li>
+</ul>
+<h2>Limitations</h2>
+<ul>
+<li>Only tested on small models (0.6B and 1B parameters) with short continued pretraining (500 steps)</li>
+<li>No evaluation on larger models or broader downstream task suites</li>
+<li>The coupling parameter β is learnable but its learned values are not reported or analyzed</li>
+<li>No quantitative analysis of attention sink reduction (only qualitative visualization)</li>
+<li>The AttnResidual architecture is not yet standard, limiting immediate applicability</li>
+<li>Potential for excessive null allocation to suppress useful weak signals (acknowledged by authors)</li>
+</ul>
+<h2>Relevance</h2>
+<p>本文深入分析了注意力汇聚（attention sink）和激活异常值在残差连接架构中的形成机制，并提出了一种结构性的解决方案。对于关注 Transformer 架构改进、大模型量化部署和长上下文稳定性的研究者具有直接参考价值。理论分析框架对理解注意力汇聚现象本身也有启发意义。</p>
+<h2>Questions for Further Exploration</h2>
+<ul>
+<li>How does OASIS scale to models with 7B, 13B, or 70B parameters? Does the coupling parameter β scale proportionally or require retuning?</li>
+<li>What are the learned values of β across layers — is there a pattern (e.g., stronger coupling in later layers)?</li>
+<li>How does OASIS interact with KV-cache quantization methods like KVSink and InnerQ?</li>
+<li>Does the null channel mechanism benefit standard (non-AttnResidual) transformers with attention sink issues?</li>
+<li>What is the training throughput overhead of computing and propagating the inter-layer null signal?</li>
+<li>Can the null-aware routing idea be extended to mixture-of-experts (MoE) architectures where similar routing collapse phenomena occur?</li>
+</ul>
+<p class="note">Generated from Markdown summary. Full paper: <a href="https://arxiv.org/abs/2605.17887">arXiv:2605.17887</a></p>
+</div>
+</body>
+</html>

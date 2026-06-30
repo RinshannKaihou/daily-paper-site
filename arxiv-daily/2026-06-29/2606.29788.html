@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MemLeak — Diagnosing Information Leaks in Multimodal Agent Memory</title>
+<style>
+  /* ---------- Design system: one semantic accent (vermillion) on warm paper ---------- */
+  :root{
+    --paper:#f6f3ec;
+    --surface:#fbfaf5;
+    --ink:#1b1a15;
+    --ink-soft:#3a3830;
+    --muted:#6e6759;
+    --hair:#e2dccd;
+    --hair-strong:#d3ccba;
+    --accent:#c2410c;          /* ONE semantic accent — vermillion / warning */
+    --accent-soft:#fbe9dd;
+    --dark:#1b1a15;
+    --maxw:min(95vw,1100px);
+    --serif:Georgia,"Iowan Old Style","Songti SC","Noto Serif CJK SC",serif;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei","Noto Sans CJK SC",Roboto,system-ui,sans-serif;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:var(--paper);
+    color:var(--ink);
+    font-family:var(--sans);
+    line-height:1.7;            /* CJK-friendly */
+    -webkit-font-smoothing:antialiased;
+    text-rendering:optimizeLegibility;
+  }
+  a{color:var(--accent);text-decoration:none;}
+  a:hover{text-decoration:underline;}
+
+  /* ---------- Fixed back-link ---------- */
+  .digest-back{
+    position:fixed;top:14px;left:14px;z-index:50;
+    font-family:var(--sans);font-size:.78rem;font-weight:600;
+    letter-spacing:.02em;color:var(--ink-soft);
+    background:var(--surface);border:1px solid var(--hair-strong);
+    padding:.45rem .7rem;border-radius:7px;
+    box-shadow:0 1px 2px rgba(0,0,0,.04);
+    transition:border-color .15s,color .15s;
+  }
+  .digest-back:hover{text-decoration:none;border-color:var(--accent);color:var(--accent);}
+
+  /* ---------- Layout shell ---------- */
+  .shell{
+    width:var(--maxw);margin:0 auto;padding:2.4rem 1.4rem 3rem;
+  }
+
+  /* ---------- HERO BAND ---------- */
+  .hero{padding-top:1.5rem;border-bottom:1px solid var(--hair-strong);padding-bottom:1.6rem;}
+  .hero .kicker{
+    font-size:.72rem;letter-spacing:.16em;text-transform:uppercase;
+    color:var(--accent);font-weight:700;margin-bottom:.7rem;
+  }
+  .meta{display:flex;flex-wrap:wrap;align-items:center;gap:.35rem .9rem;
+    font-size:.82rem;color:var(--muted);margin-bottom:1.1rem;}
+  .meta .title-link{color:var(--ink-soft);font-weight:600;}
+  .meta .dot{color:var(--hair-strong);}
+  .meta .authors{font-style:italic;}
+  .chips{display:flex;flex-wrap:wrap;gap:.4rem;}
+  .chip{
+    font-size:.7rem;letter-spacing:.03em;font-weight:600;
+    color:var(--ink-soft);background:var(--surface);
+    border:1px solid var(--hair-strong);padding:.2rem .55rem;border-radius:999px;
+  }
+  .hero-finding{
+    font-family:var(--serif);
+    font-weight:700;
+    font-size:clamp(1.7rem,4.2vw,2.85rem);
+    line-height:1.22;
+    letter-spacing:-.01em;
+    margin:.4rem 0 0;
+    max-width:24ch;
+  }
+  .hero-finding .hl{color:var(--accent);}
+  .hero-finding em{font-style:italic;color:var(--ink-soft);}
+
+  /* ---------- ASSET ROW ---------- */
+  .assets{
+    display:grid;grid-template-columns:1.05fr 1fr 1fr;gap:1px;
+    margin-top:1.6rem;background:var(--hair-strong);
+    border:1px solid var(--hair-strong);border-radius:10px;overflow:hidden;
+  }
+  .card{background:var(--surface);padding:1.3rem 1.25rem 1.35rem;}
+  .card .label{
+    font-size:.66rem;letter-spacing:.16em;text-transform:uppercase;
+    font-weight:700;color:var(--muted);margin-bottom:.7rem;
+    display:flex;align-items:center;gap:.45rem;
+  }
+  .card .label::before{content:"";width:7px;height:7px;border-radius:2px;background:var(--accent);}
+
+  .card.metric .figure{
+    font-family:var(--serif);font-weight:700;
+    font-size:clamp(2.6rem,7vw,4rem);line-height:.95;
+    color:var(--accent);letter-spacing:-.02em;
+  }
+  .card.metric .figure .sub{font-size:.95rem;color:var(--ink-soft);font-weight:600;letter-spacing:0;}
+  .card.metric .fig-note{font-size:.82rem;color:var(--muted);margin-top:.55rem;line-height:1.5;}
+  .cascade{display:flex;align-items:flex-end;gap:.5rem;margin-top:.95rem;
+    font-family:var(--serif);font-size:.85rem;font-weight:700;color:var(--ink);}
+  .cascade .step{display:flex;flex-direction:column;}
+  .cascade .step b{font-size:1.02rem;}
+  .cascade .step span{font-family:var(--sans);font-size:.62rem;font-weight:600;
+    letter-spacing:.04em;text-transform:uppercase;color:var(--muted);}
+  .cascade .arr{color:var(--hair-strong);font-size:.9rem;padding-bottom:.18rem;}
+
+  .card.why p{margin:0;font-size:.93rem;line-height:1.55;color:var(--ink-soft);}
+  .card.why p b{color:var(--ink);font-weight:700;}
+
+  /* critical edge — inverted / contrasting callout */
+  .card.edge{background:var(--dark);color:#ece8de;}
+  .card.edge .label{color:#bdb4a0;}
+  .card.edge .label::before{background:var(--accent);}
+  .card.edge p{margin:0;font-size:.9rem;line-height:1.55;color:#ddd6c6;}
+  .card.edge p b{color:#fff;}
+
+  /* ---------- BODY GRID ---------- */
+  .body{margin-top:1.9rem;display:grid;grid-template-columns:1fr;gap:1.6rem;}
+  .section-head{
+    display:flex;align-items:baseline;gap:.7rem;
+    border-bottom:2px solid var(--ink);padding-bottom:.4rem;margin-bottom:.9rem;
+  }
+  .section-head .num{
+    font-family:var(--serif);font-weight:700;color:var(--accent);
+    font-size:.95rem;letter-spacing:.04em;
+  }
+  .section-head h2{
+    font-family:var(--serif);font-weight:700;font-size:1.28rem;margin:0;
+    letter-spacing:-.01em;
+  }
+
+  .method p{margin:0 0 .75rem;font-size:.94rem;color:var(--ink-soft);}
+  .method p:last-child{margin-bottom:0;}
+  .method b{color:var(--ink);}
+  .method code{
+    font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+    font-size:.82em;background:var(--accent-soft);color:var(--accent);
+    padding:.05em .35em;border-radius:4px;font-weight:600;
+  }
+
+  /* Results tables */
+  .tbl-wrap{overflow-x:auto;border:1px solid var(--hair-strong);border-radius:9px;}
+  table{width:100%;border-collapse:collapse;font-size:.86rem;background:var(--surface);}
+  th,td{text-align:left;padding:.62rem .8rem;border-bottom:1px solid var(--hair);vertical-align:top;}
+  thead th{
+    font-size:.64rem;letter-spacing:.1em;text-transform:uppercase;
+    font-weight:700;color:var(--muted);background:#f0ece1;
+  }
+  tbody tr:last-child td{border-bottom:none;}
+  td .rate{font-family:var(--serif);font-weight:700;font-size:1.05rem;}
+  td .ci{font-family:ui-monospace,Menlo,monospace;font-size:.76rem;color:var(--muted);}
+  tr.headline{background:var(--accent-soft);}
+  tr.headline .rate{color:var(--accent);}
+  tr.headline td{font-weight:600;}
+  .tag{
+    display:inline-block;font-size:.62rem;font-weight:700;letter-spacing:.04em;
+    padding:.08rem .4rem;border-radius:3px;margin-left:.4rem;vertical-align:middle;
+  }
+  .tag.ub{background:#ece7d8;color:var(--muted);}
+  .tag.core{background:var(--accent);color:#fff;}
+
+  .tables-note{font-size:.78rem;color:var(--muted);margin-top:.7rem;font-style:italic;}
+
+  /* Strengths / Limitations side-by-side */
+  .sl{display:grid;grid-template-columns:1fr 1fr;gap:1.4rem;}
+  .sl-col h3{
+    font-family:var(--sans);font-size:.7rem;letter-spacing:.14em;text-transform:uppercase;
+    font-weight:700;margin:0 0 .6rem;padding-bottom:.4rem;
+  }
+  .sl-col.pos h3{color:var(--ink);border-bottom:2px solid var(--ink);}
+  .sl-col.neg h3{color:var(--accent);border-bottom:2px solid var(--accent);}
+  .sl-col ul{list-style:none;margin:0;padding:0;}
+  .sl-col li{font-size:.88rem;line-height:1.5;color:var(--ink-soft);
+    padding:.45rem 0 .45rem 1.15rem;border-bottom:1px dashed var(--hair);position:relative;}
+  .sl-col li:last-child{border-bottom:none;}
+  .sl-col.pos li::before{content:"+";position:absolute;left:0;top:.42rem;
+    font-weight:800;color:var(--ink);font-family:var(--serif);}
+  .sl-col.neg li::before{content:"!";position:absolute;left:.1rem;top:.42rem;
+    font-weight:800;color:var(--accent);font-family:var(--serif);}
+
+  /* Questions */
+  .qlist{display:grid;grid-template-columns:1fr 1fr;gap:.7rem 1.3rem;list-style:none;margin:0;padding:0;}
+  .qlist li{font-size:.88rem;line-height:1.5;color:var(--ink-soft);
+    padding-left:1.7rem;position:relative;counter-increment:q;}
+  .qlist{counter-reset:q;}
+  .qlist li::before{
+    content:counter(q);position:absolute;left:0;top:.18rem;
+    width:1.15rem;height:1.15rem;display:flex;align-items:center;justify-content:center;
+    font-family:var(--serif);font-weight:700;font-size:.72rem;
+    color:var(--accent);border:1px solid var(--accent);border-radius:50%;
+  }
+  .qlist li b{color:var(--ink);}
+
+  /* ---------- Footer ---------- */
+  footer{
+    margin-top:2.4rem;padding-top:1.1rem;border-top:1px solid var(--hair-strong);
+    display:flex;justify-content:space-between;flex-wrap:wrap;gap:.6rem;
+    font-size:.78rem;color:var(--muted);
+  }
+  footer .src{font-weight:600;color:var(--ink-soft);}
+  footer .src:hover{color:var(--accent);text-decoration:none;}
+
+  /* ---------- Staggered load (CSS-only) ---------- */
+  .reveal{opacity:0;transform:translateY(10px);animation:rise .55s ease forwards;}
+  @keyframes rise{to{opacity:1;transform:none;}}
+  .d0{animation-delay:.00s;}.d1{animation-delay:.07s;}.d2{animation-delay:.14s;}
+  .d3{animation-delay:.21s;}.d4{animation-delay:.30s;}.d5{animation-delay:.40s;}
+  .d6{animation-delay:.50s;}
+  @media (prefers-reduced-motion:reduce){.reveal{animation:none;opacity:1;transform:none;}}
+
+  /* ---------- Responsive: single column < 720px ---------- */
+  @media (max-width:720px){
+    .shell{padding:2rem .9rem 2.4rem;}
+    .assets{grid-template-columns:1fr;}
+    .sl{grid-template-columns:1fr;}
+    .qlist{grid-template-columns:1fr;}
+    .hero-finding{font-size:clamp(1.55rem,7vw,2.1rem);max-width:none;}
+    .digest-back{font-size:.72rem;padding:.38rem .55rem;}
+    .digest-back span.lbl{display:none;} /* keep icon compact */
+  }
+</style>
+</head>
+<body>
+
+<a class="digest-back" href="./index.html" title="Today's digest">↩ <span class="lbl">Today's digest</span></a>
+
+<div class="shell">
+
+  <!-- ===================== HERO BAND ===================== -->
+  <header class="hero reveal d0">
+    <div class="kicker">Paper Dashboard · 2606.29788</div>
+    <div class="meta">
+      <a class="title-link" href="https://arxiv.org/abs/2606.29788">MemLeak: Diagnosing Information Leaks in Multimodal Agent Memory ↗</a>
+      <span class="dot">·</span>
+      <span class="authors">Kuan Wang et al.</span>
+      <span class="dot">·</span>
+      <span>Georgia Institute of Technology</span>
+      <span class="dot">·</span>
+      <time>2026-06-29</time>
+    </div>
+    <div class="chips">
+      <span class="chip">machine unlearning</span>
+      <span class="chip">multimodal agents</span>
+      <span class="chip">privacy</span>
+      <span class="chip">memory systems</span>
+      <span class="chip">benchmark</span>
+    </div>
+    <h1 class="hero-finding">
+      After a multimodal agent <em>“forgets”</em> a fact, VLMs still reconstruct it from the user's <span class="hl">retained images</span> — a leak invisible to text-only auditing.
+    </h1>
+  </header>
+
+  <!-- ===================== ASSET ROW ===================== -->
+  <section class="assets reveal d1" aria-label="Key assets">
+    <!-- KEY METRIC -->
+    <div class="card metric">
+      <div class="label">Key Metric · core result</div>
+      <div class="figure">12.0%<span class="sub"> → 2.0%</span></div>
+      <div class="fig-note">of deleted facts recovered from <b>retained images</b> of unrelated facts (36 / 300, n=300, 38 profiles), after text + tagged-image deletion. Blind 0.0%, negative-control FPR 0.3%.</div>
+      <div class="cascade" aria-label="deletion cascade">
+        <span class="step"><b>48.7%</b><span>same-fact</span></span>
+        <span class="arr">→</span>
+        <span class="step"><b>12.0%</b><span>after cascade</span></span>
+        <span class="arr">→</span>
+        <span class="step"><b>2.0%</b><span>+ semantic</span></span>
+      </div>
+    </div>
+
+    <!-- WHY THIS MATTERS -->
+    <div class="card why">
+      <div class="label">Why This Matters</div>
+      <p><b>“Delete the text = done” is false.</b> Retained images form an independent leak channel that breaks GDPR / RTBF erasure in <b>deployed</b> multimodal agents.</p>
+    </div>
+
+    <!-- CRITICAL EDGE -->
+    <div class="card edge">
+      <div class="label">Critical Edge</div>
+      <p>The headline <b>2.0%</b> post-mitigation residual sits partly <b>within judge noise</b> — 5 of 6 remaining “leaks” are marginal / variance, and no precision–recall curve is reported.</p>
+    </div>
+  </section>
+
+  <!-- ===================== BODY GRID ===================== -->
+  <div class="body">
+
+    <!-- Methodology -->
+    <section class="method reveal d2">
+      <div class="section-head"><span class="num">01</span><h2>Methodology, distilled</h2></div>
+      <p>The <b>Information Provenance Graph (IPG)</b> models every representation of a fact across a memory stack as nodes in a DAG — text entries, embeddings, image files, graph edges, derived facts, and <i>implicit visual features</i> — each tagged with a deletion affordance: <code>addressable</code> (deletable by ID), <code>linked</code> (reachable only via a maintained provenance edge), or <code>persistent</code> (survives storage-level deletion). Forgetting Completeness is simply deleted-nodes ÷ total-nodes.</p>
+      <p>The crucial insight: for <b>text</b>, every node comes from an explicit storage op, so provenance tracking can in principle reach FCS = 1 — a mere <b>engineering gap</b>. <b>Images differ.</b> A VLM forward pass encodes implicit attributes (geolocation, style, culture) that are never stored explicitly, are distributed across embedding space, yet are empirically recoverable. These persistent nodes are unreachable by tracking — an <b>architectural residual</b>.</p>
+      <p><b>MemLeak</b> benchmarks this on 113 profiles × 20 facts (5 categories, 3 visual-grounding levels), 523 real Unsplash photos, and 5 probe types (P1–P5). Leakage is quantified by the <b>Cross-Modal Leakage Rate</b>, judged by a 3-model ensemble (GPT-4.1, Claude Sonnet 4, Gemini 2.5 Flash, majority vote), with 95% Wilson CIs and human dual-annotation κ = 0.88. The mitigation — <b>content-aware semantic deletion</b> — adds one extra VLM audit pass at deletion time that flags 21.0% of retained images.</p>
+    </section>
+
+    <!-- Results -->
+    <section class="results reveal d3">
+      <div class="section-head"><span class="num">02</span><h2>Results — leakage by channel</h2></div>
+      <div class="tbl-wrap">
+        <table>
+          <thead>
+            <tr><th>Evaluation mode</th><th>Recovery rate</th><th>95% Wilson CI</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Same-fact image recovery — tagged images <i>not</i> deleted<span class="tag ub">upper bound</span></td><td><span class="rate">48.7%</span> (146/300)</td><td><span class="ci">[43.1, 54.3]</span></td></tr>
+            <tr class="headline"><td>Retained-image recovery (Claude Sonnet 4) — after text + tagged-image deletion<span class="tag core">core result</span></td><td><span class="rate">12.0%</span> (36/300)</td><td><span class="ci">[8.8, 16.2]</span></td></tr>
+            <tr><td>Retained-image recovery (GPT-4o)</td><td><span class="rate">9.3%</span> (28/300)</td><td><span class="ci">[6.5, 13.2]</span></td></tr>
+            <tr><td>Mem0 end-to-end (production system)</td><td><span class="rate">16.3%</span> (49/300)</td><td><span class="ci">[12.6, 20.9]</span></td></tr>
+            <tr><td>Real Unsplash photos (ecological validity)</td><td><span class="rate">10.6%</span> (30/282)</td><td><span class="ci">[7.6, 14.8]</span></td></tr>
+            <tr><td>Retained-text inference (no images)</td><td><span class="rate">18.3%</span> (55/300)</td><td><span class="ci">[14.4, 23.1]</span></td></tr>
+            <tr><td>Blind inference (no context — pre-registered)</td><td><span class="rate">0.0%</span> (0/300)</td><td><span class="ci">[0.0, 1.3]</span></td></tr>
+            <tr><td>Negative controls (false-positive rate)</td><td><span class="rate">0.3%</span> (1/300)</td><td><span class="ci">[0.1, 1.9]</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="tables-note">All deletion-capable systems score &lt; 1% on text-only direct probes — leakage appears only once retained images enter context. Of 36 image leaks, 47% (17/36) are <b>not</b> recoverable by the text-only baseline: images are a channel text auditing provably misses.</div>
+
+      <div class="tbl-wrap" style="margin-top:1.1rem;">
+        <table>
+          <thead>
+            <tr><th>Fact category</th><th>Baseline leak</th><th>After semantic deletion</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Location</td><td><span class="rate">16.7%</span></td><td>1.5–3.4% (uniform)</td></tr>
+            <tr><td>Possession</td><td><span class="rate">15.2%</span></td><td>1.5–3.4% (uniform)</td></tr>
+            <tr><td>Preference</td><td><span class="rate">7.8%</span></td><td>1.5–3.4% (uniform)</td></tr>
+            <tr><td>Relationship</td><td><span class="rate">5.1%</span></td><td>1.5–3.4% (uniform)</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="tables-note">Location & possession leak most; semantic deletion reduces every category uniformly — no per-category blind spot.</div>
+    </section>
+
+    <!-- Strengths / Limitations -->
+    <section class="sl reveal d4">
+      <div class="sl-col pos">
+        <h3>Strengths</h3>
+        <ul>
+          <li>Targets a real failure mode in <b>deployed</b> memory (Mem0, Letta/MemGPT) — not toy weight-editing.</li>
+          <li>Formal, unifying IPG taxonomy plus a reusable benchmark with calibrated baselines; data & code released (MIT).</li>
+          <li>Clean split of three channels, and an explicit <b>engineering-gap vs. architectural-residual</b> distinction.</li>
+          <li>Practical mitigation (one VLM pass) with honest cost reporting (21% image removal).</li>
+          <li>Intellectual honesty: every confound (Mem0 mixing, same-fact κ, Unsplash realism) is stated, not buried.</li>
+        </ul>
+      </div>
+      <div class="sl-col neg">
+        <h3>Limitations</h3>
+        <ul>
+          <li>Residual leakage <b>not eliminated</b> (2.0%); needs representation-level fixes left as future work.</li>
+          <li>Ecological validity bounded by <b>Unsplash stock photos</b> — authentic user data may differ.</li>
+          <li>Mitigation result partly within <b>judge noise</b> (5/6 post-deletion “leaks” marginal); no precision–recall curve.</li>
+          <li>Proprietary, drifting judge/VLM models — long-term exact-rate reproducibility not guaranteed.</li>
+          <li>Modest human-annotation scale (n=100), two authors, wide CIs (~±4 pp); no defense vs. <b>union</b> leakage (16.0%).</li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- Questions -->
+    <section class="reveal d5">
+      <div class="section-head"><span class="num">03</span><h2>Open questions for follow-up</h2></div>
+      <ol class="qlist">
+        <li>By what precise mechanism do <b>unrelated</b> retained images leak a deleted fact — shared scene, recurring objects, or geolocation — and can it be predicted a priori?</li>
+        <li>Can semantic deletion reach <b>zero residual</b> without removing 1/5 of all visual memories (e.g. redaction / blurring instead of deletion)?</li>
+        <li>How does leakage scale with memory size, images per profile, and frontier VLM capability?</li>
+        <li>Is leakage robust under strictly <b>black-box</b> access, or does the threat model assume knowledge of which fact was deleted?</li>
+        <li>Do analogous persistent-node channels exist for <b>audio / video</b> memory, and does IPG extend cleanly?</li>
+        <li>Can the union-of-VLMs leakage (16.0%) be closed — or is multi-VLM auditing itself the compliance posture?</li>
+      </ol>
+    </section>
+
+  </div>
+
+  <footer>
+    <span>MemLeak · Wang &amp; Zhang, Georgia Tech · 2026-06-29</span>
+    <a class="src" href="2606.29788.html">↗ Markdown source</a>
+  </footer>
+
+</div>
+
+</body>
+</html>

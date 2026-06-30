@@ -1,0 +1,467 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Agents-A1 — Scaling the Horizon, Not the Parameters</title>
+<style>
+  :root{
+    --bg:#FAF7F1;
+    --paper:#FFFFFF;
+    --ink:#1B1714;
+    --ink-soft:#3A332D;
+    --muted:#7A6F62;
+    --rule:#E6DECF;
+    --line:#EBE3D3;
+    --accent:#B45309;        /* horizon amber */
+    --accent-deep:#92400E;
+    --accent-tint:#FBF1DD;
+    --edge:#9A3412;          /* critical edge rust */
+    --edge-tint:#FBE9DD;
+    --good:#3F6B3A;
+    --good-tint:#E9F0E4;
+    --mono:ui-monospace,"SF Mono-Regular",Menlo,Consolas,monospace;
+    --serif:Georgia,"Iowan Old Style","Songti SC","Noto Serif SC",serif;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Noto Sans SC","Hiragino Sans GB",sans-serif;
+    --maxw:min(95vw,1100px);
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:var(--bg);
+    color:var(--ink);
+    font-family:var(--sans);
+    line-height:1.6;
+    -webkit-font-smoothing:antialiased;
+    text-rendering:optimizeLegibility;
+  }
+  a{color:var(--accent-deep);text-decoration:none;}
+  a:hover{text-decoration:underline;text-underline-offset:3px;}
+
+  /* ---------- top bar ---------- */
+  .topbar{
+    position:fixed;top:0;left:0;right:0;z-index:50;
+    display:flex;align-items:center;justify-content:space-between;
+    padding:12px 22px;
+    background:rgba(250,247,241,.82);
+    backdrop-filter:saturate(140%) blur(8px);
+    border-bottom:1px solid var(--line);
+    font-size:13px;
+  }
+  .topbar .back{
+    color:var(--ink-soft);font-weight:600;letter-spacing:.01em;
+    display:inline-flex;align-items:center;gap:6px;
+  }
+  .topbar .back:hover{color:var(--accent-deep);text-decoration:none;}
+  .topbar .crumb{color:var(--muted);font-family:var(--mono);font-size:12px;}
+  .topbar .crumb b{color:var(--ink-soft);font-weight:600;}
+
+  /* ---------- shell ---------- */
+  .wrap{width:var(--maxw);margin:0 auto;padding:0 22px;}
+
+  /* ---------- HERO ---------- */
+  .hero{padding:96px 22px 40px;width:var(--maxw);margin:0 auto;}
+  .hero .eyebrow{
+    display:flex;flex-wrap:wrap;align-items:baseline;gap:10px 14px;
+    margin-bottom:30px;
+  }
+  .hero .pnum{
+    font-family:var(--mono);font-size:12px;color:var(--accent-deep);
+    border:1px solid var(--accent);border-radius:3px;padding:2px 7px;
+    letter-spacing:.02em;background:var(--accent-tint);
+  }
+  .hero h1.title{
+    font-family:var(--sans);font-size:15px;font-weight:600;
+    margin:0;color:var(--ink-soft);line-height:1.45;max-width:62ch;
+  }
+  .hero h1.title a{color:var(--ink-soft);border-bottom:1px solid var(--line);}
+  .hero h1.title a:hover{color:var(--accent-deep);border-color:var(--accent);}
+  .hero .byline{font-size:13px;color:var(--muted);margin-top:6px;}
+  .hero .byline b{color:var(--ink-soft);font-weight:600;}
+
+  .hero .chips{display:flex;flex-wrap:wrap;gap:7px;margin-top:18px;}
+  .chip{
+    font-size:11.5px;font-family:var(--mono);color:var(--ink-soft);
+    background:var(--paper);border:1px solid var(--line);border-radius:999px;
+    padding:3px 11px;letter-spacing:.01em;
+  }
+  .chip.accent{color:var(--accent-deep);border-color:var(--accent);background:var(--accent-tint);}
+
+  /* the dominant element */
+  .finding{
+    font-family:var(--serif);
+    font-weight:400;
+    font-size:clamp(30px,5.4vw,60px);
+    line-height:1.08;
+    letter-spacing:-.015em;
+    color:var(--ink);
+    margin:30px 0 0;
+    max-width:18ch;
+  }
+  .finding em{font-style:italic;color:var(--accent-deep);}
+  .finding .lead-mark{
+    display:block;font-family:var(--mono);font-style:normal;
+    font-size:12px;letter-spacing:.14em;text-transform:uppercase;
+    color:var(--accent);margin-bottom:18px;font-weight:600;
+  }
+  .hero .m_strip{
+    margin-top:26px;display:flex;flex-wrap:wrap;gap:8px 26px;
+    font-size:12.5px;color:var(--muted);font-family:var(--mono);
+  }
+  .hero .m_strip span b{color:var(--ink-soft);}
+
+  /* ---------- ASSET ROW ---------- */
+  .assets{
+    display:grid;grid-template-columns:1.05fr 1.15fr 1.15fr;gap:14px;
+    width:var(--maxw);margin:0 auto;padding:8px 22px 44px;
+  }
+  .card{
+    background:var(--paper);border:1px solid var(--line);border-radius:10px;
+    padding:22px 22px 20px;position:relative;overflow:hidden;
+  }
+  .card .k{
+    font-family:var(--mono);font-size:10.5px;letter-spacing:.14em;
+    text-transform:uppercase;color:var(--muted);margin:0 0 14px;font-weight:600;
+  }
+  .card.metric .num{
+    font-family:var(--serif);font-size:clamp(48px,7vw,72px);
+    line-height:.95;font-weight:400;color:var(--ink);letter-spacing:-.02em;
+    display:flex;align-items:baseline;gap:8px;
+  }
+  .card.metric .num .unit{font-family:var(--mono);font-size:14px;color:var(--accent-deep);font-weight:600;}
+  .card.metric .from{font-size:12.5px;color:var(--muted);margin-top:10px;font-family:var(--mono);}
+  .card.metric .from b{color:var(--good);}
+  .card.metric .sub{font-size:13px;color:var(--ink-soft);margin-top:12px;line-height:1.45;}
+
+  .card.why .body{font-family:var(--serif);font-size:18px;line-height:1.4;color:var(--ink-soft);}
+  .card.why .tag{font-size:12px;color:var(--muted);margin-top:14px;font-family:var(--mono);}
+
+  .card.edge{background:var(--edge-tint);border-color:#EBC9B4;}
+  .card.edge .k{color:var(--edge);}
+  .card.edge .body{font-family:var(--serif);font-size:17px;line-height:1.42;color:#5a2410;}
+  .card.edge .body b{color:var(--edge);font-weight:600;}
+  .card.edge::before{
+    content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--edge);
+  }
+
+  /* ---------- BODY GRID ---------- */
+  .body{width:var(--maxw);margin:0 auto;padding:10px 22px 30px;}
+  .sect-head{
+    display:flex;align-items:baseline;gap:12px;margin:0 0 16px;
+  }
+  .sect-head .n{
+    font-family:var(--mono);font-size:11px;color:var(--accent);font-weight:600;
+    letter-spacing:.1em;
+  }
+  .sect-head h2{
+    font-family:var(--sans);font-size:13px;font-weight:700;letter-spacing:.14em;
+    text-transform:uppercase;color:var(--ink);margin:0;
+  }
+  .sect-head .rule{flex:1;height:1px;background:var(--line);}
+
+  .grid-2{display:grid;grid-template-columns:1.25fr 1fr;gap:34px;align-items:start;}
+  .panel{background:var(--paper);border:1px solid var(--line);border-radius:10px;padding:24px 26px;}
+  .panel p{margin:0 0 12px;font-size:14.5px;color:var(--ink-soft);line-height:1.65;}
+  .panel p:last-child{margin-bottom:0;}
+  .panel .lead{font-family:var(--serif);font-size:17px;color:var(--ink);}
+  .panel strong{color:var(--ink);font-weight:600;}
+  .panel .term{color:var(--accent-deep);font-weight:600;}
+  .kw{
+    display:inline-block;font-family:var(--mono);font-size:11.5px;
+    background:var(--accent-tint);color:var(--accent-deep);
+    border:1px solid #F0DCAE;border-radius:4px;padding:1px 6px;
+  }
+
+  /* pipeline mini-diagram */
+  .pipe{
+    display:flex;align-items:stretch;gap:0;margin:16px 0 4px;flex-wrap:wrap;
+  }
+  .pipe .step{
+    flex:1;min-width:120px;background:var(--paper);border:1px solid var(--line);
+    border-radius:8px;padding:11px 13px;position:relative;font-size:12.5px;
+  }
+  .pipe .step .s-n{font-family:var(--mono);font-size:10px;color:var(--accent);font-weight:700;letter-spacing:.1em;}
+  .pipe .step .s-t{font-weight:600;color:var(--ink);margin:3px 0 2px;font-size:13px;}
+  .pipe .step .s-d{color:var(--muted);font-size:11.5px;line-height:1.35;}
+  .pipe .arrow{
+    align-self:center;color:var(--accent);font-family:var(--mono);font-weight:700;
+    padding:0 6px;font-size:16px;
+  }
+
+  /* ---------- RESULTS TABLE ---------- */
+  .table-wrap{overflow-x:auto;border:1px solid var(--line);border-radius:10px;background:var(--paper);}
+  table.results{width:100%;border-collapse:collapse;font-size:13px;min-width:560px;}
+  table.results th,table.results td{
+    padding:9px 14px;text-align:right;white-space:nowrap;
+  }
+  table.results th{
+    font-family:var(--mono);font-size:10.5px;font-weight:600;letter-spacing:.06em;
+    text-transform:uppercase;color:var(--muted);background:#FBF8F2;
+    border-bottom:1px solid var(--line);position:sticky;top:0;
+  }
+  table.results th:first-child,table.results td:first-child{text-align:left;}
+  table.results td.bench{font-weight:600;color:var(--ink);}
+  table.results td.dom{color:var(--muted);font-size:11.5px;font-family:var(--mono);}
+  table.results tbody tr{border-bottom:1px solid var(--line);}
+  table.results tbody tr:last-child{border-bottom:none;}
+  table.results tbody tr:hover{background:#FCFAF4;}
+  table.results td.final{font-weight:700;color:var(--accent-deep);background:var(--accent-tint);}
+  table.results td.delta{font-family:var(--mono);font-weight:600;color:var(--good);}
+  table.results td.dip{color:#B45309;font-size:11px;}
+  .legend{
+    font-size:11.5px;color:var(--muted);font-family:var(--mono);
+    margin-top:10px;line-height:1.5;
+  }
+  .legend b{color:var(--ink-soft);}
+
+  /* ---------- strengths / limits ---------- */
+  .sl{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:4px;}
+  .sl .col{background:var(--paper);border:1px solid var(--line);border-radius:10px;padding:22px 24px;border-top:3px solid var(--good);}
+  .sl .col.lim{border-top-color:var(--edge);}
+  .sl h3{
+    font-family:var(--sans);font-size:12px;font-weight:700;letter-spacing:.14em;
+    text-transform:uppercase;margin:0 0 14px;color:var(--ink);
+  }
+  .sl .col.str h3{color:var(--good);}
+  .sl .col.lim h3{color:var(--edge);}
+  .sl ul{margin:0;padding-left:0;list-style:none;}
+  .sl li{
+    font-size:13.5px;color:var(--ink-soft);line-height:1.5;
+    padding:8px 0 8px 20px;position:relative;border-bottom:1px dashed var(--line);
+  }
+  .sl li:last-child{border-bottom:none;}
+  .sl li::before{
+    content:"";position:absolute;left:2px;top:15px;width:7px;height:7px;border-radius:2px;
+  }
+  .sl .col.str li::before{background:var(--good);}
+  .sl .col.lim li::before{background:var(--edge);}
+
+  /* ---------- questions ---------- */
+  .qlist{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+  .q{
+    background:var(--paper);border:1px solid var(--line);border-radius:10px;
+    padding:18px 20px;font-size:13.5px;color:var(--ink-soft);line-height:1.5;
+    display:flex;gap:12px;
+  }
+  .q .qn{
+    font-family:var(--serif);font-size:24px;color:var(--accent);line-height:1;
+    flex-shrink:0;font-weight:400;
+  }
+  .q b{color:var(--ink);}
+
+  /* ---------- footer ---------- */
+  footer{
+    width:var(--maxw);margin:0 auto;padding:34px 22px 60px;
+    border-top:1px solid var(--line);margin-top:30px;
+    display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;
+    font-size:12.5px;color:var(--muted);font-family:var(--mono);
+  }
+  footer a{color:var(--accent-deep);font-weight:600;}
+
+  /* ---------- staggered load ---------- */
+  @media (prefers-reduced-motion:no-preference){
+    .rise{opacity:0;transform:translateY(14px);animation:rise .7s cubic-bezier(.2,.7,.2,1) forwards;}
+    @keyframes rise{to{opacity:1;transform:none;}}
+    .d0{animation-delay:.02s}.d1{animation-delay:.10s}.d2{animation-delay:.18s}
+    .d3{animation-delay:.26s}.d4{animation-delay:.34s}.d5{animation-delay:.42s}.d6{animation-delay:.50s}
+  }
+
+  /* ---------- responsive ---------- */
+  @media (max-width:860px){
+    .assets{grid-template-columns:1fr;}
+    .grid-2{grid-template-columns:1fr;}
+    .sl{grid-template-columns:1fr;}
+    .qlist{grid-template-columns:1fr;}
+    .pipe{flex-direction:column;}
+    .pipe .arrow{transform:rotate(90deg);padding:4px 0;}
+  }
+  @media (max-width:720px){
+    .hero{padding-top:80px;}
+    .finding{max-width:none;}
+    table.results{font-size:12px;}
+  }
+</style>
+</head>
+<body>
+
+<nav class="topbar">
+  <a class="back" href="./index.html">↩ Today's digest</a>
+  <span class="crumb">arxiv-daily · <b>2026-06-29</b></span>
+</nav>
+
+<!-- ============ HERO ============ -->
+<header class="hero">
+  <div class="eyebrow rise d0">
+    <span class="pnum">2606.30616</span>
+    <div>
+      <h1 class="title">
+        <a href="https://arxiv.org/abs/2606.30616" target="_blank" rel="noopener">
+          Scaling the Horizon, Not the Parameters: Reaching Trillion-Parameter Performance with a 35B Agent
+        </a>
+      </h1>
+      <div class="byline">Lei Bai, Zongsheng Cao, <b>et al.</b> · Shanghai AI Lab “Agents-A1 Team” (~49 contributors) · 2026-06-29</div>
+    </div>
+  </div>
+
+  <div class="chips rise d1">
+    <span class="chip accent">agentic LLM</span>
+    <span class="chip">long-horizon scaling</span>
+    <span class="chip">multi-teacher distillation</span>
+    <span class="chip">knowledge-action graph</span>
+    <span class="chip">mixture-of-experts</span>
+  </div>
+
+  <p class="finding rise d2">
+    <span class="lead-mark">Key finding</span>
+    A <em>35B</em> MoE agent matches trillion-parameter models on long-horizon agentic tasks — by <em>scaling the horizon</em>, not the parameters.
+  </p>
+
+  <div class="m_strip rise d3">
+    <span>base: <b>Qwen3.5-35B-A3B</b></span>
+    <span>avg trajectory: <b>~45K tokens</b></span>
+    <span>domains fused: <b>6</b></span>
+    <span>report: <b>29 pp.</b></span>
+    <span>eval: <b>pass@1, 300-turn cap</b></span>
+  </div>
+</header>
+
+<!-- ============ ASSET ROW ============ -->
+<section class="assets">
+  <div class="card metric rise d3">
+    <p class="k">Key metric</p>
+    <div class="num">96.0</div>
+    <p class="from">GAIA score · <b>+36.2</b> over 35B base (59.8) · on par with 1T-class models</p>
+    <p class="sub">General long-horizon agentic benchmark. Largest single gain among headline results; the OPD stage recovers ground lost by raw full-domain SFT.</p>
+  </div>
+
+  <div class="card why rise d4">
+    <p class="k">Why this matters</p>
+    <p class="body">A deployable 35B agent reaches 1T-level long-horizon performance — frontier agentic capability at a fraction of the inference cost.</p>
+    <p class="tag">cost-sensitive deployment · distillation recipe</p>
+  </div>
+
+  <div class="card edge rise d4">
+    <p class="k">⚖ Critical edge</p>
+    <p class="body">The “matches 1T” claim is <b>benchmark-selective</b>: on SciCode and MLE-Bench the model is clearly behind 1T models, and several science comparisons run a <b>tool-equipped</b> Agents-A1 against <b>tool-free</b> baselines.</p>
+  </div>
+</section>
+
+<!-- ============ BODY ============ -->
+<main class="body">
+
+  <!-- Methodology -->
+  <div class="sect-head rise d5"><span class="n">01</span><h2>Methodology</h2><span class="rule"></span></div>
+  <div class="grid-2 rise d5">
+    <div class="panel">
+      <p class="lead">The recipe trades raw scale for <span class="term">process-level supervision</span> and <span class="term">cross-domain teacher fusion</span>.</p>
+      <p>Long-horizon skill is decomposed into five atomic abilities — information acquisition, tool calling, executable iteration, evidence verification, constraint tracking. These are recorded in a typed <strong>Knowledge-Action Graph</strong> <span class="kw">G = (C, A, O, V)</span> that stores not the final answer but the <em>process</em> by which it was acquired, tested, and verified — retaining both successes and failures for cross-step credit assignment.</p>
+      <p>A <strong>proposer–solver–verifier</strong> self-play loop expands each domain sub-graph into verifiable, shortcut-free, ~45K-token trajectories. Six heterogeneous domains are then fused into one deployable student via a three-stage pipeline (right).</p>
+      <p>The distillation stage introduces <strong>Salient Vocabulary Alignment</strong>: a truncated reverse-KL computed only on each teacher’s top-<em>k</em> local vocabulary, with a domain-normalized objective (average within active domains, then across) so that long trajectories and frequent domains don’t dominate the gradient.</p>
+    </div>
+
+    <div class="panel">
+      <p class="k" style="font-family:var(--mono);font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);margin:0 0 6px;font-weight:600;">Three-stage recipe</p>
+      <div class="pipe">
+        <div class="step">
+          <div class="s-n">STAGE 1</div>
+          <div class="s-t">Full-domain SFT</div>
+          <div class="s-d">Aligns base agent; <i>regresses</i> on some IF / HLE tasks (pattern conflict).</div>
+        </div>
+        <div class="arrow">→</div>
+        <div class="step">
+          <div class="s-n">STAGE 2</div>
+          <div class="s-t">Domain teachers</div>
+          <div class="s-d">Per-domain SFT and/or RL specialists (search, science, IF, tool, …).</div>
+        </div>
+        <div class="arrow">→</div>
+        <div class="step">
+          <div class="s-n">STAGE 3</div>
+          <div class="s-t">Multi-teacher OPD + SVA</div>
+          <div class="s-d">Hard-routed distillation fuses six domains into one student; recovers SFT losses.</div>
+        </div>
+      </div>
+      <p style="font-size:12.5px;color:var(--muted);margin-top:14px;font-family:var(--mono);">OPD = on-policy distillation · SVA = salient vocabulary alignment · frozen-rollout student, trainable student-token KL only.</p>
+    </div>
+  </div>
+
+  <!-- Results -->
+  <div class="sect-head rise d6" style="margin-top:40px;"><span class="n">02</span><h2>Results — stage-by-stage (pass@1)</h2><span class="rule"></span></div>
+  <div class="rise d6">
+    <div class="table-wrap">
+      <table class="results">
+        <thead>
+          <tr>
+            <th>Benchmark</th><th>Domain</th><th>35B base</th><th>A1-SFT</th><th>Agents-A1</th><th>Δ vs base</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td class="bench">GAIA</td><td class="dom">general agentic</td><td>59.8</td><td>95.2</td><td class="final">96.0</td><td class="delta">+36.2</td></tr>
+          <tr><td class="bench">τ2-Bench</td><td class="dom">tool calling</td><td>32.5</td><td>76.7</td><td class="final">79.8</td><td class="delta">+47.3</td></tr>
+          <tr><td class="bench">FS-Research</td><td class="dom">science</td><td>2.5</td><td>31.7</td><td class="final">40.0</td><td class="delta">+37.5</td></tr>
+          <tr><td class="bench">MatTools</td><td class="dom">science</td><td>21.0</td><td>37.0</td><td class="final">47.1</td><td class="delta">+26.1</td></tr>
+          <tr><td class="bench">MLE-Bench-Lite</td><td class="dom">engineering</td><td>24.2</td><td>39.4</td><td class="final">43.9</td><td class="delta">+19.7</td></tr>
+          <tr><td class="bench">MolBench-Bind</td><td class="dom">science</td><td>46.0</td><td>46.0</td><td class="final">56.8</td><td class="delta">+10.8</td></tr>
+          <tr><td class="bench">SEAL-0</td><td class="dom">search / agentic</td><td>41.4</td><td>52.3</td><td class="final">56.4</td><td class="delta">+15.0</td></tr>
+          <tr><td class="bench">BrowseComp</td><td class="dom">web search</td><td>61.0</td><td>74.6</td><td class="final">75.5</td><td class="delta">+14.5</td></tr>
+          <tr><td class="bench">FS-Olympiad</td><td class="dom">science</td><td>64.5</td><td>75.0</td><td class="final">79.0</td><td class="delta">+14.5</td></tr>
+          <tr><td class="bench">VitaBench</td><td class="dom">agentic</td><td>26.0</td><td>37.3</td><td class="final">38.8</td><td class="delta">+12.8</td></tr>
+          <tr><td class="bench">HiPhO</td><td class="dom">science</td><td>37.0</td><td>42.9</td><td class="final">46.4</td><td class="delta">+9.4</td></tr>
+          <tr><td class="bench">XBench-DS</td><td class="dom">agentic</td><td>77.0</td><td>88.0</td><td class="final">86.0</td><td class="delta">+9.0</td></tr>
+          <tr><td class="bench">IFBench <span class="dip">↘↗</span></td><td class="dom">instruction following</td><td>70.2</td><td class="dip">68.7 ↓</td><td class="final">80.6</td><td class="delta">+10.4</td></tr>
+          <tr><td class="bench">SciCode</td><td class="dom">engineering</td><td>37.1</td><td>42.3</td><td class="final">44.3</td><td class="delta">+7.2</td></tr>
+          <tr><td class="bench">HLE-w/tools <span class="dip">↘↗</span></td><td class="dom">reasoning</td><td>47.4</td><td class="dip">41.6 ↓</td><td class="final">47.6</td><td class="delta">+0.2</td></tr>
+          <tr><td class="bench">LongBench V2</td><td class="dom">long context</td><td>59.0</td><td>58.3</td><td class="final">60.2</td><td class="delta">+1.2</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="legend">
+      Sorted by final-stage gain. <b>↘↗</b> = full-domain SFT <i>dipped</i>, then OPD recovered it — the central validation of the SVA + domain-normalized design.
+      Gaps remain on engineering tasks (SciCode 44.3, MLE 43.9) where GPT-5.5 reaches 72.7 on MLE — attributed to long-horizon goal stability & cross-experiment memory.
+    </p>
+  </div>
+
+  <!-- Strengths / Limitations -->
+  <div class="sect-head rise d6" style="margin-top:40px;"><span class="n">03</span><h2>Strengths &amp; Limitations</h2><span class="rule"></span></div>
+  <div class="sl rise d6">
+    <div class="col str">
+      <h3>+ Strengths</h3>
+      <ul>
+        <li>Deployable 35B footprint reaching 1T-level long-horizon performance — strong practical value.</li>
+        <li>KAG captures <b>process-level</b> (incl. failure) supervision that final-answer-only SFT cannot.</li>
+        <li>SVA + domain-normalized OPD is a clean, theoretically-grounded fix for sampled-token instability and cross-domain gradient imbalance.</li>
+        <li>Transparent ablations: reports where SFT regresses and how OPD recovers it; openly admits SciCode/MLE gaps.</li>
+        <li>Real long-horizon case studies (12-h autonomous ML optimization; end-to-end Cyclone Nargis reconstruction) embody the thesis.</li>
+      </ul>
+    </div>
+    <div class="col lim">
+      <h3>− Limitations</h3>
+      <ul>
+        <li>No released weights/data/config in the read portion — reproducibility weak; pipeline is infrastructure-heavy.</li>
+        <li>Asymmetric eval: Agents-A1 with tools vs tool-free frontier baselines on several science benchmarks.</li>
+        <li>Still materially behind 1T models on long-horizon <b>engineering</b> tasks (SciCode, MLE-Bench).</li>
+        <li>OPD student can lag its own specialist teachers — fusion carries a per-domain cost.</li>
+        <li>τ2-Bench numbers are environment/version-sensitive and flagged as inconsistent across community reports.</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- Questions -->
+  <div class="sect-head rise d6" style="margin-top:40px;"><span class="n">04</span><h2>Open questions</h2><span class="rule"></span></div>
+  <div class="qlist rise d6">
+    <div class="q"><span class="qn">?</span><span>How much gap-closing comes from the <b>KAG / process supervision</b> vs SVA distillation itself? A clean isolation ablation would clarify attribution.</span></div>
+    <div class="q"><span class="qn">?</span><span>Do the “leading” science results hold once baselines get the <b>same tool-augmented protocol</b>, removing the asymmetric condition?</span></div>
+    <div class="q"><span class="qn">?</span><span>What is the <b>latency/cost</b> of 45K-token trajectories, and how does ROI actually compare to a 1T model at the same task budget?</span></div>
+    <div class="q"><span class="qn">?</span><span>How sensitive is OPD convergence to <b>domain-label noise</b> and to the top-<i>k</i> choice in SVA coverage?</span></div>
+    <div class="q"><span class="qn">?</span><span>Can the KAG infrastructure generalize beyond six domains — e.g. to <b>software-engineering</b> or real-time web-action agents?</span></div>
+    <div class="q"><span class="qn">?</span><span>Given the (future-dated) baseline IDs, how do results hold against <b>actual current frontier models</b> re-measured under one harness?</span></div>
+  </div>
+
+</main>
+
+<footer>
+  <span>Agents-A1 · arxiv 2606.30616 · distilled from source</span>
+  <a href="2606.30616.html">↗ Markdown source</a>
+</footer>
+
+</body>
+</html>

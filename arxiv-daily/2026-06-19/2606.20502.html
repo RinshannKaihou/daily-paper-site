@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Calibration Without Comprehension: Diagnosing the Limits of Fine-Tuning LLMs for Vulnerability Detection in Systems Software</title>
+<style>
+:root { --paper:#fafafa; --ink:#1a1a1a; --muted:#555; --accent:#1a5276; --line:#ddd; --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif; --serif:Georgia,"Noto Serif SC",serif; }
+body { font-family:var(--serif); background:var(--paper); color:var(--ink); line-height:1.6; margin:0; padding:0; }
+.container { max-width:min(95vw, 760px); margin:0 auto; padding:28px 20px 60px; }
+.topnav { position:fixed; top:12px; left:14px; z-index:50; font-family:var(--sans); font-size:.75rem; background:var(--paper); border:1px solid var(--line); padding:5px 10px; border-radius:999px; }
+.topnav a { color:var(--muted); text-decoration:none; font-weight:600; }
+.topnav a:hover { color:var(--accent); }
+h1 { font-size:1.6rem; margin:2.2rem 0 1rem; border-bottom:2px solid var(--accent); padding-bottom:.3rem; }
+h2 { font-size:1.3rem; margin:1.8rem 0 .8rem; color:var(--accent); }
+h3 { font-size:1.1rem; margin:1.4rem 0 .6rem; }
+p { margin:.8rem 0; }
+.authors { font-style:italic; color:var(--muted); margin-top:-.4rem; }
+.meta { font-family:var(--sans); font-size:.82rem; color:var(--muted); margin:.2rem 0; }
+a { color:var(--accent); text-decoration:none; }
+a:hover { text-decoration:underline; }
+blockquote { border-left:3px solid var(--accent); margin:1rem 0; padding:.2rem 0 .2rem 1rem; color:var(--muted); font-style:italic; }
+code { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; background:#f0f0f0; padding:2px 5px; border-radius:3px; font-size:.9em; }
+pre { background:#f5f5f5; padding:14px; overflow-x:auto; border-radius:4px; border:1px solid var(--line); }
+pre code { background:transparent; padding:0; }
+ul,ol { margin:.6rem 0; padding-left:1.5rem; }
+li { margin:.25rem 0; }
+table { border-collapse:collapse; width:100%; margin:1rem 0; font-family:var(--sans); font-size:.9rem; }
+th,td { border:1px solid var(--line); padding:6px 10px; text-align:left; }
+th { background:#f0f0f0; }
+hr { border:none; border-top:1px solid var(--line); margin:1.5rem 0; }
+.note { font-family:var(--sans); font-size:.78rem; color:var(--muted); border-top:1px solid var(--line); margin-top:2rem; padding-top:1rem; }
+@media (max-width: 600px) { .container { padding:22px 14px 40px; } h1 { font-size:1.35rem; } }
+</style>
+</head>
+<body>
+<div class="topnav"><a href="./index.html">← Today's digest</a></div>
+<div class="container">
+<h1>Calibration Without Comprehension: Diagnosing the Limits of Fine-Tuning LLMs for Vulnerability Detection in Systems Software</h1>
+<p class="meta">arXiv: 2606.20502</p>
+<p class="meta">Date: 2026-06-19</p>
+<p class="meta"><a href="https://arxiv.org/abs/2606.20502">https://arxiv.org/abs/2606.20502</a></p>
+<blockquote><strong>一句话总结：</strong> 提出 CWE-Trace 框架（834 条手工标注的 Linux 内核样本 + 严格时间切分 + DFI/HDD 两个诊断指标），系统评测 8 个原生 LLM 与 15 个 LoRA 微调变体后发现：数据污染对漏洞检测无可见增益（84% 名义污染样本无可用记忆信号），骨干网络的方向性先验主导微调效果（DFI 从 -85.5 到 +94.8 pp 稳定存在），微调只是移动输出阈值而非改变决策策略——即"校准而无理解"；最强检测仅 52.1%（仅高于随机 2.1 pp），精确 CWE Top-1 低于 1.3%。</blockquote>
+<blockquote><strong>TL;DR:</strong> CWE-Trace stress-tests 8 vanilla LLMs and 15 LoRA variants on 834 manually curated Linux kernel samples with a strict pre/post-2025 temporal split. Data contamination yields no memorization advantage (84% of nominally contaminated samples carry no usable signal), backbone directional priors dominate fine-tuning (stable DFI from -85.5 to +94.8 pp), and fine-tuning shifts the output threshold without changing the decision policy—"calibration without comprehension." Best detection is only 52.1% (+2.1 pp over chance); exact CWE Top-1 stays below 1.3%.</blockquote>
+<h2>核心贡献</h2>
+<ul>
+<li><strong>新基准与数据集（CWE-Trace）：</strong> 从 417 个 Linux kernel CVE 中手工标注 834 个上下文感知的"漏洞—补丁"样本对，覆盖 74 个 CWE；采用双人评审协议（two-reviewer inspection）过滤非安全改动，保留 L1（单函数）与 L2（多文件/多函数）上下文，超越以往函数孤立抽取。</li>
+<li><strong>严格时间切分：</strong> PBD（历史集 ≤2024，628 样本）与 LFD（无泄漏集 2025，206 样本）分离，用于区分"泛化 vs 记忆"；并对开源模型固定 HuggingFace commit SHA（两级溯源）以防止后发布更新带来的污染。</li>
+<li><strong>两个原创诊断指标：</strong> DFI（Directional Failure Index）度量模型的偏执/怀疑方向性偏差；HDD（Hierarchical Distance and Direction）在 CWE-1000 分类树中度量错误的最短路径距离与方向（exact/shallow/deep/lateral/invalid），可区分"浅层类别识别"与"精确根因理解"。</li>
+<li><strong>系统化微调研究：</strong> 3 个骨干（Qwen3-4B、DeepSeek-R1-32B、Llama3.1-8B）× 5 个 SOTA 数据集（Devign、LineVul、PrimeVul、MegaVul、VDISC）= 15 个 LoRA 变体，在统一基准与统一三任务目标下评测，隔离"微调改变了什么 vs 由骨干先验决定的部分"。</li>
+<li><strong>数据质量审计：</strong> 在函数级而非数据集级验证污染样本，发现 PrimeVul/MegaVul 标签冲突率约 75%、污染样本中约 31% 存在 CWE 误分类，从机制上解释了"CVE 级重叠不等于记忆曝光"的零结果。</li>
+</ul>
+<h2>Key Contributions</h2>
+<ul>
+<li><strong>CWE-Trace benchmark:</strong> 834 context-aware vulnerable–patched samples from 417 Linux kernel CVEs across 74 CWEs, validated by a two-reviewer consensus protocol, distinguishing CVE-level overlap from true function-level memorization exposure.</li>
+<li><strong>Leakage-free temporal split:</strong> A pre-2025 historical set (PBD) and a post-cutoff 2025 set (LFD), with model checkpoints pinned to specific HuggingFace SHAs (two-tier provenance) to rule out post-release contamination.</li>
+<li><strong>Two novel diagnostic metrics:</strong> DFI (Directional Failure Index) reveals stable paranoid-vs-skeptical decision bias; HDD (Hierarchical Distance and Direction) measures shortest-path distance and error direction in the CWE-1000 tree, separating shallow family recognition from precise root-cause understanding.</li>
+<li><strong>Systematic fine-tuning study:</strong> A 3×5 grid (Qwen3-4B, DeepSeek-R1-32B, Llama3.1-8B × Devign, LineVul, PrimeVul, MegaVul, VDISC) yielding 15 LoRA variants evaluated under matched contamination controls and a unified three-task objective.</li>
+<li><strong>Function-level data-quality audit:</strong> Quantifies ~75% label-conflict rate in PrimeVul/MegaVul and ~31% CWE misclassification among contaminated samples, mechanistically explaining why CVE-level contamination produces no memorization shortcut.</li>
+</ul>
+<h2>Methodology</h2>
+<p>CWE-Trace extracts vulnerable (pre-fix) and patched (post-fix) code from Linux kernel commits, building manually labeled L1 (single-function) and L2 (multi-function/multi-file) blocks. From 1,020 raw samples, two reviewers validated 628 PBD (≤2024) and 206 LFD (2025) samples, excluding false positives, contextual gaps, and singleton CWEs. CWE-664 dominates both splits (43.3% PBD / 60.2% LFD).</p>
+<p><strong>Three tasks</strong> (all zero-shot, to isolate pretraining/fine-tuning from prompt engineering):</p>
+<ol>
+<li><strong>Non-targeted detection (VD/PV):</strong> predict vulnerable/safe/abstain with no hint.</li>
+<li><strong>Targeted detection (TVD/TPV):</strong> given a CWE hint (e.g., "check for CWE-416"), test hypothesis verification.</li>
+<li><strong>CWE classification (CWE-C):</strong> produce a ranked CWE-1000 candidate list, scored by Top-k accuracy, MRR, RootMicro/RootMacro@1, and HDD.</li>
+</ol>
+<p><strong>Metrics:</strong> Standard Accuracy (abstentions counted as errors), Coverage, Top-k, MRR, Root-Taxonomy Accuracy, HDD (Distance + DirectionGap + direction profile), DFI (signed decision asymmetry), CGR (Contextual Gain Ratio from hints).</p>
+<p><strong>Models:</strong> 8 vanilla LLMs — code-specialized (CodeLlama 7B, StarCoder2 7B, Qwen3-Coder 30B) and general (Mistral v0.3 7B, Llama3.1 8B, DeepSeek-R1 7B-distill, Qwen3 4B, GPT-4.1-mini). Plus 15 LoRA fine-tuned variants.</p>
+<p><strong>Fine-tuning setup:</strong> LoRA rank r=16, α=32, dropout=0 on all attention and feed-forward projections (q,k,v,o,gate,up,down_proj); lr 2e-4, cosine decay, 5% warmup, weight decay 0.01, grad clip 1.0, batch size 64, one epoch, bfloat16. Vulnerable-class oversampling (15–20× for PrimeVul/MegaVul/VDISC). Inference at temperature=0 with SHAs pinned.</p>
+<h2>Results & Highlights</h2>
+<ul>
+<li><strong>Detection is near-chance with extreme directional bias.</strong> Overall accuracy clusters at 49–53% (chance=50%). Best vanilla model CodeLlama reaches only 52.1%. The ~50% average hides stark failure modes:</li>
+<li>DeepSeek-R1: strongly paranoid, DFI +94.8 pp (PBD) / +90.8 pp (LFD) — flags nearly everything vulnerable.</li>
+<li>GPT-4.1-mini: strongly skeptical, DFI −85.5 pp (PBD) / −89.3 pp (LFD) — predicts "safe" and misses most vulnerabilities.</li>
+<li>Qwen3-4B: near-total abstention, 36.9% coverage, 11.9% overall.</li>
+<li><strong>Fine-tuning shifts threshold, not policy.</strong> Qwen3-4B gains +27.5 to +41.5 pp mainly by overcoming abstention (coverage 36.9%→>91%); Llama3.1 is neutral-to-harmful (Devign-FT collapses to 1.3% overall / 4.1% coverage on PBD); DeepSeek-R1 degrades (−0.6 to −29.1 pp on LFD), often amplifying its paranoid prior.</li>
+<li><strong>Label-space transfer is flat.</strong> Gains on CWEs inside vs outside the fine-tuning label space are nearly identical (e.g., Qwen3-4B on LFD), indicating a global response-policy shift rather than CWE-specific learning.</li>
+<li><strong>Contamination has no detectable effect.</strong> No consistent advantage for seen-CVE samples; 84% of nominally contaminated samples carry no usable memorization signal because root-cause functions are absent/cross-mapped, and ~31% carry CWE misclassification. 59.62% of PBD CVEs appear in some fine-tuning corpus (MegaVul 54.72%, PrimeVul 33.96%, LineVul 18.11%) yet confer no benefit.</li>
+<li><strong>Detection and understanding are decoupled.</strong> DeepSeek-R1, the weakest binary detector, gains the most in coarse CWE classification; StarCoder2 leads LFD coarse root-classification at 61.0% Micro@1 (Qwen3-4B 59.2%), but Macro@1 stays at 9.7–19.3% (PBD), showing concentration on dominant root families.</li>
+<li><strong>Exact CWE understanding is essentially absent.</strong> Exact CWE Top-1 ranking stays below 1.3%.</li>
+<li><strong>Non-LLM baselines reinforce the context bottleneck.</strong> Semgrep recall is 0.3% (PBD) / 0.0% (LFD); DeepWukong predicts everything as safe; GraphCodeBERT reaches 61.5%/62.5% F1 only on the ≤512-token subset.</li>
+</ul>
+<h2>Authors & Credibility</h2>
+<p>Authors are Arastoo Zibaeirad and Marco Vieira of the University of North Carolina at Charlotte (azibaeir, marco.vieira@charlotte.edu), a group with a documented software-engineering/security-reliability track record (prior EDCC empirical work on combining static analysis with ML). The study is methodologically careful: pinned HuggingFace commit SHAs for reproducibility, bfloat16 with temperature=0, a two-reviewer manual validation protocol, a 3×5 fine-tuning grid, and an explicit threats-to-validity section covering internal/external/construct validity. The paper self-positions against the closest prior contamination-aware benchmark (Ullah et al., 228 samples / 8 CWEs, no fine-tuning) and dataset-level label-noise audits (Croft et al.), claiming to add function-level distribution-shift verification, multi-backbone fine-tuning, and diagnostic decomposition.</p>
+<h2>Critical Assessment</h2>
+<ul>
+<li><strong>Novelty (Moderate-High):</strong> The "calibration without comprehension" framing is the genuine contribution, and DFI/HDD are useful, transferable behavioral diagnostics. The mechanistic, function-level explanation of the <em>null</em> contamination result (absent root-cause functions + 75% label-conflict + 31% CWE misclassification) is a real advance over dataset-level audits. However, the headline finding "LLMs are bad at vulnerability detection" is well-trodden ground; the value lies in the <em>why</em> and the rigor, not the direction of the result.</li>
+<li><strong>Rigor (High):</strong> Strong experimental hygiene — temporal split, pinned SHAs, unified task objectives across datasets, oversampling rationale, conservative temperature=0 justification (observed DFI magnitudes far exceed plausible sampling variance). The 3×5 grid plus 8 vanilla models is a substantial evaluation.</li>
+<li><strong>Reproducibility (Moderate-High):</strong> Checkpoints, SHAs, hyperparameters, and dataset stats are all reported; the framework is described as language-agnostic and HuggingFace-hosted. The main reproducibility friction is the manual two-reviewer dataset construction (834 samples), which is labor-intensive to recreate exactly; HDD is also tied to a specific CWE-1000 version.</li>
+<li><strong>Significance (Moderate-High for SE/security; Moderate for general LLM-reliability):</strong> For the vulnerability-detection community it is a clear, well-evidenced negative result that should redirect effort toward better-structured supervision and prior-correcting objectives. As an LLM-evaluation methodology paper, DFI and HDD are reusable beyond security.</li>
+<li><strong>Red flags / overstated claims:</strong></li>
+<li>The claim "current LLMs lack reliable security reasoning ... regardless of fine-tuning strategy" is slightly overstated: only LoRA on 3 mid-scale backbones is tested (acknowledged), and the single API model is GPT-4.1-mini — no true frontier model (GPT-5 / Claude Opus-class) is evaluated. "Current LLMs" is therefore partially an extrapolation.</li>
+<li>Only zero-shot prompting is used; CoT, few-shot, and RAG are explicitly excluded. Modern security workflows routinely use these, so the practical conclusion is narrower than the abstract implies.</li>
+<li>Severe class imbalance (CWE-664 at 43–60%) depresses Macro@1 partly by construction; the "narrow family concentration" finding is real but amplified by the distribution.</li>
+<li>Best detector is CodeLlama 7B (an older code model); framing this as representative of "current LLMs" leans on the weakest evidence.</li>
+<li><strong>No fabrication/leakage concerns</strong> detected; numbers are internally consistent across abstract, tables, and prose.</li>
+</ul>
+<h2>Strengths</h2>
+<ul>
+<li>Clean, leakage-aware benchmark design with a genuine post-cutoff 2025 split and SHA-pinned provenance.</li>
+<li>DFI and HDD are principled, parameter-free (HDD depends only on the CWE-1000 graph) diagnostics that expose <em>how</em> models fail, not just <em>that</em> they fail.</li>
+<li>Honest negative-result framing with a mechanistic explanation, rather than cherry-picked positives.</li>
+<li>Function-level contamination audit reveals actionable dataset-quality problems (75% conflict, 31% misclassification) in widely used corpora.</li>
+<li>Unified three-task protocol across all five fine-tuning datasets isolates the supervision signal from objective differences.</li>
+</ul>
+<h2>Limitations</h2>
+<ul>
+<li>Only LoRA adaptation on three backbones; full fine-tuning and other PEFT methods untested.</li>
+<li>Zero-shot only — no CoT, few-shot, RAG, tool-use, or agentic workflows, which are standard in deployed security pipelines.</li>
+<li>Single language/ecosystem (C / Linux kernel); cross-language replication (Java, Python, Rust) is left to future work.</li>
+<li>No frontier-scale proprietary model beyond GPT-4.1-mini.</li>
+<li>Manual dataset construction does not scale and is hard to reproduce verbatim; HDD tied to a CWE-1000 version.</li>
+<li>Context blocks do not reconstruct full build environments (includes/macros), which may affect hardware-specific paths.</li>
+<li>DFI magnitude could in principle shrink at non-zero temperature (the authors argue conservatively that it would not erase the effect).</li>
+</ul>
+<h2>Relevance</h2>
+<p>与你的兴趣高度契合：这是一篇典型的 <strong>LLM 推理评测（LLM Inference Evaluation）</strong> 与 <strong>ML 可靠性/失效模式分析</strong> 工作——它系统量化了 LLM 在漏洞检测推理任务上的输出稳定性、方向性偏差与微调后的行为变化，并提供了可迁移的诊断指标（DFI/HDD）。对"评估模型输出一致性、失效模式分析"方向有直接方法论参考价值，尽管其应用域（系统软件安全）偏离你的核心（训练稳定性/可解释性/数值精度）。</p>
+<h2>Questions for Further Exploration</h2>
+<ul>
+<li>Do the stable directional priors (DFI) reflect a representation-geometry property of the backbone? Could probing/SAE analysis localize the paranoid-vs-skeptical decision circuit, connecting DFI to mechanistic interpretability?</li>
+<li>Would contrastive or DPO-style training on paired vulnerable–patched examples actually correct the threshold shift, or merely move it—i.e., is "calibration without comprehension" a fundamental ceiling for next-token objectives?</li>
+<li>How do frontier models (GPT-5, Claude Opus 4.x) and structured prompting (CoT/RAG) change the picture, given zero-shot was the only regime tested?</li>
+<li>Does the function-level distribution-shift explanation generalize to other contaminated benchmarks (e.g., in math/code reasoning), suggesting a broader "contamination without memorization" phenomenon?</li>
+<li>Can HDD/DFI be adapted as general reliability diagnostics beyond security—e.g., for measuring directional bias in safety refusals or calibration in factual QA?</li>
+</ul>
+<p class="note">Generated from Markdown summary. Full paper: <a href="https://arxiv.org/abs/2606.20502">arXiv:2606.20502</a></p>
+</div>
+</body>
+</html>

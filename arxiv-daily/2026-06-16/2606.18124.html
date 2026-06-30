@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Unintended Effects of Geographic Conditioning in Large Language Models</title>
+<style>
+:root { --paper:#fafafa; --ink:#1a1a1a; --muted:#555; --accent:#1a5276; --line:#ddd; --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif; --serif:Georgia,"Noto Serif SC",serif; }
+body { font-family:var(--serif); background:var(--paper); color:var(--ink); line-height:1.6; margin:0; padding:0; }
+.container { max-width:min(95vw, 760px); margin:0 auto; padding:28px 20px 60px; }
+.topnav { position:fixed; top:12px; left:14px; z-index:50; font-family:var(--sans); font-size:.75rem; background:var(--paper); border:1px solid var(--line); padding:5px 10px; border-radius:999px; }
+.topnav a { color:var(--muted); text-decoration:none; font-weight:600; }
+.topnav a:hover { color:var(--accent); }
+h1 { font-size:1.6rem; margin:2.2rem 0 1rem; border-bottom:2px solid var(--accent); padding-bottom:.3rem; }
+h2 { font-size:1.3rem; margin:1.8rem 0 .8rem; color:var(--accent); }
+h3 { font-size:1.1rem; margin:1.4rem 0 .6rem; }
+p { margin:.8rem 0; }
+.authors { font-style:italic; color:var(--muted); margin-top:-.4rem; }
+.meta { font-family:var(--sans); font-size:.82rem; color:var(--muted); margin:.2rem 0; }
+a { color:var(--accent); text-decoration:none; }
+a:hover { text-decoration:underline; }
+blockquote { border-left:3px solid var(--accent); margin:1rem 0; padding:.2rem 0 .2rem 1rem; color:var(--muted); font-style:italic; }
+code { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; background:#f0f0f0; padding:2px 5px; border-radius:3px; font-size:.9em; }
+pre { background:#f5f5f5; padding:14px; overflow-x:auto; border-radius:4px; border:1px solid var(--line); }
+pre code { background:transparent; padding:0; }
+ul,ol { margin:.6rem 0; padding-left:1.5rem; }
+li { margin:.25rem 0; }
+table { border-collapse:collapse; width:100%; margin:1rem 0; font-family:var(--sans); font-size:.9rem; }
+th,td { border:1px solid var(--line); padding:6px 10px; text-align:left; }
+th { background:#f0f0f0; }
+hr { border:none; border-top:1px solid var(--line); margin:1.5rem 0; }
+.note { font-family:var(--sans); font-size:.78rem; color:var(--muted); border-top:1px solid var(--line); margin-top:2rem; padding-top:1rem; }
+@media (max-width: 600px) { .container { padding:22px 14px 40px; } h1 { font-size:1.35rem; } }
+</style>
+</head>
+<body>
+<div class="topnav"><a href="./index.html">← Today's digest</a></div>
+<div class="container">
+<h1>Unintended Effects of Geographic Conditioning in Large Language Models</h1>
+<p class="meta">arXiv: 2606.18124</p>
+<p class="meta">Date: 2026-06-16</p>
+<p class="meta"><a href="https://arxiv.org/abs/2606.18124">https://arxiv.org/abs/2606.18124</a></p>
+<blockquote><strong>一句话总结：</strong> 系统评估了五个 SOTA LLM（Llama 3.1-8B、Qwen3-8B、Gemini 3 Flash、GPT-5-nano、Claude Sonnet 4.6）在三种地理元数据注入方式下的"位置泄漏"现象，最高泄漏达 793×基线（Llama 3.1-8B 在 Infinite Chats 上 0.04%→31.7%），并通过 "Unknown" 占位符控制实验分离出独立的结构性条件效应（12–72×），揭示大洋洲和北美受影响最重，且 LoRA 微调无法有效缓解该偏差。</blockquote>
+<blockquote><strong>TL;DR:</strong> This paper formalizes <strong>location leakage</strong> — the systematic introduction of geographic references into LLM outputs despite location-agnostic prompts — and quantifies it across five frontier models, three injection methods (Manual Pre-pending, System Prompt, Hybrid), and two task families (WritingPrompts, Infinite Chats). Llama 3.1-8B peaks at 31.7% leakage (793× baseline) under Hybrid on Infinite Chats; Claude Sonnet 4.6 still hits 16.0%. A clever "Unknown" placeholder control reveals a <strong>structural conditioning effect</strong> (12–72× baseline) where the user-profile frame alone, independent of any geographic content, amplifies leakage — suggesting attention prioritizes prompt geometry over semantics. Oceania and North America are disproportionately over-leaked; Asia is consistently suppressed. A LoRA debiasing attempt fails almost entirely (Llama: −0.18% absolute, p=0.47; Qwen3: actually regresses +0.63%), indicating the bias is structurally ingrained in pre-trained weights.</blockquote>
+<h2>核心贡献</h2>
+<ul>
+<li><strong>形式化"位置泄漏"（location leakage）现象</strong>，并给出基于 indicator 函数 <code>Ileak(y, loc)</code> 的定量框架，区分基线泄漏率 λ₀ 与条件化泄漏率 λc。</li>
+<li>在五个 SOTA LLM（开源：Llama 3.1-8B-Instruct、Qwen3-8B；闭源：GPT-5-nano、Gemini 3 Flash、Claude Sonnet 4.6）× 三种注入架构（Manual Pre-pending、System Prompt、Hybrid）× 两个数据集（WritingPrompts、Infinite Chats，覆盖 193 个联合国成员国）的网格实验。</li>
+<li>设计 <strong>"Unknown" 占位符对照实验</strong>，将条件化泄漏率分解为结构性放大因子 αstruct 与语义放大因子 αsem，证明用户配置框架本身就足以让泄漏上升 12–72 倍。</li>
+<li>引入 <strong>Regional Sensitivity Ratio (RSR)</strong>，发现 Oceania 在所有五个模型中均位列过表达区域第一、Asia 持续被抑制。</li>
+<li>跨国家 <strong>社会经济相关性分析</strong>：人均 GDP 和互联网普及率与泄漏率无显著相关；<strong>高等教育毛入学率呈显著负相关</strong>（Spearman ρ = −0.20, p = 0.008）。</li>
+<li><strong>首次实测 LoRA 去偏失败</strong>：Llama 3.1-8B 微调后仅下降 0.18%（p=0.47），Qwen3-8B 反而上升 0.63%（p=0.60），揭示偏差深植于预训练权重。</li>
+</ul>
+<h2>Key Contributions</h2>
+<ul>
+<li>Formal definition of <strong>location leakage</strong> with indicator-function-based quantification (λ₀ vs. λc) and a decomposition λc = λ₀ · αstruct · αsem.</li>
+<li>Comprehensive empirical sweep: 5 models × 3 injection architectures × 2 task datasets × 193 countries = a uniquely broad evaluation of geographic conditioning.</li>
+<li>Novel <strong>structural vs. semantic decomposition</strong> via the "Unknown" placeholder control — isolates the framing wrapper as an independent generative signal (12–72× amplification), suggesting attention prioritizes prompt geometry over content.</li>
+<li><strong>Regional Sensitivity Ratio (RSR)</strong> maps showing Oceania systematically over-leaks and Asia systematically under-leaks across all five models.</li>
+<li><strong>Socioeconomic correlation analysis</strong> identifying tertiary education enrollment (Spearman ρ = −0.20, p = 0.008) as the only significant predictor of leakage among GDP, internet usage, and tertiary education.</li>
+<li><strong>Negative mitigation result</strong>: LoRA fine-tuning (rank 32, 2 epochs, cross-mapping all countries to neutral targets) reduces leakage by only 0.18% (Llama, p=0.47) and actually <em>increases</em> leakage by 0.63% (Qwen3, p=0.60).</li>
+</ul>
+<h2>Methodology</h2>
+<ul>
+<li><strong>Datasets (location-agnostic by design):</strong></li>
+<li><strong>WritingPrompts</strong> (Fan et al., 2018): 10,036 creative writing prompts; 52 prompts × 193 countries.</li>
+<li><strong>Infinite Chats</strong> (Jiang, 2024): 19,300 open-ended Q&A queries; 100 prompts × 193 countries.</li>
+<li><strong>Three injection architectures:</strong></li>
+</ul>
+<ol>
+<li><strong>Manual Pre-pending (Block):</strong> A <code>— BEGIN USER PROFILE — Location: <Country> — END USER PROFILE —</code> block prepended to the user message.</li>
+<li><strong>System Prompt Injection:</strong> A minimal system instruction <code>"You are a helpful assistant for a user in <location>. Be concise and direct; avoid being generic."</code> (deliberately no explicit "localize your answer" directive).</li>
+<li><strong>Hybrid Combination:</strong> Both methods applied simultaneously.</li>
+</ol>
+<ul>
+<li><strong>Controls:</strong></li>
+<li><strong>No-Injection baseline:</strong> Location field stripped entirely from both user prompt and system context.</li>
+<li><strong>Unknown Location condition:</strong> Location field set to literal <code>"Unknown"</code> across all three injection routes.</li>
+<li><strong>Leakage detection:</strong> Exact string matching — checks whether the injected country name or any of its constituent words (>3 chars) appear in the generated text. Authors explicitly describe this as a <strong>conservative lower bound</strong>: it misses cultural framing, regional slang, and implicit stereotyping.</li>
+<li><strong>Output normalization:</strong> All outputs truncated or right-padded to exactly 500 characters.</li>
+<li><strong>Decoding:</strong> Temperature 1.0, max 512–2048 tokens, 3 sampling attempts per sample, provider-default top-p/top-k.</li>
+<li><strong>Models evaluated:</strong> Llama 3.1-8B-Instruct, Qwen3-8B, Gemini 3 Flash, GPT-5-nano, Claude Sonnet 4.6.</li>
+<li><strong>Mitigation experiment:</strong> LoRA (rank 32, lr 2×10⁻⁴, 2 epochs, batch size 64) on each of 193 countries paired with the same neutral target response; training on Tinker (Thinking Machines Lab).</li>
+</ul>
+<h2>Results & Highlights</h2>
+<h3>Main leakage rates (Infinite Chats)</h3>
+<p>| Model | Block | Sys Prompt | Hybrid |</p>
+<p>|---|---|---|---|</p>
+<p>| Llama 3.1-8B | 22.3% | 21.6% | <strong>31.7%</strong> |</p>
+<p>| Qwen3-8B | 14.1% | 6.7% | 21.5% |</p>
+<p>| Gemini 3 Flash | 17.2% | 12.5% | 24.4% |</p>
+<p>| GPT-5-nano | 9.3% | 12.2% | 10.3% (5,363 samples) |</p>
+<p>| Claude Sonnet 4.6 | 16.0% | 3.8% | 11.1% |</p>
+<ul>
+<li><strong>Headline multiplier:</strong> Llama 3.1-8B Hybrid = 31.72% vs. 0.04% baseline = <strong>793×</strong>.</li>
+<li>Claude Sonnet 4.6 shows the <strong>largest method gap</strong> (Block 16.0% vs. Sys 3.8%), suggesting it attends more to user-turn metadata than to system-prompt directives.</li>
+<li>Counterintuitively, for Claude and GPT-5-nano, <strong>Hybrid Combination actually reduces leakage</strong> below the single-injection rate — possibly because the two signals partially cancel.</li>
+</ul>
+<h3>Structural vs. semantic decomposition (Llama 3.1-8B, Infinite Chats)</h3>
+<p>| Condition | Leaks | Rate (%) | × Baseline |</p>
+<p>|---|---|---|---|</p>
+<p>| No Injection | 8 | 0.04 | — |</p>
+<p>| Unknown – Block | 93 | 0.48 | <strong>12×</strong> |</p>
+<p>| Unknown – Sys | 430 | 2.23 | <strong>56×</strong> |</p>
+<p>| Unknown – Hybrid | 550 | 2.86 | <strong>72×</strong> |</p>
+<p>| Block Inj. | 1,714 | 22.29 | 557× |</p>
+<p>| Sys Inj. | 4,175 | 21.63 | 541× |</p>
+<p>| Hybrid Inj. | 6,121 | 31.72 | 793× |</p>
+<ul>
+<li>αstruct ∈ [12, 72], αsem ∈ [8, 11] — <strong>structural framing contributes more to leakage than semantic content</strong> in many cases.</li>
+<li>Models often treat the null placeholder "Unknown" as a <em>valid</em> geographic referent (e.g., generating "the best vacation spots for Unknown"), implying the prompt geometry is itself the conditioning signal.</li>
+</ul>
+<h3>Regional Sensitivity (RSR, mean across 3 methods)</h3>
+<ul>
+<li><strong>Oceania: RSR ≈ 1.32–1.62 across all models</strong> — always over-leaked.</li>
+<li><strong>North America: RSR ≈ 0.81–1.25</strong> — typically over-leaked.</li>
+<li><strong>Asia: RSR ≈ 0.75–0.96</strong> — consistently under-leaked.</li>
+<li>Qwen3-8B's Asia RSR ∈ [0.85, 0.87] persists despite its likely heavier Asian pre-training — suggesting pre-training representation does not dictate interaction-layer sensitivity.</li>
+</ul>
+<h3>Socioeconomic correlates</h3>
+<p>| Indicator | r | p | ρ | p |</p>
+<p>|---|---|---|---|---|</p>
+<p>| GDP per capita | 0.05 | 0.49 | −0.03 | 0.68 |</p>
+<p>| Tertiary educ. (%) | <strong>−0.17</strong> | <strong>0.02</strong> | <strong>−0.20</strong> | <strong>0.01</strong> |</p>
+<p>| Internet usage (%) | −0.06 | 0.39 | −0.09 | 0.24 |</p>
+<ul>
+<li>Only <strong>tertiary education enrollment</strong> is a significant negative predictor — countries with higher enrollment leak less.</li>
+</ul>
+<h3>LoRA mitigation (Appendix C)</h3>
+<ul>
+<li><strong>Llama 3.1-8B-Instruct:</strong> 13.74% → 13.56%, Δ = −0.18 ± 0.25%, z = −0.73, <strong>p = 0.47</strong> (not significant).</li>
+<li><strong>Qwen3-8B:</strong> 12,350 → 12,428 leaks, Δ = +0.63% ± 1.18%, z = +0.53, <strong>p = 0.60</strong> (regressed).</li>
+<li>Conclusion: geographic bias is <strong>structurally ingrained in pre-trained weights</strong>; LoRA cannot remove it.</li>
+</ul>
+<h2>Authors & Credibility</h2>
+<ul>
+<li><strong>Naz Col, David M. Chan</strong> — UC Berkeley. Small two-author team with clear empirical-experiment focus.</li>
+<li>Funding: U.S. Department of Defense, DARPA / AFRL (FA8650-23-C-7316), BAIR Industrial Alliance — standard academic-agency support, no commercial LLM vendor sponsorship apparent.</li>
+<li>The work is positioned as a measurement paper rather than a method paper; credibility rests on rigor of evaluation rather than novel technique.</li>
+</ul>
+<h2>Critical Assessment</h2>
+<ul>
+<li><strong>Novelty:</strong> The structural-vs-semantic decomposition is the genuinely new conceptual contribution. Most prior work (Manvi et al., 2024; Salnikov et al., 2025; Dudy et al., 2025) focuses on <em>pre-training</em> priors; this paper explicitly isolates <em>inference-time</em> conditioning. The "Unknown" control is a clean, simple, and reusable experimental device.</li>
+<li><strong>Rigor:</strong> Solid. Five models × three methods × two datasets × 193 countries with conservative exact-match detection. Three sampling attempts per sample and explicit output normalization. However, <strong>exact string matching is a known weak detector</strong> — it misses cultural framing, regional slang, and implicit stereotypes. The paper acknowledges this but still anchors all headline numbers on it, so the 793× is a lower bound on the true effect.</li>
+<li><strong>Reproducibility:</strong> Good. Public model identifiers, decoding settings, LoRA hyperparameters (Appendix A), random-seed protocol, and dataset details are all provided. Reasonable replication effort required to re-run all 5 models (especially proprietary APIs).</li>
+<li><strong>Statistical honesty:</strong> The paper reports z-stats and p-values for the LoRA experiment, which is appreciated. The headline 793× ratio, however, comes from a near-zero baseline (0.04%) and could mislead — the more informative numbers are the absolute rates (Llama Hybrid = 31.7%) and the structural-factor ratios (12–72×).</li>
+<li><strong>Significance:</strong> High. This is a deployment-relevant, currently-underexplored failure mode of inference-time personalization. The "structural conditioning" framing has implications beyond geography — any user-profile wrapper could trigger similar effects.</li>
+<li><strong>Red flags / weaknesses:</strong></li>
+<li><strong>Two datasets, both English-language, both North American/Internet-derived.</strong> WritingPrompts and Infinite Chats likely share stylistic priors that may inflate observed conditioning effects for Western locales.</li>
+<li><strong>Models evaluated are biased toward 8B scale (Llama, Qwen) plus three proprietary models.</strong> Larger open-weight models and reasoning-tuned variants are not tested.</li>
+<li><strong>Exact-match detection misses cultural stereotyping</strong> — the paper's claim about "implicit stereotyping" relies entirely on the leak-count proxy, not on measured cultural content.</li>
+<li><strong>GPT-5-nano Hybrid number uses only 5,363 samples</strong> (footnote) due to content-moderation refusals — sample-size asymmetry across cells is under-discussed.</li>
+<li><strong>Socioeconomic correlation is weak</strong> — only one of three indicators is significant, and tertiary education is correlated with many other unmeasured variables (English proficiency, internet content type, media diversity).</li>
+<li><strong>LoRA experiment is single-seed</strong> with a small training set per country (200 for Llama, 500 for Qwen); failure here is not a definitive failure of <em>all</em> fine-tuning approaches.</li>
+<li><strong>No comparison to in-context debiasing</strong> (e.g., explicit "ignore the user profile" instructions) — a natural baseline that would contextualize whether this is solvable by simple prompt engineering.</li>
+</ul>
+<h2>Strengths</h2>
+<ul>
+<li>The <strong>"Unknown" placeholder control</strong> is an elegant, low-cost methodological device that any future audit of inference-time conditioning can reuse.</li>
+<li><strong>Breadth of evaluation</strong> (5 models × 3 methods × 2 datasets × 193 countries) is unusually comprehensive for an empirical paper.</li>
+<li><strong>Honest decomposition</strong> of structure vs. semantics — instead of reporting one number, the authors separate two mechanisms.</li>
+<li><strong>Negative mitigation result</strong> (LoRA fails) is high-value: it prevents the field from wasting cycles on obviously insufficient interventions.</li>
+<li><strong>Concrete deployment implication</strong>: the authors explicitly call out operational-only metadata (logging, routing) as something that should be kept separate from generative context.</li>
+</ul>
+<h2>Limitations</h2>
+<ul>
+<li>Exact-string-match leakage detection is a conservative lower bound; cultural framing, regional slang, and stereotypes are not measured.</li>
+<li>Coverage is English-centric and confined to two creative/open-ended task families; technical (coding, math, factual QA) and multilingual settings are untested.</li>
+<li>Proprietary-model API versions may change behavior; the evaluation is a snapshot.</li>
+<li>Socioeconomic analysis covers only three indicators and cannot disentangle confounders (e.g., English-language training-data density).</li>
+<li>LoRA fine-tuning is only one mitigation; RLHF, prompt-level debiasing, and architectural changes are not tested.</li>
+<li>RSR is a relative metric; a region can be under-leaked (RSR<1) and still leak in absolute terms.</li>
+</ul>
+<h2>Relevance</h2>
+<p>与用户研究方向（LLM 行为评估、对齐、偏见审计、部署安全）高度相关。"位置泄漏"是 LLM 部署中一个具体、可量化、目前尚未充分研究的偏差维度，对依赖用户元数据进行个性化的对话系统具有直接工程意义。论文的"结构性条件效应"（prompt 框架本身就是生成信号）的发现尤其值得关注——它可能推广到任何形式的用户配置注入，而不仅限于地理信息。</p>
+<h2>Questions for Further Exploration</h2>
+<ul>
+<li>Does the structural conditioning effect generalize to non-geographic metadata fields (age, profession, language, name)?</li>
+<li>Can a simple in-context instruction ("Ignore the user profile above; answer generally") suppress leakage, or does the structural effect dominate?</li>
+<li>Would full fine-tuning (not LoRA) or RLHF-style debiasing succeed where LoRA failed, or is the bias truly architectural?</li>
+<li>How does leakage behave on technical tasks (code, math, factual QA) where geographic context is plausibly irrelevant?</li>
+<li>Does the Oceania over-leakage reflect Anglo training-data dominance, and would models trained on more balanced corpora flatten the RSR distribution?</li>
+<li>Why does Hybrid Combination <em>reduce</em> leakage for some models (Claude, GPT-5-nano) below the single-method rate? Is this an attention-cancellation effect worth exploiting?</li>
+<li>How does the indicator function generalize — would an LLM-as-judge leak detector (or a geo-NER model) reveal substantially higher rates than exact-match?</li>
+</ul>
+<p class="note">Generated from Markdown summary. Full paper: <a href="https://arxiv.org/abs/2606.18124">arXiv:2606.18124</a></p>
+</div>
+</body>
+</html>

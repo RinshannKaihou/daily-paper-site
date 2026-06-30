@@ -1,0 +1,479 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ReLAR — Learning to Refine Hidden States for Reliable LLM Reasoning</title>
+<style>
+  :root {
+    --accent: #c2410c;
+    --accent-soft: #fed7aa;
+    --accent-deep: #7c2d12;
+    --ink: #0f172a;
+    --ink-2: #334155;
+    --ink-3: #64748b;
+    --line: #e2e8f0;
+    --bg: #fafaf9;
+    --card: #ffffff;
+    --warn: #991b1b;
+    --warn-bg: #fef2f2;
+    --warn-line: #fecaca;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", "Helvetica Neue", Arial, sans-serif;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 15px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+  body { padding-bottom: 80px; }
+
+  /* Fixed top-left digest link */
+  .digest-link {
+    position: fixed;
+    top: 18px;
+    left: 18px;
+    z-index: 50;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--ink-2);
+    text-decoration: none;
+    background: rgba(255,255,255,0.92);
+    border: 1px solid var(--line);
+    padding: 6px 10px;
+    border-radius: 999px;
+    backdrop-filter: blur(6px);
+    transition: color 0.15s, border-color 0.15s;
+  }
+  .digest-link:hover { color: var(--accent); border-color: var(--accent); }
+
+  .wrap {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 64px 32px 32px;
+  }
+
+  /* HERO */
+  .hero {
+    border-bottom: 1px solid var(--line);
+    padding-bottom: 36px;
+    margin-bottom: 36px;
+  }
+  .hero-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    align-items: center;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--ink-3);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 22px;
+  }
+  .hero-meta .dot { width: 4px; height: 4px; background: var(--ink-3); border-radius: 50%; display: inline-block; }
+  .hero-meta .id { color: var(--accent); font-weight: 600; }
+
+  .finding {
+    font-size: clamp(28px, 4.6vw, 52px);
+    line-height: 1.12;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    color: var(--ink);
+    margin-bottom: 28px;
+    max-width: 22ch;
+  }
+  .finding .hl {
+    color: var(--accent);
+    background: linear-gradient(transparent 62%, var(--accent-soft) 62%);
+    padding: 0 2px;
+  }
+
+  .title-line {
+    font-size: 18px;
+    color: var(--ink-2);
+    margin-bottom: 18px;
+    line-height: 1.4;
+  }
+  .title-line a {
+    color: var(--ink);
+    text-decoration: none;
+    border-bottom: 1px solid var(--line);
+    transition: border-color 0.15s, color 0.15s;
+  }
+  .title-line a:hover { color: var(--accent); border-bottom-color: var(--accent); }
+  .title-line .alias {
+    font-family: var(--mono);
+    font-size: 12px;
+    background: var(--accent-soft);
+    color: var(--accent-deep);
+    padding: 2px 7px;
+    border-radius: 4px;
+    margin-left: 6px;
+    vertical-align: 2px;
+  }
+
+  .authors {
+    font-size: 14px;
+    color: var(--ink-2);
+    margin-bottom: 18px;
+  }
+  .authors span + span::before { content: "·"; margin: 0 8px; color: var(--ink-3); }
+
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip {
+    font-family: var(--mono);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    padding: 4px 9px;
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    color: var(--ink-2);
+    background: #fff;
+  }
+  .chip.accent {
+    color: var(--accent);
+    border-color: var(--accent);
+    background: #fff7ed;
+  }
+
+  /* ASSET ROW */
+  .assets {
+    display: grid;
+    grid-template-columns: 0.9fr 1.3fr 1fr;
+    gap: 18px;
+    margin-bottom: 40px;
+  }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 22px 22px 24px;
+    display: flex;
+    flex-direction: column;
+  }
+  .card .label {
+    font-family: var(--mono);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--ink-3);
+    margin-bottom: 12px;
+  }
+  .card .label .num { color: var(--accent); margin-right: 6px; }
+  .card .body { color: var(--ink); }
+  .card.metric .body {
+    font-size: 34px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    line-height: 1.1;
+    color: var(--accent-deep);
+  }
+  .card.metric .sub {
+    font-size: 13px;
+    color: var(--ink-3);
+    margin-top: 10px;
+    line-height: 1.45;
+  }
+  .card.metric .sub strong { color: var(--ink-2); font-weight: 600; }
+
+  .card.why .body { font-size: 15px; line-height: 1.55; color: var(--ink-2); }
+  .card.why .body em { color: var(--ink); font-style: normal; font-weight: 600; }
+
+  .card.edge {
+    background: var(--warn-bg);
+    border-color: var(--warn-line);
+  }
+  .card.edge .label { color: var(--warn); }
+  .card.edge .label .num { color: var(--warn); }
+  .card.edge .body {
+    font-size: 13.5px;
+    line-height: 1.5;
+    color: #7f1d1d;
+  }
+  .card.edge .body strong { color: var(--warn); }
+
+  /* BODY GRID */
+  .body-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+    margin-bottom: 36px;
+  }
+  .panel {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 24px 26px 28px;
+  }
+  .panel h2 {
+    font-size: 13px;
+    font-family: var(--mono);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--accent);
+    font-weight: 600;
+    margin-bottom: 18px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--line);
+  }
+  .panel h2 .zh { color: var(--ink-3); margin-right: 8px; }
+
+  .panel p { color: var(--ink-2); font-size: 14px; margin-bottom: 12px; }
+  .panel p:last-child { margin-bottom: 0; }
+  .panel ul { list-style: none; padding: 0; }
+  .panel li {
+    color: var(--ink-2);
+    font-size: 14px;
+    padding: 8px 0 8px 18px;
+    border-bottom: 1px dashed var(--line);
+    position: relative;
+  }
+  .panel li:last-child { border-bottom: none; }
+  .panel li::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 16px;
+    width: 6px;
+    height: 1px;
+    background: var(--accent);
+  }
+  .panel li strong { color: var(--ink); font-weight: 600; }
+
+  /* Full-width Questions */
+  .questions {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 24px 26px 28px;
+  }
+  .questions h2 {
+    font-size: 13px;
+    font-family: var(--mono);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--accent);
+    font-weight: 600;
+    margin-bottom: 18px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--line);
+  }
+  .questions ol { list-style: none; counter-reset: q; padding: 0; }
+  .questions li {
+    counter-increment: q;
+    color: var(--ink-2);
+    font-size: 14px;
+    padding: 10px 0 10px 36px;
+    border-bottom: 1px dashed var(--line);
+    position: relative;
+  }
+  .questions li:last-child { border-bottom: none; }
+  .questions li::before {
+    content: "Q" counter(q);
+    position: absolute;
+    left: 0;
+    top: 10px;
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--accent);
+    background: #fff7ed;
+    border: 1px solid var(--accent-soft);
+    padding: 2px 6px;
+    border-radius: 3px;
+    line-height: 1;
+  }
+
+  /* Side-by-side inside one panel: Strengths | Limitations */
+  .sl {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 22px;
+  }
+  .sl > div h3 {
+    font-size: 11px;
+    font-family: var(--mono);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--ink-3);
+    font-weight: 600;
+    margin-bottom: 10px;
+  }
+  .sl .lim h3 { color: var(--warn); }
+
+  /* Footer source link */
+  .source {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 0 32px;
+    text-align: right;
+    font-family: var(--mono);
+    font-size: 12px;
+  }
+  .source a {
+    color: var(--ink-3);
+    text-decoration: none;
+    border-bottom: 1px dotted var(--line);
+    transition: color 0.15s, border-color 0.15s;
+  }
+  .source a:hover { color: var(--accent); border-bottom-color: var(--accent); }
+
+  /* Responsive */
+  @media (max-width: 900px) {
+    .assets { grid-template-columns: 1fr 1fr; }
+    .assets .card.edge { grid-column: 1 / -1; }
+  }
+  @media (max-width: 720px) {
+    .wrap { padding: 56px 18px 24px; }
+    .source { padding: 0 18px; }
+    .assets { grid-template-columns: 1fr; }
+    .body-grid { grid-template-columns: 1fr; }
+    .sl { grid-template-columns: 1fr; gap: 18px; }
+    .finding { max-width: none; }
+  }
+</style>
+</head>
+<body>
+<a class="digest-link" href="./index.html">↩ Today's digest</a>
+
+<div class="wrap">
+
+  <!-- HERO -->
+  <section class="hero">
+    <div class="hero-meta">
+      <span class="id">arXiv 2606.17524</span>
+      <span class="dot"></span>
+      <span>2026-06-16</span>
+      <span class="dot"></span>
+      <span>cs.CL · cs.LG</span>
+    </div>
+
+    <h1 class="finding">
+      A learned <span class="hl">depth + action controller</span> iteratively refines LLM hidden states before decoding — SOTA without chain-of-thought.
+    </h1>
+
+    <div class="title-line">
+      <a href="https://arxiv.org/abs/2606.17524">Learning to Refine Hidden States for Reliable LLM Reasoning</a>
+      <span class="alias">ReLAR</span>
+    </div>
+
+    <div class="authors">
+      <span>Chia-Hsuan Hsu</span>
+      <span>Jui-Ming Yao</span>
+    </div>
+
+    <div class="chips">
+      <span class="chip accent">latent reasoning</span>
+      <span class="chip">hidden state refinement</span>
+      <span class="chip">reinforcement learning</span>
+      <span class="chip">policy gradient</span>
+      <span class="chip">LLM reasoning</span>
+    </div>
+  </section>
+
+  <!-- ASSET ROW -->
+  <section class="assets">
+    <div class="card metric">
+      <div class="label"><span class="num">01</span>Key Metric</div>
+      <div class="body">0.14<span style="font-size:18px;color:var(--ink-3);">s</span></div>
+      <div class="sub">inference latency on PubMedQA — <strong>65×</strong> faster than CoT (9.09s) and <strong>117×</strong> faster than SC-CoT (16.36s), at higher accuracy.</div>
+    </div>
+
+    <div class="card why">
+      <div class="label"><span class="num">02</span>Why This Matters</div>
+      <div class="body">
+        Reasoning is moved <em>from token space into hidden-state space</em>, where a policy-gradient loop adaptively steers the trajectory before decoding. Same latency as plain SFT, far better quality — a deployment-friendly building block for <em>reliable LLM reasoning</em>.
+      </div>
+    </div>
+
+    <div class="card edge">
+      <div class="label"><span class="num">03</span>Critical Edge</div>
+      <div class="body">
+        <strong>Backbones (1.1B–3B) are 3–4× smaller than the 7B–8B baselines they beat</strong> — a comparison gap the authors themselves concede and that the paper does not fully close with size-matched numbers.
+      </div>
+    </div>
+  </section>
+
+  <!-- BODY GRID -->
+  <section class="body-grid">
+
+    <div class="panel">
+      <h2><span class="zh">方法</span>Methodology</h2>
+      <ul>
+        <li><strong>State.</strong> Base LM emits final-layer <code>h₀</code>; a projection compresses it into low-dim reasoning state <code>s₀ ∈ ℝ^{d_s}</code> — the only signal both controllers consume.</li>
+        <li><strong>Action.</strong> π_a samples <code>a_t = (γ, β, v)</code> with <code>‖v‖=1</code>; signed step size <code>α_t = f_α(γ, β)</code> updates <code>h_{t+1} = h_t + α_t·v_t</code>; reasoning state refreshes via <code>s_{t+1} = g(s_t, h_{t+1})</code>.</li>
+        <li><strong>Depth.</strong> π_d samples the number of refinement steps <code>T</code>; loop runs for <code>T</code> iterations; final decode representation <code>h_T = f_decode(s_T, h₀)</code> is anchored to <code>h₀</code> to preserve context.</li>
+        <li><strong>Reward.</strong> <code>r_t = log p_θ(y*|x, s_{t+1}) − log p_θ(y*|x, s_t) − c_d</code> — dense per-step log-likelihood improvement minus per-step cost, with KL penalty + entropy bonus.</li>
+        <li><strong>Backbones.</strong> LLaMA-1.1B, Gemma-2B, Qwen-3B (smaller than the 7B–8B baselines used for comparison).</li>
+      </ul>
+    </div>
+
+    <div class="panel">
+      <h2><span class="zh">结果</span>Results &amp; Highlights</h2>
+      <ul>
+        <li><strong>PubMedQA (0/5-shot):</strong> 77.67 / 72.54 → <strong>79.23 / 74.17</strong> — SOTA; beats MedGemma-4B (72.45 / 68.52).</li>
+        <li><strong>GSM-Hard:</strong> 45.02 / 47.58 → <strong>48.57 / 52.12</strong> — SOTA. (On GSM8K the model is competitive but Llama-3-8B-Instruct leads.)</li>
+        <li><strong>HotpotQA:</strong> 57.50 / 75.23 → <strong>59.64 / 76.15</strong> — SOTA.</li>
+        <li><strong>Open-ended (Table 2):</strong> best BERTScore + ROUGE-L on CommonGen (0.934 / 38.92) and WritingPrompts (0.878 / 11.47).</li>
+        <li><strong>Backbone scaling (Table 5):</strong> adding ReLAR to SFT yields +13.2 (LLaMA-1.1B), +19.6 (Gemma-2B), +14.4 (Qwen-3B) on PubMedQA — the cleanest isolation of the refinement contribution.</li>
+        <li><strong>Latency (Table 4):</strong> 0.14s vs SFT 0.12s, ICL 0.31s, CoT 9.09s, SC-CoT 16.36s — the paper's strongest selling point.</li>
+        <li><strong>Depth distribution (Fig 4):</strong> controller concentrates around T=3 (peak accuracy 75%); based on <em>20 actual samples</em> projected to n=200 — a weak empirical foundation.</li>
+      </ul>
+    </div>
+
+    <div class="panel">
+      <h2><span class="zh">优劣</span>Strengths &amp; Limitations</h2>
+      <div class="sl">
+        <div class="str">
+          <h3>Strengths</h3>
+          <ul>
+            <li><strong>Inference-cost story is the cleanest part</strong> — 65–117× speedup over CoT at higher accuracy, no CoT required.</li>
+            <li>Modular design (extract → refine ×T → decode-anchored) plugs onto different backbones.</li>
+            <li>Ablations cleanly decompose static depth, adaptive depth, adaptive direction, full method.</li>
+            <li>Diverse benchmark coverage: medical, math, multi-hop, open-ended generation.</li>
+            <li>Code released at <code>tongyu0924/Learning-to-Refine-Hidden-States</code>.</li>
+          </ul>
+        </div>
+        <div class="lim">
+          <h3>Limitations</h3>
+          <ul>
+            <li><strong>Backbones 1.1B–3B vs 7B–8B baselines</strong> — apples-to-oranges, admitted by the paper.</li>
+            <li>Theoretical analysis (App. A.1) is a trivial inequality — no constraint on the learned policy.</li>
+            <li>Reward requires <em>ground-truth labels at every step</em>, undermining the "RL" framing.</li>
+            <li>Variance across seeds is not reported (only averages).</li>
+            <li>"Medical reasoning" rests on PubMedQA only (yes/no/maybe) — no real clinical tasks.</li>
+            <li>Depth-distribution analysis uses 20 actual samples.</li>
+            <li>Hyper-params <code>c_d</code>, KL/entropy weights, α_RL, <code>d_s</code> undisclosed.</li>
+            <li>No error analysis of <em>when</em> latent refinement fails.</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2><span class="zh">相关</span>Relevance &amp; Open Questions</h2>
+      <p style="color:var(--ink-2); margin-bottom:14px;">ReLAR is directly on-axis for two of this digest's threads: <em>LLM hidden states &amp; interpretability</em> and <em>ML reliability</em>. It reframes reasoning as a representation-level trajectory under RL control, with deployment-friendly latency — exactly the "intervene in the representation layer to get more reliable outputs" research direction.</p>
+      <ul>
+        <li>Does the gain hold on size-matched 7B–8B backbones, or is most of the win from the size gap?</li>
+        <li>What is the variance across seeds, and what do the depth distributions look like on a larger sample than 20?</li>
+        <li>Can the per-step log-likelihood reward be replaced with a learned preference-based reward model?</li>
+        <li>How does the method behave on tasks that explicitly test faithfulness of the reasoning process?</li>
+        <li>Is the learned <code>v_t</code> direction interpretable, or does it diffuse into a generic "improvement" direction?</li>
+        <li>Can ReLAR be composed with test-time scaling (e.g., self-consistency over refined states) — additive or redundant?</li>
+        <li>"Adaptive depth without direction" beats the full method on GSM-Hard — a regime where simpler controllers win?</li>
+        <li>How sensitive is the method to <code>c_d</code>, and can it be scheduled across training?</li>
+      </ul>
+    </div>
+  </section>
+
+  <div class="source"><a href="2606.17524.html">↗ Markdown source</a></div>
+
+</div>
+</body>
+</html>

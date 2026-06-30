@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dual-Pool Token-Budget Routing for Cost-Efficient and Reliable LLM Serving</title>
+<style>
+:root { --paper:#fafafa; --ink:#1a1a1a; --muted:#555; --accent:#1a5276; --line:#ddd; --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif; --serif:Georgia,"Noto Serif SC",serif; }
+body { font-family:var(--serif); background:var(--paper); color:var(--ink); line-height:1.6; margin:0; padding:0; }
+.container { max-width:min(95vw, 760px); margin:0 auto; padding:28px 20px 60px; }
+.topnav { position:fixed; top:12px; left:14px; z-index:50; font-family:var(--sans); font-size:.75rem; background:var(--paper); border:1px solid var(--line); padding:5px 10px; border-radius:999px; }
+.topnav a { color:var(--muted); text-decoration:none; font-weight:600; }
+.topnav a:hover { color:var(--accent); }
+h1 { font-size:1.6rem; margin:2.2rem 0 1rem; border-bottom:2px solid var(--accent); padding-bottom:.3rem; }
+h2 { font-size:1.3rem; margin:1.8rem 0 .8rem; color:var(--accent); }
+h3 { font-size:1.1rem; margin:1.4rem 0 .6rem; }
+p { margin:.8rem 0; }
+.authors { font-style:italic; color:var(--muted); margin-top:-.4rem; }
+.meta { font-family:var(--sans); font-size:.82rem; color:var(--muted); margin:.2rem 0; }
+a { color:var(--accent); text-decoration:none; }
+a:hover { text-decoration:underline; }
+blockquote { border-left:3px solid var(--accent); margin:1rem 0; padding:.2rem 0 .2rem 1rem; color:var(--muted); font-style:italic; }
+code { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; background:#f0f0f0; padding:2px 5px; border-radius:3px; font-size:.9em; }
+pre { background:#f5f5f5; padding:14px; overflow-x:auto; border-radius:4px; border:1px solid var(--line); }
+pre code { background:transparent; padding:0; }
+ul,ol { margin:.6rem 0; padding-left:1.5rem; }
+li { margin:.25rem 0; }
+table { border-collapse:collapse; width:100%; margin:1rem 0; font-family:var(--sans); font-size:.9rem; }
+th,td { border:1px solid var(--line); padding:6px 10px; text-align:left; }
+th { background:#f0f0f0; }
+hr { border:none; border-top:1px solid var(--line); margin:1.5rem 0; }
+.note { font-family:var(--sans); font-size:.78rem; color:var(--muted); border-top:1px solid var(--line); margin-top:2rem; padding-top:1rem; }
+@media (max-width: 600px) { .container { padding:22px 14px 40px; } h1 { font-size:1.35rem; } }
+</style>
+</head>
+<body>
+<div class="topnav"><a href="./index.html">← Today's digest</a></div>
+<div class="container">
+<h1>Dual-Pool Token-Budget Routing for Cost-Efficient and Reliable LLM Serving</h1>
+<p class="meta">arXiv: 2604.08075v1</p>
+<p class="meta">Date: 2026-04-09</p>
+<p class="meta">Tags: [LLM-serving, cost-optimization, KV-cache, fleet-management, routing, vLLM]</p>
+<h1>Dual-Pool Token-Budget Routing for Cost-Efficient and Reliable LLM Serving</h1>
+<h2>Paper Summary</h2>
+<p>This paper addresses a fundamental inefficiency in production LLM serving: homogeneous fleets provision every GPU instance for the worst-case context length (e.g., 64K tokens), even though 80-95% of real requests are short. The authors call this <strong>configuration-traffic mismatch</strong> and propose a lightweight dual-pool routing mechanism that splits a fleet into a high-throughput short-context pool and a high-capacity long-context pool, achieving 31-42% GPU reduction, 5.4x fewer preemptions, and multi-million-dollar annual savings.</p>
+<h2>Key Contributions</h2>
+<ol>
+<li><strong>Token-budget pool routing</strong>: A fleet-level dispatch algorithm that splits a homogeneous vLLM fleet into right-sized short and long pools with O(1) routing overhead. It operates across instances (unlike per-GPU optimizations) and composes with PagedAttention, chunked prefill, and prefill-decode disaggregation.</li>
+</ol>
+<ol>
+<li><strong>Self-calibrating token estimation</strong>: A per-category exponential moving average (EMA) that learns the bytes-per-token ratio from <code>usage.prompt_tokens</code> feedback, with asymmetric-error-aware conservative bias. This eliminates the need for a model-specific tokenizer at the routing layer -- a practical necessity in multi-model deployments.</li>
+</ol>
+<ol>
+<li><strong>Closed-form cost model</strong>: The formula <code>savings = alpha * (1 - 1/rho)</code> predicts fleet-level GPU savings from two observable quantities: the short-traffic fraction (alpha) and the throughput gain ratio (rho). This allows teams to audit savings potential before deployment without simulation.</li>
+</ol>
+<ol>
+<li><strong>Comprehensive evaluation</strong>: On Azure LLM Inference Dataset and LMSYS-Chat-1M traces, serving Llama-3-70B on A100 GPUs, plus a Qwen3-235B-A22B case study on AMD MI300X.</li>
+</ol>
+<h2>Technical Details</h2>
+<h3>Problem Analysis</h3>
+<ul>
+<li>On an 80 GB A100 serving Llama-3-70B, <code>max_model_len=64K</code> yields only ~16 concurrent sequences; reducing to <code>max_model_len=8K</code> yields ~128 sequences -- an 8x concurrency gain.</li>
+<li>Chunked prefill solves compute scheduling but not the memory provisioning problem: KV cache is still allocated for the full sequence, and <code>Cmax</code> still dictates concurrency limits.</li>
+<li>The mismatch causes OOM crashes, preemption storms, request rejections, and head-of-line blocking.</li>
+</ul>
+<h3>Routing Mechanism</h3>
+<p>Each request's total token budget is estimated as: <code>Ltotal = ceil(|r| / c_hat_k) + r.max_output_tokens</code>, where <code>c_hat_k</code> is the per-category bytes-per-token ratio. The router uses a conservative estimate (<code>c_route = c_hat - gamma * sigma_hat</code>) with <code>gamma=1.0</code> to bias borderline requests toward the safer long pool.</p>
+<p><strong>Three-step dispatch</strong>: (1) Hard capacity check -- if <code>Ltotal > Cmax(short pool)</code>, route to long pool; (2) Budget-based routing -- compare against threshold <code>Bshort</code>; (3) Load-aware spillover -- redirect to alternate pool if preferred pool is overloaded.</p>
+<p><strong>Calibration</strong>: The EMA with <code>beta=0.95</code> converges within ~50 observations per category to within 3.5% of true values, reducing mis-routing from 4.1% (global static ratio) to under 1%.</p>
+<h3>Cost Model</h3>
+<p>The formula <code>savings = alpha * (1 - 1/rho)</code> where:</p>
+<ul>
+<li><code>alpha = F(Bshort)</code> is the fraction of short traffic</li>
+<li><code>rho = mu(Cshort) / mu(Chigh)</code> is the throughput gain ratio</li>
+</ul>
+<p>For typical production values (alpha=0.80, rho=4), predicted savings = 60%. The formula is a conservative upper bound because it ignores PagedAttention occupancy headroom, activation memory asymmetry, and KV-read bandwidth benefits.</p>
+<h2>Experimental Results</h2>
+<p>| Metric | Azure Trace | LMSYS Trace |</p>
+<p>|--------|------------|-------------|</p>
+<p>| GPU savings | 41.9% (358 -> 208 GPUs) | 31.3% (358 -> 246 GPUs) |</p>
+<p>| Annual cost savings | $2.86M | -- |</p>
+<p>| Preemption reduction | 5.4x (47.3 -> 8.7 per mil) | -- |</p>
+<p>| OOM reduction | 5.3x | -- |</p>
+<p>| Success rate | 99.69% -> 99.95% | -- |</p>
+<p>| P99 TTFT improvement | 6% (1.82s -> 1.71s) | -- |</p>
+<p>| P50 TTFT improvement | 33% (0.42s -> 0.28s) | -- |</p>
+<p><strong>Qwen3-235B-A22B on MI300X at 10,000 req/s</strong>: 197 -> 137 nodes (30.5% reduction), saving $15.4M/year at cloud rates.</p>
+<p>The threshold <code>Bshort</code> is forgiving: any value in 4K-16K tokens achieves >80% of peak savings. Savings are scale-invariant across request rates (100-2000 req/s).</p>
+<h2>Critical Assessment</h2>
+<p><strong>Strengths</strong>:</p>
+<ul>
+<li>The problem identification is sharp and well-motivated with real production data. The "configuration-traffic mismatch" framing is compelling and likely resonates with anyone operating vLLM fleets.</li>
+<li>The solution is elegantly simple: O(1) routing, no tokenizer dependency, and composability with existing optimizations. This is a practical engineering contribution rather than a theoretical one.</li>
+<li>The closed-form cost model is a useful operational tool -- teams can estimate savings before committing to deployment.</li>
+<li>The self-calibrating EMA design is well-thought-out, particularly the conservative bias for asymmetric routing errors and per-category tracking for multilingual traffic.</li>
+</ul>
+<p><strong>Weaknesses</strong>:</p>
+<ul>
+<li>The evaluation relies entirely on simulation (calibrated against Vidur), not actual deployment. The gap between the cost model prediction (60%) and simulated result (41.9%) is 18 percentage points, which is substantial. Real-world results could differ further due to network overhead, load balancing dynamics, and traffic pattern shifts.</li>
+<li>The paper assumes Poisson arrivals, which is a simplification. Production LLM traffic often exhibits burstiness and diurnal patterns that could affect spillover dynamics.</li>
+<li>The dual-pool approach introduces operational complexity: capacity planning now requires reasoning about two pool sizes, threshold tuning, and monitoring two separate sets of SLOs. The paper acknowledges this briefly but does not deeply analyze the operational overhead.</li>
+<li>The claim of "no tokenizer needed" is somewhat misleading -- the router still needs content category labels for per-category calibration. How these labels are obtained (user-specified? classifier?) is not discussed in detail.</li>
+<li>The Qwen3-235B/MI300X case study is a projection, not an evaluation. It applies the cost model formula rather than running a simulation, which weakens the frontier hardware validation claim.</li>
+<li>The two-pool design is presented as optimal, but no systematic comparison with three-pool or adaptive multi-pool designs is provided beyond a brief mention of "marginal ~2% improvement."</li>
+</ul>
+<p><strong>Questions for the authors</strong>:</p>
+<ul>
+<li>How sensitive are results to the EMA decay rate (beta=0.95) under concept drift (e.g., a sudden shift from English to CJK traffic)?</li>
+<li>What happens when the short-traffic fraction changes significantly during deployment (e.g., a new feature generates longer prompts)?</li>
+<li>How does the spillover mechanism perform under correlated burst arrivals?</li>
+</ul>
+<p>---</p>
+<h2>中文摘要</h2>
+<p>本文针对生产环境中 LLM 服务的一个核心低效问题：同构 GPU 集群为最坏情况上下文长度（如 64K tokens）配置每个实例，但实际 80-95% 的请求是短文本。作者将这一现象定义为 <strong>"配置-流量失配"</strong>（configuration-traffic mismatch），并提出了双池 token 预算路由机制：将同构集群拆分为高吞吐短上下文池和高容量长上下文池，根据请求的估计总 token 预算进行路由。</p>
+<p>核心技术贡献包括：(1) O(1) 复杂度的路由算法，无需 tokenizer，通过 EMA 在线学习每类别的字节-token 比；(2) 闭式成本模型 <code>savings = alpha * (1 - 1/rho)</code>，可在部署前预估节省幅度；(3) 在 Azure 和 LMSYS 真实轨迹上的全面评估，GPU 使用量降低 31-42%（年节省 $2.86M），抢占率降低 5.4 倍，P99 TTFT 改善 6%。</p>
+<p>该方法与 PagedAttention、连续批处理、预填充-解码分离等优化正交互补，工程实用性强。主要不足在于：评估完全基于仿真（未实际部署），成本模型预测与仿真结果差距达 18 个百分点；路由阈值 Bshort 在 4K-16K 范围内鲁棒，但缺乏对多池设计的系统比较；Qwen3-235B/MI300X 的案例研究仅为公式投影而非实际测试。</p>
+<p><em>Generated on 2026-04-11 | <a href="https://arxiv.org/abs/2604.08075v1">arxiv</a> | <a href="https://arxiv.org/pdf/2604.08075.pdf">pdf</a></em></p>
+<p class="note">Generated from Markdown summary. Full paper: <a href="https://arxiv.org/abs/2604.08075v1">arXiv:2604.08075v1</a></p>
+</div>
+</body>
+</html>

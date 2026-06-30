@@ -1,0 +1,504 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HeadKV — Head-Aware KV Compression</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --accent: #C2410C;
+  --accent-light: #FED7AA;
+  --bg: #0C0A09;
+  --surface: #1C1917;
+  --surface-2: #292524;
+  --border: #44403C;
+  --text: #FAFAF9;
+  --text-muted: #A8A29E;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  --sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+}
+
+html { font-size: 15px; }
+body {
+  font-family: var(--sans);
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.55;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+nav {
+  border-bottom: 1px solid var(--border);
+  padding: 0.6rem min(3vw, 2rem);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+nav a { color: var(--text-muted); }
+nav a:hover { color: var(--text); }
+
+.shell {
+  width: min(95vw, 1100px);
+  margin: 0 auto;
+  padding: 0 min(3vw, 2rem);
+}
+
+/* ── hero ── */
+.hero {
+  padding: 2.5rem 0 1.8rem;
+  border-bottom: 1px solid var(--border);
+}
+.hero h1 {
+  font-size: clamp(1.6rem, 4vw, 2.4rem);
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  line-height: 1.15;
+}
+.hero h1 a { color: var(--text); }
+.hero h1 a:hover { color: var(--accent); text-decoration: none; }
+.hero-meta {
+  margin-top: 0.8rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1.4rem;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+.hero-meta span { display: inline-flex; align-items: center; gap: 0.3rem; }
+.tag {
+  display: inline-block;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 0.1rem 0.45rem;
+  font-size: 0.7rem;
+  font-family: var(--mono);
+  color: var(--text-muted);
+}
+
+/* ── grid dashboard ── */
+.dashboard {
+  padding: 1.8rem 0 2.5rem;
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  grid-auto-rows: minmax(0, auto);
+  gap: 1rem;
+}
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 1.3rem 1.4rem;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  overflow: hidden;
+}
+.card::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 2px;
+  background: var(--accent);
+}
+.card-label {
+  font-family: var(--mono);
+  font-size: 0.65rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 0.7rem;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.card-label .dot {
+  width: 5px; height: 5px;
+  border-radius: 50%;
+  background: var(--accent);
+  display: inline-block;
+}
+.card-body { flex: 1; }
+.card-body p { color: var(--text); font-size: 0.92rem; }
+.card-body p.detail { color: var(--text-muted); font-size: 0.82rem; margin-top: 0.5rem; line-height: 1.5; }
+
+/* ── key-finding: wide card ── */
+.key-finding {
+  grid-column: 1 / -1;
+  grid-row: 1;
+}
+.key-finding .card-body p {
+  font-size: 1.08rem;
+  line-height: 1.6;
+}
+.key-finding .highlight {
+  color: var(--accent);
+  font-weight: 700;
+}
+
+/* ── key-metric: tall left ── */
+.key-metric {
+  grid-column: 1 / 4;
+  grid-row: 2 / 4;
+}
+.metric-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  margin-top: 0.2rem;
+}
+.metric-row {
+  display: flex;
+  align-items: baseline;
+  gap: 0.8rem;
+}
+.metric-num {
+  font-family: var(--mono);
+  font-size: 2.2rem;
+  font-weight: 800;
+  color: var(--accent);
+  line-height: 1;
+  letter-spacing: -0.04em;
+}
+.metric-unit {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  max-width: 180px;
+  line-height: 1.4;
+}
+.metric-divider {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 0;
+}
+
+/* ── why-matters: top-right ── */
+.why-matters {
+  grid-column: 4 / -1;
+  grid-row: 2;
+}
+.why-matters .pain-point {
+  background: var(--surface-2);
+  border-left: 2px solid var(--accent);
+  padding: 0.6rem 0.9rem;
+  margin-top: 0.6rem;
+  border-radius: 0 4px 4px 0;
+}
+.why-matters .pain-point p {
+  font-family: var(--mono);
+  font-size: 0.82rem;
+  color: var(--text-muted);
+}
+
+/* ── critical-edge: bottom-right ── */
+.critical-edge {
+  grid-column: 4 / -1;
+  grid-row: 3;
+}
+.critical-edge ul {
+  list-style: none;
+  padding: 0;
+  margin-top: 0.3rem;
+}
+.critical-edge li {
+  padding: 0.45rem 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.85rem;
+  color: var(--text);
+  display: flex;
+  gap: 0.5rem;
+  align-items: flex-start;
+}
+.critical-edge li:last-child { border-bottom: none; }
+.critical-edge li::before {
+  content: '!';
+  font-family: var(--mono);
+  font-weight: 800;
+  font-size: 0.7rem;
+  color: var(--bg);
+  background: var(--accent);
+  border-radius: 2px;
+  width: 16px;
+  height: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+/* ── method strip ── */
+.method-strip {
+  grid-column: 1 / -1;
+  grid-row: 4;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0;
+}
+.method-step {
+  padding: 1.1rem 1.3rem;
+  border-right: 1px solid var(--border);
+}
+.method-step:last-child { border-right: none; }
+.method-step .step-num {
+  font-family: var(--mono);
+  font-size: 0.65rem;
+  color: var(--accent);
+  letter-spacing: 0.05em;
+  margin-bottom: 0.4rem;
+}
+.method-step h3 {
+  font-size: 0.85rem;
+  font-weight: 700;
+  margin-bottom: 0.35rem;
+}
+.method-step p {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  line-height: 1.45;
+}
+
+/* ── models bar ── */
+.models-bar {
+  grid-column: 1 / -1;
+  grid-row: 5;
+}
+.models-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.78rem;
+  margin-top: 0.4rem;
+}
+.models-table th {
+  text-align: left;
+  font-family: var(--mono);
+  font-size: 0.65rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  padding: 0.4rem 0.6rem;
+  border-bottom: 1px solid var(--border);
+}
+.models-table td {
+  padding: 0.5rem 0.6rem;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+.models-table tr:last-child td { border-bottom: none; }
+.models-table .val {
+  font-family: var(--mono);
+  font-weight: 700;
+  color: var(--accent);
+}
+
+/* ── footer ── */
+footer {
+  border-top: 1px solid var(--border);
+  padding: 1rem min(3vw, 2rem);
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: auto;
+}
+footer a { color: var(--text-muted); }
+footer a:hover { color: var(--accent); }
+
+/* ── responsive ── */
+@media (max-width: 740px) {
+  .dashboard {
+    grid-template-columns: 1fr;
+    gap: 0.8rem;
+  }
+  .key-finding,
+  .key-metric,
+  .why-matters,
+  .critical-edge,
+  .method-strip,
+  .models-bar {
+    grid-column: 1;
+    grid-row: auto;
+  }
+  .method-strip {
+    grid-template-columns: 1fr;
+  }
+  .method-step {
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+  }
+  .method-step:last-child { border-bottom: none; }
+  .metric-row { flex-direction: column; gap: 0.15rem; }
+}
+</style>
+</head>
+<body>
+
+<nav>
+  <a href="./index.html">&larr; Daily Overview</a>
+  <span>2026-05-20</span>
+</nav>
+
+<div class="shell">
+
+  <header class="hero">
+    <h1><a href="https://arxiv.org/abs/2605.20600">Head-Aware Key-Value Compression for Efficient Autoregressive Image Generation</a></h1>
+    <div class="hero-meta">
+      <span>Liang, Zhang, Wen, Ye</span>
+      <span>HIT Shenzhen &amp; Peng Cheng Lab</span>
+      <span class="tag">HeadKV</span>
+      <span class="tag">kv-cache-compression</span>
+      <span class="tag">autoregressive-generation</span>
+    </div>
+  </header>
+
+  <section class="dashboard">
+
+    <!-- ROW 1 — KEY FINDING (full width) -->
+    <div class="card key-finding">
+      <div class="card-label"><span class="dot"></span> Key Finding</div>
+      <div class="card-body">
+        <p>
+          Attention heads in AR image generation models split into <span class="highlight">local</span> (nearby tokens) and <span class="highlight">global</span> (long-range dependencies) types — and this classification is <span class="highlight">stable across token positions</span> for a given input. A single early-stage classification enables training-free, asymmetric KV cache budgets: sliding windows for local heads, stratified eviction for global heads. The result — retain only <span class="highlight">1/6&ndash;1/8</span> of the cache with near-full-quality generation.
+        </p>
+      </div>
+    </div>
+
+    <!-- ROW 2-3 LEFT — KEY METRIC (tall) -->
+    <div class="card key-metric">
+      <div class="card-label"><span class="dot"></span> Key Metrics</div>
+      <div class="card-body">
+        <div class="metric-stack">
+          <div class="metric-row">
+            <span class="metric-num">3.68x</span>
+            <span class="metric-unit">speedup on Janus-Pro-7B at &rho;=1/6 cache budget</span>
+          </div>
+          <hr class="metric-divider">
+          <div class="metric-row">
+            <span class="metric-num">52%</span>
+            <span class="metric-unit">GPU memory reduction (Janus-Pro-7B)</span>
+          </div>
+          <hr class="metric-divider">
+          <div class="metric-row">
+            <span class="metric-num">2.75</span>
+            <span class="metric-unit">FID-50K on LlamaGen-XL at &rho;=1/8 (vs. 2.95 LineAR)</span>
+          </div>
+          <hr class="metric-divider">
+          <div class="metric-row">
+            <span class="metric-num">89%</span>
+            <span class="metric-unit">head classification accuracy (&tau;=0.9 threshold)</span>
+          </div>
+          <hr class="metric-divider">
+          <div class="metric-row">
+            <span class="metric-num">0.74</span>
+            <span class="metric-unit">GenEval Overall at &rho;=1/6 (Full cache = 0.79)</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ROW 2 Right — WHY THIS MATTERS -->
+    <div class="card why-matters">
+      <div class="card-label"><span class="dot"></span> Why This Matters</div>
+      <div class="card-body">
+        <p>Generating 1024&times;1024 images with AR models demands &gt;50 GB GPU memory. HeadKV slashes that bottleneck without any retraining, making high-resolution AR image generation <span class="highlight" style="font-weight:700">practically deployable</span> on consumer hardware.</p>
+        <div class="pain-point">
+          <p>1024&times;1024 generation = 50+ GB VRAM &rarr; HeadKV cuts ~52% with no quality collapse</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- ROW 3 Right — CRITICAL EDGE -->
+    <div class="card critical-edge">
+      <div class="card-label"><span class="dot"></span> Critical Edges</div>
+      <div class="card-body">
+        <ul>
+          <li>Grouping overhead slows Lumina-mGPT-768 below simpler LineAR baseline (1.35x vs. 1.65x)</li>
+          <li>Binary local/global split may be too coarse — continuous budget spectrum could capture nuanced behavior</li>
+          <li>No comparison against quantization-based KV cache methods</li>
+          <li>Irreversible token eviction means errors accumulate over very long sequences</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- ROW 4 — METHOD STRIP (full width, 3 columns) -->
+    <div class="card method-strip" style="padding:0; gap:0;">
+      <div class="card-label" style="position:absolute;top:1.1rem;left:1.3rem;margin:0;"><span class="dot"></span> Pipeline</div>
+      <div class="method-step" style="padding-top:2.8rem;">
+        <div class="step-num">STEP 01</div>
+        <h3>Cache Prefilling</h3>
+        <p>AR model encodes conditioning input and generates tokens, building KV cache without compression until a threshold (e.g. 100 tokens for Janus-Pro).</p>
+      </div>
+      <div class="method-step" style="padding-top:2.8rem;">
+        <div class="step-num">STEP 02</div>
+        <h3>Head Grouping</h3>
+        <p>Accumulate attention scores backward from current position until &tau;=0.9. If token count &lt; local window &rarr; local head; else &rarr; global head. Done once per input.</p>
+      </div>
+      <div class="method-step" style="padding-top:2.8rem;">
+        <div class="step-num">STEP 03</div>
+        <h3>Asymmetric Compression</h3>
+        <p>Local heads: sliding window only. Global heads: stratified token eviction (STE) partitions tokens into near-range &amp; long-range groups for balanced retention.</p>
+      </div>
+    </div>
+
+    <!-- ROW 5 — MODELS BAR (full width) -->
+    <div class="card models-bar">
+      <div class="card-label"><span class="dot"></span> Cross-Model Results</div>
+      <div class="card-body">
+        <table class="models-table">
+          <thead>
+            <tr>
+              <th>Model</th>
+              <th>Cache Ratio</th>
+              <th>Speedup</th>
+              <th>Quality Metric</th>
+              <th>vs. LineAR</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Janus-Pro-7B</td>
+              <td>&rho;=1/6</td>
+              <td class="val">3.68x</td>
+              <td>GenEval 0.74 / DPG 83.92</td>
+              <td>On par (0.74 / 83.76)</td>
+            </tr>
+            <tr>
+              <td>LlamaGen-XL</td>
+              <td>&rho;=1/8</td>
+              <td class="val">3.0x</td>
+              <td>FID-50K <span class="val">2.75</span></td>
+              <td>Beats 2.95</td>
+            </tr>
+            <tr>
+              <td>Lumina-mGPT-768</td>
+              <td>&rho;=1/8</td>
+              <td class="val">1.35x</td>
+              <td>FID-30K 22.41</td>
+              <td>Beats all baselines, slower than LineAR</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+  </section>
+</div>
+
+<footer>
+  <span><a href="2605.20600.html">Raw summary &rarr;</a></span>
+  <span>HeadKV &middot; arXiv 2605.20600</span>
+</footer>
+
+</body>
+</html>

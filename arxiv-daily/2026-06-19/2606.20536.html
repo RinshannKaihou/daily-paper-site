@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>The FID Lottery: Quantifying Hidden Randomness in Generative-Model Evaluation</title>
+<style>
+:root { --paper:#fafafa; --ink:#1a1a1a; --muted:#555; --accent:#1a5276; --line:#ddd; --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif; --serif:Georgia,"Noto Serif SC",serif; }
+body { font-family:var(--serif); background:var(--paper); color:var(--ink); line-height:1.6; margin:0; padding:0; }
+.container { max-width:min(95vw, 760px); margin:0 auto; padding:28px 20px 60px; }
+.topnav { position:fixed; top:12px; left:14px; z-index:50; font-family:var(--sans); font-size:.75rem; background:var(--paper); border:1px solid var(--line); padding:5px 10px; border-radius:999px; }
+.topnav a { color:var(--muted); text-decoration:none; font-weight:600; }
+.topnav a:hover { color:var(--accent); }
+h1 { font-size:1.6rem; margin:2.2rem 0 1rem; border-bottom:2px solid var(--accent); padding-bottom:.3rem; }
+h2 { font-size:1.3rem; margin:1.8rem 0 .8rem; color:var(--accent); }
+h3 { font-size:1.1rem; margin:1.4rem 0 .6rem; }
+p { margin:.8rem 0; }
+.authors { font-style:italic; color:var(--muted); margin-top:-.4rem; }
+.meta { font-family:var(--sans); font-size:.82rem; color:var(--muted); margin:.2rem 0; }
+a { color:var(--accent); text-decoration:none; }
+a:hover { text-decoration:underline; }
+blockquote { border-left:3px solid var(--accent); margin:1rem 0; padding:.2rem 0 .2rem 1rem; color:var(--muted); font-style:italic; }
+code { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; background:#f0f0f0; padding:2px 5px; border-radius:3px; font-size:.9em; }
+pre { background:#f5f5f5; padding:14px; overflow-x:auto; border-radius:4px; border:1px solid var(--line); }
+pre code { background:transparent; padding:0; }
+ul,ol { margin:.6rem 0; padding-left:1.5rem; }
+li { margin:.25rem 0; }
+table { border-collapse:collapse; width:100%; margin:1rem 0; font-family:var(--sans); font-size:.9rem; }
+th,td { border:1px solid var(--line); padding:6px 10px; text-align:left; }
+th { background:#f0f0f0; }
+hr { border:none; border-top:1px solid var(--line); margin:1.5rem 0; }
+.note { font-family:var(--sans); font-size:.78rem; color:var(--muted); border-top:1px solid var(--line); margin-top:2rem; padding-top:1rem; }
+@media (max-width: 600px) { .container { padding:22px 14px 40px; } h1 { font-size:1.35rem; } }
+</style>
+</head>
+<body>
+<div class="topnav"><a href="./index.html">← Today's digest</a></div>
+<div class="container">
+<h1>The FID Lottery: Quantifying Hidden Randomness in Generative-Model Evaluation</h1>
+<p class="meta">arXiv: 2606.20536</p>
+<p class="meta">Date: 2026-06-19</p>
+<p class="meta"><a href="https://arxiv.org/abs/2606.20536">https://arxiv.org/abs/2606.20536</a></p>
+<blockquote><strong>一句话总结：</strong> 将 FID 视作"训练种子 × 采样种子"二维面板上的随机变量，在 SiT/ImageNet-256 的数百次独立训练上实测发现：重训导致的 FID 离散（σbetween≈0.44，CoV≈1.3%）是仅重采样的 3.2 倍，且加大算力/模型规模也几乎不收紧（CoV 稳定在 1–2%）；提出 GS-FID（逐格黄金分割 CFG 搜索）、将低于约 1.3% CoV 的差距判为不显著，并跨多个训练种子报告误差棒的新评测协议。</blockquote>
+<blockquote><strong>TL;DR:</strong> Treating FID as a random variable over a 2-axis (training-seed × sampling-seed) panel measured on hundreds of SiT/ImageNet-256 runs, the authors find retraining shifts FID ~3.2× more than resampling (σ_between≈0.44 vs σ_within≈0.137), the per-step flow-matching Gaussian noise is the single largest variance source, the 1–2% CoV floor barely shrinks with more compute/model size, and they propose a GS-FID (per-cell golden-section CFG) protocol plus a ~1.3% CoV inconclusiveness threshold and multi-training-seed error bars.</blockquote>
+<h2>核心贡献</h2>
+<ul>
+<li>首次将 FID 显式建模为"训练种子 × 生成种子"二维面板上的随机变量，在 SiT-S/B/L/XL 的数百次独立训练（最多 N=25 训练种子 × K=10 采样种子，到 2M 步）上直接量化方差。</li>
+<li>量化出训练方差远大于评测方差：σbetween≈0.44（CoV≈1.3%）是 σwithin≈0.137（CoV≈0.4%）的 3.2 倍；95% Student's-t 置信区间为 34.74±0.18 FID，已超过许多论文宣称的"显著性"增益。</li>
+<li>将训练方差分解为三个来源并按大小排序：flow-matching 每步高斯噪声（0.336，77%）> 随机初始化（0.294，67%）> 数据顺序（0.221，51%），且三者次可加（合并后比独立相加小 14%）；并通过 SAME-SEED 对照证明多 GPU 数值非确定性（DDP reduction-order）不是 FID 方差来源（σ=0.047 < 采样地板 0.119，尽管权重差 5–6% 范数）。</li>
+<li>反直觉结论：增加算力/模型规模几乎不收紧 FID 离散——76 个 cell 的 CoV 全部落在 [0.74%, 2.06%]，中位数 1.30%；更大模型不等于更小方差（2M 处非单调：S 0.74% / B 1.24% / XL 1.42% / L 1.72%）。</li>
+<li>提出 GS-FID（逐格黄金分割搜索 CFG scale，约 14 次/cell）：CoV 从 1.26% 降到 0.67%（减半），但种子排名被重排（unguided vs guided Spearman ρ=0.73，8/25 种子位移 ≥5 名）。</li>
+<li>量化"运气"：幸运种子用 1.25×–2.0× 更少算力达到不幸种子 2M 步的 FID（SiT-S/B 1.25×，SiT-L 1.82×，SiT-XL 2.0×）；任何单种子论文宣称约 1.3× 训练加速实质上在和"种子彩票"竞争。</li>
+<li>给出 5 条可操作的实践建议，并提供在线误差棒计算器返回种子层 95% CI。</li>
+</ul>
+<h2>Key Contributions</h2>
+<ul>
+<li>Formalizes FID as a random variable over a 2-axis panel (N training seeds × K sampling seeds) and measures variance directly on hundreds of SiT (Scalable Interpolant Transformers) networks at widths S/2, B/2, L/2, XL/2 on class-conditional ImageNet 256×256.</li>
+<li>Establishes that the training lottery dominates: σ_between ≈ 0.438 (CoV ≈ 1.3%) is 3.2× the σ_within ≈ 0.137 (CoV ≈ 0.4%) of resampling a fixed network; a 95% Student's-t CI on the 25-seed panel is 34.74 ± 0.18 FID, already larger than many headline gains. Multiplying sampling budget 10× only shrinks within-seed jitter by √10 ≈ 3.2 and leaves the 0.44-wide between-seed envelope untouched.</li>
+<li>Decomposes training variance by source: VARY-NOISE (0.336, 77% of baseline σ) > VARY-INIT (0.294, 67%) > VARY-DATA (0.221, 51%); the three combine sub-additively (√(σ_noise²+σ_init²+σ_data²) ≈ 0.50 overshoots observed 0.44 by 14%).</li>
+<li>Rules out numerical non-determinism: a SAME-SEED control (only DDP bitwise reduction-order varies) yields σ = 0.047 < the within-seed floor 0.119 — inverting the 3.2× ratio to 0.4× — even though EMA weights differ by ≈5–6% of their norm. The lottery is driven by intended random draws, not by floating-point drift.</li>
+<li>Shows the 1–2% CoV floor is scale-invariant: across 76 (model × checkpoint) cells the CoV stays in [0.74%, 2.06%] (median 1.30%); mean FID drops ≈2× from 200k to 2M while σ_between shrinks at most 2.4×; bigger models do not automatically tighten the floor (non-monotonic at 2M).</li>
+<li>Introduces GS-FID (golden-section FID): per-cell golden-section search of the CFG scale over [1, 2] at tolerance 0.01, costing ≈14 evaluations/cell. CoV drops to 0.67% (half of 1.26%) and the grand mean falls from ≈34.7 to ≈7.4, but seed rankings are reshuffled (Spearman ρ = 0.73 with unguided, 8/25 seeds shift ≥5 places); the between-to-within σ ratio only drops 3.2× → 1.87×.</li>
+<li>Quantifies the "luck of the draw": a lucky seed reaches the unlucky seed's 2M-step FID with 1.25× (S/B), 1.82× (L), or 2.0× (XL) less compute; single-seed papers claiming ≈1.3× speedup are implicitly competing with what the seed lottery delivers for free.</li>
+<li>Provides 5 actionable practitioner recommendations and an online error-bar calculator returning the seed-only 95% CI.</li>
+</ul>
+<h2>Methodology</h2>
+<ul>
+<li><strong>Backbone & data:</strong> Trains SiT (Scalable Interpolant Transformers) [Ma et al.] at four widths (S/2, B/2, L/2, XL/2) on class-conditional ImageNet 256×256 under conditional flow matching, where the loss redraws a fresh Gaussian ε ~ N(0, I) at every gradient step.</li>
+<li><strong>Two-axis panel:</strong> Every experiment produces an N × K panel: N independently trained models (training seeds drive init, data-loader order, and per-step flow-matching noise) and K generations per model (sampling seeds drive the initial noise x_T). Panel sizes are stated per subsection (e.g., the headline panel is N=25, K=10, 400k steps).</li>
+<li><strong>Three nested statistics:</strong> σ_within (across K sampling evaluations, averaged over N seeds = generation lottery), σ_between (across N per-seed means = training lottery), and the dimensionless CoV = σ/μ (%) for cross-panel comparison.</li>
+<li><strong>FID pipeline:</strong> Computed in Inception-V3 feature space on 50,000 generated images with a single shared pipeline; sampling uses a fixed deterministic ODE solver and NFE; CFG off by default and only enabled in §4.3 via golden-section search.</li>
+<li><strong>Variance decomposition:</strong> Four conditions isolate single sources by fixing two of three RNGs and varying the third (VARY-NOISE / VARY-INIT / VARY-DATA), plus VARY-ALL and a SAME-SEED control (only DDP non-determinism remains).</li>
+<li><strong>Sweeps:</strong> Per-(training, sampling)-cell golden-section CFG search (GS-FID); compute sweep over 100k checkpoints to 2M across all four widths; µP-coordinated LR sweep (10 LRs log-spaced in [5×10⁻⁵, 5×10⁻⁴], N=10 seeds/cell, 100k steps, ≈400 networks).</li>
+<li><strong>Robustness/replication:</strong> Appendix F replicates analyses on DINOv2 FID and Inception precision/recall/density/coverage; Appendix D adds summary-statistic rank-shuffling and init-transfer analyses.</li>
+</ul>
+<h2>Results & Highlights</h2>
+<ul>
+<li><strong>§4.1 Training dominates:</strong> σ_between = 0.438 vs σ_within = 0.137 (3.2×); per-seed mean FIDs span 33.75→35.42 around grand mean 34.74; 95% t-CI = 34.74 ± 0.18. Best-vs-worst single-seed FID across the panel = 2.10 points (33.59 vs 35.69), purely from seed changes.</li>
+<li><strong>§4.2 Source ranking:</strong> VARY-ALL (0.438) > VARY-NOISE (0.336) > VARY-INIT (0.294) > VARY-DATA (0.221). Flow-matching noise alone reproduces 77% of baseline σ, init 67%, data order 51%. Data-order variance is shape-different: tight bulk with a long upper tail (skewness +0.74) resembling occasional training failures. SAME-SEED control σ = 0.047 (inverts 3.2× → 0.4×), confirming numerical non-determinism is not the source.</li>
+<li><strong>§4.3 GS-FID:</strong> σ_between = 0.050, σ_within = 0.027, CoV = 0.67% (half of 1.26%); grand mean drops ≈34.7 → ≈7.4. Optimal scales concentrate tightly (σ_ω ≈ 0.045), so ±0.05 CFG miscalibration injects noise ≈ the within-seed floor. Seed ranking reshuffled: Spearman ρ = 0.73 (p < 10⁻⁴), 8/25 seeds shift ≥5 places.</li>
+<li><strong>§4.4 Scale-invariant floor:</strong> CoV stays in [0.74%, 2.06%] across all 76 cells (median 1.30%). Non-monotonic at 2M: SiT-S 0.74%, SiT-B 1.24%, SiT-XL 1.42%, SiT-L 1.72%. Rank stability is weak before ~1M steps (Spearman ρ vs. ranking at 2M: 0.39–0.61 at 200k, 0.65–0.81 by 1.1M, 1.0 at 2M). Spread is Gaussian ((max−min)/σ ∈ [3.1, 5.0]).</li>
+<li><strong>§4.5 Lucky draw:</strong> 1.25× (S/B), 1.82× (L), 2.0× (XL) compute gap; on XL the lucky seed reaches at 1M what the unlucky seed only attains at 2M. With N seeds the resolvable gap scales as 2σ/√N: N=5 cuts threshold to ≈0.25 FID.</li>
+<li><strong>§4.6 µP transfers a window:</strong> GS-FID returns flat-bottomed valleys near ω* ≈ 2–3×10⁻⁴ with a 1.7×-wide LR window per size; CoV does not dip at the optimal LR (1.7–2.3% there). Unguided FID is monotone in LR and lands on the unstable edge (5×10⁻⁴), where 3/10 SiT-S and 1/10 SiT-XL seeds diverge.</li>
+</ul>
+<h2>Authors & Credibility</h2>
+<ul>
+<li><strong>Nicolas Dufour</strong> (Kyutai), <strong>Alexei A. Efros</strong> (UC Berkeley), <strong>Patrick Pérez</strong> (Kyutai). Project page: https://kyutai.org/fid-lottery. Acknowledgements thank David Picard (credited as the project's inspiration) and Richard Zhang, A. Sophia Koepke; Efros supported by NSF IIS-2403305 and ONR MURI.</li>
+<li>Efros is one of the most influential figures in computer vision; this lineage gives the work strong credibility on questions of evaluation rigor and empiricism. The scale (hundreds of trained SiT networks on ImageNet-256, plus a µP LR sweep over ≈400 networks) is exactly the expensive, careful experimentation the field has been missing.</li>
+</ul>
+<h2>Critical Assessment</h2>
+<ul>
+<li><strong>Novelty:</strong> High on framing and on quantification. Treating FID as a 2-axis random variable with a calibrated inconclusiveness threshold is a genuinely useful reframing of a widely-acknowledged-but-rarely-measured problem. The 3.2× ratio, the per-source σ ranking (noise > init > data), and the SAME-SEED numerical-non-determinism negative result are crisp, citable findings. The closest precursors (Chong & Forsyth on finite-sample FID bias; Bench & Thomas on feature-extractor uncertainty) varied neither training seeds nor checkpoints, so this is the first systematic, metric-level variance study at this scale.</li>
+<li><strong>Rigor:</strong> Strong. The study is powered by several hundred training runs with a principled 2-axis design, clean nested statistics (σ_within / σ_between / CoV), and a SAME-SEED control that cleanly isolates numerical non-determinism. Sub-additivity is acknowledged rather than glossed over.</li>
+<li><strong>Reproducibility:</strong> Likely good given seed/checkpoint release; SiT + class-conditional ImageNet-256 + a single shared FID pipeline is a standard, well-defined setting. Main cost is compute: reproducing hundreds of training runs to 2M steps is expensive, though the online error-bar calculator lowers the barrier to <em>using</em> the results.</li>
+<li><strong>Significance:</strong> Potentially high for the generative-modeling community, since FID is the dominant yardstick and the ~1.3% CoV threshold gives reviewers/authors a concrete bar for "is this improvement real." The §4.5 "luck of the draw" framing is a strong argument for adopting multi-seed reporting.</li>
+<li><strong>Red flags / caveats:</strong></li>
+<li><strong>External validity is narrow:</strong> the authors are explicit (Limitations) that all numbers cover one combination — SiT, flow matching, class-conditional ImageNet 256×256, Inception-V3 FID. The ≈1.3% CoV is a calibration target for <em>that</em> combination, not a universal constant. Appendix F replicates on DINOv2 FID and Inception P/R/D/C (recall is the outlier), but other backbones (DiT, pixel-space diffusion, masked/AR image models), objectives (score matching, rectified flow), text-to-image setups, and other Fréchet variants (FDD, CMMD, KID) remain untested.</li>
+<li><strong>FID's deeper issues are not fixed:</strong> Inception-V3 feature choice, limited perceptual alignment, and sample-size dependence persist; fixing seed variance does not repair those.</li>
+<li><strong>GS-FID evaluator-overfitting risk:</strong> per-cell optimal guidance is a strong evaluator choice. The paper does stress that unguided and GS-FID rankings disagree and should not be cross-compared, but real benchmarks must be careful to avoid test-set overfitting via per-cell tuning.</li>
+<li><strong>Panel is finite</strong> (20–25 training seeds, 10 sampling seeds) and does not push past SiT-XL or 2M steps, so production-scale behaviour is an extrapolation.</li>
+<li><strong>The "lucky/unlucky seed" framing</strong>, while compelling, could be misused to dismiss genuine methodological gains as mere seed noise — the ~1.3% threshold is a <em>first-pass</em> filter, not a definitive verdict.</li>
+</ul>
+<h2>Strengths</h2>
+<ul>
+<li>Directly attacks a systemic, widely-acknowledged-but-rarely-quantified weakness in how generative image models are compared.</li>
+<li>Large-scale empirical evidence (hundreds of runs, multi-width, multi-checkpoint) rather than a handful of anecdotal seeds.</li>
+<li>Clean, principled decomposition of variance into interpretable sources with a SAME-SEED control that cleanly isolates numerical non-determinism.</li>
+<li>Actionable, concrete recommendations (5-point practitioner guide, online error-bar calculator, ~1.3% CoV threshold, GS-FID golden-section protocol) that reviewers and authors can adopt immediately.</li>
+<li>Honest framing of dual-use risk (the same numbers reveal how big a headline a few extra seeds can manufacture) and explicit call for it to be "priced into peer review."</li>
+</ul>
+<h2>Limitations</h2>
+<ul>
+<li>Restricted to one architecture family (SiT), one objective (flow matching), one dataset (class-conditional ImageNet-256), and one FID backbone (Inception-V3); external validity across models/datasets/metrics is not established.</li>
+<li>Compute cost of the recommended multi-training-seed protocol is high and may be impractical for many labs (the paper's own motivation is that current single-seed practice is cheap — fixing it inherently costs more).</li>
+<li>Does not resolve FID's deeper, well-documented shortcomings (Inception feature choice, perceptual alignment, sample-size sensitivity).</li>
+<li>Panel is finite (20–25 training seeds, 10 sampling seeds); behaviour past SiT-XL / 2M steps is an extrapolation.</li>
+<li>The "lucky/unlucky seed" framing risks being misused to explain away genuine improvements as seed noise; the threshold is a first-pass heuristic, not a substitute for statistical testing.</li>
+<li>GS-FID adds ≈14 evaluations/cell, which is non-trivial evaluation overhead, and per-cell tuning risks evaluator overfitting in real benchmarks.</li>
+</ul>
+<h2>Relevance</h2>
+<p>与"LLM 推理评测"（inference quality 的可复现性、输出一致性、推理结果可复现性）高度同构：本文揭示的"单一随机种子报告单点指标"问题，正是评测可复现性领域的核心议题，其方法论（把指标视为随机变量、报告误差棒、给出经验性不显著阈值）可直接迁移到 LLM 推理一致性与"种子彩票"分析；对"ML Reliability & Mathematical Foundations"同样切题，提供了生成式评测中统计边界与失败模式的实证刻画，可作为 LLM 训练稳定性观测中"何为真实信号 vs. 噪声"的对照范式。</p>
+<h2>Questions for Further Exploration</h2>
+<ul>
+<li>Does the 1–2% CoV band and the 3.2× retraining-to-resampling ratio generalize to DiT, pixel-space diffusion, masked/autoregressive image models, score matching vs. rectified flow, and other datasets (COCO, FFHQ, AFHQ)?</li>
+<li>How do other metrics (CLIP-Score, Precision/Recall, CMMD, KID, FDD) behave under the same 2-axis panel — do they share the same seed-variance structure, and which is the most stable? Appendix F touches DINOv2 FID and Inception P/R/D/C (recall is the outlier), but a head-to-head floor comparison is open.</li>
+<li>Can a cheaper proxy (e.g., a small number of training seeds plus an analytical/Bayesian correction) approximate the full multi-seed error bar without re-training many times?</li>
+<li>Does per-cell GS-FID guidance introduce measurable evaluator overfitting, and how should it be cross-validated in a real benchmark leaderboard setting?</li>
+<li>Do analogous "seed lottery" effects exist for LLM benchmark variance, and could a 2-axis (training-seed × decoding-seed) protocol and a calibrated inconclusiveness threshold be applied to LLM evaluation consistency?</li>
+<li>Does the per-step flow-matching noise being the largest variance source suggest any training-time fix (e.g., deterministic noise schedules, quasi-Monte Carlo ε) that could lower the floor without harming quality?</li>
+<li>Rank stability is weak before ~1M steps — is there a principled early-stopping/seed-selection rule that avoids picking near-randomly through the first half of training?</li>
+</ul>
+<p class="note">Generated from Markdown summary. Full paper: <a href="https://arxiv.org/abs/2606.20536">arXiv:2606.20536</a></p>
+</div>
+</body>
+</html>

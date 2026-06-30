@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Understanding Knowledge Distillation in Post-Training: When It Helps and When It Fails</title>
+<style>
+:root { --paper:#fafafa; --ink:#1a1a1a; --muted:#555; --accent:#1a5276; --line:#ddd; --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif; --serif:Georgia,"Noto Serif SC",serif; }
+body { font-family:var(--serif); background:var(--paper); color:var(--ink); line-height:1.6; margin:0; padding:0; }
+.container { max-width:min(95vw, 760px); margin:0 auto; padding:28px 20px 60px; }
+.topnav { position:fixed; top:12px; left:14px; z-index:50; font-family:var(--sans); font-size:.75rem; background:var(--paper); border:1px solid var(--line); padding:5px 10px; border-radius:999px; }
+.topnav a { color:var(--muted); text-decoration:none; font-weight:600; }
+.topnav a:hover { color:var(--accent); }
+h1 { font-size:1.6rem; margin:2.2rem 0 1rem; border-bottom:2px solid var(--accent); padding-bottom:.3rem; }
+h2 { font-size:1.3rem; margin:1.8rem 0 .8rem; color:var(--accent); }
+h3 { font-size:1.1rem; margin:1.4rem 0 .6rem; }
+p { margin:.8rem 0; }
+.authors { font-style:italic; color:var(--muted); margin-top:-.4rem; }
+.meta { font-family:var(--sans); font-size:.82rem; color:var(--muted); margin:.2rem 0; }
+a { color:var(--accent); text-decoration:none; }
+a:hover { text-decoration:underline; }
+blockquote { border-left:3px solid var(--accent); margin:1rem 0; padding:.2rem 0 .2rem 1rem; color:var(--muted); font-style:italic; }
+code { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; background:#f0f0f0; padding:2px 5px; border-radius:3px; font-size:.9em; }
+pre { background:#f5f5f5; padding:14px; overflow-x:auto; border-radius:4px; border:1px solid var(--line); }
+pre code { background:transparent; padding:0; }
+ul,ol { margin:.6rem 0; padding-left:1.5rem; }
+li { margin:.25rem 0; }
+table { border-collapse:collapse; width:100%; margin:1rem 0; font-family:var(--sans); font-size:.9rem; }
+th,td { border:1px solid var(--line); padding:6px 10px; text-align:left; }
+th { background:#f0f0f0; }
+hr { border:none; border-top:1px solid var(--line); margin:1.5rem 0; }
+.note { font-family:var(--sans); font-size:.78rem; color:var(--muted); border-top:1px solid var(--line); margin-top:2rem; padding-top:1rem; }
+@media (max-width: 600px) { .container { padding:22px 14px 40px; } h1 { font-size:1.35rem; } }
+</style>
+</head>
+<body>
+<div class="topnav"><a href="./index.html">← Today's digest</a></div>
+<div class="container">
+<h1>Understanding Knowledge Distillation in Post-Training: When It Helps and When It Fails</h1>
+<p class="meta">arXiv: 2606.22942</p>
+<p class="meta">Date: 2026-06-22</p>
+<p class="meta"><a href="https://arxiv.org/abs/2606.22942">https://arxiv.org/abs/2606.22942</a></p>
+<h1>Understanding Knowledge Distillation in Post-Training: When It Helps and When It Fails</h1>
+<h2>TL;DR</h2>
+<p>This paper systematically studies knowledge distillation (KD) during the post-training stage of LLMs using the Tulu 3 dataset (939k samples). Key findings: KD outperforms SFT in low-data regimes (up to 5% gain at 10k samples), but the advantage diminishes with more data. Using a stronger instruction-tuned teacher (e.g., Llama3.3-70B-Instruct) restores substantial gains even with abundant data. For domain-specific low-resource settings, a two-stage KD strategy -- synthetic data warm-up followed by KD on human annotations -- consistently yields the best results.</p>
+<p>本文系统研究了大模型后训练阶段的知识蒸馏（KD），使用 Tulu 3 数据集（93.9万样本）进行实验。核心发现：KD 在低数据量场景下显著优于 SFT（10k 样本时最高提升约5%），但随着数据增多优势递减。使用更强的指令微调教师模型（如 Llama3.3-70B-Instruct）可在数据充足时重新获得显著收益。针对特定领域的低资源场景，论文提出两阶段 KD 策略——先用合成数据预热、再在人工标注数据上蒸馏——在所有设置中一致取得最优表现。</p>
+<p>---</p>
+<h2>Problem & Motivation / 问题与动机</h2>
+<p>Knowledge Distillation has been widely studied for task-specific or small-scale settings, but its behavior in the <strong>post-training stage</strong> -- where a student model learns general instruction-following capabilities from a teacher -- remains underexplored. Specifically, it is unclear (1) how KD's benefit scales with training data size, (2) when a stronger teacher helps, and (3) how to best leverage KD in domain-specific low-resource scenarios.</p>
+<p>知识蒸馏在特定任务或小规模场景中已有广泛研究，但在<strong>后训练阶段</strong>——学生模型从教师模型习得通用指令遵循能力——的行为尚未被系统探索。具体而言，以下问题缺乏明确答案：(1) KD 的收益如何随训练数据规模变化？(2) 何时使用更强的教师模型有帮助？(3) 如何在特定领域低资源场景中最好地利用 KD？</p>
+<p>---</p>
+<h2>Method / 方法</h2>
+<h3>General Post-Training KD Setup</h3>
+<ul>
+<li><strong>Distillation method</strong>: GKD (Generalized Knowledge Distillation) with generalized Jensen-Shannon divergence (beta=0.5), incorporating on-policy student-generated sequences during training</li>
+<li><strong>GKD objective</strong>: $\mathcal{L}_{\text{GKD}} = (1-\lambda)\mathbb{E}_{(x,y)\sim\mathcal{D}}[D(y,x)] + \lambda\mathbb{E}_{x\sim\mathcal{X},\hat{y}\sim p_S}[D(\hat{y},x)]$, where lambda controls on-policy proportion</li>
+<li><strong>Teacher</strong>: Llama3.1-70B fine-tuned on Tulu 3 via SFT</li>
+<li><strong>Students</strong>: Llama3.1-8B, Llama3.2-1B, Llama3.2-3B</li>
+<li><strong>Two initialization paradigms</strong>: Base-S (distill directly from base model) vs. SFTed-S (first SFT, then distill) -- SFTed-S consistently better</li>
+</ul>
+<h3>Two-Stage KD for Low-Resource Domains</h3>
+<ol>
+<li><strong>Stage 1 (Warm-up)</strong>: Train student on synthetic teacher-labeled data $\mathcal{D}^s$ using cross-entropy loss -- broadens exposure to diverse instruction formats</li>
+<li><strong>Stage 2 (Refinement)</strong>: Fine-tune with GKD on the small human-annotated dataset $\mathcal{D}$ -- preserves high-quality teacher guidance</li>
+</ol>
+<p><strong>通用后训练 KD 设置</strong>：</p>
+<ul>
+<li>使用 GKD（广义知识蒸馏）配合广义 Jensen-Shannon 散度（beta=0.5），训练中引入学生模型的 on-policy 生成样本</li>
+<li>教师模型：Llama3.1-70B 在 Tulu 3 上 SFT 微调；学生模型：Llama3.1-8B、Llama3.2-1B/3B</li>
+<li>比较两种初始化范式：Base-S（从基础模型直接蒸馏）vs. SFTed-S（先 SFT 再蒸馏），后者始终更优</li>
+</ul>
+<p><strong>两阶段 KD（低资源场景）</strong>：</p>
+<ol>
+<li>第一阶段（预热）：在教师标注的合成数据上用交叉熵训练学生，扩展指令格式覆盖</li>
+<li>第二阶段（精炼）：在小规模人工标注数据上用 GKD 微调，保留高质量教师指导</li>
+</ol>
+<p>---</p>
+<h2>Key Results / 关键结果</h2>
+<h3>Scaling Behavior of KD vs. SFT</h3>
+<ul>
+<li><strong>Low-data regime (<80k samples)</strong>: KD consistently outperforms SFT, with gains up to ~5% absolute at 10k samples</li>
+<li><strong>Large-data regime (>150k samples)</strong>: Performance gap narrows substantially; SFT sometimes matches or exceeds KD (e.g., Llama3.1-8B at 150k)</li>
+<li><strong>Interpretation</strong>: When teacher and student train on the same data, the student can recover most teacher knowledge through direct supervision alone -- KD loss starts low and plateaus without further reduction</li>
+</ul>
+<h3>Stronger Teacher Breaks the Saturation</h3>
+<ul>
+<li>Replacing the same-dataset teacher with Llama3.3-70B-Instruct (RLHF-trained, broader knowledge) yields ~4% average improvement across five benchmarks even on the full 939k dataset</li>
+<li>This proves KD remains effective whenever the teacher contributes knowledge <strong>beyond</strong> the training set</li>
+</ul>
+<h3>Domain-Specific Low-Resource Results (Table 2)</h3>
+<p>| Task | Model | SFT | GKD | Mixing | Two-Stage |</p>
+<p>|------|-------|-----|-----|--------|-----------|</p>
+<p>| Translation (COMET) | 1B | 68.00 | 69.87 | 78.13 | <strong>78.65</strong> |</p>
+<p>| Translation (COMET) | 3B | 78.91 | 79.39 | 82.41 | <strong>82.67</strong> |</p>
+<p>| Summarization (ROUGE-L) | 1B | 37.03 | 38.63 | 40.48 | <strong>42.84</strong> |</p>
+<p>| ARC-Challenge (Acc) | 1B | 26.71 | 38.05 | 70.22 | <strong>70.31</strong> |</p>
+<ul>
+<li>Two-stage consistently achieves best results across all tasks and model sizes</li>
+<li>Smaller models (1B) benefit most from KD; gains diminish for 8B models</li>
+</ul>
+<h3>Synthetic Data Scaling</h3>
+<ul>
+<li>Performance improves with more synthetic data but saturates quickly (main gains from 5k to ~50k)</li>
+<li>The benefit is primarily from <strong>diversity</strong> rather than quantity</li>
+</ul>
+<p><strong>KD vs. SFT 的数据规模效应</strong>：低数据量（<80k 样本）下 KD 显著优于 SFT（10k 时最高约5%）；数据充足（>150k）后差距基本消失。原因：同数据集教师的蒸馏信号与直接监督高度重叠。</p>
+<p><strong>更强教师打破饱和</strong>：使用 Llama3.3-70B-Instruct 替代同数据集教师，即使在 939k 全量数据上仍获约4%平均提升，证明当教师拥有训练集之外的知识时 KD 始终有效。</p>
+<p><strong>低资源领域两阶段策略一致最优</strong>：翻译/摘要/问答三个任务中，两阶段方法在所有模型尺寸上均取得最佳表现。小模型（1B）从 KD 中获益最多。</p>
+<p>---</p>
+<h2>Evaluation / 评估</h2>
+<p><strong>General instruction-following (5 benchmarks)</strong>: BBH, GPQA, IFEval, InFoBench, MMLU-Pro</p>
+<p><strong>Domain-specific tasks</strong>: Assamese-English translation (Flores-200, COMET), dialogue summarization (DialogSum, ROUGE-L), ARC-Challenge (accuracy)</p>
+<p><strong>通用指令遵循（5个基准）</strong>：BBH、GPQA、IFEval、InFoBench、MMLU-Pro</p>
+<p><strong>特定领域任务</strong>：阿萨姆语-英语翻译（Flores-200，COMET）、对话摘要（DialogSum，ROUGE-L）、ARC-Challenge（准确率）</p>
+<p>---</p>
+<h2>Critical Assessment / 批判性评价</h2>
+<p><strong>Strengths / 优势:</strong></p>
+<ol>
+<li>Well-controlled experimental design: same dataset for teacher and student, systematic variation of data scale, which cleanly isolates KD's contribution</li>
+<li>The insight about KD saturation (same-dataset teacher provides diminishing returns) is nuanced and practically useful -- it explains why naive KD sometimes disappoints</li>
+<li>The two-stage synthetic data strategy is simple, well-motivated by the saturation analysis, and shows consistent improvements across diverse tasks</li>
+</ol>
+<p><strong>Weaknesses / 不足:</strong></p>
+<ol>
+<li><strong>Architecture homogeneity</strong>: All experiments use Llama-3 family models; cross-architecture distillation (e.g., Llama to Mistral, or dense to MoE) is not explored, limiting generalizability claims</li>
+<li><strong>Teacher strength confound</strong>: The "stronger teacher" (Llama3.3-70B-Instruct) differs from the base teacher in multiple ways simultaneously (RLHF, larger training corpus, different data mix) -- it is unclear which factor drives the improvement</li>
+<li><strong>Synthetic data generation is circular</strong>: The synthetic data is generated and labeled by the same teacher model family, which limits the ceiling of what the student can learn beyond the teacher's own capabilities</li>
+<li><strong>No DPO/RLHF comparison</strong>: The post-training landscape increasingly uses preference optimization; comparing KD against or in combination with DPO would strengthen practical relevance</li>
+<li><strong>Evaluation scope</strong>: Focused on general capabilities and reasoning; safety alignment, long-context, and code generation are absent</li>
+</ol>
+<p>---</p>
+<h2>Relevance to Broader Research / 与更广泛研究的关联</h2>
+<p>This work provides clear practical guidance for practitioners building compact LLMs: (1) use KD when data is scarce or the teacher has knowledge beyond the training set, (2) don't expect KD to help when teacher and student see the same abundant data, (3) for domain adaptation, the two-stage synthetic warm-up + human-data KD pipeline is a robust default. The findings complement the growing literature on efficient LLM deployment and offer a useful decision framework for when to invest in KD infrastructure vs. simply scaling SFT data.</p>
+<p>本研究为构建紧凑型大模型的实践者提供了清晰的指导：(1) 数据稀缺或教师拥有训练集之外知识时使用 KD；(2) 教师和学生使用相同大量数据时不要期望 KD 有显著帮助；(3) 领域适配场景下，两阶段策略（合成数据预热 + 人工数据 KD）是稳健的默认方案。</p>
+<p class="note">Generated from Markdown summary. Full paper: <a href="https://arxiv.org/abs/2606.22942">arXiv:2606.22942</a></p>
+</div>
+</body>
+</html>

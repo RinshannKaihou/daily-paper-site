@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Efficient Test-Time Inference via Deterministic Exploration of Truncated Decoding Trees</title>
+<style>
+:root { --paper:#fafafa; --ink:#1a1a1a; --muted:#555; --accent:#1a5276; --line:#ddd; --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif; --serif:Georgia,"Noto Serif SC",serif; }
+body { font-family:var(--serif); background:var(--paper); color:var(--ink); line-height:1.6; margin:0; padding:0; }
+.container { max-width:min(95vw, 760px); margin:0 auto; padding:28px 20px 60px; }
+.topnav { position:fixed; top:12px; left:14px; z-index:50; font-family:var(--sans); font-size:.75rem; background:var(--paper); border:1px solid var(--line); padding:5px 10px; border-radius:999px; }
+.topnav a { color:var(--muted); text-decoration:none; font-weight:600; }
+.topnav a:hover { color:var(--accent); }
+h1 { font-size:1.6rem; margin:2.2rem 0 1rem; border-bottom:2px solid var(--accent); padding-bottom:.3rem; }
+h2 { font-size:1.3rem; margin:1.8rem 0 .8rem; color:var(--accent); }
+h3 { font-size:1.1rem; margin:1.4rem 0 .6rem; }
+p { margin:.8rem 0; }
+.authors { font-style:italic; color:var(--muted); margin-top:-.4rem; }
+.meta { font-family:var(--sans); font-size:.82rem; color:var(--muted); margin:.2rem 0; }
+a { color:var(--accent); text-decoration:none; }
+a:hover { text-decoration:underline; }
+blockquote { border-left:3px solid var(--accent); margin:1rem 0; padding:.2rem 0 .2rem 1rem; color:var(--muted); font-style:italic; }
+code { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; background:#f0f0f0; padding:2px 5px; border-radius:3px; font-size:.9em; }
+pre { background:#f5f5f5; padding:14px; overflow-x:auto; border-radius:4px; border:1px solid var(--line); }
+pre code { background:transparent; padding:0; }
+ul,ol { margin:.6rem 0; padding-left:1.5rem; }
+li { margin:.25rem 0; }
+table { border-collapse:collapse; width:100%; margin:1rem 0; font-family:var(--sans); font-size:.9rem; }
+th,td { border:1px solid var(--line); padding:6px 10px; text-align:left; }
+th { background:#f0f0f0; }
+hr { border:none; border-top:1px solid var(--line); margin:1.5rem 0; }
+.note { font-family:var(--sans); font-size:.78rem; color:var(--muted); border-top:1px solid var(--line); margin-top:2rem; padding-top:1rem; }
+@media (max-width: 600px) { .container { padding:22px 14px 40px; } h1 { font-size:1.35rem; } }
+</style>
+</head>
+<body>
+<div class="topnav"><a href="./index.html">← Today's digest</a></div>
+<div class="container">
+<h1>Efficient Test-Time Inference via Deterministic Exploration of Truncated Decoding Trees</h1>
+<p class="meta">arXiv: 2604.20500v1</p>
+<p class="meta">Date: 2026-04-22</p>
+<p class="meta"><a href="https://arxiv.org/abs/2604.20500v1">https://arxiv.org/abs/2604.20500v1</a></p>
+<blockquote><strong>一句话总结：</strong> 本文提出 Distinct Leaf Enumeration (DLE)——一种用"剪枝解码树上的确定性叶枚举"替代随机采样的自一致性解码方法，通过避免重复前缀和重复完成序列来在相同 token 预算下获得更高的搜索空间覆盖率与更好的数学/代码/推理性能。</blockquote>
+<blockquote><strong>TL;DR:</strong> The paper replaces stochastic self-consistency sampling with Distinct Leaf Enumeration (DLE), a deterministic tree-search procedure that enumerates distinct leaves of a truncated decoding tree (top-p, min-p, epsilon), reusing shared prefixes and greedily completing new branches. DLE yields higher coverage of the truncated sampling distribution and consistent maj@k / pass@k gains on GSM8K, HumanEval, and MMLU-Pro, with latency gains on SGLang/vLLM thanks to KV-cache prefix reuse.</blockquote>
+<h2>核心贡献</h2>
+<ul>
+<li><strong>确定性叶子枚举 (DLE) 算法</strong>: 把自一致性重新框定为在剪枝解码树上的遍历问题，枚举截断分布下的独立叶子，而不是从词表分布中"放回采样"。</li>
+<li><strong>截断解码覆盖率 (Coverage) 度量</strong>: 将"采样质量"定义为所取叶子集合在截断分布 Q 下的概率质量，并证明随机采样的期望覆盖率具有边际递减。</li>
+<li><strong>分支选择规则 PROBFIRST</strong>: 总是扩展当前看起来概率质量最大的分支；每个分支采用贪心完成，再辅以基于 n-gram 重复的早停 (Early Stopping) 来避免前缀不同但后续合并的重复答案。</li>
+<li><strong>系统层复用</strong>: 由于 DLE 天然共享前缀，能与 vLLM APC 和 SGLang RadixAttention 的 KV-cache 前缀复用对接，从而在内存受限的小 batch 情况下获得延迟收益。</li>
+<li><strong>实证结果</strong>: 在 Qwen2.5-0.5B-Instruct 上，DLE 在三种截断采样 (top-p & top-k、min-p、epsilon-sampling) 下都优于对应的自一致性基线，并在 token 预算固定时生成更多完整回答用于多数投票。</li>
+</ul>
+<h2>Key Contributions</h2>
+<ul>
+<li><strong>Distinct Leaf Enumeration (DLE):</strong> A deterministic drop-in replacement for stochastic sampling in self-consistency that enumerates distinct leaves of a pruned decoding tree under top-p, min-p, or epsilon truncation.</li>
+<li><strong>Coverage as a decoding metric:</strong> Formalizes the probability mass covered by a set of sampled sequences under the truncated distribution and proves diminishing expected marginal gain, motivating distinct enumeration over i.i.d. sampling.</li>
+<li><strong>PROBFIRST branching + early stopping:</strong> Greedy depth-first expansion of the highest-probability unexplored branch, combined with an n-gram-repetition early-stopping rule that halts branches likely to converge to an already-explored answer.</li>
+<li><strong>Systems-level efficiency:</strong> Shared prefixes enable KV-cache reuse via vLLM's Automatic Prefix Caching and SGLang's RadixAttention; actual cache hit rate tracks the theoretical upper bound.</li>
+<li><strong>Empirical gains:</strong> Up to ~9% maj@8 gain on GSM8K, ~7% pass@k on HumanEval, and smaller but consistent gains on MMLU-Pro across multiple truncated samplers relative to self-consistency.</li>
+</ul>
+<h2>Methodology</h2>
+<ul>
+<li><strong>Setting:</strong> Parallel test-time compute for LLMs via self-consistency — sampling k traces and majority-voting. The authors observe that for constrained domains (math, code), prefix-token repetition among sampled traces is ~11-17% on GSM8K/HumanEval under epsilon-sampling, meaning a substantial fraction of compute is wasted regenerating identical prefixes.</li>
+<li><strong>Truncated sampling distribution:</strong> Given next-token distribution p_t, a truncation rule (top-k, top-p, min-p, epsilon) defines an "active set" A(x_<t); the truncated distribution q renormalizes p_t over A. The pruned tree contains nodes whose active set has size >1 (branching points) and edges labeled by q.</li>
+<li><strong>Algorithm:</strong></li>
+</ul>
+<ol>
+<li>Produce a greedy rollout from the prompt to EOS, caching active sets along the path.</li>
+<li>Score each alternative branch at each branch point by its cumulative probability Q(x_<t ∘ v); pick the branch with largest Q (PROBFIRST).</li>
+<li>Append the alternative token, greedy-decode to EOS, repeat until k distinct leaves are found or no non-trivial active sets remain.</li>
+</ol>
+<ul>
+<li><strong>Early stopping:</strong> After a branch deviates, if the next n=10 greedy tokens match any earlier sibling's continuation starting at the same prefix position, abandon the branch (85%+ of such branches produce the same final answer empirically).</li>
+<li><strong>Aggregation:</strong> Equal-weight majority voting over leaves performed better than probability-weighted aggregation (Table 4).</li>
+<li><strong>Baselines:</strong> self-consistency (at multiple temperatures), beam search, diverse beam search, DeepConf, Self-Certainty, plus self-consistency under top-p&top-k / min-p / epsilon-sampling.</li>
+<li><strong>Benchmarks:</strong> GSM8K (math), HumanEval (code), MMLU-Pro (general reasoning). Primary model is Qwen2.5-0.5B-Instruct; 7B variant appears only in Appendix Table 4.</li>
+<li><strong>Systems experiments:</strong> Cache hit rate and wall-clock runtime on SGLang (k=8, batch sizes 1/2/4) and vLLM (appendix).</li>
+</ul>
+<h2>Results & Highlights</h2>
+<ul>
+<li><strong>Table 1 (Qwen2.5-0.5B-Instruct):</strong> DLE consistently beats matched self-consistency baselines across samplers. Example: DLE (top-p&top-k) reaches 44.43 maj@8 on GSM8K vs 38.74 for SC (top-p&top-k); DLE (epsilon) reaches 52.44 pass@8 on HumanEval vs 47.56 for SC (epsilon).</li>
+<li><strong>Coverage vs accuracy (Fig 5):</strong> Both DLE and SC show monotone coverage-accuracy relationships; DLE shifts further along the same curve — i.e., given identical sequence budget, it achieves higher coverage and thus higher maj@k.</li>
+<li><strong>Token efficiency (Fig 8 left):</strong> Matching ~34% accuracy on GSM8K requires >150 new tokens per trace for epsilon-sampled SC but <20 for DLE. At fixed token budget of 512, DLE completes more sequences than epsilon-sampling, translating to higher accuracy.</li>
+<li><strong>Cache hit rate (Fig 9 left):</strong> Actual cache hit rate on SGLang closely tracks the theoretical maximum for DLE (~0.80-0.87 for epsilon up to 0.4), well above the SC baseline which only reuses the prompt prefix.</li>
+<li><strong>Runtime (Fig 9 right):</strong> Biggest wall-clock wins at small batch sizes (1-2) and high epsilon, where prefix reuse is most valuable; at batch size 4 the difference shrinks.</li>
+<li><strong>Weaker-baseline flag:</strong> Beam search and diverse beam search are included but "do not yield consistent improvements as beam size and compute increase" — the paper doesn't treat them as strong competitors and doesn't tune them aggressively.</li>
+<li><strong>Probability distribution (Fig 6):</strong> DLE-sampled sequences have higher average log-probability than SC sequences, and high-log-prob sequences are on average more accurate — evidence that the greedy-completion heuristic finds higher-quality traces.</li>
+</ul>
+<h2>Authors & Credibility</h2>
+<ul>
+<li><strong>Affiliations:</strong> Max Planck Institute for Intelligent Systems, ETH Zurich, Tübingen AI Center, University of Tübingen, ELLIS Institute Tübingen, IMPRS-IS.</li>
+<li><strong>Senior author Jonas Geiping</strong> has a strong track record in efficient/interpretable training and inference-time methods for LLMs (e.g., latent reasoning, cramming LLM training). Xueyan Li and Mrinmaya Sachan overlap with ETH's NLP group and have a concurrent ICLR 2026 paper "Sample smart, not hard: Correctness-first decoding..." cited in the intro, which suggests the research thread is ongoing.</li>
+<li>The paper is well-referenced against the current self-consistency/test-time-scaling literature (Wang et al. 2023, Snell et al. 2024, Taubenfeld et al. 2025, DeepConf 2025, Self-Certainty 2025) and decoding-tree literature (Hydragen, SGLang, vLLM, DeFT), which is a good sign of familiarity with the problem area.</li>
+<li>No conflicts declared, no code release advertised in the PDF pages read — that would be nice to have.</li>
+</ul>
+<h2>Critical Assessment</h2>
+<ul>
+<li><strong>Primary model is Qwen2.5-0.5B-Instruct.</strong> Almost all headline numbers come from a 0.5B model. A small-model study can exaggerate the benefit of coverage-focused decoding because the underlying distribution is less peaked and has more exploitable branching. Appendix B.4 includes a 7B-Instruct check but only compares aggregation variants, not full DLE-vs-SC at 7B on the main benchmarks. This is the single biggest gap.</li>
+<li><strong>Benchmark set is narrow.</strong> GSM8K, HumanEval, MMLU-Pro are the only tasks. No AIME/MATH-500 (harder math), no LiveCodeBench, no agentic tasks where self-consistency is actually deployed. "General reasoning" is represented by MMLU-Pro alone.</li>
+<li><strong>Beam search and diverse beam search as baselines are under-tuned.</strong> Table 1 shows DBS maj@2 as blank and beam search's numbers don't scale with k, which the authors use to dismiss them. This is plausible, but stronger comparisons (e.g., best-of-N with a verifier, or TreeBoN) would make the case cleaner.</li>
+<li><strong>Cherry-picked epsilon range?</strong> Runtime gains are most significant "at small batch sizes and high epsilon" — i.e., the setting most favorable to prefix reuse. Figure 9 right shows the SC baseline is competitive at batch size 4.</li>
+<li><strong>"Truncation removes low-probability tokens which correlate with epistemic uncertainty"</strong> is asserted but not tested; on harder problems where correct solutions live in lower-probability branches, aggressive truncation + greedy completion could systematically miss them. The paper acknowledges this in passing but provides no harder benchmark to stress-test it.</li>
+<li><strong>No uncertainty quantification.</strong> Numbers in Table 1 are point estimates with no error bars or seeds reported in the body. For small gains (e.g., MMLU-Pro +0.5-1.0), this matters.</li>
+<li><strong>Early-stopping trigger rate is only ~9-10%</strong> (Table 3). The rule rarely fires; its contribution to the headline numbers is modest (Table 2 shows ~0.5-1 point on maj@k with early stopping vs without).</li>
+</ul>
+<h2>Strengths</h2>
+<ul>
+<li>Clean formalization: coverage as a well-defined probability-mass metric on the truncated distribution, with a proof of diminishing returns for i.i.d. sampling. This gives the intuition teeth.</li>
+<li>Algorithm is simple, drop-in, and works across truncation schemes without new hyperparameters (n=10 for early stopping is the only one tuned).</li>
+<li>The systems story is credible: tree-shaped compute is exactly what SGLang's RadixAttention and vLLM's APC were designed for, and the cache-hit-rate measurements validate the theoretical savings.</li>
+<li>Multiple ablations in appendix: branching rule (PROBFIRST vs DIVFIRST vs RANDBRANCH vs DFS vs GLOBALPROB), early-stopping on/off, weighted vs equal aggregation, n-gram diversity. Most ablations are honest about modest effect sizes.</li>
+<li>Clear articulation of when it helps (constrained reasoning, small batches, cache-aware engines) and when it doesn't — see the conclusion's "algorithmic versus systems gains" paragraph.</li>
+</ul>
+<h2>Limitations</h2>
+<ul>
+<li>Only Qwen2.5-0.5B-Instruct primary results; 7B validation is partial and tucked in an appendix table comparing aggregation schemes.</li>
+<li>Only three benchmarks, none of which are saturation-resistant for 2026-era reasoning evals (AIME-25, LiveCodeBench-Pro, GPQA-Diamond, ARC-AGI, etc. would have been natural).</li>
+<li>Correctness-of-coverage assumption: coverage is only a proxy for correctness and the authors themselves flag that correct answers in harder settings may lie in low-mass regions where DLE's greedy-completion-after-branch hurts.</li>
+<li>No released code (in the parts of the PDF read). Reproducibility therefore depends on reimplementation.</li>
+<li>No discussion of how DLE interacts with chain-of-thought reasoning where branches must be long (thousands of tokens) — early stopping with n=10 may be inadequate for long-CoT models.</li>
+<li>Branching rule is probability-only; the authors mention future "task-dependent quality signals" (e.g., verifiers, reward models) but don't include them.</li>
+</ul>
+<h2>Relevance</h2>
+<p>与您的研究兴趣高度相关的维度：</p>
+<ul>
+<li><strong>Inference evaluation</strong>: DLE 正面挑战了 "更多随机样本 = 更好自一致性" 的惯常评估假设，强调 coverage 作为一个独立于采样器的度量。对关注推理期评测和 test-time scaling 的你会特别有用——它给出了一个明确的"无效 token"预算分析 (Fig 8)。</li>
+<li><strong>ML reliability / reproducibility</strong>: 确定性解码天然利于可复现实验 (同 prompt、同 truncation 参数 ⇒ 同样 k 条轨迹)，这与你关注的 silent data corruption / 可靠性主题有直接关系——至少消除了随机采样带来的 run-to-run 方差这个混淆因素。</li>
+<li><strong>System-level inference</strong>: 前缀复用 + RadixAttention / APC 的实证 cache hit rate 分析对理解 KV-cache 与 inference engine 的交互有参考价值。</li>
+<li><strong>较弱相关</strong>: 与 LLM training stability、hidden states / 可解释性、quantization/precision、system cards 主题关系较间接——本文主要是解码算法而非训练或低精度层面的工作。</li>
+</ul>
+<p>整体而言这是一篇"中等相关"的论文：如果你关注 test-time compute 的可靠性和效率，可以作为背景文献；如果主线是训练稳定或量化，这篇只提供副线参考。</p>
+<h2>Questions for Further Exploration</h2>
+<ul>
+<li>Does DLE's advantage survive at 7B, 32B, or 70B? The coverage gap between DLE and SC should shrink as the model becomes more confident and the truncated distribution becomes more peaked — how steep is the decay?</li>
+<li>How does DLE compare to verifier-guided tree search (e.g., process reward models) at matched compute? PROBFIRST uses only sequence probability; a verifier-weighted version might dominate.</li>
+<li>On long-CoT models (o1-style, DeepSeek-R1-style), does greedy completion after branching collapse reasoning diversity? What is the right early-stopping n for 8k+ reasoning traces?</li>
+<li>Can coverage be used as an online compute-allocation signal (spend more k on questions with low coverage at small k)? This would connect DLE to adaptive-consistency literature (Aggarwal 2023, Li 2024).</li>
+<li>What is the relationship between DLE's coverage and silent error rates in numerical reasoning? If some correct solutions lie outside the truncated distribution, DLE's higher coverage within the truncation may still miss them — an interesting diagnostic benchmark.</li>
+<li>Does DLE interact well with quantized inference (INT8/FP8 KV cache)? Prefix-cache reuse assumes deterministic replay — how much do quantization-induced perturbations break the shared-prefix assumption?</li>
+</ul>
+<p class="note">Generated from Markdown summary. Full paper: <a href="https://arxiv.org/abs/2604.20500v1">arXiv:2604.20500v1</a></p>
+</div>
+</body>
+</html>

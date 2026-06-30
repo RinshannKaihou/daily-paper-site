@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Teaching Thinking Models to Reason with Tools: A Full-Pipeline Recipe for Tool-Integrated Reasoning</title>
+<style>
+:root { --paper:#fafafa; --ink:#1a1a1a; --muted:#555; --accent:#1a5276; --line:#ddd; --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif; --serif:Georgia,"Noto Serif SC",serif; }
+body { font-family:var(--serif); background:var(--paper); color:var(--ink); line-height:1.6; margin:0; padding:0; }
+.container { max-width:min(95vw, 760px); margin:0 auto; padding:28px 20px 60px; }
+.topnav { position:fixed; top:12px; left:14px; z-index:50; font-family:var(--sans); font-size:.75rem; background:var(--paper); border:1px solid var(--line); padding:5px 10px; border-radius:999px; }
+.topnav a { color:var(--muted); text-decoration:none; font-weight:600; }
+.topnav a:hover { color:var(--accent); }
+h1 { font-size:1.6rem; margin:2.2rem 0 1rem; border-bottom:2px solid var(--accent); padding-bottom:.3rem; }
+h2 { font-size:1.3rem; margin:1.8rem 0 .8rem; color:var(--accent); }
+h3 { font-size:1.1rem; margin:1.4rem 0 .6rem; }
+p { margin:.8rem 0; }
+.authors { font-style:italic; color:var(--muted); margin-top:-.4rem; }
+.meta { font-family:var(--sans); font-size:.82rem; color:var(--muted); margin:.2rem 0; }
+a { color:var(--accent); text-decoration:none; }
+a:hover { text-decoration:underline; }
+blockquote { border-left:3px solid var(--accent); margin:1rem 0; padding:.2rem 0 .2rem 1rem; color:var(--muted); font-style:italic; }
+code { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; background:#f0f0f0; padding:2px 5px; border-radius:3px; font-size:.9em; }
+pre { background:#f5f5f5; padding:14px; overflow-x:auto; border-radius:4px; border:1px solid var(--line); }
+pre code { background:transparent; padding:0; }
+ul,ol { margin:.6rem 0; padding-left:1.5rem; }
+li { margin:.25rem 0; }
+table { border-collapse:collapse; width:100%; margin:1rem 0; font-family:var(--sans); font-size:.9rem; }
+th,td { border:1px solid var(--line); padding:6px 10px; text-align:left; }
+th { background:#f0f0f0; }
+hr { border:none; border-top:1px solid var(--line); margin:1.5rem 0; }
+.note { font-family:var(--sans); font-size:.78rem; color:var(--muted); border-top:1px solid var(--line); margin-top:2rem; padding-top:1rem; }
+@media (max-width: 600px) { .container { padding:22px 14px 40px; } h1 { font-size:1.35rem; } }
+</style>
+</head>
+<body>
+<div class="topnav"><a href="./index.html">← Today's digest</a></div>
+<div class="container">
+<h1>Teaching Thinking Models to Reason with Tools: A Full-Pipeline Recipe for Tool-Integrated Reasoning</h1>
+<p class="authors">Qianjia Cheng, Yuchen Zhang, Zhilin Wang, Yuxin Zuo, Shunkai Zhang, Yuchen Fan, Yu Qiao, Bowen Zhou, Ning Ding, Yu Cheng, Yun Luo, Ganqu Cui</p>
+<p class="meta">arXiv: 2605.06326</p>
+<p class="meta">Date: 2026-05-08</p>
+<p class="meta"><a href="https://arxiv.org/abs/2605.06326">https://arxiv.org/abs/2605.06326</a></p>
+<blockquote><strong>一句话总结：</strong> 本文提出 TRICE 全流程训练方案，通过精心设计的数据工程、SFT 阶段协调和稳定 RLVR 训练，将 Qwen3 思维模型改造为能够真正交错使用代码执行的推理模型，在 AIME 2025 上分别达到 4B/30B 规模开源模型的 SOTA 成绩 96.7% 和 99.2%。</blockquote>
+<blockquote><strong>TL;DR:</strong> Strong "thinking" LLMs (like Qwen3) given access to a Python sandbox almost never actually use it — they default to pure text reasoning even when computation would help. This paper diagnoses <em>why</em> (tool access disrupts internal reasoning chains, and naive SFT causes catastrophic forgetting of text-only ability), then delivers a systematic four-part recipe — tool-advantaged data curation, mixed-trajectory SFT with checkpoint selection guided by pass@k and rollout length, and on-policy RLVR with routing-replay stabilization — yielding TRICE-4B and TRICE-30B, which set new open-source records (96.7% / 99.2% on AIME 2025) while preserving or improving no-tool performance.</blockquote>
+<p>---</p>
+<h2>核心贡献</h2>
+<ul>
+<li><strong>诊断思维模型的工具使用瓶颈</strong>：揭示现有强思维模型（Qwen3）在工具可用时几乎不调用工具（每条轨迹平均调用次数接近 0），根本原因是工具介入打断了模型的内部推理链。</li>
+<li><strong>"工具优势问题"筛选策略</strong>：提出仅在 TIR 准确率显著超越纯文本推理的问题上收集教师轨迹，以确保数据对工具使用具有真实示范价值。</li>
+<li><strong>混合轨迹 SFT 防止灾难性遗忘</strong>：将纯文本推理轨迹混入 TIR 训练集，将截断率从 ~40% 降至 ~19%，同时保留文本推理能力。</li>
+<li><strong>SFT 阶段协调与检查点选择</strong>：识别出 SFT 训练经历"形式→实质→噪声"三阶段，利用 pass@k 和输出长度为下游 RL 选取最优初始化点。</li>
+<li><strong>稳定 RLVR 训练</strong>：仅用结果奖励（无工具调用频率奖励），通过全在线 (on-policy) 采样 + rollout 路由重放避免分布偏移导致的训练崩溃。</li>
+<li><strong>TRICE-4B/30B 达到开源 SOTA</strong>：在 AIME 2025、HMMT 2025、BeyondAIME、IMOAnswerBench、APEX 2025 等五项竞赛级数学基准上全面超越同规模及更大规模的纯文本模型，并泛化至科学、代码、知识问答领域。</li>
+</ul>
+<h2>Key Contributions</h2>
+<ul>
+<li><strong>Root-cause diagnosis of tool-call failure in thinking models:</strong> Shows that Qwen3 thinking models, despite having Python sandbox access, make near-zero tool calls (0.00–0.07 calls per trajectory), exhibiting a "delayed-code" pattern where the executor is invoked only as a final verifier rather than an active reasoning component.</li>
+<li><strong>Tool-advantaged prompt selection:</strong> Filters training problems to retain only those where the teacher model benefits measurably from tool use (TIR accuracy exceeds text-only accuracy), producing higher-quality and more learnable supervision.</li>
+<li><strong>Mixed-trajectory SFT to prevent cross-mode collapse:</strong> Identifies and fixes a concrete failure mode where TIR-only SFT causes the student to simulate code execution in natural language (fabricating outputs), which exhausts the token budget without progress. Mixing text-only trajectories resolves this.</li>
+<li><strong>Principled SFT-to-RL handoff via pass@k diagnostics:</strong> Characterizes a three-stage (form/substance/noise) SFT learning curve and proposes concrete diagnostics — pass@k divergence and rollout length — for selecting the RL initialization checkpoint.</li>
+<li><strong>Stable on-policy RLVR for multi-turn tool use:</strong> Demonstrates that off-policy gradient updates (4 mini-batches per rollout, standard GRPO) cause immediate collapse in TIR settings; full on-policy training plus rollout routing replay (R3) restores stability and further improves performance.</li>
+<li><strong>TRICE-4B and TRICE-30B:</strong> New open-source SOTA across five competition math benchmarks at their respective scales, with TRICE-30B outperforming text-only models with 7× more parameters (e.g., Qwen3-235B-A22B-Thinking on HMMT25 and BeyondAIME).</li>
+</ul>
+<p>---</p>
+<h2>Methodology</h2>
+<p>The paper frames Tool-Integrated Reasoning (TIR) training as a full pipeline problem and addresses it in three coordinated stages:</p>
+<p><strong>1. Data Engineering</strong></p>
+<ul>
+<li><em>Teacher model selection:</em> GPT-OSS-120B is preferred over MiniMax-M2.7 because it follows a high-frequency, lightweight code-snippet pattern (short, stateful, incremental tool calls) rather than low-frequency, heavyweight self-contained programs. Empirically, students trained on GPT-OSS-120B trajectories achieve 55.8% vs. 17.8% on BeyondAIME.</li>
+<li><em>Tool-advantaged prompt filtering:</em> From ~347K Nemotron-Math problems, only prompts where the teacher's average TIR accuracy exceeds its text-only accuracy are retained, producing a ~65K training set. This yields a 5.4% accuracy gain over random sampling.</li>
+<li><em>Mixed trajectories:</em> TIR trajectories (~50%) are interleaved with text-only trajectories (~50%) to prevent the student from internalizing a code-centric loop that runs even when no tool is available. Overlong trajectories (>16K tokens) are filtered to discourage length imitation.</li>
+<li><em>RL data:</em> 4,325 high-difficulty math QA examples (olympiad/competition level) are constructed via multi-stage filtering from ~20K raw problems, instantiated in both with-tool and text-only formats.</li>
+</ul>
+<p><strong>2. Stage Coordination: SFT to RL</strong></p>
+<ul>
+<li>SFT training exhibits a characteristic "form → substance → noise" progression: the model first mimics tool-call format (stage 1), then learns when and how to use tools substantively (stage 2), then overfits to teacher-side artifacts like response length (stage 3).</li>
+<li>Checkpoint selection targets stage 2: pass@1 and pass@8 diverge (pass@1 still rising but pass@8 plateauing), and rollout length begins to stabilize. Stage 3 checkpoints have ~5× higher train-inference KL divergence and collapse during RL.</li>
+<li>The SFT objective uses standard cross-entropy on response length rather than per-token loss on the full trajectory to maximize the headroom for downstream RL exploration.</li>
+</ul>
+<p><strong>3. Reinforcement Learning with Verifiable Rewards (RLVR)</strong></p>
+<ul>
+<li>No explicit tool-invocation reward is used — only outcome correctness — relying on challenging problems to organically incentivize tool use.</li>
+<li>Off-policy training (standard GRPO with 4 mini-batches per rollout) immediately collapses due to the high off-policy nature of tool-return tokens.</li>
+<li>Full on-policy training (1 gradient update per rollout) stabilizes training. Adding Rollout Routing Replay (R3), which replays inference-time routing distributions during training, further reduces train-rollout mismatch and improves final performance.</li>
+<li>For MoE models (Qwen3-30B, GLM-4.7-Flash), the MoE router is frozen during RL to prevent additional distributional instability.</li>
+</ul>
+<p>---</p>
+<h2>Results & Highlights</h2>
+<p><strong>Competition math benchmarks (Table 7):</strong></p>
+<p>| Model | AIME25 | HMMT25 | BeyondAIME | IMOAnswerBench | APEX25 | Avg |</p>
+<p>|---|---|---|---|---|---|---|</p>
+<p>| Qwen3-4B-Thinking-2507 (no tool) | 82.5 | 68.8 | 54.3 | 57.0 | 2.8 | 58.2 |</p>
+<p>| TRICE-4B (ours) | <strong>96.7</strong> | <strong>86.7</strong> | <strong>71.3</strong> | <strong>68.9</strong> | <strong>13.9</strong> | <strong>72.2</strong> |</p>
+<p>| Qwen3-30B-A3B-Thinking-2507 (no tool) | 88.8 | 75.6 | 65.9 | 66.1 | 0.0 | 67.1 |</p>
+<p>| TRICE-30B (ours) | <strong>99.2</strong> | <strong>92.5</strong> | <strong>82.5</strong> | <strong>80.3</strong> | <strong>16.7</strong> | <strong>81.9</strong> |</p>
+<ul>
+<li>TRICE-30B outperforms Qwen3-235B-A22B-Thinking (no tool) on HMMT25 (92.5 vs. 88.8) and BeyondAIME (82.5 vs. 71.8), demonstrating that TIR at 30B exceeds pure scaling to 235B.</li>
+<li>TRICE-4B reaches 96.7% on AIME 2025, surpassing the 4B-scale TIR baseline ASTER-4B (90.0%) and approaching prior 8B TIR systems.</li>
+</ul>
+<p><strong>Efficiency:</strong> TRICE-30B achieves shorter average responses than same-scale TIR competitors (Nemotron-3-Nano-30B-A3B, GLM-4.7-Flash), since code compresses lengthy arithmetic into executable snippets.</p>
+<p><strong>Cross-domain generalization (Table 9):</strong> TRICE-4B and TRICE-30B improve over base thinking models on FrontierScience (+14.5 / +8.1 pp), GPQA-Diamond (+4.4 / +4.2 pp), and LiveCodeBench (+4.2 / +11.7 pp) despite being trained only on math data.</p>
+<p><strong>Code executor roles (Figure 7 analysis):</strong> In solved TRICE-30B trajectories, the sandbox is used for empirical discovery (30.1%), algorithmic search (24.4%), conjecture verification (12.2%), and computation offloading (12.2%) — demonstrating that the tool functions as a cognitive partner, not just a calculator.</p>
+<p><strong>Cross-model transfer:</strong> Applying the recipe to GLM-4.7-Flash (a model already possessing native TIR ability) further improves performance, confirming the recipe provides orthogonal signal.</p>
+<p>---</p>
+<h2>Authors & Credibility</h2>
+<p>The paper is authored by researchers from Zhejiang University, Shanghai AI Laboratory, Peking University, The Chinese University of Hong Kong, Tsinghua University, University of Science and Technology of China, and Shanghai Jiao Tong University. The lead authors (Qianjia Cheng, Yuchen Zhang) share equal contribution, with Ganqu Cui and Yu Cheng as corresponding authors. Shanghai AI Laboratory has been a productive center for reasoning model research, having contributed to related work on process reinforcement and RL for reasoning. The paper is a preprint (arXiv 2025-05-07) with code and models promised but not yet released at time of reading. The breadth of ablations (6 explicit "Takeaway" propositions, each supported by controlled experiments) suggests thorough internal validation. Evaluation on 8 independent rollouts per question mitigates stochasticity, and all baselines are re-evaluated under a unified protocol where possible.</p>
+<p>---</p>
+<h2>Critical Assessment</h2>
+<p><strong>Novelty:</strong> The individual components (SFT on tool-use trajectories, mixed trajectories, on-policy RLVR) are each known in the literature. The contribution lies in the systematic combination, the diagnostic framework (form/substance/noise + pass@k checkpoint selection), and the specific failure-mode characterization (cross-mode collapse, delayed-code pattern). This is engineering-recipe science rather than algorithmic novelty — valuable, but should be read as such.</p>
+<p><strong>Rigor:</strong> Ablation design is careful, with consistent difficulty control across prompt configurations (Figure 8) to rule out confounding. The "train-inference mismatch" measurement (KL divergence between inference and training token probabilities) provides a principled explanation for the stage-3 collapse, not just an empirical observation. The 64 H100 compute scale for RL is significant but not unusual for this class of work.</p>
+<p><strong>Reproducibility:</strong> The paper promises models and datasets will be released, but neither is available at submission time. Hyperparameter tables (Tables 10–11) are complete. The RL framework (Slime) is open-source. The main reproducibility risk is the dependence on proprietary teacher models (GPT-OSS-120B) and the multi-stage data pipeline, which involves several judgment calls (difficulty filtering thresholds, trajectory mixing ratios).</p>
+<p><strong>Significance:</strong> The 14–15 percentage point average accuracy gains over base thinking models at 4B and 30B scales are large. The demonstration that a 30B TIR model beats a 235B text-only model is a concrete practical result. The cross-domain transfer (science, code) without domain-specific training is noteworthy.</p>
+<p><strong>Red flags:</strong></p>
+<ul>
+<li>Results depend heavily on a single closed teacher model (GPT-OSS-120B); community replication will need a comparable open alternative.</li>
+<li>The paper does not report compute cost relative to the gains, making it hard to judge efficiency for practitioners.</li>
+<li>APEX 2025 scores remain very low (13.9% / 16.7%), suggesting hard limits on extremely challenging olympiad problems persist.</li>
+<li>No evaluation on non-math reasoning tasks (e.g., coding benchmarks requiring multi-file context, scientific QA with retrieval) where the "correct tool use" hypothesis may not hold.</li>
+</ul>
+<p>---</p>
+<h2>Strengths</h2>
+<ul>
+<li>Six clearly articulated, experimentally grounded "Takeaway" principles that are individually actionable for practitioners building TIR systems.</li>
+<li>Concrete diagnosis of the delayed-code failure mode with a quantitative example (Table 1: Qwen3-30B-Thinking makes 0.00 tool calls per tool-enabled trajectory on BeyondAIME).</li>
+<li>The form/substance/noise SFT characterization provides a principled checkpoint selection criterion that replaces ad-hoc early stopping.</li>
+<li>Comprehensive benchmark coverage across five math competition datasets plus three out-of-domain transfer benchmarks.</li>
+<li>Cross-model transfer to GLM-4.7-Flash demonstrates the recipe is not model-family-specific.</li>
+<li>Honest reporting of failure modes: text-only degradation from TIR-only SFT, off-policy collapse in RL, and the persistence of low APEX scores.</li>
+</ul>
+<p>---</p>
+<h2>Limitations</h2>
+<ul>
+<li>Evaluation is confined to mathematical and closely adjacent scientific reasoning; it is unclear how the recipe translates to open-ended agentic tasks or multi-modal settings.</li>
+<li>The teacher model (GPT-OSS-120B) is not publicly accessible, limiting direct replication of the data generation pipeline.</li>
+<li>The RL stability findings (on-policy is necessary) are consistent with prior work but the precise boundary conditions (model scale, MoE vs. dense, task distribution) are not systematically characterized.</li>
+<li>"Tool-advantaged" filtering inherently biases the training distribution toward computationally structured problems; whether the trained model is more brittle on conceptual insight problems is not analyzed.</li>
+<li>No ablation on the specific impact of the rollout routing replay (R3) hyperparameters or sensitivity to the MoE router freeze decision.</li>
+<li>The paper measures accuracy only (pass@k); calibration, response diversity, and tool-call efficiency under strict latency budgets are not examined.</li>
+</ul>
+<p>---</p>
+<h2>Relevance</h2>
+<p>本文对研究大型语言模型推理增强（尤其是工具调用与代码执行集成）的方向高度相关，提供了从数据工程到强化学习的完整可复现流程，对从事思维模型微调或智能体推理系统开发的研究者具有直接参考价值。</p>
+<p>---</p>
+<h2>Questions for Further Exploration</h2>
+<ol>
+<li>The paper shows that tool-advantaged filtering selects computationally structured problems — does TRICE actually <em>regress</em> on pure conceptual reasoning tasks that are inherently text-best? A fine-grained breakdown by problem type would clarify this.</li>
+<li>The on-policy requirement creates a tight coupling between rollout generation and gradient updates. How does this scale as model size increases beyond 30B, and is there a principled way to relax it with importance sampling that avoids collapse?</li>
+<li>The code executor serves multiple roles (empirical discovery, algorithmic search, conjecture verification, computation offloading). Is there evidence that training could be improved by explicitly annotating and routing to these roles rather than treating all tool calls uniformly?</li>
+<li>How does the recipe perform when the teacher model is replaced with an open-source alternative (e.g., Qwen3-72B-Thinking generating its own trajectories)? The dependence on GPT-OSS-120B is the main replicability bottleneck.</li>
+<li>The APEX 2025 scores remain in the low teens even after TIR. What is the qualitative nature of these failures — missing mathematical knowledge, failure to decompose the problem, or tool-use breakdown — and what additional training signal would address them?</li>
+</ol>
+<p class="note">Generated from Markdown summary. Full paper: <a href="https://arxiv.org/abs/2605.06326">arXiv:2605.06326</a></p>
+</div>
+</body>
+</html>

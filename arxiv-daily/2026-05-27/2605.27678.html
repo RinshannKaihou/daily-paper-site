@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Heterogeneous Parallelism for Multimodal Large Language Model Training</title>
+<style>
+:root { --paper:#fafafa; --ink:#1a1a1a; --muted:#555; --accent:#1a5276; --line:#ddd; --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif; --serif:Georgia,"Noto Serif SC",serif; }
+body { font-family:var(--serif); background:var(--paper); color:var(--ink); line-height:1.6; margin:0; padding:0; }
+.container { max-width:min(95vw, 760px); margin:0 auto; padding:28px 20px 60px; }
+.topnav { position:fixed; top:12px; left:14px; z-index:50; font-family:var(--sans); font-size:.75rem; background:var(--paper); border:1px solid var(--line); padding:5px 10px; border-radius:999px; }
+.topnav a { color:var(--muted); text-decoration:none; font-weight:600; }
+.topnav a:hover { color:var(--accent); }
+h1 { font-size:1.6rem; margin:2.2rem 0 1rem; border-bottom:2px solid var(--accent); padding-bottom:.3rem; }
+h2 { font-size:1.3rem; margin:1.8rem 0 .8rem; color:var(--accent); }
+h3 { font-size:1.1rem; margin:1.4rem 0 .6rem; }
+p { margin:.8rem 0; }
+.authors { font-style:italic; color:var(--muted); margin-top:-.4rem; }
+.meta { font-family:var(--sans); font-size:.82rem; color:var(--muted); margin:.2rem 0; }
+a { color:var(--accent); text-decoration:none; }
+a:hover { text-decoration:underline; }
+blockquote { border-left:3px solid var(--accent); margin:1rem 0; padding:.2rem 0 .2rem 1rem; color:var(--muted); font-style:italic; }
+code { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; background:#f0f0f0; padding:2px 5px; border-radius:3px; font-size:.9em; }
+pre { background:#f5f5f5; padding:14px; overflow-x:auto; border-radius:4px; border:1px solid var(--line); }
+pre code { background:transparent; padding:0; }
+ul,ol { margin:.6rem 0; padding-left:1.5rem; }
+li { margin:.25rem 0; }
+table { border-collapse:collapse; width:100%; margin:1rem 0; font-family:var(--sans); font-size:.9rem; }
+th,td { border:1px solid var(--line); padding:6px 10px; text-align:left; }
+th { background:#f0f0f0; }
+hr { border:none; border-top:1px solid var(--line); margin:1.5rem 0; }
+.note { font-family:var(--sans); font-size:.78rem; color:var(--muted); border-top:1px solid var(--line); margin-top:2rem; padding-top:1rem; }
+@media (max-width: 600px) { .container { padding:22px 14px 40px; } h1 { font-size:1.35rem; } }
+</style>
+</head>
+<body>
+<div class="topnav"><a href="./index.html">← Today's digest</a></div>
+<div class="container">
+<h1>Heterogeneous Parallelism for Multimodal Large Language Model Training</h1>
+<p class="meta">arXiv: 2605.27678</p>
+<p class="meta">Date: 2026-05-27</p>
+<p class="meta"><a href="https://arxiv.org/abs/2605.27678">https://arxiv.org/abs/2605.27678</a></p>
+<blockquote><strong>一句话总结：</strong> 本文提出面向多模态大语言模型训练的异构并行抽象，允许不同模块在同一端到端图中使用独立的并行策略和rank布局（支持共享GPU的共置执行和独立rank集的非共置执行），通过边界通信器解决跨布局的前向/反向张量语义传递问题，在共置模式下TFLOPS/GPU提升高达49.3%，非共置模式下聚合token吞吐量提升高达13.0%，并作为Megatron-LM扩展开源发布。</blockquote>
+<blockquote><strong>TL;DR:</strong> This paper introduces heterogeneous parallelism for multimodal large language model (MLLM) training, an abstraction that allows modules within one end-to-end graph to use independent parallelism layouts and rank placements — supporting both colocated execution on shared GPUs and non-colocated execution on disjoint rank sets. The key challenge of preserving boundary tensor semantics across independent layouts is addressed via boundary communicators implementing forward and backward layout transforms. Across multimodal workloads and GPU scales, colocated heterogeneity improves TFLOPS/GPU by up to 49.3%, while non-colocated heterogeneity improves aggregate token throughput by up to 13.0% and TFLOPS/GPU by up to 9.6%, with validated loss convergence parity against homogeneous baselines. The system is released as an open-source Megatron-LM extension.</blockquote>
+<h2>核心贡献</h2>
+<ul>
+<li><strong>异构并行抽象：</strong> 提出一种新的并行抽象，允许多模态大模型训练中不同模块（如视觉编码器和LLM解码器）在同一端到端图中使用独立的并行策略（TP/CP/PP/DP/EP）和rank放置方案，支持共置（共享GPU）和非共置（独立rank集）两种执行模式。</li>
+<li><strong>边界通信器机制：</strong> 设计边界通信器（boundary communicators）来解决跨独立布局的前向激活值和反向梯度的语义传递问题。前向激活值需为目标布局物化，反向梯度需路由回源布局。</li>
+<li><strong>调度扩展：</strong> 为共置和非共置两种放置模式设计调度扩展，实现高效的异构执行。</li>
+<li><strong>显著的性能提升：</strong> 共置异构模式TFLOPS/GPU提升高达49.3%；非共置异构模式聚合token吞吐量提升高达13.0%，TFLOPS/GPU提升高达9.6%。验证了与同质基线的loss收敛一致性。</li>
+</ul>
+<h2>Key Contributions</h2>
+<ul>
+<li><strong>Heterogeneous Parallelism Abstraction:</strong> A novel parallelism abstraction that lets modules in one end-to-end MLLM training graph use independent parallelism layouts (TP/CP/PP/DP/EP) and rank placements, supporting both colocated execution on shared GPUs and non-colocated execution on disjoint rank sets. This decouples encoder and LLM parallelism strategies that are traditionally coupled in LLM-centric layouts.</li>
+<li><strong>Boundary Communicators:</strong> Introduces boundary communicators that implement forward and backward layout transforms to preserve tensor semantics across independent layouts. Forward activations are materialized for the destination layout, while backward gradients are routed back to the source layout — addressing the fundamental challenge of cross-layout gradient flow.</li>
+<li><strong>Scheduling Extensions:</strong> Provides scheduling extensions for both colocated and non-colocated placement modes, enabling flexible execution strategies without requiring architectural changes.</li>
+<li><strong>Strong Empirical Gains:</strong> Colocated heterogeneity improves TFLOPS/GPU by up to 49.3%. Non-colocated heterogeneity improves aggregate token throughput by up to 13.0% and TFLOPS/GPU by up to 9.6%. Loss convergence parity is validated against homogeneous baselines. The system is released as an open-source Megatron-LM extension.</li>
+</ul>
+<h2>Methodology</h2>
+<p><strong>Problem Formulation:</strong> As foundation model training becomes multimodal (from post-training to large-scale pretraining), the coupling of encoder and LLM in a single TP/CP/PP/DP/EP layout creates inefficiencies. Encoders are forced to inherit LLM-driven sharding and placement choices, which can add communication overhead, limit encoder parallelism, or constrain the LLM schedule. The mismatch is most pronounced at long contexts, where LLM context parallelism is needed for the fused multimodal sequence but encoder inputs remain bounded.</p>
+<p><strong>Heterogeneous Parallelism Design:</strong> The proposed abstraction allows each module (e.g., vision encoder, LLM decoder) to declare its own parallelism configuration independently. Modules can be:</p>
+<ul>
+<li><strong>Colocated:</strong> Executed on shared GPU ranks with the LLM, using different TP/PP/EP degrees.</li>
+<li><strong>Non-colocated:</strong> Executed on disjoint rank sets, enabling fully independent parallelism for encoders.</li>
+</ul>
+<p><strong>Boundary Communicators:</strong> The core technical innovation is a set of boundary communicators that handle:</p>
+<ol>
+<li><strong>Forward pass:</strong> Materializing activations from the source layout (e.g., encoder TP=2) into the destination layout (e.g., LLM TP=4), requiring layout-aware redistribution.</li>
+<li><strong>Backward pass:</strong> Routing gradients from the destination layout back to the source layout, ensuring correct gradient flow across layout boundaries.</li>
+</ol>
+<p><strong>Scheduling Extensions:</strong> For colocated execution, scheduling must account for asymmetric compute loads between colocated modules. For non-colocated execution, scheduling must coordinate between independent rank sets with potential communication bottlenecks.</p>
+<p><strong>Evaluation Setup:</strong> The system is evaluated across multimodal workloads (vision-language) at multiple GPU scales, comparing three configurations: (1) optimized homogeneous baseline, (2) colocated heterogeneous, and (3) non-colocated heterogeneous. The evaluation sweeps across workload characteristics and GPU scales to characterize when added layout and placement freedom exposes a better operating point.</p>
+<h2>Results & Highlights</h2>
+<p>| Configuration | TFLOPS/GPU Improvement | Aggregate Token Throughput Improvement |</p>
+<p>|---------------|----------------------|---------------------------------------|</p>
+<p>| Homogeneous (baseline) | — | — |</p>
+<p>| Colocated Heterogeneous | Up to <strong>49.3%</strong> | — |</p>
+<p>| Non-colocated Heterogeneous | Up to <strong>9.6%</strong> | Up to <strong>13.0%</strong> |</p>
+<ul>
+<li><strong>Colocated heterogeneity</strong> is most beneficial when encoder and LLM can share GPUs efficiently with different parallelism degrees, achieving up to 49.3% TFLOPS/GPU improvement.</li>
+<li><strong>Non-colocated heterogeneity</strong> excels when encoder and LLM benefit from fully independent rank sets, improving aggregate token throughput by up to 13.0%.</li>
+<li><strong>Loss convergence parity</strong> is validated against homogeneous baselines, confirming that heterogeneous parallelism does not compromise training quality.</li>
+<li><strong>Open-source release:</strong> The system is released as a Megatron-LM extension, enabling the community to adopt heterogeneous parallelism for MLLM training.</li>
+<li><strong>Characterization across scales:</strong> The evaluation sweeps across multimodal workloads and GPU scales, providing actionable guidance on when colocated vs. non-colocated heterogeneity is preferable.</li>
+</ul>
+<h2>Authors & Credibility</h2>
+<p>All authors are affiliated with <strong>Microsoft Research / Microsoft</strong>. The paper is published at a top venue (cs.DC, cs.LG categories). The team includes researchers with established track records in distributed systems and large-scale training (Megatron-LM ecosystem). The system is released as an open-source Megatron-LM extension, demonstrating engineering commitment. The work addresses a real and growing challenge in multimodal foundation model training as modality coverage broadens and context windows grow.</p>
+<h2>Critical Assessment</h2>
+<p><strong>Novelty:</strong> The paper addresses a genuine and increasingly important problem — the coupling of encoder and LLM parallelism in multimodal training. The heterogeneous parallelism abstraction with boundary communicators is a principled and practical solution. The idea of decoupling parallelism layouts across modules within one end-to-end graph is a meaningful extension of existing homogeneous parallelism frameworks.</p>
+<p><strong>Rigor:</strong> The evaluation is comprehensive, covering colocated and non-colocated configurations across multiple GPU scales and multimodal workloads. Loss convergence parity is explicitly validated, which is critical for adoption. The characterization of when each configuration is beneficial provides actionable guidance.</p>
+<p><strong>Reproducibility:</strong> The system is released as an open-source Megatron-LM extension, which is a strong reproducibility commitment. The paper provides detailed system descriptions and evaluation methodology.</p>
+<p><strong>Significance:</strong> The up to 49.3% TFLOPS/GPU improvement for colocated heterogeneity and 13.0% aggregate token throughput for non-colocated heterogeneity are substantial for large-scale training where even small percentage gains translate to significant cost savings. The work is directly applicable to the growing field of multimodal foundation model training.</p>
+<p><strong>Red flags:</strong></p>
+<ul>
+<li>The paper is from a large industry lab (Microsoft), and the system is built on Megatron-LM (also from Microsoft). While open-sourced, the tight coupling to a specific framework may limit broader adoption.</li>
+<li>The evaluation focuses on specific multimodal workloads; generalization to other modality combinations (e.g., audio, video) is not explicitly demonstrated.</li>
+<li>The boundary communicator overhead is not deeply analyzed in isolation; it is unclear how much overhead is introduced at very large scales or with many heterogeneous modules.</li>
+<li>The comparison is primarily against homogeneous baselines; comparison with other heterogeneous or custom parallelism approaches (e.g., pipeline-specific optimizations) would strengthen the paper.</li>
+</ul>
+<h2>Strengths</h2>
+<ul>
+<li>Addresses a real and growing challenge in multimodal foundation model training with a principled abstraction.</li>
+<li>Boundary communicators provide a clean solution to the cross-layout gradient flow problem.</li>
+<li>Strong empirical gains (up to 49.3% TFLOPS/GPU) with validated loss convergence parity.</li>
+<li>Comprehensive evaluation across colocated and non-colocated configurations at multiple GPU scales.</li>
+<li>Open-source release as a Megatron-LM extension demonstrates engineering commitment.</li>
+<li>Actionable characterization of when each configuration is beneficial.</li>
+</ul>
+<h2>Limitations</h2>
+<ul>
+<li><strong>Framework coupling:</strong> The system is built on Megatron-LM, which may limit adoption for users of other frameworks (e.g., DeepSpeed, FSDP).</li>
+<li><strong>Modality scope:</strong> The evaluation focuses on vision-language multimodal training; generalization to other modality combinations (audio, video, multi-image) is not explicitly validated.</li>
+<li><strong>Boundary overhead:</strong> The overhead of boundary communicators is not deeply analyzed in isolation; at very large scales or with many heterogeneous modules, the communication cost may become significant.</li>
+<li><strong>Comparison gaps:</strong> The paper primarily compares against homogeneous baselines; comparison with other heterogeneous parallelism approaches or custom pipeline optimizations would strengthen the evaluation.</li>
+<li><strong>Scale of evaluation:</strong> While multiple GPU scales are tested, the absolute scale (number of GPUs) and model sizes are not fully detailed in the abstract; very large-scale validation (e.g., 1000+ GPUs) would be valuable.</li>
+</ul>
+<h2>Relevance</h2>
+<p>本文与多模态大语言模型的分布式训练高度相关，特别是随着模态覆盖范围扩大和上下文窗口增长，传统的同质并行布局面临的效率瓶颈。异构并行抽象和边界通信器为大规模多模态训练提供了实用的系统级解决方案，对正在扩展模态和规模的MLLM训练项目具有直接参考价值。开源的Megatron-LM扩展降低了采用门槛。</p>
+<h2>Questions for Further Exploration</h2>
+<ul>
+<li>How does heterogeneous parallelism scale to very large GPU counts (e.g., 1000+ GPUs) and very large models (e.g., 100B+ parameters)?</li>
+<li>Can the heterogeneous parallelism abstraction be extended to other modality combinations (audio, video, multi-image) beyond vision-language?</li>
+<li>How does the boundary communicator overhead scale with the number of heterogeneous modules and layout complexity?</li>
+<li>How does the system compare with other distributed training frameworks (DeepSpeed, FSDP) for multimodal training?</li>
+<li>What is the optimal strategy for automatically selecting colocated vs. non-colocated heterogeneity based on workload characteristics?</li>
+<li>Can the boundary communicator approach be generalized to cross-framework parallelism (e.g., combining different parallelism libraries)?</li>
+</ul>
+<p class="note">Generated from Markdown summary. Full paper: <a href="https://arxiv.org/abs/2605.27678">arXiv:2605.27678</a></p>
+</div>
+</body>
+</html>

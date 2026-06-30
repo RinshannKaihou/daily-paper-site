@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>When Data Is Scarce: Scaling Sparse Language Models with Repeated Training</title>
+<style>
+:root { --paper:#fafafa; --ink:#1a1a1a; --muted:#555; --accent:#1a5276; --line:#ddd; --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif; --serif:Georgia,"Noto Serif SC",serif; }
+body { font-family:var(--serif); background:var(--paper); color:var(--ink); line-height:1.6; margin:0; padding:0; }
+.container { max-width:min(95vw, 760px); margin:0 auto; padding:28px 20px 60px; }
+.topnav { position:fixed; top:12px; left:14px; z-index:50; font-family:var(--sans); font-size:.75rem; background:var(--paper); border:1px solid var(--line); padding:5px 10px; border-radius:999px; }
+.topnav a { color:var(--muted); text-decoration:none; font-weight:600; }
+.topnav a:hover { color:var(--accent); }
+h1 { font-size:1.6rem; margin:2.2rem 0 1rem; border-bottom:2px solid var(--accent); padding-bottom:.3rem; }
+h2 { font-size:1.3rem; margin:1.8rem 0 .8rem; color:var(--accent); }
+h3 { font-size:1.1rem; margin:1.4rem 0 .6rem; }
+p { margin:.8rem 0; }
+.authors { font-style:italic; color:var(--muted); margin-top:-.4rem; }
+.meta { font-family:var(--sans); font-size:.82rem; color:var(--muted); margin:.2rem 0; }
+a { color:var(--accent); text-decoration:none; }
+a:hover { text-decoration:underline; }
+blockquote { border-left:3px solid var(--accent); margin:1rem 0; padding:.2rem 0 .2rem 1rem; color:var(--muted); font-style:italic; }
+code { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; background:#f0f0f0; padding:2px 5px; border-radius:3px; font-size:.9em; }
+pre { background:#f5f5f5; padding:14px; overflow-x:auto; border-radius:4px; border:1px solid var(--line); }
+pre code { background:transparent; padding:0; }
+ul,ol { margin:.6rem 0; padding-left:1.5rem; }
+li { margin:.25rem 0; }
+table { border-collapse:collapse; width:100%; margin:1rem 0; font-family:var(--sans); font-size:.9rem; }
+th,td { border:1px solid var(--line); padding:6px 10px; text-align:left; }
+th { background:#f0f0f0; }
+hr { border:none; border-top:1px solid var(--line); margin:1.5rem 0; }
+.note { font-family:var(--sans); font-size:.78rem; color:var(--muted); border-top:1px solid var(--line); margin-top:2rem; padding-top:1rem; }
+@media (max-width: 600px) { .container { padding:22px 14px 40px; } h1 { font-size:1.35rem; } }
+</style>
+</head>
+<body>
+<div class="topnav"><a href="./index.html">← Today's digest</a></div>
+<div class="container">
+<h1>When Data Is Scarce: Scaling Sparse Language Models with Repeated Training</h1>
+<p class="meta">arXiv: 2606.01155</p>
+<p class="meta">Date: 2026-06-02</p>
+<p class="meta"><a href="https://arxiv.org/abs/2606.01155">https://arxiv.org/abs/2606.01155</a></p>
+<blockquote><strong>一句话总结：</strong> 本文首次系统研究了数据受限场景下动态稀疏训练（DST）的扩展规律，发现适度稀疏（~50%）能显著延缓数据重复带来的饱和效应，使多轮训练更高效，并在匹配稠密模型精度的同时使用约8–10倍更少的训练计算量。</blockquote>
+<blockquote><strong>TL;DR:</strong> This paper presents the first systematic study of Dynamic Sparse Training (DST) under data-constrained regimes, introducing a sparsity-aware scaling law that jointly models active parameters, unique tokens, data repetition, and sparsity. It finds that moderate sparsity (~50%) delays data saturation, shifts optimal compute allocation toward longer training rather than larger models, and enables matching dense-model accuracy with approximately 8–10× fewer training FLOPs.</blockquote>
+<h2>核心贡献</h2>
+<ul>
+<li><strong>提出首个数据受限场景下的稀疏扩展定律</strong>：将动态稀疏训练（DST）与数据重复结合，建立了同时建模活跃参数量、唯一令牌数、数据重复次数和稀疏度的统一扩展定律，拟合 R² = 0.982，验证 R² = 0.914。</li>
+<li><strong>发现稀疏训练延缓数据饱和</strong>：稀疏度提高了数据饱和尺度 Rd*，从稠密模型的 4.4 提升至 50% 稀疏时的约 6.9，意味着重复数据对稀疏模型仍保持更长时间的价值。</li>
+<li><strong>揭示了最优稀疏度与资源权衡</strong>：在固定数据预算下，损失最优稀疏度适中（~45–50%），而计算最优稀疏度更高且随数据规模增长（~60–75%）。</li>
+<li><strong>证明了稀疏训练可大幅降低计算成本</strong>：在计算最优稀疏度下，稀疏模型能以约 8–10 倍更少的训练 FLOPs 达到与稠密模型相当的精度。</li>
+<li><strong>实验规模覆盖广</strong>：在 LLaMA-2 架构、C4 数据集上进行了 500 组训练实验，涵盖最多 1.92B 稠密等效参数、93.75% 稀疏度、2.6B 唯一令牌和 41.6B 总训练令牌，并在最多 7.68B 参数的 held-out 模型上验证了外推能力。</li>
+</ul>
+<h2>Key Contributions</h2>
+<ul>
+<li><strong>First sparse data-constrained scaling law:</strong> Introduces a unified scaling law for Dynamic Sparse Training (DST) that jointly models active parameters, unique tokens, data repetition, and sparsity, achieving fitted R² = 0.982 and validation R² = 0.914.</li>
+<li><strong>Sparsity delays data saturation:</strong> The data saturation scale Rd* increases from 4.4 for dense models to ~6.9 at 50% sparsity, meaning repeated data remains useful longer for sparse models.</li>
+<li><strong>Optimal sparsity and resource trade-offs:</strong> Loss-optimal sparsity is moderate (~45–50%), while compute-optimal sparsity is higher and grows with data scale (~60–75%).</li>
+<li><strong>Sparse training dramatically reduces compute costs:</strong> At compute-optimal sparsity, sparse models match dense-model accuracy while using roughly 8–10× fewer training FLOPs.</li>
+<li><strong>Extensive experimental coverage:</strong> 500 training runs on LLaMA-2 architectures with the C4 dataset, spanning up to 1.92B dense-equivalent parameters, 93.75% sparsity, 2.6B unique tokens, and 41.6B total training tokens, with extrapolation validated on held-out models up to 7.68B parameters.</li>
+</ul>
+<h2>Methodology</h2>
+<p>The authors conduct a large-scale empirical study of Dynamic Sparse Training (DST) under data-constrained conditions. They train LLaMA-2 style decoder-only Transformer models on the C4 dataset across a comprehensive grid of configurations.</p>
+<p><strong>Experimental sweep:</strong></p>
+<ul>
+<li><strong>Model sizes (active non-zero parameters N):</strong> 15M, 30M, 60M, 120M, 240M, 480M, 960M</li>
+<li><strong>Sparsity levels (S):</strong> 0% (dense), 50%, 75%, 87.5%, 93.75%</li>
+<li><strong>Unique data budgets (Ud):</strong> 520M, 1.3B, 2.6B tokens</li>
+<li><strong>Training epochs:</strong> 1, 2, 4, 8, 16 (total training tokens up to 41.6B)</li>
+<li><strong>Dense-equivalent model sizes:</strong> up to 1.92B parameters in the fitting set; held-out validation on models up to 7.68B parameters</li>
+</ul>
+<p><strong>Training details:</strong></p>
+<ul>
+<li>Batch size 512, Adam optimizer, bfloat16 precision</li>
+<li>Learning rates scaled according to the µP (maximal update parameterization) rule (Yang et al., 2021)</li>
+<li>Linear warm-up over the first 1% of training tokens</li>
+<li>Sparsity held constant throughout training</li>
+<li>DST masks updated via magnitude pruning followed by random regrowth (Mocanu et al., 2018), with layer-wise uniform sparsity allocation (first and last layers kept dense)</li>
+</ul>
+<p><strong>Scaling law formulation:</strong></p>
+<p>The proposed sparse data-constrained scaling law extends the Chinchilla formulation and Muennighoff et al.'s data-constrained law:</p>
+<p>$$L(N', D', S) = \frac{A \big((1-S)^\epsilon + P S^\mu\big)}{(N')^\alpha} + \frac{B}{(D')^\beta} + E$$</p>
+<p>where effective parameters and effective data are:</p>
+<ul>
+<li>$N' = U_n + U_n R_n^<em>(S)(1 - e^{-R_n/R_n^</em>(S)})$</li>
+<li>$D' = U_d + U_d R_d^<em>(S)(1 - e^{-R_d/R_d^</em>(S)})$</li>
+</ul>
+<p>with sparsity-dependent saturation thresholds:</p>
+<ul>
+<li>$R_d^<em>(S) = R_d^</em> (1 + \lambda_1 S + \sigma_1 S^2)$</li>
+<li>$R_n^<em>(S) = R_n^</em> (1 + \lambda_2 S + \sigma_2 S^2)$</li>
+</ul>
+<p>Coefficients are fitted via L-BFGS. The fitted values include $A=189$, $B=447$, $E=2.35$, $\alpha=\beta=0.327$, $P=-0.273$, $\mu=0.847$, $R_d^<em>=4.4$, $R_n^</em>=11.1$, $\lambda_1=1.82$, $\sigma_1=-1.37$, $\lambda_2=1.9$, $\sigma_2=-2.8$.</p>
+<h2>Results & Highlights</h2>
+<ol>
+<li><strong>Accurate scaling law prediction:</strong> The fitted model achieves $R^2 = 0.982$ on training data and $R^2 = 0.914$ on held-out validation configurations, demonstrating strong generalization to unseen model sizes and sparsity levels.</li>
+</ol>
+<ol>
+<li><strong>Sparsity–capacity trade-off (Figure 1):</strong> For a fixed non-zero parameter budget, increasing sparsity initially improves validation loss, but gains saturate or slightly reverse at extreme sparsity due to a capacity–data mismatch. This U-shaped dependence is captured by the $(1-S)^\epsilon + P S^\mu$ term.</li>
+</ol>
+<ol>
+<li><strong>Delayed data saturation (Figure 2):</strong> Sparse models show a smaller performance gap between repeated and unique data compared to dense models. The gap narrows most at moderate sparsity (~50%), indicating that sparse training redistributes parameter updates across a larger pool of weights, slowing the diminishing returns from data reuse.</li>
+</ol>
+<ol>
+<li><strong>Shift in optimal resource allocation (Figure 4):</strong> Under a fixed 1.3B unique-token budget, dense models favor allocating compute to larger model sizes (e.g., ~2B parameters, 8 epochs). In contrast, 50% sparse models favor longer training (~1B parameters, ~12 epochs), yielding a ~3× smaller parameter-to-token ratio ($N/D \approx 0.064$ vs. $0.19$) and improved inference efficiency.</li>
+</ol>
+<ol>
+<li><strong>Loss-optimal vs. compute-optimal sparsity (Figure 6):</strong></li>
+</ol>
+<ul>
+<li><strong>Loss-optimal sparsity</strong> remains stable around $S \approx 0.45$–$0.5$ across data scales.</li>
+<li><strong>Compute-optimal sparsity</strong> increases with data scale: $S \approx 0.6$ at $U_d = 1.3$B, rising to $S \approx 0.7$ at $U_d = 13$B and $130$B.</li>
+<li>At $U_d = 1.3$B, the compute-optimal sparse model uses ~0.68B parameters vs. ~2.6B for the dense optimum (~8× compute reduction). At $U_d = 13$B, it uses ~6.92B vs. ~27.06B.</li>
+</ul>
+<ol>
+<li><strong>Parameter efficiency at scale:</strong> As data scale increases, compute-optimal sparse models become increasingly parameter-efficient relative to dense counterparts, with the gap widening from ~4× to >10× fewer non-zero parameters needed to match dense-level performance.</li>
+</ol>
+<h2>Authors & Credibility</h2>
+<ul>
+<li><strong>Boqian Wu</strong> (University of Luxembourg, <em>co-first author</em>)</li>
+<li><strong>Qiao Xiao</strong> (Eindhoven University of Technology, <em>co-first author</em>)</li>
+<li><strong>Patrik Okanovic</strong> (ETH Zürich)</li>
+<li><strong>Tomasz Sternal</strong> (ETH Zürich)</li>
+<li><strong>Maurice van Keulen</strong> (University of Twente)</li>
+<li><strong>Mykola Pechenizkiy</strong> (Eindhoven University of Technology)</li>
+<li><strong>Elena Mocanu</strong> (University of Twente)</li>
+<li><strong>Torsten Hoefler</strong> (ETH Zürich)</li>
+<li><strong>Decebal Constantin Mocanu</strong> (University of Luxembourg)</li>
+</ul>
+<p><strong>Credibility assessment:</strong> The paper is accepted at ICML 2026 (PMLR 306), a top-tier ML conference. The research group has a strong track record in sparse neural networks (Mocanu et al., 2018 Nature Communications; Wu et al., 2025 ICLR; Xiao et al., 2022/2025 NeurIPS/arXiv). The experimental design is rigorous: 500 training runs, systematic sweeps, held-out validation for extrapolation, and careful fitting methodology. The code is publicly available at https://github.com/boqian333/sparse-dc-scaling.</p>
+<h2>Critical Assessment</h2>
+<ul>
+<li><strong>Novelty:</strong> High. This is the first work to systematically study DST scaling under data constraints, bridging two previously orthogonal lines of research (sparse scaling laws and data-constrained scaling laws). The joint formulation is a meaningful theoretical contribution.</li>
+<li><strong>Rigor:</strong> Strong. The extensive experimental grid, held-out validation, high $R^2$ values, and detailed ablations support the claims. The authors are careful to distinguish between sparse FLOPs (idealized) and dense FLOPs (practical).</li>
+<li><strong>Reproducibility:</strong> Good. The C4 dataset is public, the LLaMA-2 architecture is public, and the code is released. However, reproducing 500 training runs requires substantial compute resources.</li>
+<li><strong>Significance:</strong> High for the LLM training community. As high-quality training data becomes scarce, understanding how to maximize utility from limited data is increasingly important. The practical guidance on optimal sparsity levels is valuable.</li>
+<li><strong>Red flags / limitations:</strong></li>
+<li>The DST implementation uses magnitude pruning + random regrowth, which is relatively simple. More sophisticated DST methods (e.g., SET, RigL) might yield different absolute performance, though the qualitative trends likely hold.</li>
+<li>The experiments use the C4 dataset; results may vary on higher-quality or domain-specific corpora.</li>
+<li>The practical speedups depend on hardware support for sparse operations, which remains limited on current accelerators. The dense FLOPs analysis acknowledges this gap.</li>
+<li>The held-out validation goes up to 7.68B parameters, which is still smaller than frontier models (100B+), leaving some uncertainty about extreme-scale extrapolation.</li>
+</ul>
+<h2>Strengths</h2>
+<ul>
+<li><strong>Comprehensive empirical coverage:</strong> 500 runs across model sizes, sparsity levels, data budgets, and epochs provide strong evidence.</li>
+<li><strong>Strong predictive power:</strong> Validation $R^2 = 0.914$ on held-out configurations inspires confidence in the scaling law.</li>
+<li><strong>Practical actionable insights:</strong> Clear guidance that loss-optimal sparsity is ~50%, while compute-optimal sparsity grows with data scale.</li>
+<li><strong>Well-motivated problem:</strong> Addresses a timely and important challenge (data scarcity) with a principled approach.</li>
+<li><strong>Clear conceptual framework:</strong> The distinction between sparse FLOPs and dense FLOPs helps disentangle algorithmic benefits from system-level practicalities.</li>
+<li><strong>Good exposition:</strong> The paper clearly positions itself within prior work and explains the non-trivial interaction between sparsity and data reuse.</li>
+</ul>
+<h2>Limitations</h2>
+<ul>
+<li><strong>Dataset scope:</strong> All experiments use C4. It is unclear whether the same sparsity–data interaction holds on higher-quality pre-training data (e.g., curated web corpora, code-data mixtures).</li>
+<li><strong>DST algorithm choice:</strong> The relatively simple magnitude-pruning + random-regrowth approach may underrepresent the potential of more advanced DST methods.</li>
+<li><strong>Hardware gap:</strong> Ideal sparse FLOPs counts assume perfect sparse hardware acceleration. Real-world speedups may be smaller until sparse kernels mature on mainstream accelerators.</li>
+<li><strong>Extrapolation scale:</strong> Validation up to 7.68B parameters is substantial but still below current frontier LLM scales (tens to hundreds of billions), introducing some uncertainty about very large model behavior.</li>
+<li><strong>No downstream evaluation:</strong> The paper focuses on validation loss. It does not report downstream task performance or emergent capabilities, which are ultimately what matter for practical deployment.</li>
+</ul>
+<h2>Relevance</h2>
+<p>本文对于关注大模型训练效率和数据稀缺问题的研究者极具参考价值，特别是在高质量预训练数据日益枯竭的背景下，动态稀疏训练提供了一条在有限数据下提升模型性能并降低计算成本的可行路径。其关于最优稀疏度和计算分配的定量结论可直接指导实际训练策略的制定。</p>
+<h2>Questions for Further Exploration</h2>
+<ol>
+<li>How do the scaling trends change when using higher-quality pre-training datasets (e.g., curated web corpora, synthetic data, or code-heavy mixtures) instead of C4?</li>
+<li>Would more advanced DST algorithms (e.g., RigL, SET with gradient-based regrowth) shift the optimal sparsity levels or improve the absolute efficiency gains?</li>
+<li>How well do these scaling laws extrapolate to model sizes beyond 10B parameters, and do qualitative changes emerge at very large scales?</li>
+<li>What is the impact of sparse pre-training on downstream task performance and emergent capabilities, rather than just validation loss?</li>
+<li>Can the proposed sparse scaling law be extended to other forms of sparsity, such as Mixture-of-Experts (MoE) or structured pruning patterns?</li>
+<li>How does sparse training interact with other data-efficiency techniques, such as stronger regularization, data augmentation, or self-improvement / synthetic data generation?</li>
+<li>What system-level optimizations are needed to realize the theoretical 8–10× FLOP reductions in wall-clock time on current GPU/TPU hardware?</li>
+</ol>
+<p class="note">Generated from Markdown summary. Full paper: <a href="https://arxiv.org/abs/2606.01155">arXiv:2606.01155</a></p>
+</div>
+</body>
+</html>

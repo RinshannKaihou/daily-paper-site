@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Rescaling MLM-Head for Neural Sparse Retrieval — 2606.18811</title>
+<style>
+  :root {
+    --accent: #4338ca;
+    --accent-soft: #eef2ff;
+    --ink: #0f172a;
+    --muted: #475569;
+    --faint: #64748b;
+    --line: #e2e8f0;
+    --bg: #f8fafc;
+    --card: #ffffff;
+    --good: #15803d;
+    --bad: #b91c1c;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    font-size: 16px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap {
+    width: min(95vw, 1100px);
+    margin: 0 auto;
+    padding: 28px 0 64px;
+  }
+
+  /* top nav */
+  .topbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 4px 2px 18px;
+  }
+  .topbar a {
+    color: var(--faint);
+    text-decoration: none;
+    font-size: 0.9rem;
+    font-weight: 500;
+    border: 1px solid var(--line);
+    background: var(--card);
+    padding: 7px 13px;
+    border-radius: 8px;
+    transition: color .15s, border-color .15s;
+  }
+  .topbar a:hover { color: var(--accent); border-color: var(--accent); }
+
+  /* hero */
+  .hero {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-left: 5px solid var(--accent);
+    border-radius: 12px;
+    padding: 34px 38px 30px;
+  }
+  .hero .kicker {
+    font-size: 0.72rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    font-weight: 700;
+    color: var(--accent);
+    margin: 0 0 14px;
+  }
+  .hero .finding {
+    font-size: clamp(1.55rem, 3.4vw, 2.5rem);
+    line-height: 1.18;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    margin: 0 0 22px;
+    color: var(--ink);
+  }
+  .hero .finding code {
+    font-family: var(--mono);
+    background: var(--accent-soft);
+    color: var(--accent);
+    padding: 1px 8px;
+    border-radius: 6px;
+    font-size: 0.82em;
+    font-weight: 700;
+    white-space: nowrap;
+  }
+  .hero h1 {
+    font-size: clamp(1.15rem, 2.2vw, 1.5rem);
+    margin: 0 0 10px;
+    line-height: 1.3;
+    font-weight: 700;
+  }
+  .hero h1 a {
+    color: var(--ink);
+    text-decoration: none;
+    border-bottom: 2px solid var(--accent);
+    transition: color .15s;
+  }
+  .hero h1 a:hover { color: var(--accent); }
+  .hero .authors {
+    color: var(--muted);
+    font-size: 0.95rem;
+    margin: 0 0 16px;
+  }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; }
+  .chip {
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: var(--muted);
+    background: var(--bg);
+    border: 1px solid var(--line);
+    padding: 4px 11px;
+    border-radius: 999px;
+  }
+
+  /* asset row */
+  .assets {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+    margin-top: 20px;
+  }
+  .asset {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 24px 22px 22px;
+    display: flex;
+    flex-direction: column;
+  }
+  .asset .label {
+    font-size: 0.7rem;
+    letter-spacing: 0.13em;
+    text-transform: uppercase;
+    font-weight: 700;
+    color: var(--accent);
+    margin-bottom: 12px;
+  }
+  .asset.metric .value {
+    font-size: 3.6rem;
+    font-weight: 800;
+    line-height: 1;
+    color: var(--ink);
+    letter-spacing: -0.03em;
+    margin-bottom: 8px;
+  }
+  .asset.metric .value sub {
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: var(--good);
+    vertical-align: super;
+    margin-left: 4px;
+  }
+  .asset p {
+    margin: 0;
+    color: var(--muted);
+    font-size: 0.92rem;
+    line-height: 1.55;
+  }
+  .asset.edge { border-top: 3px solid var(--bad); }
+  .asset.edge p strong { color: var(--bad); }
+
+  /* body grid */
+  .body {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin-top: 16px;
+  }
+  .panel {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 24px 26px;
+  }
+  .panel.full { grid-column: 1 / -1; }
+  .panel h2 {
+    font-size: 1.05rem;
+    margin: 0 0 14px;
+    padding-bottom: 9px;
+    border-bottom: 2px solid var(--accent-soft);
+    color: var(--ink);
+  }
+  .panel h2 .tag {
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    color: var(--accent);
+    text-transform: uppercase;
+    margin-left: 8px;
+    vertical-align: middle;
+  }
+  .panel ul { margin: 0; padding-left: 1.1rem; }
+  .panel li { margin-bottom: 8px; font-size: 0.92rem; color: var(--muted); }
+  .panel li strong { color: var(--ink); }
+  .panel li code {
+    font-family: var(--mono);
+    font-size: 0.85em;
+    background: var(--accent-soft);
+    color: var(--accent);
+    padding: 1px 5px;
+    border-radius: 4px;
+  }
+
+  /* results table */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.88rem;
+  }
+  thead th {
+    text-align: left;
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--faint);
+    font-weight: 700;
+    padding: 9px 10px;
+    border-bottom: 2px solid var(--line);
+    white-space: nowrap;
+  }
+  thead th.num { text-align: right; }
+  tbody td {
+    padding: 9px 10px;
+    border-bottom: 1px solid var(--line);
+    color: var(--muted);
+  }
+  tbody td.num { text-align: right; font-variant-numeric: tabular-nums; font-family: var(--mono); color: var(--ink); }
+  tbody tr.collapse td { color: var(--bad); opacity: 0.75; }
+  tbody tr.win td { color: var(--good); font-weight: 600; }
+  tbody tr.base td { color: var(--ink); font-weight: 600; }
+  .mono { font-family: var(--mono); font-size: 0.8rem; color: var(--faint); }
+  .note {
+    font-size: 0.82rem;
+    color: var(--faint);
+    margin-top: 12px;
+    font-style: italic;
+  }
+
+  /* split panel */
+  .split {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0;
+  }
+  .split .half { padding: 0 18px; }
+  .split .half:first-child { padding-left: 0; border-right: 1px solid var(--line); }
+  .split .half:last-child { padding-right: 0; }
+  .split h3 {
+    font-size: 0.85rem;
+    margin: 0 0 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+  .split .pro h3 { color: var(--good); }
+  .split .con h3 { color: var(--bad); }
+
+  /* footer */
+  .foot {
+    margin-top: 26px;
+    padding: 14px 2px 0;
+    border-top: 1px solid var(--line);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 0.85rem;
+    color: var(--faint);
+  }
+  .foot a {
+    color: var(--accent);
+    text-decoration: none;
+    font-weight: 600;
+  }
+  .foot a:hover { text-decoration: underline; }
+
+  /* responsive */
+  @media (max-width: 720px) {
+    .assets { grid-template-columns: 1fr; }
+    .body { grid-template-columns: 1fr; }
+    .panel.full { grid-column: auto; }
+    .split { grid-template-columns: 1fr; }
+    .split .half:first-child { border-right: none; border-bottom: 1px solid var(--line); padding-bottom: 18px; margin-bottom: 18px; }
+    .split .half { padding: 0; }
+    .hero { padding: 26px 22px; }
+    .panel { padding: 20px 18px; }
+    thead th, tbody td { padding: 8px 6px; }
+    table { font-size: 0.82rem; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="topbar">
+    <a href="./index.html">↩ Today's digest</a>
+    <a href="https://arxiv.org/abs/2606.18811" target="_blank" rel="noopener">arXiv 2606.18811 ↗</a>
+  </div>
+
+  <!-- HERO -->
+  <section class="hero">
+    <p class="kicker">Key Finding</p>
+    <p class="finding">A one-line init-time rescale <code>W_head ← W_head / k</code> cures SPLADE training collapse on modern encoders — no architecture, loss, or inference change.</p>
+    <h1><a href="https://arxiv.org/abs/2606.18811" target="_blank" rel="noopener">Rescaling MLM-Head for Neural Sparse Retrieval</a></h1>
+    <p class="authors">Youngjoon Jang · Seongtae Hong · Jonah Turner · Heuiseok Lim (Korea University)</p>
+    <div class="chips">
+      <span class="chip">learned-sparse-retrieval</span>
+      <span class="chip">SPLADE</span>
+      <span class="chip">MLM-head-rescaling</span>
+      <span class="chip">training-stability</span>
+      <span class="chip">modern-encoders</span>
+      <span class="chip">2026-06-17</span>
+    </div>
+  </section>
+
+  <!-- ASSET ROW -->
+  <section class="assets">
+    <div class="asset metric">
+      <div class="label">Key Metric</div>
+      <div class="value">+215<sub>%</sub></div>
+      <p>ModernBERT BEIR-13 nDCG@10 relative gain after rescaling (0.127 → 0.400 at k=16). Ettin follows at +77%.</p>
+    </div>
+    <div class="asset">
+      <div class="label">Why This Matters</div>
+      <p>Stronger encoders were <strong>actively hurting</strong> SPLADE retrieval. A free init-time rescale unlocks them, reframing the bottleneck as MLM-head scale calibration — not encoder capacity.</p>
+    </div>
+    <div class="asset edge">
+      <div class="label">Critical Edge</div>
+      <p>Optimal <strong>k is per-backbone with no principled rule</strong>, and excessive down-scaling <strong>catastrophically collapses</strong> training (RoBERTa k=16 → 0.004 BEIR-13).</p>
+    </div>
+  </section>
+
+  <!-- BODY GRID -->
+  <section class="body">
+
+    <!-- Methodology -->
+    <div class="panel">
+      <h2>Methodology <span class="tag">diagnosis → fix</span></h2>
+      <ul>
+        <li><strong>Setting:</strong> SPLADE-style sparse retrieval on MS MARCO triplets; in-batch contrastive ranking loss + FLOPS regularization.</li>
+        <li><strong>Scale-coupling mechanism:</strong> sparse vector <code>v = max_i log(1+ReLU(H·W_headᵀ))</code>, matched by an <strong>un-normalized</strong> dot product — so <code>‖W_head‖</code> directly scales activations, scores, and gradients.</li>
+        <li><strong>Failure correlates with norm, not anisotropy:</strong> small-norm backbones (<code>‖W‖&lt;2</code>: BERT, DistilBERT, ALBERT, GTE-MLM) train stably; large-norm (<code>‖W‖&gt;2</code>: RoBERTa, ModernBERT, Ettin) collapse.</li>
+        <li><strong>Fix:</strong> <code>W_head ← W_head / k</code> once at init (tied weights handled so sharing is preserved). Zero new parameters.</li>
+        <li><strong>Training:</strong> AdamW, LR 1e-4, 1 epoch, batch 64×8 on RTX A6000, bf16, max seq 256.</li>
+      </ul>
+    </div>
+
+    <!-- Results table -->
+    <div class="panel">
+      <h2>Results <span class="tag">Table 2</span></h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Backbone</th>
+            <th class="num">MS MARCO<br>MRR@10</th>
+            <th class="num">TREC-DL'19<br>nDCG@10</th>
+            <th class="num">BEIR-13<br>nDCG@10</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr class="base"><td>BERT <span class="mono">k=1</span></td><td class="num">.254</td><td class="num">.594</td><td class="num">.370</td></tr>
+          <tr class="win"><td>GTE-MLM <span class="mono">k=1</span></td><td class="num">.273</td><td class="num">.635</td><td class="num">.403</td></tr>
+          <tr><td>RoBERTa <span class="mono">k=2</span></td><td class="num">.226</td><td class="num">.590</td><td class="num">.386</td></tr>
+          <tr class="collapse"><td>RoBERTa <span class="mono">k=16</span></td><td class="num">.000</td><td class="num">.000</td><td class="num">.004</td></tr>
+          <tr><td>ModernBERT <span class="mono">k=1</span></td><td class="num">.045</td><td class="num">.266</td><td class="num">.127</td></tr>
+          <tr class="win"><td>ModernBERT <span class="mono">k=16</span></td><td class="num">.250</td><td class="num">.609</td><td class="num">.400</td></tr>
+          <tr><td>Ettin <span class="mono">k=1</span></td><td class="num">.099</td><td class="num">.354</td><td class="num">.221</td></tr>
+          <tr class="win"><td>Ettin <span class="mono">k=16</span></td><td class="num">.238</td><td class="num">.587</td><td class="num">.391</td></tr>
+        </tbody>
+      </table>
+      <p class="note">Rescaled ModernBERT/Ettin match or surpass the classic BERT-SPLADE baseline on most metrics.</p>
+    </div>
+
+    <!-- Strengths / Limitations split -->
+    <div class="panel full">
+      <h2>Strengths vs. Limitations</h2>
+      <div class="split">
+        <div class="half pro">
+          <h3>✓ Strengths</h3>
+          <ul>
+            <li><strong>Clean diagnosis:</strong> ties an abstract symptom (unstable training) to a testable mechanism — un-normalized dot product × MLM-head scale.</li>
+            <li><strong>Minimal intervention:</strong> one line, init-only; easy to adopt and reason about.</li>
+            <li><strong>Broad survey:</strong> seven backbones (BERT, DistilBERT, ALBERT, GTE-MLM, RoBERTa, ModernBERT, Ettin) with explicit head statistics.</li>
+            <li><strong>Multi-metric</strong> across MS MARCO, TREC-DL'19, BEIR-13, NanoBEIR; loss curves give direct optimization evidence.</li>
+            <li>Frontier analysis shows gains come from <strong>better calibration, not denser</strong> representations.</li>
+          </ul>
+        </div>
+        <div class="half con">
+          <h3>✗ Limitations</h3>
+          <ul>
+            <li><strong>k is a per-backbone hyperparameter</strong> with no closed-form rule — small but real tuning cost.</li>
+            <li><strong>Narrow scale band:</strong> over-scaling collapses training; "zero-cost" framing is slightly optimistic.</li>
+            <li>Tested only on <strong>English MS MARCO → BEIR-13</strong>; no multilingual/long-doc/code experiments.</li>
+            <li><strong>No head-to-head with dense retrievers</strong> on the same backbones — competitive ceiling unclear.</li>
+            <li>Vanilla SPLADE only; transfer to SPLADE-v3 / uniCOIL / TILDE-v2 unverified.</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <!-- Questions -->
+    <div class="panel full">
+      <h2>Open Questions <span class="tag">for further exploration</span></h2>
+      <ul>
+        <li>Can optimal <code>k</code> be derived <strong>a priori from <code>‖W_head‖_init</code></strong> (target a fixed post-norm ~0.3–0.6), removing the per-backbone search?</li>
+        <li>Does the same scale mismatch arise in <strong>SPLADE-v3, uniCOIL, TILDE-v2, Milco</strong>, and do they need different factors?</li>
+        <li>How do rescaled LSR models compare <strong>head-to-head with dense retrievers</strong> (GTE, Qwen3-Embedding, mE5) on the same backbones?</li>
+        <li>Does <strong>output-head scale calibration</strong> generalize to other "logit-as-feature" tasks — slot filling, neural ranking?</li>
+        <li>Could a <strong>learned per-row rescale</strong> beat a scalar for anisotropic heads?</li>
+      </ul>
+    </div>
+
+  </section>
+
+  <div class="foot">
+    <span>arxiv-daily · 2026-06-17</span>
+    <a href="2606.18811.html">↗ Markdown source</a>
+  </div>
+
+</div>
+</body>
+</html>

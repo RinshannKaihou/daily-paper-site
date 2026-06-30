@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>How Far Can Disaggregation Go? A Design-Space Exploration of Attention-FFN Disaggregation for Efficient MoE LLM Serving</title>
+<style>
+:root { --paper:#fafafa; --ink:#1a1a1a; --muted:#555; --accent:#1a5276; --line:#ddd; --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif; --serif:Georgia,"Noto Serif SC",serif; }
+body { font-family:var(--serif); background:var(--paper); color:var(--ink); line-height:1.6; margin:0; padding:0; }
+.container { max-width:min(95vw, 760px); margin:0 auto; padding:28px 20px 60px; }
+.topnav { position:fixed; top:12px; left:14px; z-index:50; font-family:var(--sans); font-size:.75rem; background:var(--paper); border:1px solid var(--line); padding:5px 10px; border-radius:999px; }
+.topnav a { color:var(--muted); text-decoration:none; font-weight:600; }
+.topnav a:hover { color:var(--accent); }
+h1 { font-size:1.6rem; margin:2.2rem 0 1rem; border-bottom:2px solid var(--accent); padding-bottom:.3rem; }
+h2 { font-size:1.3rem; margin:1.8rem 0 .8rem; color:var(--accent); }
+h3 { font-size:1.1rem; margin:1.4rem 0 .6rem; }
+p { margin:.8rem 0; }
+.authors { font-style:italic; color:var(--muted); margin-top:-.4rem; }
+.meta { font-family:var(--sans); font-size:.82rem; color:var(--muted); margin:.2rem 0; }
+a { color:var(--accent); text-decoration:none; }
+a:hover { text-decoration:underline; }
+blockquote { border-left:3px solid var(--accent); margin:1rem 0; padding:.2rem 0 .2rem 1rem; color:var(--muted); font-style:italic; }
+code { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; background:#f0f0f0; padding:2px 5px; border-radius:3px; font-size:.9em; }
+pre { background:#f5f5f5; padding:14px; overflow-x:auto; border-radius:4px; border:1px solid var(--line); }
+pre code { background:transparent; padding:0; }
+ul,ol { margin:.6rem 0; padding-left:1.5rem; }
+li { margin:.25rem 0; }
+table { border-collapse:collapse; width:100%; margin:1rem 0; font-family:var(--sans); font-size:.9rem; }
+th,td { border:1px solid var(--line); padding:6px 10px; text-align:left; }
+th { background:#f0f0f0; }
+hr { border:none; border-top:1px solid var(--line); margin:1.5rem 0; }
+.note { font-family:var(--sans); font-size:.78rem; color:var(--muted); border-top:1px solid var(--line); margin-top:2rem; padding-top:1rem; }
+@media (max-width: 600px) { .container { padding:22px 14px 40px; } h1 { font-size:1.35rem; } }
+</style>
+</head>
+<body>
+<div class="topnav"><a href="./index.html">← Today's digest</a></div>
+<div class="container">
+<h1>How Far Can Disaggregation Go? A Design-Space Exploration of Attention-FFN Disaggregation for Efficient MoE LLM Serving</h1>
+<p class="meta">arXiv: 2605.28302</p>
+<p class="meta">Date: 2026-05-27</p>
+<p class="meta"><a href="https://arxiv.org/abs/2605.28302">https://arxiv.org/abs/2605.28302</a></p>
+<blockquote><strong>一句话总结：</strong> 本文系统性地探索了 MoE 大模型推理中 Attention-FFN 算子级解聚合（AFD）的设计空间，提出 AIC++ 框架融合设备级内核测量与高保真网络仿真，在严格延迟 SLO 下实现 DeepSeek-V3.2 上约 4k tokens/s 的系统吞吐量，而非 AFD 部署方案则不可行。</blockquote>
+<blockquote><strong>TL;DR:</strong> This paper systematically explores the design space of Attention-FFN Disaggregation (AFD) for MoE LLM serving, proposing the AIC++ framework that fuses on-device kernel measurements with high-fidelity network simulation. Under strict TTFT/TPOT SLOs, AFD sustains ~4k tokens/s throughput on DeepSeek-V3.2 across chat, coding, and agentic workloads where non-AFD deployments are infeasible, while providing concrete guidance on attention-to-FFN GPU partitioning as a function of workload and model architecture.</blockquote>
+<h2>核心贡献</h2>
+<ul>
+<li><strong>多维设计空间探索（C1）</strong>：首次在 token 级并行（TP/DP/EP/SP/PP）、阶段级 P/D 解聚合、算子级 AFD 三个维度联合优化 LLM 推理调度，并将工作负载特征转化为具体的 Attention-to-FFN GPU 分配比例。</li>
+<li><strong>解聚合架构系统建模（C2）</strong>：构建 AIC++ 框架，将 NVIDIA AIConfigurator 的算子级计算建模与 AstraSim 网络仿真器结合，精确捕捉解聚合推理系统中计算-通信交互开销。</li>
+<li><strong>最优 AFD 算子放置（C3）</strong>：证明注意力与 FFN 算子在解聚合基础设施上的精确放置对有效部署至关重要，提出基于通信亲和力的 GPU 放置策略。</li>
+<li><strong>微批次重叠技术</strong>：提出 4 阶段微批次流水线（Attention → MoE Dispatch → FFN → MoE Combine），在全双工互连上实现计算-通信最大化重叠。</li>
+<li><strong>内存分段收益</strong>：AFD 通过将大部分模型权重放置于 FFN GPU，在 Attention GPU 上留出更多 KV Cache 内存，在相同内存约束下实现更高吞吐。</li>
+</ul>
+<h2>Key Contributions</h2>
+<ul>
+<li><strong>Multi-dimensional DSE (C1)</strong>: First to jointly optimize LLM serving across token-level parallelism (TP/DP/EP/SP/PP), phase-level P/D disaggregation, and operator-level AFD, translating workload characteristics into concrete attention-to-FFN GPU ratios.</li>
+<li><strong>System Modeling for Disaggregated Architectures (C2)</strong>: Builds AIC++, combining NVIDIA AIConfigurator for accelerator-level performance modeling with AstraSim for packet-granularity network simulation, capturing compute-communication trade-offs in disaggregated inference.</li>
+<li><strong>Optimal AFD Operator Placement (C3)</strong>: Demonstrates that precise placement of attention and FFN operators based on communication affinity (frequent per-layer A2F/F2A on NVLink, less frequent KV transfer on InfiniBand) is critical for effective AFD deployment.</li>
+<li><strong>Micro-Batch Overlap</strong>: Proposes a 4-stage micro-batch pipeline (Attention → MoE Dispatch → FFN → MoE Combine) that maximizes compute-communication overlap on full-duplex interconnects.</li>
+<li><strong>Memory Segmentation Benefit</strong>: AFD places most model weights on FFN GPUs, freeing memory on attention GPUs for KV cache, enabling higher throughput under the same memory constraint.</li>
+</ul>
+<h2>Methodology</h2>
+<p>The paper develops <strong>AIConfigurator++ (AIC++)</strong>, a co-design framework with three key components:</p>
+<ol>
+<li><strong>Compute Modeling</strong>: Uses NVIDIA AIConfigurator to measure operator-level kernel costs (attention, FFN GEMMs, MoE dispatch/combine) on real GPU hardware (B200 SXM). Costs are stored in an empirical database queried during DSE.</li>
+</ol>
+<ol>
+<li><strong>Network Simulation</strong>: Integrates AstraSim for packet-granularity simulation of scale-up (NVLink) and scale-out (InfiniBand) communication. Models the full bipartite traffic matrix of AFD's M×N attention-FFN pairing, capturing contention, congestion, and full-duplex overlap effects.</li>
+</ol>
+<ol>
+<li><strong>Design-Space Exploration</strong>: Enumerates every replica size from 2 to 128 GPUs, dynamically composing per-replica parallelism plans across TP, DP, EP, and (for AFD) attention/FFN GPU groups. Includes asymmetric layouts where prefill and decode have different worker sizes.</li>
+</ol>
+<p><strong>AFD Communication Pattern</strong>: Each transformer layer incurs two cross-AFD transfers:</p>
+<ul>
+<li><strong>A2F (MoE Dispatch)</strong>: Fan-out from attention to FFN GPUs (post-attention hidden states, token IDs, routing metadata). FFN-side ingress congestion is dominant.</li>
+<li><strong>F2A (MoE Combine)</strong>: Fan-in from FFN to attention GPUs (aggregated expert outputs). Attention-side ingress is the bottleneck.</li>
+</ul>
+<p><strong>Micro-Batch Overlap Model</strong>: Partitions per-step tokens into M microbatches (M=4 for full-duplex). End-to-end pipelined latency: <code>t_pipe = M · s_max + Σ(s_i / L)</code> for non-bottleneck stages, where s_max is the bottleneck stage cost.</p>
+<p><strong>Evaluation Setup</strong>:</p>
+<ul>
+<li><strong>Models</strong>: DeepSeek-V3.2 (MLA + Sparse Attention, 256 experts), Qwen3-235B (GQA, 128 experts), GPT-OSS-120B (Full GQA + Window GQA, 128 experts), Nemotron3-120B (Mamba-2 + GQA, 512 experts)</li>
+<li><strong>Workloads</strong>: Chat (ISL=256, OSL=512), Coding (ISL=4096, OSL=1024), Agentic Coding (ISL=8192, Prefix=524k, OSL=256)</li>
+<li><strong>Hardware</strong>: 128× B200 SXM GPUs, TensorRT-LLM backend</li>
+<li><strong>Prototype</strong>: vLLM-based AFD prototype (v0.16.0rc2) with M×N bipartite NCCL pairing for functional correctness verification</li>
+</ul>
+<h2>Results & Highlights</h2>
+<ul>
+<li><strong>Feasibility under Strict SLOs</strong>: On DeepSeek-V3.2 with strict TTFT/TPOT SLOs, only AFD-attention variants unlock feasible configurations, sustaining up to ~4k tokens/s system throughput. Non-AFD deployments are infeasible (marked with red crosses in evaluation).</li>
+<li><strong>Throughput vs. Latency Trade-off</strong>: Aggregated serving (chunked prefill) wins on raw system throughput for most panels by maximizing data-parallel concurrency. AFD wins universally on user interactivity (tokens/s/user) through micro-batch overlapping and workload-aware attention-to-FFN sizing.</li>
+<li><strong>Attention-to-FFN Ratio follows Rate-Matching</strong>: Optimal split is workload- and architecture-dependent:</li>
+<li>DeepSeek-V3.2 (MLA+DSA, cheap attention): 2A+126F (agentic), 16A+112F (chat) — 90%+ GPUs on FFN</li>
+<li>Qwen3-235B (dense GQA, heavier attention): 8A+120F (agentic), wider attention slice as TTFT tightens</li>
+<li>GPT-OSS-120B (sliding-window GQA): near-symmetric 16A+16F on chat — the only panel where AFD wins throughput</li>
+<li>Nemotron3-120B (Mamba-2): attention-heavy 96A+32F due to recurrent state propagation cost</li>
+<li><strong>Long Context (500k ISL)</strong>: Agg+AFD M4 achieves 1346.5 tok/s at 64 GPUs and 2693.0 tok/s at 128 GPUs, with 7:1 attention-to-FFN ratio.</li>
+<li><strong>Memory Segmentation</strong>: For Prefix=1M workloads, non-AFD modes are infeasible (per-GPU memory ~298 GiB exceeds B200's 180 GiB). AFD reduces to ~165 GiB per GPU by splitting weights/activations across attention and FFN groups, achieving 921.5 tok/s at 64 GPUs and 1858.9 tok/s at 128 GPUs.</li>
+<li><strong>GPU Placement</strong>: Frequency-driven placement — per-layer A2F/F2A traffic on intra-node NVLink (highest bandwidth), less frequent KV-cache transfer on inter-node InfiniBand. Paired P&D per node outperforms segregated phase layout.</li>
+</ul>
+<h2>Authors & Credibility</h2>
+<ul>
+<li><strong>Hanjiang Wu, Abhimanyu Bambhaniya, William Won, Tushar Krishna</strong> — Georgia Institute of Technology (also affiliated with Infravana). Tushar Krishna is a well-known researcher in computer architecture and interconnects for ML systems.</li>
+<li><strong>Sudarshan Srinivasan, Souvik Kundu, Madhu Kumar, Midhilesh Elavazhagan</strong> — Intel, contributing hardware and system-level expertise.</li>
+<li><strong>Suvinay Subramanian</strong> — Google, expertise in distributed ML systems.</li>
+<li><strong>Amir Yazdanbakhsh</strong> — Google DeepMind, systems for ML inference.</li>
+<li>The team has strong systems/architecture backgrounds with affiliations spanning academia (Georgia Tech) and industry (Intel, Google, DeepMind). The work builds on established tools (AIConfigurator, AstraSim, vLLM) and references production systems (MegaScale-Infer, StepMesh).</li>
+</ul>
+<h2>Critical Assessment</h2>
+<ul>
+<li><strong>Novelty</strong>: The paper provides the first systematic, multi-dimensional DSE of AFD for MoE serving, going beyond prior work (MegaScale-Infer) that identified the problem but didn't explore the full design space. The integration of AIConfigurator + AstraSim into AIC++ is a novel contribution. The rate-matching principle for attention-to-FFN ratio is an insightful and actionable finding. <strong>Rating: Moderate-High</strong> — the individual components (P/D disaggregation, AFD, simulation) exist, but the systematic exploration and integration is novel.</li>
+<li><strong>Rigor</strong>: The evaluation covers 4 diverse model architectures (MLA, GQA, sparse attention, Mamba-2), 3 workload types, and both short and long context regimes. The framework is grounded in real kernel measurements and validated with a vLLM prototype. However, cluster-scale results are model-based DSE estimates rather than end-to-end measurements on 128 GPUs, which limits empirical confidence. <strong>Rating: Moderate</strong> — strong modeling methodology but limited real-cluster validation.</li>
+<li><strong>Reproducibility</strong>: The vLLM prototype is based on an open-source PR (#29772), and AstraSim is publicly available. AIConfigurator is from NVIDIA but may not be fully open-source. The DSE methodology is well-documented with clear equations and search strategies. <strong>Rating: Moderate</strong> — some components may be hard to replicate without NVIDIA's internal tools.</li>
+<li><strong>Significance</strong>: Highly relevant for current and near-future LLM serving infrastructure. As MoE models (DeepSeek-V3, Qwen3) become dominant and heterogeneous accelerators (NVIDIA Groq 3 LPX, Intel SambaNova) emerge, the design principles from this paper are directly actionable for cluster-scale deployments. <strong>Rating: High</strong>.</li>
+<li><strong>Red Flags</strong>: Results on DeepSeek-V3.2 use "V3.2" which may not be publicly available, and GPT-OSS-120B appears to be a hypothetical model. The 524k context length for some models is noted as potentially exceeding native support. The paper assumes full-duplex interconnects throughout, which may not hold for all deployment scenarios.</li>
+</ul>
+<h2>Strengths</h2>
+<ul>
+<li>Comprehensive multi-dimensional DSE covering parallelism, P/D, and AFD — no prior work explores all three jointly.</li>
+<li>Actionable rate-matching principle that translates model architecture and workload into concrete GPU allocation ratios.</li>
+<li>Strong practical relevance: addresses real production challenges for MoE serving at rack/cluster scale.</li>
+<li>Thorough treatment of communication patterns (bipartite A2F/F2A, congestion analysis, placement optimization).</li>
+<li>Memory segmentation benefit is a novel and practical insight for long-context MoE serving.</li>
+<li>Evaluation across 4 diverse architectures (MLA, GQA, sparse, Mamba-2) demonstrates generality of findings.</li>
+</ul>
+<h2>Limitations</h2>
+<ul>
+<li>Cluster-scale results are simulation-based (AIC++ modeling) rather than measured on real 128-GPU clusters, introducing potential accuracy gaps.</li>
+<li>Some evaluated models (DeepSeek-V3.2, GPT-OSS-120B) may not be publicly available or fully reproducible.</li>
+<li>The paper does not evaluate AFD on non-MoE (dense) models, limiting the scope of conclusions.</li>
+<li>Cost model assumes full-duplex NVLink/InfiniBand throughout; half-duplex or lower-bandwidth interconnects are only briefly discussed.</li>
+<li>No comparison with other recent MoE serving systems (e.g., preplit, Mooncake) beyond MegaScale-Infer.</li>
+<li>The DSE search is exhaustive but computationally expensive; the paper doesn't discuss the time cost of running AIC++ for new configurations.</li>
+<li>Missing ablation on micro-batch count (M) sensitivity — only M=4 is used for full-duplex.</li>
+</ul>
+<h2>Relevance</h2>
+<p>本文对 MoE 大模型推理系统的设计与部署具有高度实际指导意义。随着 DeepSeek-V3、Qwen3 等 MoE 模型成为主流，以及 NVIDIA Groq 3 LPX 等异构推理平台的出现，AFD 及其设计空间探索框架 AIC++ 为集群级部署提供了可直接落地的调度策略和 GPU 分配原则，尤其在长上下文和严格延迟约束场景下价值突出。</p>
+<h2>Questions for Further Exploration</h2>
+<ul>
+<li>How does AFD perform on heterogeneous accelerator platforms (e.g., NVIDIA Groq 3 LPX with separate attention and compute dies) compared to homogeneous B200 clusters?</li>
+<li>Can the rate-matching principle be automated into a runtime scheduler that dynamically adjusts attention-to-FFN ratios based on observed workload shifts?</li>
+<li>How does AFD interact with speculative decoding or other latency-reduction techniques for MoE models?</li>
+<li>What is the sensitivity of AIC++ predictions to inaccuracies in AstraSim's network modeling (e.g., congestion underestimation at scale)?</li>
+<li>How does AFD scale beyond 128 GPUs to thousands of GPUs in a multi-rack deployment with more complex network topologies?</li>
+<li>Can the memory segmentation benefit of AFD be combined with offloaded KV-cache strategies (e.g., CPU/SSD offloading) for even longer contexts?</li>
+</ul>
+<p class="note">Generated from Markdown summary. Full paper: <a href="https://arxiv.org/abs/2605.28302">arXiv:2605.28302</a></p>
+</div>
+</body>
+</html>

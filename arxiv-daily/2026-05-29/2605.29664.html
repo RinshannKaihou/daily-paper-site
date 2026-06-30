@@ -1,0 +1,833 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AMDP — Asynchronous Multi-Directional Pipeline Parallelism</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+
+:root {
+  --bg: #0a0c10;
+  --bg-elevated: #12151c;
+  --bg-card: #181c26;
+  --fg: #e8eaf0;
+  --fg-dim: #8a8fa4;
+  --fg-muted: #565c72;
+  --accent: #00e5a0;
+  --accent-dim: rgba(0, 229, 160, 0.12);
+  --accent-glow: rgba(0, 229, 160, 0.25);
+  --warn: #ff6b4a;
+  --warn-dim: rgba(255, 107, 74, 0.12);
+  --metric: #4dc9f6;
+  --metric-dim: rgba(77, 201, 246, 0.12);
+  --border: rgba(255, 255, 255, 0.06);
+  --radius: 10px;
+  --font-display: 'Space Grotesk', sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html { font-size: 16px; -webkit-font-smoothing: antialiased; }
+
+body {
+  font-family: var(--font-display);
+  background: var(--bg);
+  color: var(--fg);
+  line-height: 1.6;
+  min-height: 100vh;
+}
+
+/* ---- NOISE OVERLAY ---- */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.03'/%3E%3C/svg%3E");
+  pointer-events: none;
+  z-index: 9999;
+}
+
+/* ---- TOP BAR ---- */
+.top-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 32px;
+  border-bottom: 1px solid var(--border);
+  background: rgba(10, 12, 16, 0.85);
+  backdrop-filter: blur(12px);
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+
+.back-link {
+  color: var(--fg-dim);
+  text-decoration: none;
+  font-size: 0.85rem;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  transition: color 0.2s;
+}
+
+.back-link:hover { color: var(--accent); }
+
+.paper-meta {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  font-size: 0.78rem;
+  color: var(--fg-muted);
+  font-family: var(--font-mono);
+}
+
+.venue-badge {
+  background: var(--accent-dim);
+  color: var(--accent);
+  padding: 3px 10px;
+  border-radius: 4px;
+  font-weight: 600;
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+/* ---- CONTAINER ---- */
+.container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 32px 64px;
+}
+
+/* ---- HERO BAND ---- */
+.hero {
+  padding: 56px 0 40px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 32px;
+  animation: fadeSlideIn 0.6s ease-out both;
+}
+
+.hero-label {
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 16px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.hero-label::before {
+  content: '';
+  display: inline-block;
+  width: 24px;
+  height: 2px;
+  background: var(--accent);
+}
+
+.hero h1 {
+  font-size: clamp(1.6rem, 3.2vw, 2.4rem);
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+  max-width: 900px;
+  margin-bottom: 20px;
+}
+
+.hero-finding {
+  font-size: 1.05rem;
+  line-height: 1.7;
+  color: var(--fg-dim);
+  max-width: 800px;
+}
+
+.hero-finding strong {
+  color: var(--fg);
+  font-weight: 600;
+}
+
+.hero-authors {
+  margin-top: 20px;
+  font-size: 0.82rem;
+  color: var(--fg-muted);
+}
+
+.hero-authors span { color: var(--fg-dim); }
+
+/* ---- ASSET CARDS ---- */
+.asset-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 16px;
+  margin-bottom: 48px;
+}
+
+.asset-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 28px 24px;
+  position: relative;
+  overflow: hidden;
+  animation: fadeSlideIn 0.6s ease-out both;
+}
+
+.asset-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+}
+
+.asset-card:nth-child(1) { animation-delay: 0.1s; }
+.asset-card:nth-child(1)::before { background: var(--metric); }
+.asset-card:nth-child(2) { animation-delay: 0.2s; }
+.asset-card:nth-child(2)::before { background: var(--accent); }
+.asset-card:nth-child(3) { animation-delay: 0.3s; }
+.asset-card:nth-child(3)::before { background: var(--warn); }
+
+.asset-label {
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  margin-bottom: 16px;
+}
+
+.asset-card:nth-child(1) .asset-label { color: var(--metric); }
+.asset-card:nth-child(2) .asset-label { color: var(--accent); }
+.asset-card:nth-child(3) .asset-label { color: var(--warn); }
+
+.asset-metric-value {
+  font-family: var(--font-mono);
+  font-size: 2.8rem;
+  font-weight: 700;
+  line-height: 1;
+  margin-bottom: 6px;
+}
+
+.asset-card:nth-child(1) .asset-metric-value { color: var(--metric); }
+.asset-card:nth-child(2) .asset-metric-value { color: var(--accent); font-size: 1.6rem; }
+.asset-card:nth-child(3) .asset-metric-value { color: var(--warn); font-size: 1.05rem; line-height: 1.5; }
+
+.asset-context {
+  font-size: 0.82rem;
+  color: var(--fg-dim);
+  line-height: 1.5;
+  margin-top: 8px;
+}
+
+.asset-detail {
+  font-size: 0.75rem;
+  color: var(--fg-muted);
+  margin-top: 10px;
+  font-family: var(--font-mono);
+  line-height: 1.6;
+}
+
+/* ---- SECTION NAV ---- */
+.section-nav {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 32px;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 0;
+  animation: fadeSlideIn 0.6s ease-out 0.35s both;
+}
+
+.nav-tab {
+  background: none;
+  border: none;
+  color: var(--fg-muted);
+  font-family: var(--font-display);
+  font-size: 0.82rem;
+  font-weight: 500;
+  padding: 10px 18px;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: color 0.2s, border-color 0.2s;
+  margin-bottom: -1px;
+}
+
+.nav-tab:hover { color: var(--fg-dim); }
+.nav-tab.active { color: var(--fg); border-bottom-color: var(--accent); }
+
+/* ---- CONTENT PANELS ---- */
+.panel { display: none; animation: fadeIn 0.3s ease-out; }
+.panel.active { display: block; }
+
+/* ---- METHODOLOGY ---- */
+.method-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 16px;
+}
+
+.method-card {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 24px;
+}
+
+.method-num {
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: var(--fg-muted);
+  letter-spacing: 0.1em;
+  margin-bottom: 12px;
+}
+
+.method-card h3 {
+  font-size: 0.95rem;
+  font-weight: 600;
+  margin-bottom: 10px;
+  line-height: 1.3;
+}
+
+.method-card p {
+  font-size: 0.82rem;
+  color: var(--fg-dim);
+  line-height: 1.6;
+}
+
+.method-card .formula {
+  display: inline-block;
+  background: rgba(255,255,255,0.04);
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  color: var(--accent);
+  margin-top: 8px;
+}
+
+/* ---- RESULTS TABLE ---- */
+.results-wrap {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.results-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+}
+
+.results-table thead { background: rgba(255,255,255,0.03); }
+
+.results-table th {
+  text-align: left;
+  padding: 14px 20px;
+  font-weight: 600;
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--fg-muted);
+  border-bottom: 1px solid var(--border);
+}
+
+.results-table td {
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--border);
+  color: var(--fg-dim);
+}
+
+.results-table tr:last-child td { border-bottom: none; }
+
+.results-table .highlight {
+  color: var(--accent);
+  font-weight: 600;
+  font-family: var(--font-mono);
+}
+
+.results-table .method-name { color: var(--fg); font-weight: 500; }
+
+.results-table .delta {
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.delta.pos { color: var(--accent); }
+.delta.neg { color: var(--warn); }
+
+.convergence-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-top: 16px;
+}
+
+.conv-card {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 24px;
+}
+
+.conv-card h4 {
+  font-size: 0.85rem;
+  font-weight: 600;
+  margin-bottom: 10px;
+}
+
+.conv-card p {
+  font-size: 0.82rem;
+  color: var(--fg-dim);
+  line-height: 1.6;
+}
+
+.conv-metric {
+  font-family: var(--font-mono);
+  font-size: 1.3rem;
+  font-weight: 700;
+  margin-top: 8px;
+}
+
+.conv-metric.good { color: var(--accent); }
+.conv-metric.info { color: var(--metric); }
+
+/* ---- STRENGTHS / LIMITATIONS ---- */
+.sl-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.sl-column {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 28px 24px;
+}
+
+.sl-column h3 {
+  font-size: 0.85rem;
+  font-weight: 600;
+  margin-bottom: 16px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.strengths h3 { color: var(--accent); }
+.limitations h3 { color: var(--warn); }
+
+.sl-column ul {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.sl-column li {
+  font-size: 0.82rem;
+  color: var(--fg-dim);
+  line-height: 1.55;
+  padding-left: 16px;
+  position: relative;
+}
+
+.strengths li::before {
+  content: '+';
+  position: absolute;
+  left: 0;
+  color: var(--accent);
+  font-weight: 700;
+  font-family: var(--font-mono);
+}
+
+.limitations li::before {
+  content: '!';
+  position: absolute;
+  left: 0;
+  color: var(--warn);
+  font-weight: 700;
+  font-family: var(--font-mono);
+}
+
+/* ---- QUESTIONS ---- */
+.questions-section {
+  margin-top: 48px;
+  padding-top: 32px;
+  border-top: 1px solid var(--border);
+}
+
+.questions-section h3 {
+  font-size: 0.85rem;
+  font-weight: 600;
+  margin-bottom: 20px;
+  color: var(--fg);
+}
+
+.question-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.question-item {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 18px 22px;
+  font-size: 0.84rem;
+  color: var(--fg-dim);
+  line-height: 1.6;
+  cursor: default;
+  transition: border-color 0.2s;
+}
+
+.question-item:hover { border-color: rgba(255,255,255,0.12); }
+
+.question-item .q-num {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  color: var(--fg-muted);
+  font-weight: 600;
+  margin-right: 12px;
+}
+
+/* ---- FOOTER ---- */
+.footer {
+  margin-top: 56px;
+  padding: 24px 0;
+  border-top: 1px solid var(--border);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.footer a {
+  color: var(--fg-muted);
+  text-decoration: none;
+  font-size: 0.82rem;
+  transition: color 0.2s;
+}
+
+.footer a:hover { color: var(--accent); }
+
+.footer .arxiv-link {
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+}
+
+/* ---- ANIMATIONS ---- */
+@keyframes fadeSlideIn {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* ---- RESPONSIVE ---- */
+@media (max-width: 900px) {
+  .asset-grid { grid-template-columns: 1fr; }
+  .method-grid { grid-template-columns: 1fr; }
+  .sl-grid { grid-template-columns: 1fr; }
+  .convergence-grid { grid-template-columns: 1fr; }
+  .container { padding: 0 16px 40px; }
+  .top-bar { padding: 12px 16px; }
+  .hero h1 { font-size: 1.4rem; }
+}
+
+@media (max-width: 600px) {
+  .results-table { font-size: 0.72rem; }
+  .results-table th, .results-table td { padding: 8px 12px; }
+  .section-nav { overflow-x: auto; }
+  .nav-tab { font-size: 0.76rem; padding: 8px 12px; white-space: nowrap; }
+}
+</style>
+</head>
+<body>
+
+<nav class="top-bar">
+  <a href="./index.html" class="back-link">&#8617; Today's digest</a>
+  <div class="paper-meta">
+    <span class="venue-badge">ICML 2026</span>
+    <span>2605.29664</span>
+    <span>2026-05-29</span>
+  </div>
+</nav>
+
+<div class="container">
+
+  <!-- HERO -->
+  <section class="hero">
+    <div class="hero-label">Key Finding</div>
+    <h1>AMDP: Asynchronous Multi-Directional Pipeline Parallelism for Large-Scale Model Training</h1>
+    <p class="hero-finding">
+      By <strong>restricting the first pipeline stage to at most 2 minibatches</strong> before backpropagation, AMDP guarantees that every stage's forward-backward parameter mismatch is bounded to <strong>exactly one optimization step</strong> -- regardless of pipeline depth. It then fills the resulting pipeline bubbles by launching <strong>d/2 concurrent complementary-direction pipelines</strong>, achieving both high throughput and near-synchronous convergence.
+    </p>
+    <p class="hero-authors">
+      <span>Ling Chen, Houming Wu, Wenjie Yu</span> &middot; Pipeline Parallelism &middot; Distributed Training &middot; Systems for ML
+    </p>
+  </section>
+
+  <!-- 3 ASSET CARDS -->
+  <div class="asset-grid">
+
+    <!-- KEY METRIC -->
+    <div class="asset-card">
+      <div class="asset-label">Key Metric</div>
+      <div class="asset-metric-value">+17%</div>
+      <div class="asset-context">
+        Throughput gain over PipeDream-2BW on 8x A800 GPUs
+      </div>
+      <div class="asset-detail">
+        AMDP: 83.7 ktokens/s<br>
+        PD-2BW: 71.6 ktokens/s<br>
+        GPT-style, d=8, b=128
+      </div>
+    </div>
+
+    <!-- WHY THIS MATTERS -->
+    <div class="asset-card">
+      <div class="asset-label">Why This Matters</div>
+      <div class="asset-metric-value">
+        Resolves the fundamental throughput-vs-convergence tradeoff in async pipeline parallelism with a provable one-step mismatch bound.
+      </div>
+      <div class="asset-context">
+        Near-synchronous loss (2.90 vs 2.88) while reaching target losses 22-23% faster in wall-clock time.
+      </div>
+    </div>
+
+    <!-- CRITICAL EDGE -->
+    <div class="asset-card">
+      <div class="asset-label">Critical Edge</div>
+      <div class="asset-metric-value">
+        Tested only up to 16 GPUs with modest model sizes; scalability to production-scale training (hundreds of GPUs, 70B+ models) is untested.
+      </div>
+      <div class="asset-detail">
+        No tensor parallelism interaction explored. Memory overhead vs PD-2BW acknowledged but not fully quantified. 40k-iteration budget is short.
+      </div>
+    </div>
+
+  </div>
+
+  <!-- SECTION NAV -->
+  <nav class="section-nav" role="tablist">
+    <button class="nav-tab active" data-panel="methodology" role="tab" aria-selected="true">Methodology</button>
+    <button class="nav-tab" data-panel="results" role="tab" aria-selected="false">Results</button>
+    <button class="nav-tab" data-panel="strengths-limitations" role="tab" aria-selected="false">Strengths &amp; Limitations</button>
+    <button class="nav-tab" data-panel="questions" role="tab" aria-selected="false">Open Questions</button>
+  </nav>
+
+  <!-- METHODOLOGY PANEL -->
+  <div class="panel active" id="panel-methodology">
+    <div class="method-grid">
+
+      <div class="method-card">
+        <div class="method-num">01</div>
+        <h3>Bounded Parameter Mismatch (n=2)</h3>
+        <p>
+          Stage 0 processes at most 2 minibatches before initiating backpropagation. This bounds mismatch at every stage <em>i</em> to at most 1 optimization step, invariant to pipeline depth and topology.
+        </p>
+        <div class="formula">mismatch &le; min(2, d-i) - 1 &le; 1</div>
+      </div>
+
+      <div class="method-card">
+        <div class="method-num">02</div>
+        <h3>Multi-Directional Scheduling</h3>
+        <p>
+          Launches d/2 concurrent pipelines with complementary directions. Chimera-style GPU mapping maps stage <em>i</em> to different GPUs per pipeline, with FIFO conflict resolution. Residual bubbles filled by scheduling forward passes during idle periods.
+        </p>
+        <div class="formula">bubble ratio = 2/d</div>
+      </div>
+
+      <div class="method-card">
+        <div class="method-num">03</div>
+        <h3>ZeRO + Gradient Accumulation</h3>
+        <p>
+          Gradients accumulated across all minibatches in an update window; single optimizer step applied. ZeRO assigns each GPU ownership of one stage's optimizer states, reducing memory to 2/d of naive with zero extra communication (reduce+broadcast).
+        </p>
+        <div class="formula">memory &times; (2/d)</div>
+      </div>
+
+    </div>
+
+    <div style="margin-top:20px; padding:20px 24px; background:var(--bg-elevated); border:1px solid var(--border); border-radius:var(--radius);">
+      <strong style="font-size:0.85rem;">Convergence Guarantee:</strong>
+      <p style="font-size:0.82rem; color:var(--fg-dim); margin-top:6px; line-height:1.6;">
+        Under standard assumptions (L-smoothness, unbiased gradients, bounded variance), AMDP introduces only a second-order perturbation
+        <span style="font-family:var(--font-mono); color:var(--accent);">O(&eta;&sup2;)</span>
+        relative to synchronous optimization, preserving the standard
+        <span style="font-family:var(--font-mono); color:var(--accent);">O(T<sup>-1/2</sup>)</span>
+        convergence rate for both SGD and Adam-family optimizers. The mismatch bound invariance (Proposition B.3) holds regardless of deployment topology or scheduling permutations.
+      </p>
+    </div>
+  </div>
+
+  <!-- RESULTS PANEL -->
+  <div class="panel" id="panel-results">
+
+    <div class="results-wrap">
+      <table class="results-table">
+        <thead>
+          <tr>
+            <th>Method</th>
+            <th>GPT (8 GPU)</th>
+            <th>BERT (8 GPU)</th>
+            <th>GPT (16 GPU)</th>
+            <th>Type</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="method-name">AMDP</td>
+            <td class="highlight">83.7 kt/s</td>
+            <td class="highlight">86.1 kt/s</td>
+            <td class="highlight">159.8 kt/s</td>
+            <td style="color:var(--accent); font-size:0.72rem; font-weight:600;">ASYNC</td>
+          </tr>
+          <tr>
+            <td class="method-name">PipeDream-2BW</td>
+            <td>71.6 kt/s</td>
+            <td>75.8 kt/s</td>
+            <td>140.9 kt/s</td>
+            <td style="color:var(--fg-muted); font-size:0.72rem;">ASYNC</td>
+          </tr>
+          <tr>
+            <td class="method-name">Inter-1F1B</td>
+            <td>74.3 kt/s</td>
+            <td>78.2 kt/s</td>
+            <td>145.6 kt/s</td>
+            <td style="color:var(--fg-muted); font-size:0.72rem;">SYNC</td>
+          </tr>
+          <tr>
+            <td class="method-name">DAPPLE</td>
+            <td>72.1 kt/s</td>
+            <td>76.4 kt/s</td>
+            <td>142.3 kt/s</td>
+            <td style="color:var(--fg-muted); font-size:0.72rem;">SYNC</td>
+          </tr>
+          <tr>
+            <td class="method-name">Chimera</td>
+            <td>70.8 kt/s</td>
+            <td>74.5 kt/s</td>
+            <td>138.7 kt/s</td>
+            <td style="color:var(--fg-muted); font-size:0.72rem;">SYNC</td>
+          </tr>
+          <tr>
+            <td class="method-name">ZB-V</td>
+            <td>73.5 kt/s</td>
+            <td>77.1 kt/s</td>
+            <td>143.2 kt/s</td>
+            <td style="color:var(--fg-muted); font-size:0.72rem;">SYNC</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="convergence-grid">
+      <div class="conv-card">
+        <h4>Training Loss @ 40k iterations</h4>
+        <p>GPT: AMDP reaches 2.90 vs Inter-1F1B's 2.88 -- a gap of 0.02</p>
+        <div class="conv-metric good">2.90 vs 2.88</div>
+        <p style="font-size:0.75rem; margin-top:8px; color:var(--fg-muted);">BERT: AMDP matches DAPPLE at 2.36</p>
+      </div>
+      <div class="conv-card">
+        <h4>Wall-Clock Time to Target Loss</h4>
+        <p>AMDP reaches target losses 23% faster on GPT and 22% faster on BERT than the best synchronous baselines</p>
+        <div class="conv-metric info">22-23% faster</div>
+        <p style="font-size:0.75rem; margin-top:8px; color:var(--fg-muted);">Validation PPL: 2.06 (GPT) vs DAPPLE's 2.04 -- no generalization gap</p>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- STRENGTHS & LIMITATIONS PANEL -->
+  <div class="panel" id="panel-strengths-limitations">
+    <div class="sl-grid">
+      <div class="sl-column strengths">
+        <h3>Strengths</h3>
+        <ul>
+          <li>Clean theoretical framework with convergence guarantees extending to Adam-family optimizers</li>
+          <li>One-step mismatch bound proven invariant to pipeline depth, topology, and scheduling permutations</li>
+          <li>Consistent throughput improvements across all tested configurations and both GPT/BERT families</li>
+          <li>Near-synchronous convergence demonstrated in both training loss and validation perplexity</li>
+          <li>Practical ZeRO integration for memory efficiency without communication overhead</li>
+          <li>Open-source implementation built on Megatron-LM with public GitHub repo</li>
+          <li>Comprehensive comparison against 8 baselines spanning synchronous and asynchronous methods</li>
+        </ul>
+      </div>
+      <div class="sl-column limitations">
+        <h3>Limitations</h3>
+        <ul>
+          <li>Experiments limited to at most 16 GPUs and modest model sizes; production-scale (100s of GPUs, 70B+) untested</li>
+          <li>No exploration of interaction with tensor parallelism, critical for modern large model training</li>
+          <li>The n=2 restriction requires maintaining d/2 pipelines, potentially memory-intensive at large depths</li>
+          <li>No evaluation on downstream tasks (MMLU, HumanEval, GSM8K) -- only training loss and val PPL</li>
+          <li>Convergence gap exists in early iterations; not characterized for warmup or cosine decay schedules</li>
+          <li>Mismatch-aware learning rate adaptation explicitly left for future work</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- QUESTIONS PANEL -->
+  <div class="panel" id="panel-questions">
+    <div class="question-list">
+      <div class="question-item">
+        <span class="q-num">Q1</span>
+        How does AMDP interact with tensor parallelism in a 3D parallelism setup (pipeline + tensor + data)? Does the one-step mismatch bound still hold when tensor-parallel communication overlaps with pipeline stages?
+      </div>
+      <div class="question-item">
+        <span class="q-num">Q2</span>
+        What is the memory overhead at very large pipeline depths (d=32 or d=64)? Does the d/2 pipeline count become a bottleneck?
+      </div>
+      <div class="question-item">
+        <span class="q-num">Q3</span>
+        Can the n=2 design be generalized to a variable n that adapts based on observed gradient staleness or convergence signals, potentially allowing higher throughput when convergence is robust?
+      </div>
+      <div class="question-item">
+        <span class="q-num">Q4</span>
+        How does AMDP perform with more complex learning rate schedules (cosine decay with warmup) and longer training runs (millions of iterations)?
+      </div>
+      <div class="question-item">
+        <span class="q-num">Q5</span>
+        Does the near-synchronous convergence guarantee translate to downstream task performance on benchmarks like MMLU, HumanEval, or GSM8K?
+      </div>
+    </div>
+  </div>
+
+  <!-- FOOTER -->
+  <footer class="footer">
+    <a href="https://arxiv.org/abs/2605.29664" target="_blank" rel="noopener" class="arxiv-link">&#8599; arxiv.org/abs/2605.29664</a>
+    <a href="2605.29664.html">&#8617; Markdown source</a>
+  </footer>
+
+</div>
+
+<script>
+(function() {
+  const tabs = document.querySelectorAll('.nav-tab');
+  const panels = document.querySelectorAll('.panel');
+
+  tabs.forEach(tab => {
+    tab.addEventListener('click', () => {
+      tabs.forEach(t => { t.classList.remove('active'); t.setAttribute('aria-selected', 'false'); });
+      panels.forEach(p => p.classList.remove('active'));
+      tab.classList.add('active');
+      tab.setAttribute('aria-selected', 'true');
+      document.getElementById('panel-' + tab.dataset.panel).classList.add('active');
+    });
+  });
+})();
+</script>
+
+</body>
+</html>

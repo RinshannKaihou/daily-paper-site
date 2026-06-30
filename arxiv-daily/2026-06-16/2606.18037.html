@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ProvenanceGuard: Source-Aware Factuality Verification for MCP-Based LLM Agents</title>
+<style>
+:root { --paper:#fafafa; --ink:#1a1a1a; --muted:#555; --accent:#1a5276; --line:#ddd; --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif; --serif:Georgia,"Noto Serif SC",serif; }
+body { font-family:var(--serif); background:var(--paper); color:var(--ink); line-height:1.6; margin:0; padding:0; }
+.container { max-width:min(95vw, 760px); margin:0 auto; padding:28px 20px 60px; }
+.topnav { position:fixed; top:12px; left:14px; z-index:50; font-family:var(--sans); font-size:.75rem; background:var(--paper); border:1px solid var(--line); padding:5px 10px; border-radius:999px; }
+.topnav a { color:var(--muted); text-decoration:none; font-weight:600; }
+.topnav a:hover { color:var(--accent); }
+h1 { font-size:1.6rem; margin:2.2rem 0 1rem; border-bottom:2px solid var(--accent); padding-bottom:.3rem; }
+h2 { font-size:1.3rem; margin:1.8rem 0 .8rem; color:var(--accent); }
+h3 { font-size:1.1rem; margin:1.4rem 0 .6rem; }
+p { margin:.8rem 0; }
+.authors { font-style:italic; color:var(--muted); margin-top:-.4rem; }
+.meta { font-family:var(--sans); font-size:.82rem; color:var(--muted); margin:.2rem 0; }
+a { color:var(--accent); text-decoration:none; }
+a:hover { text-decoration:underline; }
+blockquote { border-left:3px solid var(--accent); margin:1rem 0; padding:.2rem 0 .2rem 1rem; color:var(--muted); font-style:italic; }
+code { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; background:#f0f0f0; padding:2px 5px; border-radius:3px; font-size:.9em; }
+pre { background:#f5f5f5; padding:14px; overflow-x:auto; border-radius:4px; border:1px solid var(--line); }
+pre code { background:transparent; padding:0; }
+ul,ol { margin:.6rem 0; padding-left:1.5rem; }
+li { margin:.25rem 0; }
+table { border-collapse:collapse; width:100%; margin:1rem 0; font-family:var(--sans); font-size:.9rem; }
+th,td { border:1px solid var(--line); padding:6px 10px; text-align:left; }
+th { background:#f0f0f0; }
+hr { border:none; border-top:1px solid var(--line); margin:1.5rem 0; }
+.note { font-family:var(--sans); font-size:.78rem; color:var(--muted); border-top:1px solid var(--line); margin-top:2rem; padding-top:1rem; }
+@media (max-width: 600px) { .container { padding:22px 14px 40px; } h1 { font-size:1.35rem; } }
+</style>
+</head>
+<body>
+<div class="topnav"><a href="./index.html">← Today's digest</a></div>
+<div class="container">
+<h1>ProvenanceGuard: Source-Aware Factuality Verification for MCP-Based LLM Agents</h1>
+<p class="meta">arXiv: 2606.18037</p>
+<p class="meta">Date: 2026-06-16</p>
+<p class="meta"><a href="https://arxiv.org/abs/2606.18037">https://arxiv.org/abs/2606.18037</a></p>
+<blockquote><strong>一句话总结：</strong> ProvenanceGuard 提出一种面向 MCP 协议的源感知事实核查器，通过将每个原子声明路由到对应源的专属证据（NLI + 注意力 token-alignment + 随机森林校准），独立判断"是否被某来源支持"与"是否归因到正确来源"，从而捕获"跨源混淆 (cross-source conflation)"这一传统池化证据指标遗漏的失败模式；在医疗 MCP-agent 冻结评测集上取得 block F1 0.802 / 源准确率 0.858，50 个临床 conflation 探针全部检出。</blockquote>
+<blockquote><strong>TL;DR:</strong> ProvenanceGuard is a source-aware factuality verifier for LLM agents that use the Model Context Protocol (MCP) to pull from heterogeneous evidence sources (search, APIs, databases, clinical records, formulary tools). It argues that standard factuality metrics miss a key failure mode — <em>cross-source conflation</em>, where a claim is supported somewhere but attributed to the wrong MCP source. The verifier preserves stable tool/source IDs through the pipeline, decomposes answers into atomic claims, routes each claim to source-specific evidence via MiniLM cosine similarity, scores support with a DeBERTa-v3-base NLI plus an attention-derived token-alignment proxy plus protected-value matching, and then compares the answer's stated attribution with the routed supporting source. A RandomForest calibrator (400 trees, depth 5, threshold 0.65) maps verifier features to a support probability; a fail-closed answer gate blocks any claim with conflation / contradiction / missing protected value / failed routing. Blocked answers enter a RARR-style revise-and-reverify loop, often terminating in conservative fallback. On a 40-trace held-out split with 361 human-expert-reviewed labels ProvenanceGuard reaches block F1 0.802 (CI [0.664, 0.900]) and source accuracy 0.858 over 260 source-eligible claims; on a harder 59-question multi-source adjudicated benchmark block F1 holds at 0.846 while source-plus-relation accuracy collapses to 0.229; in 50 controlled clinical conflation probes all injected attribution swaps are detected and resolved.</blockquote>
+<h2>核心贡献</h2>
+<ul>
+<li><strong>形式化"跨源混淆 (cross-source conflation)"失败模式</strong>：声明可被某 MCP 源支持，却被归因到错误源；标准池化证据指标（MiniCheck / RAGAS / AlignScore / SummaC-ZS）结构上无法检测，因为它们不发出 claim-to-source ID。</li>
+<li><strong>ProvenanceGuard 管线</strong>：保持 MCP 工具/源 ID 贯穿全流程；原子声明分解 → 源专属证据路由 → DeBERTa-v3-base NLI 支持判断 → 注意力 token-alignment 代理 → 保护值（数值、单位、剂量、日期等）严格匹配 → 随机森林校准 → 归因比对 → 答案级 allow/block 决策（fail-closed）。</li>
+<li><strong>RARR 风格修复-再验证闭环</strong>：被阻断答案可被检索增强改写或保守降级（删去未支撑的声明），再由同一验证器复核。</li>
+<li><strong>医疗领域 MCP-agent 冻结评测集</strong>：281 条完整 MCP-agent 轨迹；266 条声明标注子集产生 2,325 条 LLM 辅助标签（按 trace 切分 train/val/test）；40 条 held-out 子集的 361 条标签经人类专家复核。</li>
+<li><strong>多源压力评测基准</strong>：59 道题的 pairwise 评测包，含 chart+literature 混合、wrong-chart 同主题混淆、count/resource 概要等压力切片（pairwise 行 2,587；frozen extracted claims 263）。</li>
+</ul>
+<h2>Key Contributions</h2>
+<ul>
+<li><strong>Formalizes source-attribution factuality for MCP-grounded answers</strong> — support × source ownership is decoupled into two independent evaluation axes, of which standard pooled-evidence metrics can only measure one.</li>
+<li><strong>ProvenanceGuard (calibrated Router+NLI)</strong>: trace-preserving pipeline (MiniLM-L6-v2 source embeddings → cosine routing → DeBERTa-v3-base-mnli-fever-anli NLI → attention-derived token alignment → protected-value check → RandomForest calibration at threshold 0.65 → attribution gate → fail-closed answer decision → RARR-style repair).</li>
+<li><strong>Frozen captured medical-domain benchmark</strong>: 281 MCP-agent traces, 2,325 LLM-assisted claim labels, 361 human-expert-verified held-out labels, plus a harder multi-source adjudicated benchmark (59 test questions / 2,587 pairwise source-candidate rows / 263 frozen extracted claims).</li>
+<li><strong>Direct baseline comparison</strong> against MiniCheck (0.783 block F1), RAGAS Faithfulness (0.758), AlignScore (0.662), and SummaC-ZS (0.436) on the same held-out packet; none emit claim-to-source IDs, so they are compared only on the binary support axis.</li>
+<li><strong>Targeted conflation probe set</strong>: 50 clinically framed probes with one injected attribution swap per probe; serves as a controlled diagnostic for cross-source conflation.</li>
+</ul>
+<h2>Methodology</h2>
+<ul>
+<li><strong>Trace interface.</strong> Each captured MCP trace exposes <code>evidence_i = (tool_i, source_i, text_i)</code> with stable tool/source IDs. The verifier carries source IDs forward instead of collapsing outputs into an anonymous context; when a tool lacks a stable source ID, the tool name acts as a fallback provenance identifier.</li>
+<li><strong>Atomic claim decomposition.</strong> Deterministic rule-based decomposer filters boilerplate disclaimers and preserves literal protected values (numbers, units, dates, identifiers, medication quantities, quoted values). Over-splits (382 vs. 263 reference claims on multi-source test) and imperfect protected-value preservation (exact-rate 0.563) are treated as known limitations.</li>
+<li><strong>Source routing.</strong> Per claim <code>c_j</code>, the source representation is the centroid of source <code>s</code>'s chunks in all-MiniLM-L6-v2 space; the router picks <code>ŝ_j = argmax_s cos(q_j, r_s)</code> and records the top-2 routing margin. Premise is narrowed to claim-relevant evidence and capped at 1,500 chars (~512 tokens for NLI).</li>
+<li><strong>Support scoring.</strong> DeBERTa-v3-base-mnli-fever-anli yields an NLI label (entail / neutral / contradict). An attention-derived token-alignment proxy marks weakly grounded claim tokens; a content-token support ratio is computed. Protected-value absence after normalization forces a block even on entailment; a neutral label can be lexically rescued only when all protected values are present and content-term overlap exceeds 0.55 (0.85 otherwise).</li>
+<li><strong>Calibrated claim decision.</strong> A RandomForest classifier (400 trees, max depth 5, min leaf size 8, balanced class weights, seed 20260607) takes one-hot NLI label / category / tool / router status and standardized route score, NLI score, routing margin, lexical overlap, claim length, evidence-chunk count, protected-value counts, stated-attribution indicator, and interaction features. Threshold 0.65 selected on validation by block F1 with block accuracy as tie-breaker. The target is binary support for the <em>routed</em> source — calibration tunes an operating point, not the source-aware semantics.</li>
+<li><strong>Attribution / conflation check.</strong> Stated/implied source family (lexical aliases for patient-history, chart, FHIR, PubMed, literature, metadata, tool-name variants; default rules for ambiguous cases) is compared against the routed supporting source; mismatch with positive calibrated support is flagged as conflation.</li>
+<li><strong>Answer-level decision (fail-closed).</strong> An answer is blocked if any claim has source conflation, high-confidence contradiction, missing protected value, failed routing, or insufficient support.</li>
+<li><strong>RARR-style repair.</strong> Blocked answers enter a bounded revise-and-reverify loop (evidence-only rewrite / blocked-claim pruning / conservative non-claim fallback), then the same verifier re-scores.</li>
+</ul>
+<h2>Results & Highlights</h2>
+<ul>
+<li><strong>Held-out (40 traces / 361 claims / 260 source-eligible):</strong> Block F1 <strong>0.802</strong> (CI [0.664, 0.900]), block recall <strong>0.993</strong>, block precision <strong>0.673</strong>, verdict accuracy <strong>0.812</strong>, source accuracy <strong>0.858</strong>, source+relation accuracy <strong>0.681</strong>.</li>
+<li><strong>Source-blind baselines on same packet (block F1):</strong> ProvenanceGuard 0.802 > MiniCheck 0.783 > RAGAS 0.758 > AlignScore 0.662 > SummaC-ZS 0.436. The 0.019 F1 gap to MiniCheck is <em>not</em> statistically significant (one-sided p ≈ 0.13; CIs overlap heavily).</li>
+<li><strong>Multi-source benchmark (59 questions / 263 frozen claims):</strong> Block F1 <strong>0.846</strong>, source accuracy 0.503, source+relation accuracy <strong>0.229</strong>. By stress slice: chart+literature 0.927 / src+rel 0.400; literature summary vs. exact citation 0.941 / 0.778; same-topic wrong chart/patient 0.813 / <strong>0.127</strong>; count/resource-summary 0.800 / 0.179.</li>
+<li><strong>Ablations (held-out, 361 claims):</strong> raw NLI-only 0.750 / recall 0.993; retained calibrated 0.802 / 0.993; raw verdict head (no threshold calibration) verdict acc <strong>0.839</strong>, block F1 0.816, src+rel 0.704. Calibration shifts operating points; the raw verdict head carries most of the actual semantic load.</li>
+<li><strong>Repair (full 281 traces):</strong> Pre-repair allows 108, blocks 173; all 173 revised answers pass re-verification, but <strong>144 of 173 use terminal conservative fallback</strong> rather than substantive rewriting. Mean re-verification latency 0.498 s/answer.</li>
+<li><strong>Targeted conflation probes (50):</strong> All 50 injected swaps blocked and labeled as explicit conflation; all 50 repaired with no retained wrong attribution.</li>
+<li><strong>Stage latency:</strong> mean NLI 0.036 s/call, routing 0.029 s/question group, decompose & conflation route < 0.001 s.</li>
+</ul>
+<h2>Authors & Credibility</h2>
+<ul>
+<li><strong>Ander Alvarez, Santhiya Rajan, Samuel Mugel, Román Orús</strong> — Multiverse Computing (Spain + Toronto), with Orús also affiliated with Donostia International Physics Center and Ikerbasque. The last author is a senior AI/quantum researcher with a strong publication record; the team fits an applied LLM-agent + tooling systems profile.</li>
+<li>Venue categorization (cs.AI / cs.CL / cs.MA) is appropriate for multi-agent tool-use; the empirical depth (calibrated RF + 50 controlled probes + ablation tables) exceeds typical workshop-grade work.</li>
+<li>All experiments are run on a single in-house medical MCP-agent stack; transferability to other stacks is acknowledged as a limitation rather than claimed as a result.</li>
+</ul>
+<h2>Critical Assessment</h2>
+<ul>
+<li><strong>Novelty.</strong> Conceptually a clean <em>re-framing</em> (support × attribution are two independent axes), not a deep new algorithm. Building blocks — NLI, claim decomposition, retrieval-augmented repair, random-forest calibration — are well known. The contribution is the joint pipeline, the MCP-trace-preserving interface, and the explicit conflation taxonomy. Closely related to ALCE-style citation attribution but extended to tool-provenance layer.</li>
+<li><strong>Rigor.</strong> Evaluation is <em>entirely</em> self-built: one medical agent stack, 281 traces, LLM-assisted labels (only 361 human-verified). Held-out split is 40 traces → trace-bootstrap CI on block F1 is <strong>[0.664, 0.900]</strong> — <em>very wide</em>. Top-3/Top-5 source routing is <em>uninformative</em> because most claims have ≤2 candidate sources. 50 conflation probes are <em>single-swap and non-adversarial</em>. No external / non-medical benchmark, no cross-domain results, no cross-stack replication.</li>
+<li><strong>Reproducibility.</strong> Detailed enough to reimplement (architecture, hyperparameters, splits, baseline outputs all specified). Artifact bundle released with frozen traces, prediction files, and baseline outputs. However, MCP trace corpora and tool/source-ID conventions are application-defined; reproducing exact numbers requires rebuilding the underlying agent harness. Reported numbers use a <em>local Gemma 4 E4B</em> for offline adjudication and a <em>gpt-5.4</em> API model for multi-source labels — both are non-deterministic across versions, so exact replication is uncertain.</li>
+<li><strong>Significance.</strong> Strong practical relevance for clinical / regulated / multi-tool deployments where wrong attribution has compliance consequences even when the underlying fact is correct. Best read as a <strong>system pattern + evaluation harness</strong> contribution rather than a new algorithm.</li>
+<li><strong>Red flags / honest concerns to flag.</strong></li>
+<li>The headline F1 advantage over MiniCheck (0.802 vs. 0.783) is <em>not statistically significant</em> (p ≈ 0.13). The paper is explicit about this — credit for honesty, but the practical F1 gain is essentially zero on this benchmark.</li>
+<li>The multi-source src+relation accuracy drop to <strong>0.229</strong> is presented as "expected difficulty," not as a fixable failure mode. Same-topic wrong-chart slice is <strong>0.127</strong>.</li>
+<li><strong>144/173 (83%)</strong> of "resolved" blocked answers are <em>conservative fallback</em> (refusal / claim pruning) — the verifier is increasingly solving the problem by <em>refusing to answer</em>. That is fail-closed behavior, not answer repair.</li>
+<li>Repair success is measured against the <em>same verifier that triggered the block</em>. The paper acknowledges this is not independent clinical validation, but it is still the dominant reported evidence.</li>
+<li>Decomposition is <em>not</em> measured against human gold: only against a frozen LLM-extraction reference. Protected-value exact-match rate is <strong>0.563</strong>.</li>
+<li>The 2048-token ModernBERT diagnostic run (case src+rel acc = 0.090) is <em>worse</em> than shorter-context models — the paper honestly flags this rather than overclaiming longer-context gains.</li>
+<li>2,325 of 2,686 labels are LLM-assisted (Gemma 4 E4B + priority adjudication); the labeled training set is itself produced by a model similar in spirit to the system being evaluated, which can subtly bias comparisons.</li>
+<li>Source attribution depends on <strong>lexical aliases</strong> for "patient-history / chart / FHIR / PubMed / literature / metadata" — a fragile, hand-crafted routing heuristic at the attribution stage.</li>
+</ul>
+<h2>Strengths</h2>
+<ul>
+<li>Reframes factuality as a <strong>two-axis problem</strong> (support × attribution) with a clean taxonomy — conceptually useful and under-articulated in the literature.</li>
+<li>End-to-end pipeline from trace to verdict to repair — not a single-component contribution.</li>
+<li><strong>Honest reporting</strong>: wide CIs, non-significant baseline comparison, decomposition as known limitation, 2048-token failure flagged, circular repair-vs-verifier measurement acknowledged.</li>
+<li>Mixed evaluation design (held-out adjudicated set + adversarial probes + multi-source stress slices + per-stage latency) gives a more honest picture than a single benchmark.</li>
+<li>Empirical separation is clean: block F1 holds at 0.846 even when src+relation collapses to 0.229 — limits are clearly quantified.</li>
+<li>Calibrated RandomForest + threshold-by-validation is a reasonable, lightweight design for offline / data-sensitive settings.</li>
+</ul>
+<h2>Limitations</h2>
+<ul>
+<li>Single-domain evaluation (one medical agent stack); transfer to open-domain RAG agents or non-MCP multi-source systems is unverified.</li>
+<li>Small held-out split (40 traces) → wide CIs; Top-3/Top-5 source routing uninformative on this data.</li>
+<li>Source+relation accuracy 0.229 on the multi-source split; 0.127 on same-topic wrong-chart cases — no mitigation proposed.</li>
+<li>LLM-assisted labeling for 2,325 of 2,686 claims; decomposition measured against frozen LLM extraction, not human gold.</li>
+<li>Conservative fallback dominates repair outcomes (144/173) — partial capitulation rather than true recovery.</li>
+<li>Attribution step relies on hand-crafted lexical aliases; brittle to novel source-family names.</li>
+<li>Circular evaluation: repair success measured against the same verifier that triggered the block.</li>
+<li>Depends on stable source IDs at the trace layer — does not generalize to free-form RAG contexts without tool provenance.</li>
+</ul>
+<h2>Relevance</h2>
+<ul>
+<li>与用户关注的 MCP 工具调用、多源检索归因、LLM-agent 事实性核查方向高度相关：提出了一套可迁移的"声明—源路由—归因比对—修复"系统模式以及一份可借鉴的医疗领域冻结评测设计，对关注"答得对但归因错"这一隐性失败模式的工作尤其有参考价值。</li>
+<li>论文对实验局限的诚实披露（宽置信区间、非显著 F1 差异、保守回退主导修复）也使其成为讨论"事实性核查的评估边界"时的一个高质量案例。</li>
+</ul>
+<h2>Questions for Further Exploration</h2>
+<ul>
+<li>Does ProvenanceGuard's source-attribution signal survive a <strong>domain shift</strong> from clinical MCP traces to open-domain web / enterprise RAG agents, where source IDs are noisier or absent?</li>
+<li>Can source+relation accuracy (0.229 on multi-source; 0.127 on same-topic wrong-chart) be lifted by source disambiguation, claim-level provenance graphs, or jointly training attribution with NLI rather than relying on post-hoc lexical aliases?</li>
+<li>How does the conservative fallback (144/173 resolutions) interact with <strong>task utility</strong> in deployment — does the verifier over-refuse on legitimately supported claims when protected values are imperfectly preserved (exact-rate 0.563)?</li>
+<li>What is the <em>human-evaluated</em> false-positive rate on the 2,325 LLM-assisted labels, given that the labeling model and the verified model are similar in capacity?</li>
+<li>Could the same source-aware pattern be ported to <strong>non-MCP retrieval</strong> (e.g., citation verification in RAG) without the stable source-ID assumption, or does the design require tool-provenance at the infrastructure layer?</li>
+<li>The raw verdict head reaches higher verdict accuracy (0.839) than the calibrated system (0.812) — does this mean a <em>single end-to-end source-aware NLI model</em> would outperform the current Router+NLI+RF pipeline once long-context backbones are properly trained?</li>
+</ul>
+<p class="note">Generated from Markdown summary. Full paper: <a href="https://arxiv.org/abs/2606.18037">arXiv:2606.18037</a></p>
+</div>
+</body>
+</html>

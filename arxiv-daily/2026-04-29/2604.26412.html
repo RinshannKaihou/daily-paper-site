@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>When Hidden States Drift: Can KV Caches Rescue Long-Range Speculative Decoding?</title>
+<style>
+:root { --paper:#fafafa; --ink:#1a1a1a; --muted:#555; --accent:#1a5276; --line:#ddd; --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif; --serif:Georgia,"Noto Serif SC",serif; }
+body { font-family:var(--serif); background:var(--paper); color:var(--ink); line-height:1.6; margin:0; padding:0; }
+.container { max-width:min(95vw, 760px); margin:0 auto; padding:28px 20px 60px; }
+.topnav { position:fixed; top:12px; left:14px; z-index:50; font-family:var(--sans); font-size:.75rem; background:var(--paper); border:1px solid var(--line); padding:5px 10px; border-radius:999px; }
+.topnav a { color:var(--muted); text-decoration:none; font-weight:600; }
+.topnav a:hover { color:var(--accent); }
+h1 { font-size:1.6rem; margin:2.2rem 0 1rem; border-bottom:2px solid var(--accent); padding-bottom:.3rem; }
+h2 { font-size:1.3rem; margin:1.8rem 0 .8rem; color:var(--accent); }
+h3 { font-size:1.1rem; margin:1.4rem 0 .6rem; }
+p { margin:.8rem 0; }
+.authors { font-style:italic; color:var(--muted); margin-top:-.4rem; }
+.meta { font-family:var(--sans); font-size:.82rem; color:var(--muted); margin:.2rem 0; }
+a { color:var(--accent); text-decoration:none; }
+a:hover { text-decoration:underline; }
+blockquote { border-left:3px solid var(--accent); margin:1rem 0; padding:.2rem 0 .2rem 1rem; color:var(--muted); font-style:italic; }
+code { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; background:#f0f0f0; padding:2px 5px; border-radius:3px; font-size:.9em; }
+pre { background:#f5f5f5; padding:14px; overflow-x:auto; border-radius:4px; border:1px solid var(--line); }
+pre code { background:transparent; padding:0; }
+ul,ol { margin:.6rem 0; padding-left:1.5rem; }
+li { margin:.25rem 0; }
+table { border-collapse:collapse; width:100%; margin:1rem 0; font-family:var(--sans); font-size:.9rem; }
+th,td { border:1px solid var(--line); padding:6px 10px; text-align:left; }
+th { background:#f0f0f0; }
+hr { border:none; border-top:1px solid var(--line); margin:1.5rem 0; }
+.note { font-family:var(--sans); font-size:.78rem; color:var(--muted); border-top:1px solid var(--line); margin-top:2rem; padding-top:1rem; }
+@media (max-width: 600px) { .container { padding:22px 14px 40px; } h1 { font-size:1.35rem; } }
+</style>
+</head>
+<body>
+<div class="topnav"><a href="./index.html">← Today's digest</a></div>
+<div class="container">
+<h1>When Hidden States Drift: Can KV Caches Rescue Long-Range Speculative Decoding?</h1>
+<p class="meta">arXiv: 2604.26412v1</p>
+<p class="meta">Date: 2026-04-29</p>
+<p class="meta"><a href="https://arxiv.org/abs/2604.26412v1">https://arxiv.org/abs/2604.26412v1</a></p>
+<blockquote><strong>一句话总结：</strong> 本文提出KVShot诊断框架，从信息保存角度分析投机解码中隐状态复用的长程衰减问题，发现KV缓存复用在长程步骤上有更优的衰减特性，但在当前自回归TTT训练管线下端到端加速效果有限，瓶颈在于查询估计困难、KV投影梯度稀疏和门控梯度饥饿。</blockquote>
+<blockquote><strong>TL;DR:</strong> This paper proposes that hidden-state reuse in speculative decoding suffers from "biased context compression" -- the target model's attention discards information relevant to later speculative steps. The KVShot diagnostic framework tests whether reusing the target KV cache instead can mitigate this long-range decay. On Qwen3-8B, KV-only drafters show better retention at long speculative steps (e.g., 4-layer KV-only achieves alpha_6=0.495 vs. EAGLE-3's 0.469), and a hybrid drafter combining hidden states with gated KV correction improves step-wise MAT from 2.37 to 2.54. However, end-to-end speedup is marginal (HF MAT 5.01 to 5.04, +0.6%) due to three structural bottlenecks: shallow drafters cannot accurately estimate target queries, draft-side KV projections receive sparse gradients, and gate-induced gradient starvation in hybrid warm-started models. The paper identifies block-wise training as the most promising direction for making KV reuse practical.</blockquote>
+<h2>核心贡献</h2>
+<ul>
+<li>提出了"信息保存视角"来解释投机解码中的长程衰减现象：隐状态复用本质上是基于当前查询的有偏压缩，会丢弃对未来投机步骤重要的信息，而TTT只能缓解递归漂移，无法恢复被压缩丢失的信息。</li>
+<li>构建了KVShot诊断框架，在统一的自回归TTT训练管线下系统比较三种复用范式（纯隐状态、纯KV缓存、混合），隔离了表征选择对长程衰减的影响。</li>
+<li>提出了KV复用假设及三个可验证预测：长程优势（KV复用在长步骤更稳健）、查询估计瓶颈（浅层drafter难以近似目标查询）、短程劣势（隐状态在近距离仍有语义优势），实验均得到验证。</li>
+<li>发现了自回归TTT管线下的三个结构性瓶颈：查询估计困难、KV投影梯度稀疏、门控梯度饥饿，这些瓶颈解释了步级提升为何无法转化为端到端加速。</li>
+<li>明确指出块级训练（block-wise training，如DFlash）是释放KV复用潜力的关键方向。</li>
+</ul>
+<h2>Key Contributions</h2>
+<ul>
+<li><strong>Information-preservation view of long-range decay:</strong> Recasts long-range decay not just as train-inference mismatch but as a consequence of query-dependent compression in hidden states. Target attention weights optimized for next-token prediction suppress information needed at later speculative steps, and this compression loss is irrecoverable by TTT.</li>
+<li><strong>KVShot diagnostic framework:</strong> A controlled experimental platform comparing hidden-only, KV-only, and hybrid (gated delta) reuse paradigms under the same autoregressive TTT pipeline, isolating the effect of representation choice from other confounds.</li>
+<li><strong>KV-Reuse Hypothesis with three testable predictions:</strong> (1) KV reuse degrades more gracefully at long range, (2) query estimation is the primary bottleneck, (3) hidden-state reuse retains short-range advantage. All three confirmed experimentally on Qwen3-8B.</li>
+<li><strong>Identification of three structural bottlenecks in autoregressive TTT:</strong> (i) shallow drafters cannot approximate multi-layer nonlinear target queries, (ii) draft-side KV projections receive sparse gradients from only ~7 draft tokens vs. the full prefix, (iii) gated fusion suffers gradient starvation where the gate collapses to near-zero early in training and the cross-attention branch receives weak learning signal.</li>
+<li><strong>Roadmap for future training paradigms:</strong> Points to block-wise training (parallel draft token generation) as the solution, which addresses query estimation depth, gradient density, and gate starvation simultaneously.</li>
+</ul>
+<h2>Methodology</h2>
+<p>The paper develops its analysis in three stages:</p>
+<p><strong>1. Theoretical analysis (Section 2):</strong> The authors formalize hidden-state reuse as "biased context compression" -- attention output at position t is a weighted sum over value vectors where weights are determined by the current query optimized for next-token prediction. Tokens weakly relevant to this prediction receive near-zero weights, and their information is effectively discarded. KV cache, by contrast, preserves all token-wise key/value pairs before aggregation, allowing re-attention with estimated future queries. The error decomposition shows hidden-state reuse faces both compression loss and recursive drift, while KV reuse faces primarily query estimation error.</p>
+<p><strong>2. KVShot framework (Section 3):</strong> Three reuse paradigms are implemented:</p>
+<ul>
+<li><em>KV-only:</em> Target KV cache injected into drafter via cross-attention, with linear projection of multi-layer KV. Tested at 1-4 drafter layers.</li>
+<li><em>Hybrid (gated delta rule):</em> EAGLE-3's self-attention path augmented with parallel cross-attention to target KV. The cross-attention output is treated as a correction term, gated by a learned sigmoid gate: h_i = n_i + g_i <em> W_delta </em> (o_i - n_i). This preserves short-range EAGLE-3 performance while allowing KV correction at longer range.</li>
+<li><em>Hidden-only (EAGLE-3 baseline):</em> Standard hidden-state reuse with TTT training.</li>
+</ul>
+<p>All experiments use Qwen3-8B as target, ShareGPT (~70k) for ablations and ShareGPT+UltraChat (280k) for end-to-end evaluation.</p>
+<p><strong>3. Bottleneck analysis (Section 4):</strong> Detailed investigation of why step-wise gains do not translate to end-to-end speedup, examining query estimation capacity (depth scaling), gradient sparsity in KV projections (only draft tokens contribute gradients), and gate-induced gradient starvation (warm-started self-attention causes gate to collapse to near-zero, starving the randomly initialized cross-attention branch).</p>
+<h2>Results & Highlights</h2>
+<ul>
+<li><strong>KV-only retention advantage:</strong> 4-layer KV-only drafter achieves alpha_6/alpha_0 retention of 80.6% vs. EAGLE-3's 73.5%, and at step k=6, alpha_6=0.495 surpasses EAGLE-3's 0.469 (Prediction 1 confirmed).</li>
+<li><strong>Query estimation is the key bottleneck:</strong> Going from 1-layer to 2-layer KV-only drafter yields +0.39 MAT (largest single gain), confirming that context-aware query formation is critical (Prediction 2 confirmed).</li>
+<li><strong>Short-range hidden-state advantage:</strong> At k=0, even 4-layer KV-only (0.614) trails 1-layer EAGLE-3 (0.638), confirming hidden states carry richer short-range semantic content (Prediction 3 confirmed).</li>
+<li><strong>Hybrid drafter step-wise improvement:</strong> Gated hybrid drafter warm-started from EAGLE-3 checkpoint achieves MAT 2.54 vs. baseline 2.37 (+7.2%), with improvements at every speculative step. Alpha_6 improves by 9.6% (0.469 to 0.514).</li>
+<li><strong>Marginal end-to-end gain:</strong> Under scaled-up evaluation (280k samples, tree verification (8,10,60)), HF MAT only improves from 5.01 to 5.04 (+0.6%), with 5-10% additional drafting latency from the cross-attention path.</li>
+<li><strong>Gate starvation trajectory:</strong> Mean gate value collapses from ~0.5 to ~0.02 within first few thousand steps, then slowly recovers to ~0.10 over remaining training, illustrating the self-reinforcing low-injection state.</li>
+<li><strong>Gradient scaling ineffective:</strong> Scaling KV-projection gradient by 50x yields negligible improvement (MAT 2.21 vs. 2.18), confirming the bottleneck is training signal diversity, not magnitude.</li>
+</ul>
+<h2>Authors & Credibility</h2>
+<p>The authors are from Alibaba's Qwen Applications Business Group, University of Science and Technology of China, and Zhejiang University. The work is built on top of SpecForge (an established speculative decoding training framework) and directly compares against EAGLE-3, the current state-of-the-art hidden-state drafter. The experimental design is methodologically strong: controlled comparisons under identical training pipelines, ablation studies with complete step-wise acceptance curves, and honest reporting of negative end-to-end results. The paper is transparent about limitations and does not oversell findings.</p>
+<h2>Critical Assessment</h2>
+<p><strong>Novelty:</strong> The information-preservation view of long-range decay is a genuine conceptual contribution. While KV cache reuse in speculative decoding has appeared before (GLIDE+CAPE, LongSpec), this paper is the first to systematically compare it against hidden-state reuse as a mechanism for explaining long-range decay, and to identify specific training-pipeline bottlenecks. The gated delta rule design is incremental but well-motivated.</p>
+<p><strong>Rigor:</strong> The paper is admirably rigorous in its experimental design. All three predictions are tested independently. The controlled comparison isolates representation choice from training setup. Negative results (marginal end-to-end speedup) are reported transparently and analyzed in depth. The bottleneck analysis traces the gap from step-wise gains to end-to-end stagnation through three concrete, empirically supported mechanisms.</p>
+<p><strong>Reproducibility:</strong> Good. The framework is built on SpecForge (open-source), target model (Qwen3-8B) is public, and training details (datasets, hyperparameters, layer configurations) are provided in appendices. Architecture details for the gated delta fusion are clearly specified.</p>
+<p><strong>Significance:</strong> The paper is more significant as a diagnostic contribution than as a practical acceleration method. It clearly delineates the boundary between what information is available (KV cache carries useful long-range signal) and what current training pipelines can exploit (autoregressive TTT cannot efficiently learn to use it). The identification of block-wise training as the necessary next step is valuable for the community.</p>
+<p><strong>Red flags:</strong> None major. The paper is notably honest about its negative end-to-end result and does not attempt to reframe it as a success. One could argue the practical contribution is limited (no actual speedup), but the diagnostic value and the clear roadmap for future work justify publication.</p>
+<h2>Strengths</h2>
+<ul>
+<li>Clear, principled theoretical framework connecting hidden-state compression to long-range decay, going beyond the standard train-inference mismatch narrative.</li>
+<li>Well-designed controlled experiments with three testable predictions, all validated, providing a coherent story.</li>
+<li>The gated delta rule is a clean architectural design that properly respects the complementary strengths of hidden-state and KV reuse.</li>
+<li>Exceptional transparency: negative results are reported and analyzed with the same rigor as positive ones.</li>
+<li>The bottleneck analysis (Section 4) is thorough and identifies actionable root causes rather than surface symptoms.</li>
+<li>The paper provides a clear roadmap pointing to block-wise training as the direction that could make KV reuse practical.</li>
+</ul>
+<h2>Limitations</h2>
+<ul>
+<li>No end-to-end wall-clock speedup is achieved; the practical contribution is diagnostic rather than immediately deployable.</li>
+<li>All experiments use a single target model (Qwen3-8B); generalization to other model families/sizes is not demonstrated.</li>
+<li>The block-wise training direction is identified but not empirically validated -- the paper suggests it as future work without testing it.</li>
+<li>The KV-only drafter requires 4 layers to approach a 1-layer EAGLE-3, raising concerns about the cost-effectiveness of the KV approach even under improved training.</li>
+<li>Cross-attention to the full KV cache adds memory overhead for the drafter, which is not quantified in the paper.</li>
+<li>The hybrid drafter's gate starvation issue suggests a fundamental tension in warm-started multi-branch architectures that may require more than training pipeline changes to resolve.</li>
+</ul>
+<h2>Relevance</h2>
+<p>本文对研究LLM推理加速和投机解码的研究者具有高参考价值。从信息论角度重新解释了EAGLE/MTP系列方法的长程衰减问题，并提出了明确的未来方向（块级训练），为后续工作提供了清晰的诊断框架和实验基准。</p>
+<h2>Questions for Further Exploration</h2>
+<ol>
+<li>Can block-wise training (e.g., DFlash-style parallel draft blocks) actually resolve the gradient sparsity and gate starvation bottlenecks identified here, and by how much?</li>
+<li>How do the findings transfer to larger target models (e.g., 70B+), where KV cache sizes grow substantially and the query estimation problem may become harder?</li>
+<li>Is there an alternative to the gated fusion approach that avoids the gradient starvation problem -- for example, pre-training the cross-attention branch separately before fusion?</li>
+<li>Could multi-head query estimation (generating multiple candidate queries per step) provide a softer approximation to target queries than a single query projection?</li>
+<li>What is the memory-compute tradeoff of KV reuse when the prefix is very long (100k+ tokens), and does the long-context setting change the relative advantage of KV vs. hidden-state reuse?</li>
+</ol>
+<p class="note">Generated from Markdown summary. Full paper: <a href="https://arxiv.org/abs/2604.26412v1">arXiv:2604.26412v1</a></p>
+</div>
+</body>
+</html>

@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Statistically-Lossless Quantization of Large Language Models</title>
+<style>
+:root { --paper:#fafafa; --ink:#1a1a1a; --muted:#555; --accent:#1a5276; --line:#ddd; --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif; --serif:Georgia,"Noto Serif SC",serif; }
+body { font-family:var(--serif); background:var(--paper); color:var(--ink); line-height:1.6; margin:0; padding:0; }
+.container { max-width:min(95vw, 760px); margin:0 auto; padding:28px 20px 60px; }
+.topnav { position:fixed; top:12px; left:14px; z-index:50; font-family:var(--sans); font-size:.75rem; background:var(--paper); border:1px solid var(--line); padding:5px 10px; border-radius:999px; }
+.topnav a { color:var(--muted); text-decoration:none; font-weight:600; }
+.topnav a:hover { color:var(--accent); }
+h1 { font-size:1.6rem; margin:2.2rem 0 1rem; border-bottom:2px solid var(--accent); padding-bottom:.3rem; }
+h2 { font-size:1.3rem; margin:1.8rem 0 .8rem; color:var(--accent); }
+h3 { font-size:1.1rem; margin:1.4rem 0 .6rem; }
+p { margin:.8rem 0; }
+.authors { font-style:italic; color:var(--muted); margin-top:-.4rem; }
+.meta { font-family:var(--sans); font-size:.82rem; color:var(--muted); margin:.2rem 0; }
+a { color:var(--accent); text-decoration:none; }
+a:hover { text-decoration:underline; }
+blockquote { border-left:3px solid var(--accent); margin:1rem 0; padding:.2rem 0 .2rem 1rem; color:var(--muted); font-style:italic; }
+code { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; background:#f0f0f0; padding:2px 5px; border-radius:3px; font-size:.9em; }
+pre { background:#f5f5f5; padding:14px; overflow-x:auto; border-radius:4px; border:1px solid var(--line); }
+pre code { background:transparent; padding:0; }
+ul,ol { margin:.6rem 0; padding-left:1.5rem; }
+li { margin:.25rem 0; }
+table { border-collapse:collapse; width:100%; margin:1rem 0; font-family:var(--sans); font-size:.9rem; }
+th,td { border:1px solid var(--line); padding:6px 10px; text-align:left; }
+th { background:#f0f0f0; }
+hr { border:none; border-top:1px solid var(--line); margin:1.5rem 0; }
+.note { font-family:var(--sans); font-size:.78rem; color:var(--muted); border-top:1px solid var(--line); margin-top:2rem; padding-top:1rem; }
+@media (max-width: 600px) { .container { padding:22px 14px 40px; } h1 { font-size:1.35rem; } }
+</style>
+</head>
+<body>
+<div class="topnav"><a href="./index.html">← Today's digest</a></div>
+<div class="container">
+<h1>Statistically-Lossless Quantization of Large Language Models</h1>
+<p class="meta">arXiv: 2605.02404v1</p>
+<p class="meta">Date: 2026-05-04</p>
+<p class="meta"><a href="https://arxiv.org/abs/2605.02404">https://arxiv.org/abs/2605.02404</a></p>
+<blockquote><strong>一句话总结：</strong> 本文提出SLQ方法，通过非均匀非对称整数量化与Shapley灵敏度估计，在任务无损（3.3-4.7 bits）和分布无损（5.0-6.6 bits）两个层面上分别实现LLM压缩，同时获得1.7-3.6倍的推理加速，并从理论上证明了非对称量化是分布无损压缩的必要条件。</blockquote>
+<blockquote><strong>TL;DR:</strong> Proposes SLQ, a non-uniform asymmetric integer quantization pipeline for LLMs that distinguishes task-lossless (preserving benchmark accuracy, 3.3-4.7 bpp) from distribution-lossless (preserving next-token distributions, 5.0-6.6 bpp) compression. Introduces EAR (Expected Acceptance Rate) as an interpretable fidelity metric and proves a gamma-squared variance law showing asymmetric quantization is required for distribution-lossless fidelity. Achieves 1.7-3.6x inference speedup over BF16 via Humming kernels integrated with vLLM.</blockquote>
+<h2>核心贡献</h2>
+<ul>
+<li>提出了"统计无损"压缩的两个层次定义：<strong>任务无损（TL）</strong>保留零样本基准测试精度在自然采样方差内；<strong>分布无损（DL）</strong>要求量化模型的下一token分布与原始模型实际不可区分</li>
+<li>提出期望接受率（EAR）作为分布保真度的可解释度量——EAR=0.99表示最优耦合下原始模型与量化模型99%的token一致</li>
+<li>理论证明了对称量化相比非对称量化会将噪声方差放大γ²倍（gamma-squared variance law），从而首次形式化连接了非对称/对称量化选择与token级决策翻转的关系</li>
+<li>开发了SLQ管线：基于Shapley值的多位宽灵敏度估计 + ILP位宽分配 + 非对称整数量化，支持{2,3,4,5,6,7,8}位宽范围</li>
+<li>提出单点校准（single-point calibration）程序，利用KL散度与任务恢复率之间的近似线性关系，仅需一次前向传播即可锚定任务无损压缩搜索</li>
+</ul>
+<h2>Key Contributions</h2>
+<ul>
+<li>Formalizes two tiers of statistically-lossless compression: <strong>task-lossless (TL)</strong> preserving zero-shot benchmark accuracy within natural sampling variance, and <strong>distribution-lossless (DL)</strong> requiring the quantized model's next-token distribution to be practically indistinguishable from the original</li>
+<li>Introduces <strong>EAR (Expected Acceptance Rate)</strong>, the maximum token-agreement probability under optimal coupling, as an interpretable metric for distribution fidelity (e.g., EAR≥0.99 means 99% token agreement)</li>
+<li>Proves the <strong>gamma-squared variance law</strong>: symmetric quantization inflates noise variance by γ² relative to asymmetric quantization, formally establishing asymmetric quantization as a prerequisite for DL compression</li>
+<li>Develops the <strong>SLQ pipeline</strong> combining multi-bitwidth Shapley sensitivity estimation, ILP-based bitwidth allocation across {2,3,4,5,6,7,8} bits, and asymmetric integer group quantization</li>
+<li>Proposes <strong>single-point calibration</strong> for TL search, exploiting the linear KL-recovery relationship to anchor bitwidth search with one forward pass and two benchmark evaluations</li>
+</ul>
+<h2>Methodology</h2>
+<p>SLQ operates in three stages:</p>
+<p><strong>1. Sensitivity Estimation.</strong> Layers are partitioned into groups (e.g., fused QKV projections). For each target bitwidth b<em> ∈ {2,3,4,5,6,7,8}, a separate binary Shapley game is run: all groups start at maximum bitwidth, and groups are sequentially switched to b</em> across P random permutations, recording marginal metric changes. This yields a full sensitivity database ϕ(b)_m for every group-bitwidth pair at cost O(P·M·|B|) forward passes. A faster linear estimation alternative models metric degradation as a linear combination of per-group reconstruction errors via noise injection.</p>
+<p><strong>2. Bitwidth Allocation.</strong> The sensitivity database feeds into an ILP solver formulating a multiple-choice knapsack problem: minimize total predicted degradation subject to a bitwidth budget. For DL targets, binary search over the budget finds the minimum average bitwidth satisfying an EAR constraint (e.g., ≥0.99). For TL targets, single-point calibration exploits the linearity between KL divergence and task recovery (observed consistently across six model families): measure KL and benchmark accuracy at one calibration point (e.g., uniform 4-bit), fit a linear model, and derive the KL threshold for the target recovery rate. A calibration ratio ρ corrects systematic Shapley prediction offsets.</p>
+<p><strong>3. Quantization & Serving.</strong> Each group is quantized using GPTQ with asymmetric integer quantization (group size 128). The resulting models are served via Humming kernels (MARLIN-based, vLLM-integrated) supporting 4-8 bit integer weight-only inference.</p>
+<h2>Results & Highlights</h2>
+<ul>
+<li><strong>Task-lossless compression</strong> at 3.30 bpp (Qwen3.5-27B), 3.59 bpp (Qwen3-32B, Llama-3.3-70B), and 4.72 bpp (Qwen3-8B), all with ≥99% average benchmark recovery under non-greedy decoding (3 seeds)</li>
+<li><strong>Distribution-lossless compression</strong> at 4.98 bpp (Qwen3-32B, 100.1% recovery), 5.19 bpp (Qwen3.5-27B), 5.70 bpp (Qwen3-8B), and 6.55 bpp (Llama-3.3-70B), all with EAR≥0.99</li>
+<li><strong>Inference speedup</strong>: 1.74x (Qwen3-8B DL), 2.94x (Qwen3-32B DL), 3.68x (Llama-3.3-70B TL) over BF16 on L40S GPUs via vLLM + Humming kernels, consistently outperforming FP8</li>
+<li>SLQ-DL on Qwen3-8B achieves 98.1% token-level agreement with the base model across 15 diverse prompts (6,531 tokens); divergent tokens are minor stylistic variations only</li>
+<li>On MMLU-Pro (single-token decisions), asymmetric 4-bit recovers 88.4% of FP16 accuracy vs. 82.5% for symmetric</li>
+<li>SLQ-DL introduces no additional thinking token overhead on GSM8K, while SLQ-TL and uniform-4-bit increase thinking tokens by 2.2% and 2.9% respectively</li>
+<li>Full bitwidth range {4,5,6,7,8} saves ~0.76 bits over {4,8} binary allocation at the same EAR≥0.99 target on Qwen3-32B</li>
+</ul>
+<h2>Authors & Credibility</h2>
+<ul>
+<li><strong>Michael Helcig</strong> (ETH Zürich), <strong>Eldar Kurtic</strong> (ISTA), <strong>Dan Alistarh</strong> (ISTA) — Alistarh's group has a strong track record in LLM compression, having produced GPTQ, SpQR, AQLM, and MARLIN. Kurtic is a core contributor to the GPTQ lineage. This is a well-positioned team for this line of work.</li>
+<li>The paper is a preprint under review (as of May 2026). Source code is available at https://github.com/IST-DASLab/SLQ.</li>
+<li>Evaluation is thorough: four model families (Qwen3-8B, Qwen3-32B, Qwen3.5-27B, Llama-3.3-70B), seven benchmarks, both accuracy and throughput measurements, detailed ablations in appendices, and novel token-level analysis.</li>
+</ul>
+<h2>Critical Assessment</h2>
+<p><strong>Novelty:</strong> The distinction between TL and DL compression is conceptually clean and practically useful. The EAR metric is a natural borrowing from speculative decoding applied to compression fidelity — incrementally novel. The gamma-squared variance law is a straightforward but rigorous result; the formalization of the asymmetric-vs-symmetric gap at the token-flip level is the key theoretical contribution. The multi-bitwidth Shapley extension from binary choices is a natural generalization.</p>
+<p><strong>Rigor:</strong> The theoretical derivation (Appendix B) is self-contained and correct under stated assumptions (Bennett's high-rate approximation). The single-point calibration relies on an observed linear relationship between KL and recovery that is empirically validated across six models but not formally proven — the authors acknowledge this holds "within the near-lossless range" and breaks down at aggressive compression. The evaluation protocol (3 seeds, non-greedy decoding with model-recommended parameters) is sound and reflects real deployment conditions.</p>
+<p><strong>Reproducibility:</strong> Code is publicly available. The pipeline uses standard GPTQ for per-layer quantization and ILP for allocation — both well-understood components. The Shapley sensitivity estimation cost O(P·M·|B|) forward passes could be expensive for very large models, but the authors use 512 calibration samples and report practical runtimes. Hardware (L40S GPUs) is widely available.</p>
+<p><strong>Significance:</strong> The practical contribution is substantial: achieving genuine distribution-lossless compression at 5-6 bpp with real inference acceleration addresses a real gap between lossy methods and bit-exact compression. The finding that asymmetric quantization is critical for DL but not TL is actionable guidance for practitioners.</p>
+<p><strong>Red flags:</strong> The DL results require 5-6 bpp, which is less aggressive than the 4-bit target common in practice — the paper argues this is the correct operating point for fidelity, but practitioners seeking maximum compression may find this insufficient. The throughput gains for DL (1.7-2.9x) are moderate compared to what lossy 4-bit methods achieve. The paper evaluates weight-only quantization; weight+activation quantization results (Appendix D.1) show 6.5-7.0 bits are needed for comparable fidelity, which is much less competitive.</p>
+<h2>Strengths</h2>
+<ul>
+<li>Clean formalization of the TL/DL distinction with practical implications for deployment scenarios</li>
+<li>EAR is intuitive, bounded, and directly interpretable — a genuine improvement over raw KL for communication</li>
+<li>Rigorous theoretical grounding for the asymmetric-vs-symmetric design choice</li>
+<li>Comprehensive evaluation across model sizes (8B-70B) with both accuracy and throughput metrics</li>
+<li>Token-level teacher-forced analysis provides rare mechanistic insight into what quantization actually changes</li>
+<li>Thinking token inflation analysis is timely and practically important for reasoning models</li>
+<li>Full ablations (bitwidth range, sensitivity method, format comparisons) in appendices</li>
+</ul>
+<h2>Limitations</h2>
+<ul>
+<li>Distribution-lossless compression at 5-6 bpp offers only moderate memory savings (2.5-3.2x) over BF16, which may not justify the engineering complexity for some deployment scenarios</li>
+<li>Shapley sensitivity estimation requires O(P·M·|B|) forward passes — cost scales linearly with number of groups and bitwidth options, which could be significant for very large models</li>
+<li>Single-point calibration relies on an empirically observed linear KL-recovery relationship that is not formally guaranteed and may not hold for all architectures or task distributions</li>
+<li>Weight+activation quantization requires 6.5-7.0 bits for near-lossless fidelity, substantially reducing the compression advantage</li>
+<li>Results are limited to NVIDIA GPUs with Humming kernel support; CPU or other accelerator support is not discussed</li>
+<li>The paper does not compare against recent vector-quantization or trellis-based methods (QTIP, YAQA) on the same DL/TL criteria — only KL comparisons on Llama-3.1-8B are provided</li>
+</ul>
+<h2>Relevance</h2>
+<p>本文提出的EAR指标和分布无损量化框架对LLM部署效率研究具有直接参考价值，特别是非对称量化的理论分析和非均匀位宽分配策略可应用于实际推理服务优化。SLQ在保持模型输出分布保真度的前提下实现了显著的推理加速，与高效推理服务方向高度相关。</p>
+<h2>Questions for Further Exploration</h2>
+<ul>
+<li>How does the gamma-squared variance law interact with activation quantization? Does the asymmetric advantage diminish or amplify when quantizing activations?</li>
+<li>Can the Shapley sensitivity estimation be approximated more efficiently (e.g., via gradient-based proxy or learned predictor) to reduce the O(P·M·|B|) cost for very large models?</li>
+<li>How does SLQ interact with speculative decoding — can the high EAR enable more aggressive draft model acceptance?</li>
+<li>Does the linear KL-recovery relationship hold for multimodal models, code generation tasks with exact-match evaluation, or RLHF-trained models with different reward landscapes?</li>
+<li>What is the Pareto frontier when jointly optimizing for DL fidelity, throughput, and memory across different kernel libraries and hardware platforms?</li>
+</ul>
+<p class="note">Generated from Markdown summary. Full paper: <a href="https://arxiv.org/abs/2605.02404v1">arXiv:2605.02404v1</a></p>
+</div>
+</body>
+</html>

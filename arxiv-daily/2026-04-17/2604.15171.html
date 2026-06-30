@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>An Analysis of Regularization and Fokker-Planck Residuals in Diffusion Models for Image Generation</title>
+<style>
+:root { --paper:#fafafa; --ink:#1a1a1a; --muted:#555; --accent:#1a5276; --line:#ddd; --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif; --serif:Georgia,"Noto Serif SC",serif; }
+body { font-family:var(--serif); background:var(--paper); color:var(--ink); line-height:1.6; margin:0; padding:0; }
+.container { max-width:min(95vw, 760px); margin:0 auto; padding:28px 20px 60px; }
+.topnav { position:fixed; top:12px; left:14px; z-index:50; font-family:var(--sans); font-size:.75rem; background:var(--paper); border:1px solid var(--line); padding:5px 10px; border-radius:999px; }
+.topnav a { color:var(--muted); text-decoration:none; font-weight:600; }
+.topnav a:hover { color:var(--accent); }
+h1 { font-size:1.6rem; margin:2.2rem 0 1rem; border-bottom:2px solid var(--accent); padding-bottom:.3rem; }
+h2 { font-size:1.3rem; margin:1.8rem 0 .8rem; color:var(--accent); }
+h3 { font-size:1.1rem; margin:1.4rem 0 .6rem; }
+p { margin:.8rem 0; }
+.authors { font-style:italic; color:var(--muted); margin-top:-.4rem; }
+.meta { font-family:var(--sans); font-size:.82rem; color:var(--muted); margin:.2rem 0; }
+a { color:var(--accent); text-decoration:none; }
+a:hover { text-decoration:underline; }
+blockquote { border-left:3px solid var(--accent); margin:1rem 0; padding:.2rem 0 .2rem 1rem; color:var(--muted); font-style:italic; }
+code { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; background:#f0f0f0; padding:2px 5px; border-radius:3px; font-size:.9em; }
+pre { background:#f5f5f5; padding:14px; overflow-x:auto; border-radius:4px; border:1px solid var(--line); }
+pre code { background:transparent; padding:0; }
+ul,ol { margin:.6rem 0; padding-left:1.5rem; }
+li { margin:.25rem 0; }
+table { border-collapse:collapse; width:100%; margin:1rem 0; font-family:var(--sans); font-size:.9rem; }
+th,td { border:1px solid var(--line); padding:6px 10px; text-align:left; }
+th { background:#f0f0f0; }
+hr { border:none; border-top:1px solid var(--line); margin:1.5rem 0; }
+.note { font-family:var(--sans); font-size:.78rem; color:var(--muted); border-top:1px solid var(--line); margin-top:2rem; padding-top:1rem; }
+@media (max-width: 600px) { .container { padding:22px 14px 40px; } h1 { font-size:1.35rem; } }
+</style>
+</head>
+<body>
+<div class="topnav"><a href="./index.html">← Today's digest</a></div>
+<div class="container">
+<h1>An Analysis of Regularization and Fokker-Planck Residuals in Diffusion Models for Image Generation</h1>
+<p class="meta">arXiv: 2604.15171</p>
+<p class="meta">Date: 2026-04-16</p>
+<p class="meta"><a href="https://arxiv.org/abs/2604.15171">https://arxiv.org/abs/2604.15171</a></p>
+<blockquote><strong>一句话总结：</strong> 本文通过实证分析发现，在扩散模型训练中，简单的正则化项（如score范数惩罚或散度惩罚）能以几乎零额外计算成本达到与复杂的Fokker-Planck方程惩罚相当的效果，甚至更强的FP正则化反而会导致更大的FP残差，说明其收益来源于一般性正则化效果而非对FP方程的精确满足。</blockquote>
+<blockquote><strong>TL;DR:</strong> Simple regularization penalties (score norm, Jacobian Frobenius norm, divergence) on diffusion models achieve comparable generation quality improvements to the complex Fokker-Planck penalty at a fraction of the computational cost. Stronger FP regularization paradoxically worsens FP residuals, suggesting benefits stem from general regularization rather than FP equation enforcement.</blockquote>
+<h2>核心贡献</h2>
+<ul>
+<li>提出三种轻量级正则化惩罚项（score平方范数、Jacobian Frobenius范数、score散度），作为复杂FP惩罚的低成本替代方案</li>
+<li>揭示了反直觉现象：更强的FP正则化反而导致更大的FP残差，说明FP惩罚的收益源于一般性正则化效果而非精确满足FP方程</li>
+<li>对扩散模型中score和散度在不同噪声水平下的行为进行了系统性可视化分析，发现正则化主要影响低噪声阶段的细粒度score行为</li>
+<li>在MNIST上通过20次独立训练验证，score范数惩罚几乎不增加计算开销（6.36s vs 6.25s/epoch），却将FID从20.32降至17.50</li>
+</ul>
+<h2>Key Contributions</h2>
+<ul>
+<li>Proposes three lightweight penalty terms -- squared score norm (P_SN), Jacobian Frobenius norm (P_JAC), and score divergence (P_DIV) -- as computationally cheap alternatives to the full Fokker-Planck penalty</li>
+<li>Demonstrates the counterintuitive finding that increasing FP regularization strength can worsen FP residuals, suggesting that FP regularization benefits are due to general regularization effects rather than strict FP equation adherence</li>
+<li>Provides detailed visual analysis of score and divergence behavior across noise levels, showing regularization primarily suppresses fine-grained score fluctuations at low noise levels</li>
+<li>Empirically validates across 20 independent training runs that P_SN achieves near-FP-penalty generation quality (FID 17.50 vs 16.25) at negligible computational overhead (1.8% increase vs 97% increase for FP penalty)</li>
+</ul>
+<h2>Methodology</h2>
+<p>The paper builds on the continuous-time SDE framework for diffusion models, where the forward noising process follows a variance-preserving (VP) SDE and the reverse denoising process requires learning the score function via Denoising Score Matching (DSM). The key theoretical motivation is the score Fokker-Planck equation (Eq. 9), which governs how the true score should evolve across noise levels. The FP residual (Eq. 12) measures deviations from this equation.</p>
+<p>Three simple penalty terms are added to the standard DSM loss:</p>
+<ol>
+<li><strong>P_SN</strong> (Squared Score Norm, Eq. 15): Penalizes the L2 norm of the score. Computed from the same forward pass as DSM, so adds essentially zero extra cost. Motivated by the observation that score magnitude explodes at low noise levels.</li>
+</ol>
+<ol>
+<li><strong>P_JAC</strong> (Jacobian Frobenius Norm, Eq. 16): Penalizes the Frobenius norm of the score Jacobian as a proxy for model complexity. Uses Hutchinson's stochastic trace estimator with K=1 for efficiency.</li>
+</ol>
+<ol>
+<li><strong>P_DIV</strong> (Score Divergence, Eq. 17): Penalizes the squared divergence (trace of the Jacobian) of the score. Computationally cheaper than the full Jacobian penalty while targeting similar behavior.</li>
+</ol>
+<p>All models use a U-Net architecture (following Song et al. 2021), trained for 200 epochs on MNIST with VP-SDE. The total loss is L = L_DSM + lambda * P. Evaluation uses FID (with LeNet feature extractor), Density, Coverage, and Shannon entropy of class distribution across 20 independent runs.</p>
+<h2>Results & Highlights</h2>
+<ul>
+<li><strong>All regularizers improve over baseline DSM</strong> on all four metrics (FID, Density, Coverage, Entropy) on average across 20 runs.</li>
+<li><strong>FP penalty best FID</strong> (16.25) but <strong>double the training time</strong> (12.32 s/epoch vs 6.25 s/epoch baseline).</li>
+<li><strong>P_SN achieves FID of 17.50</strong> with only 6.36 s/epoch -- essentially free computationally.</li>
+<li><strong>P_DIV achieves FID of 18.15</strong> and P_JAC achieves 17.02, both at moderate overhead.</li>
+<li>Regularization most strongly affects <strong>low noise levels</strong> (small t), where score magnitude and Jacobian complexity are highest.</li>
+<li><strong>Paradoxical finding</strong>: Increasing lambda for FP penalty beyond an optimal point worsens FP residuals rather than reducing them, confirming that benefits are from general regularization, not FP-specific enforcement.</li>
+<li>All penalties suppress fine-grained pixel-level score variations at low noise levels, making the score maps more homogeneous.</li>
+</ul>
+<h2>Authors & Credibility</h2>
+<ul>
+<li><strong>Onno Niemann, Gonzalo Martínez Muñoz, Alberto Suárez Gonzalez</strong> -- affiliated with Universidad Autónoma de Madrid (supported by project PID2022-139856NB-I00 and ELLIS Unit Madrid).</li>
+<li>Accepted at <strong>IJCNN 2026</strong> (IEEE), indicating peer-reviewed validation.</li>
+<li>Code publicly available at <code>https://github.com/OnnoNiemann/fp_diffusion_analysis</code>.</li>
+<li>Builds directly on prior work FP-Diffusion (Lai et al., ICML 2023), situating contributions clearly within an established research line.</li>
+</ul>
+<h2>Critical Assessment</h2>
+<ul>
+<li><strong>Novelty</strong>: Moderate. The individual penalty terms (score norm, Jacobian norm, divergence) are well-known regularizers. The key novelty is the systematic comparison showing they match the FP penalty, and the counterintuitive finding about FP regularization strength.</li>
+<li><strong>Rigor</strong>: Adequate for a conference paper. 20 independent training runs provide statistical reliability. However, the analysis is limited to MNIST with 28x28 grayscale images -- a very simple benchmark by modern standards.</li>
+<li><strong>Reproducibility</strong>: Good. Public code, clearly specified hyperparameters, and standard architecture. The MNIST setting keeps computational demands low.</li>
+<li><strong>Significance</strong>: The main claim -- that simple regularizers suffice -- is practically useful but may be expected by practitioners. The insight about FP regularization being a "general regularization wolf in FP-specific sheep's clothing" is intellectually interesting.</li>
+<li><strong>Red flags</strong>: (1) Only MNIST experiments; the authors acknowledge this limitation but it significantly constrains generalizability. (2) The computational overhead gap between FP penalty and simpler penalties is expected to grow with dataset complexity, but this is not empirically demonstrated. (3) The FP penalty implementation may not be fully optimized, potentially overstating its cost disadvantage. (4) Using LeNet-based FID for MNIST is non-standard and makes results hard to compare with other work.</li>
+</ul>
+<h2>Strengths</h2>
+<ul>
+<li>Clear, well-motivated research question with practical implications for diffusion model training efficiency.</li>
+<li>Thorough empirical evaluation with 20 independent runs providing robust statistics.</li>
+<li>Excellent visualization and analysis of score/divergence behavior across noise levels, giving genuine insight into how regularization affects diffusion model internals.</li>
+<li>The paradoxical finding about FP regularization strength is thought-provoking and challenges the community's understanding.</li>
+<li>Negligible-cost regularizer (P_SN) that performs competitively is an immediately actionable finding.</li>
+</ul>
+<h2>Limitations</h2>
+<ul>
+<li><strong>Dataset scale</strong>: Only MNIST (28x28, 10 classes) is tested. It is unclear whether the findings transfer to CIFAR-10, ImageNet, or higher-resolution datasets where the computational savings would matter most.</li>
+<li><strong>Architecture variety</strong>: Only one U-Net configuration is tested. Modern diffusion models use different architectures (DiT, etc.) that may respond differently to these regularizers.</li>
+<li><strong>Limited theoretical grounding</strong>: The paper is predominantly empirical. There is no formal analysis of why general regularization matches FP-specific regularization, or under what conditions the result might break down.</li>
+<li><strong>Hyperparameter sensitivity</strong>: The optimal lambda values are not extensively analyzed across regularizers, and the interaction between regularization strength and other training hyperparameters is not explored.</li>
+</ul>
+<h2>Relevance</h2>
+<p>本文研究扩散模型训练中score function的正则化问题，涉及模型训练稳定性和score估计可靠性，与LLM训练稳定性研究中对训练动态和梯度行为的关注有方法论上的共通之处；对正则化效果的深入分析也体现了对模型内部行为的可解释性追求。</p>
+<h2>Questions for Further Exploration</h2>
+<ol>
+<li>Do these findings transfer to higher-resolution datasets (CIFAR-10, CelebA, ImageNet) and modern architectures (DiT, U-ViT)?</li>
+<li>Can the score norm penalty P_SN be combined with other training improvements (e.g., different noise schedules, consistency distillation) for compounding benefits?</li>
+<li>What is the theoretical explanation for why stronger FP regularization worsens FP residuals? Is this a gradient interference phenomenon?</li>
+<li>How do these regularizers interact with classifier-free guidance and conditional generation?</li>
+<li>Could these lightweight regularizers benefit the training stability of large-scale text-to-image or video diffusion models?</li>
+</ol>
+<p class="note">Generated from Markdown summary. Full paper: <a href="https://arxiv.org/abs/2604.15171">arXiv:2604.15171</a></p>
+</div>
+</body>
+</html>

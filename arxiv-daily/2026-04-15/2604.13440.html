@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>A KL Lens on Quantization: Fast, Forward-Only Sensitivity for Mixed-Precision SSM-Transformer Models</title>
+<style>
+:root { --paper:#fafafa; --ink:#1a1a1a; --muted:#555; --accent:#1a5276; --line:#ddd; --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif; --serif:Georgia,"Noto Serif SC",serif; }
+body { font-family:var(--serif); background:var(--paper); color:var(--ink); line-height:1.6; margin:0; padding:0; }
+.container { max-width:min(95vw, 760px); margin:0 auto; padding:28px 20px 60px; }
+.topnav { position:fixed; top:12px; left:14px; z-index:50; font-family:var(--sans); font-size:.75rem; background:var(--paper); border:1px solid var(--line); padding:5px 10px; border-radius:999px; }
+.topnav a { color:var(--muted); text-decoration:none; font-weight:600; }
+.topnav a:hover { color:var(--accent); }
+h1 { font-size:1.6rem; margin:2.2rem 0 1rem; border-bottom:2px solid var(--accent); padding-bottom:.3rem; }
+h2 { font-size:1.3rem; margin:1.8rem 0 .8rem; color:var(--accent); }
+h3 { font-size:1.1rem; margin:1.4rem 0 .6rem; }
+p { margin:.8rem 0; }
+.authors { font-style:italic; color:var(--muted); margin-top:-.4rem; }
+.meta { font-family:var(--sans); font-size:.82rem; color:var(--muted); margin:.2rem 0; }
+a { color:var(--accent); text-decoration:none; }
+a:hover { text-decoration:underline; }
+blockquote { border-left:3px solid var(--accent); margin:1rem 0; padding:.2rem 0 .2rem 1rem; color:var(--muted); font-style:italic; }
+code { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; background:#f0f0f0; padding:2px 5px; border-radius:3px; font-size:.9em; }
+pre { background:#f5f5f5; padding:14px; overflow-x:auto; border-radius:4px; border:1px solid var(--line); }
+pre code { background:transparent; padding:0; }
+ul,ol { margin:.6rem 0; padding-left:1.5rem; }
+li { margin:.25rem 0; }
+table { border-collapse:collapse; width:100%; margin:1rem 0; font-family:var(--sans); font-size:.9rem; }
+th,td { border:1px solid var(--line); padding:6px 10px; text-align:left; }
+th { background:#f0f0f0; }
+hr { border:none; border-top:1px solid var(--line); margin:1.5rem 0; }
+.note { font-family:var(--sans); font-size:.78rem; color:var(--muted); border-top:1px solid var(--line); margin-top:2rem; padding-top:1rem; }
+@media (max-width: 600px) { .container { padding:22px 14px 40px; } h1 { font-size:1.35rem; } }
+</style>
+</head>
+<body>
+<div class="topnav"><a href="./index.html">← Today's digest</a></div>
+<div class="container">
+<h1>A KL Lens on Quantization: Fast, Forward-Only Sensitivity for Mixed-Precision SSM-Transformer Models</h1>
+<p class="meta">arXiv: 2604.13440v1</p>
+<p class="meta">Date: 2026-04-15</p>
+<p class="meta"><a href="https://arxiv.org/abs/2604.13440v1">https://arxiv.org/abs/2604.13440v1</a></p>
+<blockquote><strong>一句话总结：</strong> 本文提出一种基于KL散度的无梯度敏感度分析框架，用于混合SSM-Transformer模型的混合精度量化，仅需前向传播即可识别对量化最敏感的层，在Intel Lunar Lake硬件上将Mamba-1.4B从5.2GB压缩至1.4GB且困惑度几乎无损（PPL=11.22 vs FP16的11.22），同时推理延迟降至178ms（低于INT8的196ms和INT4的190ms）。</blockquote>
+<blockquote><strong>TL;DR:</strong> A gradient-free, forward-pass-only sensitivity analysis using KL divergence (student-to-teacher) for mixed-precision quantization of hybrid SSM-Transformer models. Proves KL divergence is a tighter proxy for perplexity than SQNR (Kendall's tau 0.79 vs 0.71 avg). Achieves 5.9-7.2x model compression with near-FP16 perplexity on Intel Lunar Lake hardware, and reduces Mamba-1.4B CPU latency to 178ms (below both INT8 and INT4 baselines). Validated on Mamba, Mamba2, Hymba, and Zamba architectures.</blockquote>
+<h2>核心贡献</h2>
+<ul>
+<li><strong>无梯度敏感度分析框架</strong>：提出一种仅需前向传播、无需反向传播或重训练的敏感度分析方法，通过逐层量化后计算KL散度来评估各层对量化的敏感程度，适用于数据受限场景（隐私或专有限制）。</li>
+<li><strong>证明KL散度优于SQNR</strong>：通过形式化分析（Lemma 1-2、Proposition 1）证明KL散度是perplexity的更紧密代理，SQNR在语言建模任务中不具备单调性（常数偏移可令SQNR趋向负无穷而不改变PPL）；实验上KL(student->teacher)的Kendall's tau平均为0.79，显著优于SQNR的0.71（p < 10^-6）。</li>
+<li><strong>SSM-Transformer混合架构的量化敏感度图景</strong>：首次公开对Hymba模型进行张量级消融实验，发现<code>mamba.x_proj</code>敏感度比其他子模块高一个数量级（delta=0.27 vs delta<=0.014），且第31层单独贡献超70%的总敏感度预算。</li>
+<li><strong>真实设备验证</strong>：在Intel Lunar Lake平台进行端到端性能分析，KL引导的混合精度量化（p05配置）在Mamba-1.4B上实现PPL=11.22（与FP16持平），延迟178ms（优于INT8的196ms和INT4的190ms），模型从5.2GB压缩至1.4GB。</li>
+</ul>
+<h2>Key Contributions</h2>
+<ul>
+<li><strong>Gradient-free sensitivity analysis framework</strong>: A forward-pass-only method that quantizes one layer at a time and computes KL divergence between teacher and student logits, requiring no backpropagation, no retraining, and minimal calibration data -- suitable for proprietary or privacy-constrained settings.</li>
+<li><strong>Formal proof that KL divergence outperforms SQNR for language modeling</strong>: Through Proposition 1, shows SQNR is not monotonic in perplexity (a constant logit shift can drive SQNR to negative infinity without changing PPL). Empirically, KL(student->teacher) achieves average Kendall's tau of 0.79 across six models vs. SQNR's 0.71, with statistical significance (p < 10^-6).</li>
+<li><strong>First publicly documented tensor-level ablation of hybrid SSM-Transformer models</strong>: Reveals that <code>mamba.x_proj</code> dominates sensitivity (10x higher than other subtypes), block 31 alone accounts for >70% of the total sensitivity budget, and x_proj sensitivity co-occurs with MoE expert sensitivity, suggesting coupled noise amplification.</li>
+<li><strong>Real hardware validation on Intel Lunar Lake</strong>: KL-guided mixed-precision (p05) compresses Mamba-1.4B from 5.2GB to 1.4GB with identical PPL (11.22) and lowest latency (178ms, below both INT8 at 196ms and INT4 at 190ms). On GPU, reduces Mamba2-130M latency by up to 17.6x (from 60,006ms to 3,417ms) with negligible perplexity cost.</li>
+</ul>
+<h2>Methodology</h2>
+<p>The method operates in three stages. First, <strong>layer-wise sensitivity scoring</strong>: for each layer in the model, quantize that layer alone (keeping all others at full precision), run a forward pass over a calibration dataset, and compute KL(student->teacher) divergence between the softmax outputs of the quantized and full-precision models. Second, <strong>mixed-precision assignment</strong>: sort all layers by their KL sensitivity scores and apply a threshold-based scheme where the top-k most sensitive layers retain FP16 precision while the rest are quantized to INT4 (CPU) or INT8 (GPU). Ten evenly-spaced cutoff points (p01-p10) trace a compression-accuracy Pareto curve. Third, <strong>validation via Kendall's tau</strong>: the correlation between KL-based layer rankings and actual perplexity degradation rankings is measured using Kendall's tau coefficient, providing a statistical test of the metric's predictive quality. The formal analysis in Section 4.1 shows that PPL(q_theta) = PPL(p) * exp(D_KL(p||q_theta)), establishing KL divergence as an upper-bound proxy for perplexity, while Proposition 1 demonstrates that SQNR lacks this monotonic relationship.</p>
+<h2>Results & Highlights</h2>
+<ul>
+<li><strong>KL(student->teacher) achieves best Kendall's tau across all models</strong>: average tau = 0.7911 across Mamba-130M (0.84), Mamba-380M (0.79), Mamba-1.4B (0.83), Mamba2-130M (0.81), Hymba (0.66), Zamba (0.81), vs. SQNR average of 0.7111. KL(teacher->student) shows weak negative correlation (avg tau = -0.13), revealing strong metric asymmetry.</li>
+<li><strong>Mamba-130M CPU (Intel Lunar Lake)</strong>: KL-MP p05 achieves PPL=21.61 (vs FP16 21.59, INT4 diverges to 3e35), size 136MB (vs 493MB FP16), throughput 35.9 FPS (vs INT8 35.5, INT4 39.7), latency 28ms.</li>
+<li><strong>Mamba-1.4B CPU</strong>: KL-MP p05 achieves PPL=11.22 (identical to FP16, vs INT4 60.55), size 1.4GB (vs 5.2GB FP16), throughput 5.6 FPS (vs INT8 5.1, INT4 5.3), latency 178ms (lower than INT8 196ms and INT4 190ms).</li>
+<li><strong>Mamba2-130M GPU</strong>: KL-MP p02 achieves PPL=46.46 (vs FP16 46.45), latency 3,417ms (17.6x speedup over FP16's 60,006ms), throughput 0.29 FPS (vs FP16 0.02 FPS).</li>
+<li><strong>Hymba ablation</strong>: <code>mamba.x_proj</code> sensitivity (delta=0.27) exceeds all other subtypes by >10x; <code>mamba.dt_proj</code> is nearly insensitive (delta=3.6e-4); block 31 accounts for >70% of aggregate sensitivity.</li>
+</ul>
+<h2>Authors & Credibility</h2>
+<ul>
+<li><strong>Jason Kong</strong> (jckong@ucsd.edu): Graduate researcher at UC San Diego. This appears to be an early-career publication; the accompanying GitHub repo (jasonkongie/kl-ssm-quant) provides code for reproducibility.</li>
+<li><strong>Nilesh Prasad Pandey</strong> (nppandey@ucsd.edu): PhD researcher at UC San Diego with prior publications on quantization, including work on mixed-precision PTQ for LLMs (Pandey et al., 2023, arXiv:2302.05397), softmax bias correction for quantized generative models (ICCV 2023), and outlier-aware quantization for edge SLM inference (QMC, 2026). Established track record in model compression.</li>
+<li><strong>Flavio Ponzina</strong> (fponzina@sdsu.edu): Researcher at San Diego State University, co-author on the QMC paper (arXiv:2601.14549) on quantization and emergent memories co-design for edge SLM inference.</li>
+<li><strong>Tajana Rosing</strong> (tajana@ucsd.edu): Professor and director of the System Energy Efficiency Lab at UC San Diego. Highly prolific researcher with extensive publications in energy-efficient computing, hardware acceleration, and machine learning systems. NSF-funded (multiple grants acknowledged) and affiliated with SRC/DARPA JUMP 2.0 centers (PRISM, CoCoSys). Strong track record in edge AI and hardware-software co-design.</li>
+</ul>
+<p>The team combines expertise in quantization algorithms, hardware profiling, and efficient ML systems. The work is partially funded by NSF and DARPA, with hardware donations from Intel. Code is publicly available, enhancing reproducibility.</p>
+<h2>Critical Assessment</h2>
+<p><strong>Novelty</strong>: Moderate. The idea of using forward-pass sensitivity for mixed-precision assignment is not entirely new (HAWQ used Hessian-based sensitivity), but applying KL divergence specifically to SSM-Transformer hybrids and formally proving its superiority over SQNR for language modeling is a genuine contribution. The tensor-level ablation of Hymba is the first of its kind for hybrid architectures.</p>
+<p><strong>Rigor</strong>: The formal analysis (Lemmas, Proposition 1) is clean and correctly demonstrates that SQNR can be arbitrarily bad while PPL remains unchanged. The Kendall's tau evaluation protocol is standard and well-motivated. However, the statistical gap between KL and SQNR (0.79 vs 0.71 average tau) is modest in absolute terms, and SQNR still performs reasonably well on some models (e.g., Zamba: 0.84). The claim of "significant" outperformance relies on p-values that are partly driven by sample size rather than effect size.</p>
+<p><strong>Reproducibility</strong>: Strong. Code is available at GitHub, detailed reproducibility guide in Appendix A with step-by-step commands, OpenVINO pipeline fully specified, and all hyperparameters (10 cutoff points, calibration dataset WikiText-2) are documented. Hardware platform (Intel Lunar Lake) is commercially available.</p>
+<p><strong>Significance</strong>: Practically relevant for edge deployment of hybrid models, but limited by model scale -- the largest model tested is Mamba-1.4B, which is small by current LLM standards. Whether the KL sensitivity framework scales to models with billions more parameters and deeper layer stacks remains untested. The observation that a single layer (block 31) can dominate the sensitivity budget is interesting but raises questions about whether this is architecture-specific.</p>
+<p><strong>Red flags</strong>: (1) The Hymba results show KL tau = 0.66, which is the weakest among all models and only marginally above SQNR's 0.71 on the same architecture -- this undermines the narrative for the paper's primary target (hybrid models). (2) The GPU results for Mamba2-130M show FP16 baseline latency of 60,006ms, which is anomalously high and likely reflects iGPU memory-transfer overhead rather than genuine compute cost, making the "17.6x speedup" claim somewhat misleading. (3) No comparison to other mixed-precision methods like HAWQ or QUIK -- only homogeneous baselines are compared. (4) The method is evaluated only on WikiText-2 perplexity, with no downstream task evaluation.</p>
+<h2>Strengths</h2>
+<ul>
+<li>Formally rigorous: provides proofs (not just empirical observations) for why KL divergence is a better proxy for perplexity than SQNR in language modeling.</li>
+<li>Highly practical: requires only forward passes, no gradients or retraining, making it applicable in data-constrained settings.</li>
+<li>Strong reproducibility: public code, detailed hardware setup, step-by-step Appendix guide.</li>
+<li>Real hardware validation on commercial Intel Lunar Lake platform, not just simulated results.</li>
+<li>First-of-its-kind tensor-level ablation for hybrid SSM-Transformer models, providing valuable reference data for the community.</li>
+<li>Clean compression-accuracy Pareto curves controlled entirely by a single KL threshold parameter.</li>
+</ul>
+<h2>Limitations</h2>
+<ul>
+<li>Model scale is limited (max 1.4B parameters); scalability to modern 7B+ LLMs is untested and forward-pass sensitivity scoring could become expensive for very large models.</li>
+<li>No downstream task evaluation (e.g., zero-shot benchmarks, generation quality); perplexity on WikiText-2 is the sole metric.</li>
+<li>Hymba (the primary hybrid target) shows the weakest KL correlation (tau=0.66), and SQNR actually outperforms KL on Hymba (0.71 vs 0.66), partially undermining the central claim for hybrid architectures.</li>
+<li>No comparison to existing mixed-precision baselines (HAWQ, QUIK, etc.); only uniform INT8/INT4 baselines are provided.</li>
+<li>The "sensitivity cliff" phenomenon (where a single layer's quantization causes catastrophic PPL collapse) is observed but not deeply analyzed or mitigated beyond mixed-precision assignment.</li>
+<li>GPU memory savings are negligible due to pipeline constraints (FP16 export compression and INT8-only quantization on iGPU), limiting the practical benefit on that execution mode.</li>
+</ul>
+<h2>Relevance</h2>
+<p>本文对LLM训练和部署优化具有直接参考价值：其无梯度敏感度分析方法可直接用于大模型的混合精度量化决策，无需训练数据或反向传播，适合在隐私受限或数据不可用的场景下指导量化策略。KL散度作为perplexity代理的形式化证明为混合精度量化提供了更可靠的理论基础，可推广到更多LLM架构的压缩部署场景。</p>
+<h2>Questions for Further Exploration</h2>
+<ol>
+<li>How does the KL sensitivity framework scale to models with 7B+ parameters? Does the per-layer forward-pass cost become prohibitive, and can the method be adapted to use block-level or module-level granularity instead?</li>
+<li>The Hymba result shows SQNR outperforming KL on the primary hybrid target -- is there a hybrid-specific metric or ensemble of metrics that could outperform both KL and SQNR across all architectures?</li>
+<li>Can the KL sensitivity analysis be extended to activation quantization (not just weight quantization), and does the same superiority over SQNR hold when both weights and activations are quantized jointly?</li>
+</ol>
+<p><em>Generated on 2026-04-17 | <a href="https://arxiv.org/abs/2604.13440v1">arxiv</a> | <a href="https://arxiv.org/pdf/2604.13440.pdf">pdf</a></em></p>
+<p class="note">Generated from Markdown summary. Full paper: <a href="https://arxiv.org/abs/2604.13440v1">arXiv:2604.13440v1</a></p>
+</div>
+</body>
+</html>

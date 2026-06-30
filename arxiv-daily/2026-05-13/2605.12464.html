@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Search Your Block Floating Point Scales!</title>
+<style>
+:root { --paper:#fafafa; --ink:#1a1a1a; --muted:#555; --accent:#1a5276; --line:#ddd; --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif; --serif:Georgia,"Noto Serif SC",serif; }
+body { font-family:var(--serif); background:var(--paper); color:var(--ink); line-height:1.6; margin:0; padding:0; }
+.container { max-width:min(95vw, 760px); margin:0 auto; padding:28px 20px 60px; }
+.topnav { position:fixed; top:12px; left:14px; z-index:50; font-family:var(--sans); font-size:.75rem; background:var(--paper); border:1px solid var(--line); padding:5px 10px; border-radius:999px; }
+.topnav a { color:var(--muted); text-decoration:none; font-weight:600; }
+.topnav a:hover { color:var(--accent); }
+h1 { font-size:1.6rem; margin:2.2rem 0 1rem; border-bottom:2px solid var(--accent); padding-bottom:.3rem; }
+h2 { font-size:1.3rem; margin:1.8rem 0 .8rem; color:var(--accent); }
+h3 { font-size:1.1rem; margin:1.4rem 0 .6rem; }
+p { margin:.8rem 0; }
+.authors { font-style:italic; color:var(--muted); margin-top:-.4rem; }
+.meta { font-family:var(--sans); font-size:.82rem; color:var(--muted); margin:.2rem 0; }
+a { color:var(--accent); text-decoration:none; }
+a:hover { text-decoration:underline; }
+blockquote { border-left:3px solid var(--accent); margin:1rem 0; padding:.2rem 0 .2rem 1rem; color:var(--muted); font-style:italic; }
+code { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; background:#f0f0f0; padding:2px 5px; border-radius:3px; font-size:.9em; }
+pre { background:#f5f5f5; padding:14px; overflow-x:auto; border-radius:4px; border:1px solid var(--line); }
+pre code { background:transparent; padding:0; }
+ul,ol { margin:.6rem 0; padding-left:1.5rem; }
+li { margin:.25rem 0; }
+table { border-collapse:collapse; width:100%; margin:1rem 0; font-family:var(--sans); font-size:.9rem; }
+th,td { border:1px solid var(--line); padding:6px 10px; text-align:left; }
+th { background:#f0f0f0; }
+hr { border:none; border-top:1px solid var(--line); margin:1.5rem 0; }
+.note { font-family:var(--sans); font-size:.78rem; color:var(--muted); border-top:1px solid var(--line); margin-top:2rem; padding-top:1rem; }
+@media (max-width: 600px) { .container { padding:22px 14px 40px; } h1 { font-size:1.35rem; } }
+</style>
+</head>
+<body>
+<div class="topnav"><a href="./index.html">← Today's digest</a></div>
+<div class="container">
+<h1>Search Your Block Floating Point Scales!</h1>
+<p class="meta">arXiv: 2605.12464</p>
+<p class="meta">Date: 2026-05-13</p>
+<p class="meta"><a href="https://arxiv.org/abs/2605.12464">https://arxiv.org/abs/2605.12464</a></p>
+<blockquote><strong>一句话总结：</strong> 本文提出 ScaleSearch，通过搜索 NVFP4 块浮点格式的最优 scale factor 来最小化量化误差（降低 27%），并基于此构建 ScaleSearchAttention 算法，实现近乎无损的 FP4 注意力推理，在 Llama 3.1 70B 上 PPL 改善达 0.77。</blockquote>
+<blockquote><strong>TL;DR:</strong> ScaleSearch replaces the default max-abs scale in NVFP4 block floating-point quantization with a simple offset search over nearby FP8 scales, reducing quantization MSE by 27% and improving PTQ accuracy by up to 15 points on MATH-500 (Qwen3-8B). The paper also proposes ScaleSearchAttention, a native NVFP4 attention algorithm combining ScaleSearch with incoherence processing and mixed-precision KV cache, achieving near-zero perplexity degradation on Llama 3.1 70B while using 4.5-bit KV cache.</blockquote>
+<h2>核心贡献</h2>
+<ul>
+<li><strong>ScaleSearch 算法</strong>：打破传统 BFP 格式中基于最大绝对值的 scale 选择方式，通过在默认 scale 附近搜索偏移量（offset range [-2, +6]）来找到最小化量化 MSE 的最优 scale，对 NVFP4 格式降低约 27% 的量化误差。</li>
+<li><strong>ScaleSearchAttention</strong>：首个基于 NVFP4 的端到端低精度注意力算法，将 Q、K、P、V 全部量化为 NVFP4 并直接使用 Tensor Core 计算，无需反量化步骤。</li>
+<li><strong>三种技术协同</strong>：结合 incoherence processing（Hadamard 变换）+ magnitude reduction（SVD 最优线性变换）+ attention-sink-aware 混合精度 KV cache，实现接近全精度的注意力质量。</li>
+<li><strong>广泛适用性</strong>：ScaleSearch 可作为插件集成到现有 PTQ 流程（如 TensorRT ModelOpt）和低精度注意力算法（如 SageAttention3）中，均有一致改善。</li>
+<li><strong>开销极小</strong>：量化过程仅增加 1.74x 开销，注意力吞吐量保持 97-98% 的基线性能。</li>
+</ul>
+<h2>Key Contributions</h2>
+<ul>
+<li><strong>ScaleSearch</strong>: A simple but effective algorithm that searches over nearby FP8 scale values (offsets from the default max-abs scale) to minimize per-block quantization MSE for NVFP4, achieving 27% MSE reduction on synthetic data.</li>
+<li><strong>ScaleSearchAttention</strong>: A complete NVFP4-native attention pipeline that quantizes all attention tensors (Q, K, P, V) to NVFP4 and computes directly on Tensor Cores with FP32 accumulation, eliminating dequantization overhead entirely.</li>
+<li><strong>Incoherence processing with magnitude reduction</strong>: Extends standard Hadamard-based IP with an SVD-optimal linear reparameterization (R) of Q and K that provably minimizes the product of their squared magnitudes, directly reducing quantization error while preserving attention scores.</li>
+<li><strong>Attention-sink-aware mixed-precision KV cache</strong>: Keeps only O(B) tokens (first and most recent block) in full precision, which does not scale with context length, ensuring minimal memory overhead.</li>
+<li><strong>Bimodal offset distribution insight</strong>: Empirically discovers that optimal scale offsets cluster around 0 and 4-5 (corresponding to representing the max-magnitude entry as ±6 or ±4 in FP4), providing principled justification for the narrow [-2, +6] search range.</li>
+</ul>
+<h2>Methodology</h2>
+<p><strong>ScaleSearch</strong> operates on the NVFP4 format, which uses micro-blocks of 16 FP4 (E2M1) values sharing a single FP8 (E4M3) scale. Instead of setting the scale to <code>round(max_abs / 6.0)</code>, ScaleSearch:</p>
+<ol>
+<li>Computes the default scale as usual.</li>
+<li>Reinterprets the FP8 scale bits as an int8 value.</li>
+<li>Exhaustively searches offsets f in [f_min, f_max] around the default, reinterpreting back to FP8.</li>
+<li>For each candidate scale, quantizes and dequantizes the block, computing MSE.</li>
+<li>Returns the scale yielding minimum MSE.</li>
+</ol>
+<p>On synthetic Gaussian data, the MSE saturates at ~75% reduction with a search range of [-2, +6]. The authors show the benefit is more pronounced for smaller block sizes (16 for NVFP4 vs. 32 for MXFP4), explaining why NVFP4 benefits most.</p>
+<p><strong>ScaleSearchAttention</strong> builds on ScaleSearch with three components:</p>
+<ul>
+<li><strong>Incoherence Processing + Magnitude Reduction</strong>: Hadamard transform on Q and K, followed by an optimal linear reparameterization R derived via SVD of Q and K second-moment matrices, which provably minimizes <code>tr(R^{-1}XR^{-T}) * tr(R^TYR)</code>.</li>
+<li><strong>Mixed-precision KV cache</strong>: First block and most recent incomplete block of KV cache are kept in full precision; the rest is in NVFP4. This is O(B) memory, independent of sequence length.</li>
+<li><strong>NVFP4 Tensor Core computation</strong>: All matrix multiplications use NVFP4 MMA instructions with FP32 accumulation—no dequantization anywhere in the pipeline.</li>
+</ul>
+<h2>Results & Highlights</h2>
+<p><strong>PTQ Results (Table 1):</strong></p>
+<ul>
+<li>Qwen3-8B: ScaleSearch recovers 15.0 points on MATH-500 (88.1 vs. NVFP4's 73.1, baseline 72.8), 7.5 points on GPQA (49.9 vs. 42.4), and nearly closes the MMLU gap (79.4 vs. baseline 79.7).</li>
+<li>DeepSeek-R1-Distill-Qwen-1.5B: ScaleSearch recovers 10.5 points on MATH-500 (62.1 vs. NVFP4's 51.6) and 0.9 on GPQA.</li>
+</ul>
+<p><strong>Attention PPL (Table 3):</strong></p>
+<ul>
+<li>Llama 3.1 70B: ScaleSearchAttention achieves 11.21 PPL vs. baseline 11.13 (Naive-FP4: 11.53, SA3: 11.36), a 0.77-point improvement over Naive-FP4 and 0.15 over SA3.</li>
+<li>Qwen3 8B: ScaleSearchAttention reaches 8.30 PPL, matching full precision (8.30) exactly.</li>
+<li>Llama 3.1 8B: ScaleSearchAttention (5.50) nearly matches full precision (5.48), outperforming SA3 (5.83) and Naive-FP4 (6.00).</li>
+</ul>
+<p><strong>Diffusion Model Quality (Table 2):</strong></p>
+<ul>
+<li>Mochi: ScaleSearch + SageAttention3 dramatically improves VQA-a (57.4 vs. 49.6) and VQA-t (70.4 vs. 55.7), while maintaining CLIPSIM alignment.</li>
+<li>CogVideoX: ScaleSearch matches or exceeds full-precision on VQA-a (75.8 vs. 75.0) and VQA-t (75.9 vs. 75.3).</li>
+</ul>
+<p><strong>Overhead (Tables 6-7):</strong></p>
+<ul>
+<li>Quantization overhead: 1.74x for full search range [-2, 6] (0.045 ms vs. 0.026 ms baseline on 2048x2048).</li>
+<li>Attention throughput: 97-98% of baseline TOPs at 32K sequence length.</li>
+<li>End-to-end latency: +3.2% for Mochi (364.7s vs. 353.4s), +2.2% for CogVideoX.</li>
+</ul>
+<p><strong>Ablation (Table 5):</strong></p>
+<ul>
+<li>Removing ScaleSearch: +0.005 PPL</li>
+<li>Removing IP + magnitude reduction: +0.031 PPL</li>
+<li>Removing mixed-precision KV cache: +0.079 PPL (largest single contributor)</li>
+</ul>
+<h2>Authors & Credibility</h2>
+<p>The author list spans Princeton (Chris De Sa), Stanford (Tri Dao), and several industry contributors. Tri Dao is the creator of FlashAttention. Several authors have prior work on quantization (QuIP, QuIP#). The combination of academic and industry (NVIDIA-adjacent) expertise lends credibility to both the theoretical analysis and practical hardware integration. The paper uses real hardware-supported formats (NVFP4 on Blackwell) rather than purely simulated quantization for end-to-end experiments.</p>
+<h2>Critical Assessment</h2>
+<p><strong>Novelty: High.</strong> The core insight—that the default max-abs scale in BFP is significantly suboptimal and can be improved with a simple offset search—is surprisingly simple yet previously unexplored. The bimodal offset distribution analysis provides principled justification for the search range. The magnitude reduction transformation via SVD is a clean theoretical contribution.</p>
+<p><strong>Rigor: Good.</strong> The paper provides thorough synthetic validation, ablations, and multiple application domains (PTQ, attention, diffusion). The theoretical derivation of the magnitude reduction transformation is clean. However, some concerns:</p>
+<ul>
+<li>The PTQ evaluation uses only 2 models, both from the Qwen family. Testing on more diverse architectures (e.g., Mistral, Gemma) would strengthen claims.</li>
+<li>The AIME-120 results for Qwen3-8B show ScaleSearch slightly underperforming NVFP4 (63.0 vs. 63.7), which the authors dismiss as "within standard deviation"—this is fair but worth noting.</li>
+<li>The SageAttention3 comparison uses a simulated implementation rather than the official code, citing "numerical instability" in causal settings. This makes the comparison somewhat non-authoritative.</li>
+</ul>
+<p><strong>Reproducibility: Moderate.</strong> The algorithm is simple enough to implement from the paper (Algorithm 1 is clear). However, the ScaleSearchAttention pipeline depends on NVFP4 Tensor Core instructions (Blackwell hardware), limiting reproducibility for most researchers. The authors do not release code.</p>
+<p><strong>Significance: High.</strong> This is a practical technique that can be immediately integrated into existing NVFP4 quantization pipelines with minimal overhead. As FP4 hardware becomes mainstream, the approach will become increasingly relevant. The attention algorithm is the first end-to-end NVFP4-native attention to nearly match full precision.</p>
+<p><strong>Red flags:</strong></p>
+<ul>
+<li>No code release mentioned.</li>
+<li>ScaleSearchAttention is evaluated in simulated quantization only (not on real Blackwell hardware with actual NVFP4 Tensor Cores). The real hardware behavior may differ.</li>
+<li>The improvement on larger models (70B) is modest (0.15 PPL over SA3), though the absolute PPL is already close to full precision.</li>
+<li>The paper does not compare against other recent KV cache quantization methods like KIVI or KVQuant for the attention experiments.</li>
+</ul>
+<h2>Strengths</h2>
+<ul>
+<li>Elegant and simple core idea: searching over scale offsets rather than accepting the default max-abs scale.</li>
+<li>Thorough analysis of <em>why</em> the bimodal offset distribution emerges, providing theoretical grounding for the narrow search range.</li>
+<li>ScaleSearch is a drop-in improvement applicable to any NVFP4 quantization pipeline.</li>
+<li>ScaleSearchAttention is a complete, hardware-aware system with no dequantization overhead.</li>
+<li>Minimal performance overhead (1.74x quantization, ~2-3% end-to-end latency).</li>
+<li>Strong ablation study clearly showing the contribution of each component.</li>
+</ul>
+<h2>Limitations</h2>
+<ul>
+<li>ScaleSearch is specific to formats with floating-point scale factors (NVFP4); it provides limited benefit for MXFP4 (8% reduction) due to power-of-two scaling constraints.</li>
+<li>Requires NVFP4 hardware (NVIDIA Blackwell) for full benefit; simulations may not capture all hardware behaviors.</li>
+<li>The search is exhaustive over a fixed offset range; no adaptive or learned search strategy is explored.</li>
+<li>PTQ evaluation covers only 2 model families; generalization to other architectures is unverified.</li>
+<li>No comparison with other KV cache quantization baselines (KIVI, KVQuant, ZipCache) in the attention experiments.</li>
+<li>The mixed-precision KV cache block size B is not thoroughly ablated; sensitivity to this hyperparameter is not discussed.</li>
+</ul>
+<h2>Relevance</h2>
+<p>ScaleSearch 直接针对 NVFP4 硬件加速格式的量化优化问题，对大规模语言模型的高效推理具有重要意义。该方法可以无缝集成到现有的 PTQ 和注意力加速管线中，对于关注低精度推理和硬件协同设计的研究者来说具有直接的实用价值。</p>
+<h2>Questions for Further Exploration</h2>
+<ul>
+<li>Can ScaleSearch be combined with learned or adaptive search strategies (e.g., a small neural network predicting the optimal offset) to avoid exhaustive search while maintaining accuracy?</li>
+<li>How does ScaleSearch interact with weight quantization methods like GPTQ or AWQ when both weights and activations use NVFP4?</li>
+<li>What is the sensitivity of ScaleSearchAttention to the mixed-precision block size B, and can B be adapted per-layer or per-head?</li>
+<li>Does ScaleSearch provide benefits during training (e.g., FP4 training) or is it only useful for inference quantization?</li>
+<li>How would ScaleSearchAttention perform on very long contexts (128K+ tokens) where KV cache compression matters most?</li>
+</ul>
+<p class="note">Generated from Markdown summary. Full paper: <a href="https://arxiv.org/abs/2605.12464">arXiv:2605.12464</a></p>
+</div>
+</body>
+</html>

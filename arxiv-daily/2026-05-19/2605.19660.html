@@ -1,0 +1,584 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OScaR — Extreme KV Cache Quantization</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --accent: #0d9488;
+  --accent-dim: #0d948820;
+  --accent-mid: #0d948840;
+  --bg: #fafafa;
+  --surface: #ffffff;
+  --text: #1a1a1a;
+  --text-2: #555;
+  --text-3: #888;
+  --border: #e0e0e0;
+  --mono: "SF Mono", "Cascadia Code", "Fira Code", ui-monospace, monospace;
+  --sans: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --serif: "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+  --grid-gap: 1rem;
+  --radius: 6px;
+}
+
+html { font-size: 15px; }
+body {
+  font-family: var(--sans);
+  color: var(--text);
+  background: var(--bg);
+  line-height: 1.55;
+  min-height: 100vh;
+}
+
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+/* ── NAV ── */
+.nav {
+  position: sticky; top: 0; z-index: 100;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  padding: 0.6rem 1.5rem;
+  display: flex; align-items: center; gap: 1rem;
+  font-size: 0.82rem;
+}
+.nav-home {
+  font-weight: 600;
+  color: var(--text-2);
+  border: 1px solid var(--border);
+  padding: 0.2rem 0.6rem;
+  border-radius: var(--radius);
+  transition: border-color .15s;
+}
+.nav-home:hover { border-color: var(--accent); text-decoration: none; }
+.nav-sep { color: var(--border); }
+.nav-id { font-family: var(--mono); font-size: 0.78rem; color: var(--text-3); }
+.nav-arxiv { margin-left: auto; font-weight: 500; }
+
+/* ── HERO ── */
+.hero {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 2.5rem 1.5rem 0;
+}
+.hero-kicker {
+  display: inline-block;
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent);
+  background: var(--accent-dim);
+  padding: 0.25rem 0.65rem;
+  border-radius: 3px;
+  margin-bottom: 0.8rem;
+}
+.hero h1 {
+  font-family: var(--serif);
+  font-size: 2.1rem;
+  line-height: 1.2;
+  font-weight: 700;
+  max-width: 52rem;
+  margin-bottom: 0.75rem;
+}
+.hero-authors {
+  font-size: 0.85rem;
+  color: var(--text-2);
+  max-width: 56rem;
+  line-height: 1.5;
+}
+.hero-affil {
+  font-size: 0.75rem;
+  color: var(--text-3);
+  margin-top: 0.35rem;
+}
+
+/* ── ASSETS ROW ── */
+.assets-row {
+  max-width: 1200px;
+  margin: 1.8rem auto 0;
+  padding: 0 1.5rem;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--grid-gap);
+}
+.asset-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1.1rem 1.15rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  transition: border-color .15s;
+}
+.asset-card:hover { border-color: var(--accent); }
+.asset-label {
+  font-family: var(--mono);
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+.asset-card:nth-child(2) .asset-label,
+.asset-card:nth-child(2) .asset-value { color: #b45309; }
+.asset-card:nth-child(2) .asset-label { color: #b45309; }
+.asset-card:nth-child(3) .asset-label { color: #7c3aed; }
+.asset-card:nth-child(4) .asset-label { color: #dc2626; }
+.asset-value {
+  font-size: 0.88rem;
+  font-weight: 500;
+  line-height: 1.45;
+  color: var(--text);
+  flex: 1;
+}
+.asset-tag {
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  color: var(--text-3);
+  border-top: 1px solid var(--border);
+  padding-top: 0.5rem;
+}
+
+/* ── BODY GRID ── */
+.body-grid {
+  max-width: 1200px;
+  margin: 1.8rem auto 0;
+  padding: 0 1.5rem 2rem;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: auto;
+  gap: var(--grid-gap);
+}
+
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1.25rem 1.3rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+.panel-full { grid-column: 1 / -1; }
+
+.panel-title {
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--accent);
+  padding-bottom: 0.4rem;
+  border-bottom: 1px solid var(--border);
+}
+.panel p, .panel li {
+  font-size: 0.88rem;
+  line-height: 1.6;
+  color: var(--text-2);
+}
+.panel ul, .panel ol { padding-left: 1.2rem; }
+.panel li + li { margin-top: 0.3rem; }
+.panel strong { color: var(--text); font-weight: 600; }
+
+/* ── METRICS TABLE ── */
+.metrics-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+}
+.metrics-table th {
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-3);
+  text-align: left;
+  padding: 0.45rem 0.6rem;
+  border-bottom: 2px solid var(--border);
+}
+.metrics-table td {
+  padding: 0.45rem 0.6rem;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+.metrics-table tr:last-child td { border-bottom: none; }
+.metric-num {
+  font-family: var(--mono);
+  font-weight: 600;
+  color: var(--accent);
+}
+.metric-dim { color: var(--text-3); font-size: 0.78rem; }
+
+/* ── PIPELINE DIAGRAM ── */
+.pipeline {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  flex-wrap: wrap;
+  justify-content: center;
+  padding: 0.5rem 0;
+}
+.pipe-step {
+  background: var(--accent-dim);
+  border: 1px solid var(--accent-mid);
+  border-radius: var(--radius);
+  padding: 0.55rem 0.9rem;
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--accent);
+  text-align: center;
+  min-width: 120px;
+}
+.pipe-step span {
+  display: block;
+  font-size: 0.62rem;
+  font-weight: 400;
+  color: var(--text-3);
+  margin-top: 0.15rem;
+}
+.pipe-arrow {
+  font-size: 1.1rem;
+  color: var(--border);
+  padding: 0 0.3rem;
+}
+
+/* ── STRENGTH / LIMIT BARS ── */
+.bar-row {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  font-size: 0.85rem;
+  line-height: 1.55;
+  color: var(--text-2);
+}
+.bar-row + .bar-row { margin-top: 0.45rem; }
+.bar-marker {
+  flex-shrink: 0;
+  width: 3px;
+  height: 1em;
+  border-radius: 2px;
+  display: inline-block;
+}
+.bar-marker.pos { background: var(--accent); }
+.bar-marker.neg { background: #dc2626; }
+
+/* ── TWO-COL LIST ── */
+.dual-col {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem 1.5rem;
+}
+
+/* ── ASSESSMENT RADAR (textual) ── */
+.assess-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 0.75rem;
+  text-align: center;
+}
+.assess-item { display: flex; flex-direction: column; gap: 0.3rem; }
+.assess-dim {
+  font-family: var(--mono);
+  font-size: 0.62rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-3);
+}
+.assess-score {
+  font-family: var(--mono);
+  font-size: 1.6rem;
+  font-weight: 700;
+  color: var(--accent);
+  line-height: 1;
+}
+.assess-bar-track {
+  width: 100%;
+  height: 4px;
+  background: var(--border);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.assess-bar-fill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 2px;
+}
+
+/* ── QUESTIONS ── */
+.q-list { counter-reset: q; }
+.q-list li {
+  list-style: none;
+  counter-increment: q;
+  position: relative;
+  padding-left: 1.6rem;
+}
+.q-list li::before {
+  content: "Q" counter(q);
+  position: absolute;
+  left: 0;
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: var(--accent);
+}
+
+/* ── FOOTER ── */
+.dash-footer {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 1rem 1.5rem 2.5rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.78rem;
+  color: var(--text-3);
+  border-top: 1px solid var(--border);
+}
+
+/* ── RESPONSIVE ── */
+@media (max-width: 900px) {
+  .assets-row { grid-template-columns: 1fr 1fr; }
+  .body-grid { grid-template-columns: 1fr; }
+  .assess-grid { grid-template-columns: repeat(3, 1fr); }
+  .dual-col { grid-template-columns: 1fr; }
+}
+@media (max-width: 560px) {
+  html { font-size: 14px; }
+  .hero h1 { font-size: 1.55rem; }
+  .assets-row { grid-template-columns: 1fr; }
+  .assess-grid { grid-template-columns: repeat(2, 1fr); }
+  .pipeline { flex-direction: column; }
+  .pipe-arrow { transform: rotate(90deg); padding: 0.15rem 0; }
+}
+</style>
+</head>
+<body>
+
+<nav class="nav">
+  <a href="./index.html" class="nav-home">&larr; Index</a>
+  <span class="nav-sep">/</span>
+  <span class="nav-id">2605.19660</span>
+  <a href="https://arxiv.org/abs/2605.19660" class="nav-arxiv" target="_blank" rel="noopener">arXiv &nearr;</a>
+</nav>
+
+<!-- ═══════ HERO ═══════ -->
+<header class="hero">
+  <div class="hero-kicker">KV Cache &middot; INT2 Quantization &middot; 2026-05-19</div>
+  <h1>OScaR: The Occam's Razor for Extreme KV Cache Quantization in LLMs and Beyond</h1>
+  <div class="hero-authors">
+    Zunhai Su, Rui Yang, Chao Zhang, Yaxiu Liu, Yifan Zhang, Wei Wu,
+    Jing Xiong, Dayou Du, Xialie Zhuang, Yulei Qian, Yuchen Xie,
+    Yik-Chung Wu, Hongxia Yang, Ngai Wong
+  </div>
+  <div class="hero-affil">
+    Tsinghua University &middot; Meituan LongCat &middot; HKU &middot; Edinburgh &middot; UCAS &middot; PolyU HK
+  </div>
+</header>
+
+<!-- ═══════ ASSETS ROW ═══════ -->
+<section class="assets-row">
+
+  <div class="asset-card">
+    <div class="asset-label">Key Finding</div>
+    <div class="asset-value">Token Norm Imbalance (TNI) is the structural bottleneck that destroys per-channel KV cache quantization at INT2. A two-step fix&thinsp;&mdash;&thinsp;Canalized Rotation + Omni-Token Scaling&thinsp;&mdash;&thinsp;eliminates it with zero training.</div>
+    <div class="asset-tag">TNI &harr; MSE lower bound proved</div>
+  </div>
+
+  <div class="asset-card">
+    <div class="asset-label" style="color:#b45309">Key Metric</div>
+    <div class="asset-value"><span class="metric-num" style="color:#b45309">3.0&times;</span> decoding speedup &middot;
+      <span class="metric-num" style="color:#b45309">5.3&times;</span> memory reduction &middot;
+      <span class="metric-num" style="color:#b45309">4.1&times;</span> throughput gain at 128K ctx on single H20 GPU.</div>
+    <div class="asset-tag">INT2 vs BF16 FlashDecoding-v2</div>
+  </div>
+
+  <div class="asset-card">
+    <div class="asset-label" style="color:#7c3aed">Why This Matters</div>
+    <div class="asset-value">Near-lossless INT2 KV cache compression works across text, multi-modal, and omni-modal LLMs. Long-context deployment becomes feasible on a single GPU without sacrificing quality.</div>
+    <div class="asset-tag">Text &middot; Vision &middot; Audio &middot; Omni</div>
+  </div>
+
+  <div class="asset-card">
+    <div class="asset-label" style="color:#dc2626">Critical Edge</div>
+    <div class="asset-value">Online Hadamard on Keys can't fuse with weights due to RoPE, adding ~1.5&times; decode overhead vs KIVI. NIAH result exceeding BF16 baseline (96.5% vs 96.0%) is unusual and unexplained.</div>
+    <div class="asset-tag">RoPE conflict &middot; anomalous NIAH</div>
+  </div>
+
+</section>
+
+<!-- ═══════ BODY GRID ═══════ -->
+<main class="body-grid">
+
+  <!-- PIPELINE -->
+  <div class="panel panel-full">
+    <div class="panel-title">Method &mdash; Two-Step Pipeline</div>
+    <div class="pipeline">
+      <div class="pipe-step">K, Q tensors<span>input</span></div>
+      <div class="pipe-arrow">&rarr;</div>
+      <div class="pipe-step">Canalized Rotation<span>Fast Hadamard Transform</span></div>
+      <div class="pipe-arrow">&rarr;</div>
+      <div class="pipe-step">Omni-Token Scaling<span>L2 norm to unit length</span></div>
+      <div class="pipe-arrow">&rarr;</div>
+      <div class="pipe-step">INT2 Quantize<span>block-wise, per-channel</span></div>
+      <div class="pipe-arrow">&rarr;</div>
+      <div class="pipe-step">Attention<span>dequant + de-scale fused</span></div>
+    </div>
+    <p style="font-size:0.8rem;color:var(--text-3);text-align:center;margin-top:0.3rem;">
+      Value path: offline Hadamard fused into W<sub>V</sub> &amp; W<sub>O</sub> at zero runtime cost. 128-token residual window buffers before block quantization.
+    </p>
+  </div>
+
+  <!-- RESULTS TABLE -->
+  <div class="panel">
+    <div class="panel-title">Results &mdash; Headline Numbers</div>
+    <table class="metrics-table">
+      <thead>
+        <tr><th>Benchmark</th><th>Model</th><th>OScaR</th><th>BF16</th><th>&Delta;</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>LongBench-E</td>
+          <td>Qwen3-8B</td>
+          <td><span class="metric-num">48.74%</span></td>
+          <td>49.56%</td>
+          <td class="metric-dim">&minus;0.82pp</td>
+        </tr>
+        <tr>
+          <td>NIAH</td>
+          <td>Llama-3.1-8B</td>
+          <td><span class="metric-num">96.5%</span></td>
+          <td>96.0%</td>
+          <td class="metric-dim" style="color:var(--accent)">+0.5pp</td>
+        </tr>
+        <tr>
+          <td>OCRBench</td>
+          <td>Qwen3-VL-8B</td>
+          <td><span class="metric-num">85.6%</span></td>
+          <td>85.8%</td>
+          <td class="metric-dim">&minus;0.2pp</td>
+        </tr>
+        <tr>
+          <td>DocVQA</td>
+          <td>Qwen3-VL-8B</td>
+          <td><span class="metric-num">95.01%</span></td>
+          <td>94.93%</td>
+          <td class="metric-dim" style="color:var(--accent)">+0.08pp</td>
+        </tr>
+        <tr>
+          <td>MMAU-Pro</td>
+          <td>Qwen3-Omni-30B</td>
+          <td><span class="metric-num">+1.2pp</span></td>
+          <td>baseline</td>
+          <td class="metric-dim" style="color:var(--accent)">surpasses BF16</td>
+        </tr>
+        <tr>
+          <td colspan="5" style="padding-top:0.6rem;">
+            <strong>Efficiency @ 128K</strong> &mdash;
+            30.9 vs 92.9 ms/tok &middot;
+            1354 vs 331 tok/s (batch 48) &middot;
+            single H20 GPU
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- ASSESSMENT RADAR -->
+  <div class="panel">
+    <div class="panel-title">Critical Assessment</div>
+    <div class="assess-grid">
+      <div class="assess-item">
+        <div class="assess-dim">Novelty</div>
+        <div class="assess-score">8</div>
+        <div class="assess-bar-track"><div class="assess-bar-fill" style="width:80%"></div></div>
+      </div>
+      <div class="assess-item">
+        <div class="assess-dim">Rigor</div>
+        <div class="assess-score">9</div>
+        <div class="assess-bar-track"><div class="assess-bar-fill" style="width:90%"></div></div>
+      </div>
+      <div class="assess-item">
+        <div class="assess-dim">Reprod.</div>
+        <div class="assess-score">9</div>
+        <div class="assess-bar-track"><div class="assess-bar-fill" style="width:90%"></div></div>
+      </div>
+      <div class="assess-item">
+        <div class="assess-dim">Impact</div>
+        <div class="assess-score">9</div>
+        <div class="assess-bar-track"><div class="assess-bar-fill" style="width:90%"></div></div>
+      </div>
+      <div class="assess-item">
+        <div class="assess-dim">Clarity</div>
+        <div class="assess-score">8</div>
+        <div class="assess-bar-track"><div class="assess-bar-fill" style="width:80%"></div></div>
+      </div>
+    </div>
+    <p style="font-size:0.8rem;color:var(--text-3);margin-top:0.35rem;">
+      TNI identification is a principled contribution; Hadamard rotation builds on QuaRot. Public code + detailed CUDA kernel docs.
+    </p>
+  </div>
+
+  <!-- STRENGTHS & LIMITATIONS -->
+  <div class="panel">
+    <div class="panel-title">Strengths</div>
+    <div class="bar-row"><span class="bar-marker pos"></span><span>Principled TNI bottleneck identification with theoretical MSE lower bounds</span></div>
+    <div class="bar-row"><span class="bar-marker pos"></span><span>Remarkably simple: only Hadamard transform + L2 normalization, no training</span></div>
+    <div class="bar-row"><span class="bar-marker pos"></span><span>Comprehensive eval: 6+ benchmarks across text, vision, audio, omni-modal</span></div>
+    <div class="bar-row"><span class="bar-marker pos"></span><span>Strong practical gains: near-lossless INT2 with 3&times; speedup</span></div>
+    <div class="bar-row"><span class="bar-marker pos"></span><span>Public code release and detailed CUDA kernel documentation</span></div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-title">Limitations</div>
+    <div class="bar-row"><span class="bar-marker neg"></span><span>Online Hadamard on Keys unfusable with weights due to RoPE (~1.5&times; overhead vs KIVI)</span></div>
+    <div class="bar-row"><span class="bar-marker neg"></span><span>Eval limited to LLM-backbone models; streaming vision / diffusion LLMs not tested</span></div>
+    <div class="bar-row"><span class="bar-marker neg"></span><span>128-token residual window adds memory management complexity</span></div>
+    <div class="bar-row"><span class="bar-marker neg"></span><span>Per-token norm metadata adds minor storage overhead</span></div>
+  </div>
+
+  <!-- THEORETICAL INSIGHT -->
+  <div class="panel panel-full">
+    <div class="panel-title">Core Theoretical Insight</div>
+    <p>
+      For per-channel block-wise quantization with bit-width <em>b</em>, the reconstruction MSE is lower-bounded by:
+    </p>
+    <p style="font-family:var(--mono);font-size:0.92rem;text-align:center;padding:0.6rem 0;color:var(--text);">
+      MSE &ge; (&parallel;k<sub>max</sub>&parallel;&sub2; &minus; &parallel;k<sub>min</sub>&parallel;&sub2;)&sup2; / (12 &middot; (2<sup>b</sup> &minus; 1)&sup2;)
+    </p>
+    <p>
+      This proves TNI amplifies quantization error <strong>proportionally to within-block norm range</strong>.
+      OScaR's Canalized Rotation prevents Scaling-Induced Outlier Artifacts; Omni-Token Scaling then flattens the norm range to near-zero.
+      Ablation confirms: removing either step collapses accuracy (e.g., 42.77% &rarr; 22.64% on WorldSense).
+    </p>
+  </div>
+
+  <!-- OPEN QUESTIONS -->
+  <div class="panel panel-full">
+    <div class="panel-title">Open Questions for Further Exploration</div>
+    <ol class="q-list">
+      <li>Can OScaR combine with KV eviction/pruning (H2O, SnapKV) for compounding memory savings?</li>
+      <li>How does it perform on non-standard attention (very few GQA heads, Mamba-Transformer hybrids)?</li>
+      <li>Can Canalized Rotation extend to weight or activation quantization beyond KV cache?</li>
+      <li>What happens under mixed-precision (INT4 early layers, INT2 later layers)?</li>
+      <li>How sensitive is OScaR to residual block size R and quantization group size G across architectures?</li>
+    </ol>
+  </div>
+
+</main>
+
+<footer class="dash-footer">
+  <span>Source: <a href="2605.19660.html">2605.19660.md</a></span>
+  <span>Code: <a href="https://github.com/ZunhaiSu/OScaR-KV-Quant" target="_blank" rel="noopener">github.com/ZunhaiSu/OScaR-KV-Quant</a></span>
+</footer>
+
+</body>
+</html>

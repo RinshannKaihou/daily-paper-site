@@ -1,0 +1,696 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>On-Policy Replay for Continual Supervised Fine-Tuning</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@300;400;500;600;700&display=swap');
+
+:root {
+  --bg: #0a0a0b;
+  --bg-elevated: #131316;
+  --bg-card: #18181c;
+  --bg-card-hover: #1e1e24;
+  --border: #2a2a32;
+  --border-accent: #3d3d4a;
+  --fg: #e8e6e3;
+  --fg-muted: #8a8890;
+  --fg-dim: #5c5a62;
+  --accent: #e8553d;
+  --accent-glow: rgba(232, 85, 61, 0.15);
+  --accent-soft: #f4845f;
+  --metric: #4ecdc4;
+  --metric-glow: rgba(78, 205, 196, 0.12);
+  --edge: #f7c948;
+  --edge-glow: rgba(247, 201, 72, 0.1);
+  --why: #a78bfa;
+  --why-glow: rgba(167, 139, 250, 0.1);
+  --positive: #34d399;
+  --negative: #f87171;
+  --radius: 6px;
+  --radius-lg: 10px;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html { font-size: 15px; scroll-behavior: smooth; }
+
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: 'IBM Plex Sans', sans-serif;
+  line-height: 1.65;
+  -webkit-font-smoothing: antialiased;
+  min-height: 100vh;
+}
+
+a { color: var(--accent-soft); text-decoration: none; transition: color 0.2s; }
+a:hover { color: var(--accent); }
+
+/* ---- NAV ---- */
+.topbar {
+  position: sticky; top: 0; z-index: 100;
+  background: rgba(10,10,11,0.85);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--border);
+  padding: 0.65rem 2rem;
+  display: flex; align-items: center; justify-content: space-between;
+  font-size: 0.82rem;
+}
+.topbar a.back-link {
+  color: var(--fg-muted);
+  font-family: 'IBM Plex Mono', monospace;
+  font-weight: 500;
+  display: flex; align-items: center; gap: 0.4rem;
+  transition: color 0.2s;
+}
+.topbar a.back-link:hover { color: var(--fg); }
+.topbar .meta {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.75rem;
+  color: var(--fg-dim);
+  display: flex; gap: 1.2rem; align-items: center;
+}
+.topbar .meta .tag {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 0.15rem 0.5rem;
+  font-size: 0.7rem;
+  color: var(--fg-muted);
+}
+
+/* ---- HERO ---- */
+.hero {
+  position: relative;
+  padding: 3.5rem 2rem 2.5rem;
+  max-width: 1100px;
+  margin: 0 auto;
+  overflow: hidden;
+}
+.hero::before {
+  content: '';
+  position: absolute;
+  top: -40%; left: -10%;
+  width: 60%; height: 180%;
+  background: radial-gradient(ellipse, var(--accent-glow) 0%, transparent 70%);
+  pointer-events: none;
+}
+.hero-label {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.7rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 1rem;
+  display: flex; align-items: center; gap: 0.6rem;
+}
+.hero-label::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: linear-gradient(to right, var(--accent), transparent);
+  opacity: 0.3;
+}
+.hero h1 {
+  font-family: 'DM Serif Display', serif;
+  font-size: clamp(2rem, 4.5vw, 3.2rem);
+  line-height: 1.15;
+  color: var(--fg);
+  margin-bottom: 1.5rem;
+  max-width: 800px;
+  position: relative;
+}
+.hero-finding {
+  font-size: 1.15rem;
+  font-weight: 400;
+  color: var(--fg);
+  max-width: 750px;
+  line-height: 1.7;
+  border-left: 3px solid var(--accent);
+  padding-left: 1.2rem;
+  position: relative;
+}
+.hero-finding strong { color: var(--accent-soft); font-weight: 600; }
+
+/* ---- ASSET CARDS ---- */
+.assets {
+  max-width: 1100px;
+  margin: 0 auto 3rem;
+  padding: 0 2rem;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1rem;
+}
+.asset-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 1.5rem;
+  position: relative;
+  overflow: hidden;
+  transition: border-color 0.3s, transform 0.2s;
+  opacity: 0;
+  transform: translateY(16px);
+  animation: cardIn 0.5s ease forwards;
+}
+.asset-card:nth-child(1) { animation-delay: 0.15s; }
+.asset-card:nth-child(2) { animation-delay: 0.3s; }
+.asset-card:nth-child(3) { animation-delay: 0.45s; }
+
+@keyframes cardIn {
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.asset-card:hover { border-color: var(--border-accent); transform: translateY(-2px); }
+
+.asset-card::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 3px;
+}
+.asset-card.card-metric::before { background: var(--metric); }
+.asset-card.card-why::before { background: var(--why); }
+.asset-card.card-edge::before { background: var(--edge); }
+
+.asset-card .card-label {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.65rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  margin-bottom: 1rem;
+  display: flex; align-items: center; gap: 0.5rem;
+}
+.card-metric .card-label { color: var(--metric); }
+.card-why .card-label { color: var(--why); }
+.card-edge .card-label { color: var(--edge); }
+
+.asset-card .card-label .dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  display: inline-block;
+}
+.card-metric .dot { background: var(--metric); box-shadow: 0 0 6px var(--metric-glow); }
+.card-why .dot { background: var(--why); box-shadow: 0 0 6px var(--why-glow); }
+.card-edge .dot { background: var(--edge); box-shadow: 0 0 6px var(--edge-glow); }
+
+.asset-card .big-number {
+  font-family: 'DM Serif Display', serif;
+  font-size: 3rem;
+  line-height: 1;
+  margin-bottom: 0.5rem;
+}
+.card-metric .big-number { color: var(--metric); }
+.card-why .big-number { color: var(--why); font-size: 1.6rem; line-height: 1.4; }
+.card-edge .big-number { color: var(--edge); font-size: 1.3rem; line-height: 1.5; }
+
+.asset-card .card-detail {
+  font-size: 0.85rem;
+  color: var(--fg-muted);
+  line-height: 1.6;
+}
+.asset-card .card-detail strong { color: var(--fg); font-weight: 500; }
+
+/* ---- SECTIONS ---- */
+.dashboard {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 0 2rem 4rem;
+}
+
+.section-anchor {
+  display: block;
+  position: relative;
+  top: -60px;
+  visibility: hidden;
+}
+
+.section-block {
+  margin-bottom: 3rem;
+  opacity: 0;
+  transform: translateY(20px);
+  transition: opacity 0.6s ease, transform 0.6s ease;
+}
+.section-block.visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.section-title {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.7rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--fg-dim);
+  margin-bottom: 1.2rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; gap: 0.6rem;
+}
+.section-title .num {
+  background: var(--accent);
+  color: var(--bg);
+  width: 18px; height: 18px;
+  border-radius: 3px;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 0.6rem;
+  font-weight: 700;
+}
+
+/* Method grid */
+.method-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+}
+.method-step {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1.2rem 1.4rem;
+  position: relative;
+  counter-increment: step;
+}
+.method-step::before {
+  content: counter(step);
+  position: absolute;
+  top: -0.5rem; left: 1rem;
+  background: var(--accent);
+  color: var(--bg);
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.65rem;
+  font-weight: 700;
+  width: 20px; height: 20px;
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+}
+.method-step h4 {
+  font-size: 0.9rem;
+  font-weight: 600;
+  margin-bottom: 0.4rem;
+  color: var(--fg);
+}
+.method-step p {
+  font-size: 0.82rem;
+  color: var(--fg-muted);
+  line-height: 1.6;
+}
+.method-step code {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.78rem;
+  background: var(--bg-elevated);
+  padding: 0.1rem 0.35rem;
+  border-radius: 3px;
+  color: var(--accent-soft);
+}
+
+/* Results table */
+.results-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+}
+.results-table th {
+  text-align: left;
+  padding: 0.7rem 1rem;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.7rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--fg-dim);
+  border-bottom: 1px solid var(--border);
+  font-weight: 500;
+}
+.results-table td {
+  padding: 0.65rem 1rem;
+  border-bottom: 1px solid rgba(42,42,50,0.5);
+  color: var(--fg-muted);
+}
+.results-table tr:hover td { background: var(--bg-elevated); }
+.results-table td:first-child { color: var(--fg); font-weight: 500; }
+.results-table .best { color: var(--positive); font-weight: 600; }
+.results-table .worst { color: var(--negative); font-weight: 600; }
+.results-table .delta {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.75rem;
+  display: inline-block;
+  padding: 0.1rem 0.4rem;
+  border-radius: 3px;
+  background: rgba(52,211,153,0.1);
+  color: var(--positive);
+  margin-left: 0.4rem;
+}
+
+/* Side by side: strengths / limitations */
+.dual-column {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+}
+.panel {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 1.5rem;
+}
+.panel h3 {
+  font-size: 0.85rem;
+  font-weight: 600;
+  margin-bottom: 1rem;
+  display: flex; align-items: center; gap: 0.5rem;
+}
+.panel.strengths h3 { color: var(--positive); }
+.panel.limitations h3 { color: var(--edge); }
+.panel ul {
+  list-style: none;
+  padding: 0;
+}
+.panel ul li {
+  font-size: 0.82rem;
+  color: var(--fg-muted);
+  line-height: 1.6;
+  padding: 0.4rem 0;
+  padding-left: 1.2rem;
+  position: relative;
+}
+.panel.strengths ul li::before {
+  content: '+';
+  position: absolute; left: 0;
+  color: var(--positive);
+  font-weight: 700;
+  font-family: 'IBM Plex Mono', monospace;
+}
+.panel.limitations ul li::before {
+  content: '!';
+  position: absolute; left: 0;
+  color: var(--edge);
+  font-weight: 700;
+  font-family: 'IBM Plex Mono', monospace;
+}
+
+/* Questions */
+.questions-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.8rem;
+}
+.question-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1rem 1.2rem;
+  font-size: 0.82rem;
+  color: var(--fg-muted);
+  line-height: 1.6;
+  transition: border-color 0.2s;
+}
+.question-card:hover { border-color: var(--border-accent); }
+.question-card .q-tag {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.65rem;
+  color: var(--accent);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-bottom: 0.4rem;
+}
+
+/* Footer */
+.footer {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 2rem;
+  border-top: 1px solid var(--border);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.footer a {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.78rem;
+  color: var(--fg-dim);
+  display: flex; align-items: center; gap: 0.3rem;
+}
+.footer a:hover { color: var(--fg-muted); }
+.footer .paper-id {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.7rem;
+  color: var(--fg-dim);
+}
+
+/* ---- Responsive ---- */
+@media (max-width: 800px) {
+  .assets { grid-template-columns: 1fr; }
+  .method-grid { grid-template-columns: 1fr; }
+  .dual-column { grid-template-columns: 1fr; }
+  .questions-grid { grid-template-columns: 1fr; }
+  .hero { padding: 2.5rem 1.2rem 1.8rem; }
+  .assets, .dashboard, .footer { padding-left: 1.2rem; padding-right: 1.2rem; }
+  .hero h1 { font-size: 1.8rem; }
+  .asset-card .big-number { font-size: 2.2rem; }
+  .card-why .big-number { font-size: 1.3rem; }
+  .card-edge .big-number { font-size: 1.1rem; }
+}
+
+/* ---- Animation ---- */
+@media (prefers-reduced-motion: reduce) {
+  .asset-card { opacity: 1; transform: none; animation: none; }
+  .section-block { opacity: 1; transform: none; transition: none; }
+}
+</style>
+</head>
+<body>
+
+<!-- TOPBAR -->
+<nav class="topbar">
+  <a href="./index.html" class="back-link">&#8617; Today's digest</a>
+  <div class="meta">
+    <span class="tag">continual-learning</span>
+    <span class="tag">catastrophic-forgetting</span>
+    <span class="tag">LLM-fine-tuning</span>
+    <span>2026-05-28</span>
+  </div>
+</nav>
+
+<!-- HERO -->
+<section class="hero">
+  <div class="hero-label">KEY FINDING</div>
+  <h1>On-Policy Replay for Continual Supervised Fine-Tuning</h1>
+  <p class="hero-finding">
+    By routing on-policy signal through the <strong>replay buffer data source</strong> instead of auxiliary losses, OPR cuts catastrophic forgetting by <strong>42-46%</strong> across three 7-8B LLMs -- without teacher models, without distillation, without modified training loops.
+  </p>
+</section>
+
+<!-- ASSET CARDS -->
+<div class="assets">
+  <div class="asset-card card-metric">
+    <div class="card-label"><span class="dot"></span> KEY METRIC</div>
+    <div class="big-number">-2.29</div>
+    <div class="card-detail">
+      BWT on <strong>Qwen2.5-7B-Instruct</strong> (from -13.93 baseline) at just <strong>1% replay budget</strong>. Cost: 32 GPU-hours total on 8xH100.
+    </div>
+  </div>
+  <div class="asset-card card-why">
+    <div class="card-label"><span class="dot"></span> WHY THIS MATTERS</div>
+    <div class="big-number">No teacher. No auxiliary loss. Just filtered self-generation replayed as SFT data.</div>
+    <div class="card-detail">
+      Eliminates the engineering complexity of continual SFT. A <strong>label-free variant</strong> (OPR-SC) uses the model's own log-probability as scorer, requiring zero ground truth.
+    </div>
+  </div>
+  <div class="asset-card card-edge">
+    <div class="card-label"><span class="dot"></span> CRITICAL EDGE</div>
+    <div class="big-number">Low-score on-policy replay is actively worse than off-policy gold data.</div>
+    <div class="card-detail">
+      BWT <strong>-3.47</strong> (low-score) vs <strong>-1.37</strong> (Vanilla Replay). Proves the <strong>on-policy distribution</strong> -- not response quality -- is the active ingredient. Confidently wrong models bypass the filter.
+    </div>
+  </div>
+</div>
+
+<!-- DASHBOARD BODY -->
+<div class="dashboard">
+
+  <!-- METHODOLOGY -->
+  <span class="section-anchor" id="methodology"></span>
+  <div class="section-block">
+    <div class="section-title"><span class="num">1</span> METHODOLOGY -- OPR PIPELINE</div>
+    <div class="method-grid">
+      <div class="method-step">
+        <h4>Roll out on historical prompts</h4>
+        <p>After training on task <code>T_i</code>, generate one response per historical prompt using the current checkpoint at temperature 0.1.</p>
+      </div>
+      <div class="method-step">
+        <h4>Score &amp; filter</h4>
+        <p>Score each pair: <strong>OPR-RU</strong> uses task metrics (EM, ROUGE-L); <strong>OPR-SC</strong> uses the model's own length-normalized log-probability -- no labels needed.</p>
+      </div>
+      <div class="method-step">
+        <h4>Build replay buffer</h4>
+        <p>Keep the top-<code>b</code> pairs (budget <code>&rho; &middot; n</code>, distributed equally across prior tasks) as the replay buffer.</p>
+      </div>
+      <div class="method-step">
+        <h4>Standard SFT training</h4>
+        <p>Concatenate buffer with next task's data and train under plain cross-entropy. No modified loss, no teacher forward pass, no schedule tuning.</p>
+      </div>
+    </div>
+    <div style="margin-top:1rem; background:var(--bg-card); border:1px solid var(--border); border-radius:var(--radius); padding:1rem 1.4rem;">
+      <p style="font-size:0.82rem; color:var(--fg-muted); line-height:1.7;">
+        <strong style="color:var(--accent-soft);">KL-shrinkage theory:</strong>
+        The high-reward filter ensures every buffer item has low cross-entropy at the previous checkpoint (<code>l(theta_{t-1}) &le; l_max</code>).
+        The expected replay gradient equals <code>-nabla KL(q_{t-1} || pi_theta)</code>, pulling the model toward the prior high-reward region.
+        This yields a per-update KL bound: <code>E[KL] &le; L &middot; sigma_max &middot; eta^2 &middot; l_max</code>, directly controlling forgetting through the filter threshold.
+      </p>
+    </div>
+  </div>
+
+  <!-- RESULTS -->
+  <span class="section-anchor" id="results"></span>
+  <div class="section-block">
+    <div class="section-title"><span class="num">2</span> RESULTS -- TRACE BENCHMARK (&rho;=0.01)</div>
+    <table class="results-table">
+      <thead>
+        <tr>
+          <th>Method</th>
+          <th>Qwen2.5-7B BWT</th>
+          <th>|BWT| Reduction</th>
+          <th>Overall ACC</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Sequential SFT</td>
+          <td class="worst">-13.93</td>
+          <td>--</td>
+          <td>--</td>
+        </tr>
+        <tr>
+          <td>Vanilla Replay</td>
+          <td>-4.13</td>
+          <td>baseline</td>
+          <td>--</td>
+        </tr>
+        <tr>
+          <td>OPR-RU</td>
+          <td class="best">-2.29 <span class="delta">44%</span></td>
+          <td class="best">44% vs Vanilla</td>
+          <td>65.45</td>
+        </tr>
+        <tr>
+          <td>OPR-SC</td>
+          <td class="best">-2.08 <span class="delta">50%</span></td>
+          <td class="best">50% vs Vanilla</td>
+          <td>~65.4</td>
+        </tr>
+        <tr>
+          <td>SDFT (teacher)</td>
+          <td>matched</td>
+          <td>similar</td>
+          <td>deficits on MeetingBank</td>
+        </tr>
+      </tbody>
+    </table>
+    <div style="margin-top:1rem; display:grid; grid-template-columns:1fr 1fr 1fr; gap:0.8rem;">
+      <div style="background:var(--bg-card); border:1px solid var(--border); border-radius:var(--radius); padding:0.9rem 1.1rem;">
+        <div style="font-family:'IBM Plex Mono',monospace; font-size:0.65rem; color:var(--fg-dim); text-transform:uppercase; letter-spacing:0.08em; margin-bottom:0.3rem;">Llama3.1-8B</div>
+        <div style="font-family:'DM Serif Display',serif; font-size:1.6rem; color:var(--metric);">42%</div>
+        <div style="font-size:0.78rem; color:var(--fg-muted);">|BWT| reduction</div>
+      </div>
+      <div style="background:var(--bg-card); border:1px solid var(--border); border-radius:var(--radius); padding:0.9rem 1.1rem;">
+        <div style="font-family:'IBM Plex Mono',monospace; font-size:0.65rem; color:var(--fg-dim); text-transform:uppercase; letter-spacing:0.08em; margin-bottom:0.3rem;">Qwen3-8B</div>
+        <div style="font-family:'DM Serif Display',serif; font-size:1.6rem; color:var(--metric);">46%</div>
+        <div style="font-size:0.78rem; color:var(--fg-muted);">|BWT| reduction</div>
+      </div>
+      <div style="background:var(--bg-card); border:1px solid var(--border); border-radius:var(--radius); padding:0.9rem 1.1rem;">
+        <div style="font-family:'IBM Plex Mono',monospace; font-size:0.65rem; color:var(--fg-dim); text-transform:uppercase; letter-spacing:0.08em; margin-bottom:0.3rem;">Budget sensitivity</div>
+        <div style="font-family:'DM Serif Display',serif; font-size:1.6rem; color:var(--metric);">0.47pp</div>
+        <div style="font-size:0.78rem; color:var(--fg-muted);">ACC range across &rho;=0.01-0.10</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- STRENGTHS / LIMITATIONS -->
+  <span class="section-anchor" id="assessment"></span>
+  <div class="section-block">
+    <div class="section-title"><span class="num">3</span> STRENGTHS &amp; LIMITATIONS</div>
+    <div class="dual-column">
+      <div class="panel strengths">
+        <h3>Strengths</h3>
+        <ul>
+          <li>Extremely simple: no new losses, no teacher, no schedule -- just filtered self-generation replayed as SFT data</li>
+          <li>KL-shrinkage derivation unifies OPR with prior distillation methods on a single theoretical axis</li>
+          <li>Low-score ablation is a model of rigorous empirical work -- directly tests and confirms the mechanism</li>
+          <li>Loss dynamics analysis explains why SDFT fails on tasks requiring large distributional shifts</li>
+          <li>OPR-SC removes dependence on task evaluators at minimal performance cost</li>
+          <li>32 GPU-hours total cost makes the method accessible to most labs</li>
+        </ul>
+      </div>
+      <div class="panel limitations">
+        <h3>Limitations</h3>
+        <ul>
+          <li>OPR-SC degrades on tasks where the model is confidently wrong (NumGLUE-cm) -- a fundamental self-supervised scoring limit</li>
+          <li>Only evaluated on TRACE's 8-task English sequence; no validation above ~10B parameters or non-English settings</li>
+          <li>Rollout generation requires storing historical prompts -- problematic in privacy-sensitive deployments</li>
+          <li>Scorer quality dependency assumed but not deeply analyzed beyond OPR-RU vs OPR-SC</li>
+          <li>Does not address whether continual SFT is the right paradigm vs model merging or dynamic architectures</li>
+          <li>Per-update KL bound assumes L-smoothness and small step sizes; practical violations not discussed</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- QUESTIONS -->
+  <span class="section-anchor" id="questions"></span>
+  <div class="section-block">
+    <div class="section-title"><span class="num">4</span> OPEN QUESTIONS</div>
+    <div class="questions-grid">
+      <div class="question-card">
+        <div class="q-tag">Scaling</div>
+        How does OPR behave with 50+ task sequences where historical prompt budgets become extremely constrained?
+      </div>
+      <div class="question-card">
+        <div class="q-tag">Parameter-efficient</div>
+        Does the KL-shrinkage mechanism transfer when only a LoRA adapter subset is updated?
+      </div>
+      <div class="question-card">
+        <div class="q-tag">Learned scorer</div>
+        Can an end-to-end learned scorer resolve the "confidently wrong" failure mode of OPR-SC?
+      </div>
+      <div class="question-card">
+        <div class="q-tag">Multimodal</div>
+        Does OPR transfer to vision-language or code generation continual fine-tuning?
+      </div>
+      <div class="question-card">
+        <div class="q-tag">Streaming</div>
+        Can OPR work without explicit task boundaries -- in a true streaming deployment?
+      </div>
+      <div class="question-card">
+        <div class="q-tag">Combination</div>
+        Could combining OPR with regularization methods (EWC on replay parameters) yield further gains?
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- FOOTER -->
+<div class="footer">
+  <span class="paper-id">2605.29495 &middot; Chen et al. 2026</span>
+  <a href="2605.29495.html">&#8599; Markdown source</a>
+</div>
+
+<script>
+// Scroll-triggered section reveals
+document.addEventListener('DOMContentLoaded', () => {
+  const blocks = document.querySelectorAll('.section-block');
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+      if (entry.isIntersecting) {
+        entry.target.classList.add('visible');
+        observer.unobserve(entry.target);
+      }
+    });
+  }, { threshold: 0.1, rootMargin: '0px 0px -40px 0px' });
+  blocks.forEach(b => observer.observe(b));
+});
+</script>
+</body>
+</html>

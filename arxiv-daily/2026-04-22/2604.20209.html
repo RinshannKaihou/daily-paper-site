@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Scaling Self-Play with Self-Guidance</title>
+<style>
+:root { --paper:#fafafa; --ink:#1a1a1a; --muted:#555; --accent:#1a5276; --line:#ddd; --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif; --serif:Georgia,"Noto Serif SC",serif; }
+body { font-family:var(--serif); background:var(--paper); color:var(--ink); line-height:1.6; margin:0; padding:0; }
+.container { max-width:min(95vw, 760px); margin:0 auto; padding:28px 20px 60px; }
+.topnav { position:fixed; top:12px; left:14px; z-index:50; font-family:var(--sans); font-size:.75rem; background:var(--paper); border:1px solid var(--line); padding:5px 10px; border-radius:999px; }
+.topnav a { color:var(--muted); text-decoration:none; font-weight:600; }
+.topnav a:hover { color:var(--accent); }
+h1 { font-size:1.6rem; margin:2.2rem 0 1rem; border-bottom:2px solid var(--accent); padding-bottom:.3rem; }
+h2 { font-size:1.3rem; margin:1.8rem 0 .8rem; color:var(--accent); }
+h3 { font-size:1.1rem; margin:1.4rem 0 .6rem; }
+p { margin:.8rem 0; }
+.authors { font-style:italic; color:var(--muted); margin-top:-.4rem; }
+.meta { font-family:var(--sans); font-size:.82rem; color:var(--muted); margin:.2rem 0; }
+a { color:var(--accent); text-decoration:none; }
+a:hover { text-decoration:underline; }
+blockquote { border-left:3px solid var(--accent); margin:1rem 0; padding:.2rem 0 .2rem 1rem; color:var(--muted); font-style:italic; }
+code { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; background:#f0f0f0; padding:2px 5px; border-radius:3px; font-size:.9em; }
+pre { background:#f5f5f5; padding:14px; overflow-x:auto; border-radius:4px; border:1px solid var(--line); }
+pre code { background:transparent; padding:0; }
+ul,ol { margin:.6rem 0; padding-left:1.5rem; }
+li { margin:.25rem 0; }
+table { border-collapse:collapse; width:100%; margin:1rem 0; font-family:var(--sans); font-size:.9rem; }
+th,td { border:1px solid var(--line); padding:6px 10px; text-align:left; }
+th { background:#f0f0f0; }
+hr { border:none; border-top:1px solid var(--line); margin:1.5rem 0; }
+.note { font-family:var(--sans); font-size:.78rem; color:var(--muted); border-top:1px solid var(--line); margin-top:2rem; padding-top:1rem; }
+@media (max-width: 600px) { .container { padding:22px 14px 40px; } h1 { font-size:1.35rem; } }
+</style>
+</head>
+<body>
+<div class="topnav"><a href="./index.html">← Today's digest</a></div>
+<div class="container">
+<h1>Scaling Self-Play with Self-Guidance</h1>
+<p class="meta">arXiv: 2604.20209v1</p>
+<p class="meta">Date: 2026-04-22</p>
+<p class="meta"><a href="https://arxiv.org/abs/2604.20209v1">https://arxiv.org/abs/2604.20209v1</a></p>
+<blockquote><strong>一句话总结：</strong> 本文提出 Self-Guided Self-Play (SGS)，在传统 Solver–Conjecturer 非对称自博弈框架上新增一个由同一 LLM 扮演的 "Guide" 角色来为合成题目的相关性与简洁性打分，从而阻止 Conjecturer 退化到 reward-hacking 的复杂畸形题目；在 Lean4 形式化定理证明（D3k 数据集，约 3323 题）上，SGS 使 DeepSeek-Prover-V2-7B 在 6.3M 次生成后超过 671B 版本的 pass@4，并比最佳 RL 基线 REINFORCE^(1/2) 的拟合渐近解题率高 ~7%（67.1% vs 60.3%）。</blockquote>
+<blockquote><strong>TL;DR:</strong> The paper introduces Self-Guided Self-Play (SGS), an asymmetric self-play algorithm that adds a third LLM role — a "Guide" that scores synthetic problems for relevance and elegance — on top of the usual Solver/Conjecturer pair, to prevent the Conjecturer from reward-hacking into pathologically long, disjunctive problems during long self-play runs. On a 3,323-problem Lean4 dataset (D3k) using DeepSeek-Prover-V2-7B, SGS pushes a fitted asymptotic cumulative solve rate to ~67.1% (vs 60.3% for the strongest RL baseline, REINFORCE^(1/2)), and after 6.3M generations the 7B model exceeds the pass@4 of the 671B DeepSeek-Prover-V2. The authors also show that REINFORCE^(1/2) (not CISPO) is required as the Solver objective to avoid entropy collapse that starves the Conjecturer of learning signal.</blockquote>
+<h2>核心贡献</h2>
+<ul>
+<li>提出 <strong>SGS 算法</strong>：在 Conjecturer 奖励中同时使用 (a) 基于 Solver 解题率的 "sweet-spot" 难度奖励 R_solve（过难 0 分，过易 0 分，中等难度 1−s(x̃)），(b) 由同模型初始化的 Guide 给出的 [0,1] 相关性/优雅性评分 R_guide，两者相乘作为 R_synth。</li>
+<li>在 Lean4 的 D3k 数据集（由 Goedel-Pset-V1 过滤出的 3,323 道可证但非平凡的题目）上，把 self-play 跑到 >6B tokens / 230 epoch，远超此前工作的训练长度，并拟合 sigmoid scaling law 外推长程行为。</li>
+<li>识别并诊断了纯 RL 自博弈的两大失败模式：(1) Conjecturer 坍塌为冗长、带大量析取（∨）的畸形题，无助于 Solver 训练；(2) Solver 在 CISPO 等分组 RL 目标下熵坍塌，解题率分布向 {0,1} 集中，使 Conjecturer 失去梯度信号。</li>
+<li>消融显示 <strong>Guide 不可省、也不能把 Conjecturer 冻结</strong>：去掉 Guide 渐近解题率从 67.1% 降到 65.5%；冻结 Conjecturer（AlphaProof 式）降到约 60.3%；不做 "unsolved problem conditioning" 几乎等同于 RL baseline。</li>
+<li><strong>REINFORCE^(1/2)</strong> 作为 Solver 目标被论证是 SGS 能长期学习的关键：它保持 Solver 熵稳定，让 Conjecturer 能持续生成有 spread 的解题率数据。</li>
+<li>7B SGS 模型最终 pass 超过 671B DeepSeek-Prover-V2 的 pass@4，也优于最接近的专用 Lean 自博弈方法 STP。</li>
+</ul>
+<h2>Key Contributions</h2>
+<ul>
+<li>Introduces <strong>Self-Guided Self-Play (SGS)</strong>: a three-role asymmetric self-play algorithm (Solver π_θ, Conjecturer g_φ, Guide ρ) where the Guide is an LLM reviewer that scores how relevant and "clean" each synthetic problem is relative to an unsolved target, with reward R_synth = R_solve · R_guide.</li>
+<li>Empirically shows that standard RL self-play plateaus because the Conjecturer reward-hacks: it inflates synthetic problems with disjunctive conclusions (up to ~80–100% disjunctions without Guide vs baseline <10%) and ~10× longer conclusions.</li>
+<li>Runs self-play substantially longer than prior work (>6B generation tokens, epoching D3k ~230×) and fits sigmoidal scaling laws R_C = R_0 + (A − R_0)/(1 + (C_mid/C)^B) to compare asymptotic solve rates.</li>
+<li>Demonstrates on Lean4 theorem proving (D3k: 3,323 filtered formal problems from Goedel-Pset-V1 / NuminaMath-CoT) that SGS reaches ~67.1% fitted asymptote vs 60.3% for REINFORCE^(1/2), 57.5% for CISPO and Expert Iteration; and that the 7B SGS model surpasses 671B DeepSeek-Prover-V2 pass@4 at ~6.3M generations.</li>
+<li>Identifies a Solver-objective / entropy-collapse coupling: grouped objectives like CISPO cause the Solver's solve-rate distribution to concentrate at 0 and 1, zeroing out the Conjecturer gradient. REINFORCE^(1/2) (REINFORCE restricted to rollouts with solve rate ≤ 0.5) preserves Solver entropy and keeps the self-play loop alive.</li>
+</ul>
+<h2>Methodology</h2>
+<p>Setup. A fixed target set D (here D3k, 3,323 Lean4 theorems with verifiable proofs) is held constant; each SGS iteration (Algorithm 1) samples a batch B ⊆ D, splits into solved vs unsolved, and for each unsolved x the Conjecturer samples one synthetic problem x̃ ∼ g_φ(·|x). The Solver then produces k rollouts for both x and x̃, verified by the Lean4 compiler to give binary reward v(y). All three roles — Solver, Conjecturer, Guide — are initialized from DeepSeek-Prover-V2-7B, with a small SFT stage (2,048 GPT-4.1-mini-generated reviewer examples) to fix the Guide's formatting (base rate 54.7% → >99% well-formatted).</p>
+<p>Rewards.</p>
+<ul>
+<li>Solver: REINFORCE^(1/2), i.e., a REINFORCE log-likelihood update on correct rollouts for problems whose batch solve rate is ≤ 0.5 (training only on hard-enough problems that were still solved some fraction of the time).</li>
+<li>R_solve(x̃): 0 if s(x̃) = 0 or if s(x̃) is in the top 30% of the batch (too easy), else 1 − s(x̃), rewarding intermediate difficulty.</li>
+<li>R_guide(x, x̃): score in [0,1] from the Guide LLM prompted to favor synthetic problems that are (1) clearly related to the unsolved target and (2) cleanly formulated with a simple conclusion and no redundant premises; prompt engineered through iterative inspection of failure cases.</li>
+<li>Conjecturer update: REINFORCE with reward R_synth = R_solve · R_guide, normalized within batch.</li>
+</ul>
+<p>Training. Batch size = full dataset (sample rollouts on all 3,323 problems each iteration), 8 proof rollouts per problem, bfloat16 on an H200 node with ZeRO Stage-2. Lean 4.15.0 with 200 s timeout. Inference uses up to 64 GPU workers and 128 CPU verification workers coordinated by an HTTP server with speculative reassignment for fault tolerance. Length penalty penalizes rollouts consuming 80–100% of the 8,192-token context linearly to −1, and any Solver proof using the <code>try</code> tactic gets 0 reward.</p>
+<p>Evaluation. Two complementary axes: (i) empirical cumulative solve rate vs number of generations, (ii) fitted sigmoidal scaling law with parameters (R_0, A, C_mid, B) used to extrapolate asymptotes. Fits are validated by removing the last 10/20/30% and by 100× 50% random-drop bootstrap (A's std = 1.1%). The 671B DeepSeek-Prover-V2 pass@4 on D3k is used as an external yardstick.</p>
+<h2>Results & Highlights</h2>
+<ul>
+<li>Asymptotic cumulative solve rates on D3k (fitted): SGS 67.1%, No-Guide ablation 65.5%, REINFORCE^(1/2) 60.3%, Frozen Conjecturer ~62.2%, Expert Iteration 60.0%, CISPO 57.5%, No-Problem-Conditioning ~57.5%.</li>
+<li>At 6.3M generations, the 7B SGS-trained model exceeds pass@4 of 671B DeepSeek-Prover-V2 on the same D3k set.</li>
+<li>On the 1,346 problems the RL baseline never solves, SGS makes steady progress (~10% solved after 8M generations; baseline 0% at 4M).</li>
+<li>On STP (Dong & Ma 2025), the most directly comparable Lean4 self-play method, SGS overtakes STP after ~1M generations.</li>
+<li>Figure 5 shows that as the Solver approaches solving a target, synthetic problems for that target are trained on at increasing frequency (~12% in the 0–10% progress bucket to ~33% in the 90–100% bucket), suggesting the Guide successfully biases toward stepping-stones.</li>
+<li>Entropy dynamics (Fig. 7): with CISPO, Solver entropy collapses to near 0 by 2M generations and conjecture solve rates bimodalize at 0/1; with REINFORCE^(1/2) entropy stays ~0.07 and conjectures with non-{0,1} solve rates grow to ~40%.</li>
+<li>Conjecturer pathology (Fig. 2): without Guide, by ~iteration 195 the fraction of conjectures with disjunctive (∨) conclusions rises to ~100% and average conclusion length grows ~10× the D3k baseline; with Guide both stay near D3k distribution.</li>
+</ul>
+<h2>Authors & Credibility</h2>
+<p>All five authors are at Stanford; Tatsunori Hashimoto and Tengyu Ma are well-known PIs in LLM scaling, alignment, and theoretical ML (Tengyu Ma's group previously produced STP — Dong & Ma 2025 — the closest baseline). Luke Bailey holds a Stanford Graduate + Vitalik Buterin Fellowship. Compute was provided by Google TPU Research Cloud and Thinking Machines (Tinker credits), with additional NSF / DARPA / ONR funding. Code is released at https://github.com/LukeBailey181/sgs and the D3k dataset is released on Hugging Face. The work is well resourced and from a credible group in this subfield.</p>
+<h2>Critical Assessment</h2>
+<p>Novelty: Moderate-to-high. The idea of an "LLM-as-judge" reward is not new in RLHF, and asymmetric Solver–Conjecturer self-play is established (Sukhbaatar et al., Dong & Ma, Poesia et al.). The specific contribution is plugging an untrained Guide (same base model) into the Conjecturer reward as a multiplicative "relevance × elegance" score and showing it avoids collapse in a long run. That is a narrow but genuine delta over STP and "AlphaProof-style" frozen Conjecturer.</p>
+<p>Rigor: Above average for a self-play paper. Positives: extensive ablations (No Guide, Frozen Conjecturer, No Problem Conditioning, CISPO Solver), scaling-law robustness checks (10/20/30% trim, 50% bootstrap), and an external 671B yardstick. Concerns: (1) N=1 training seed per condition — the "7% asymptote gain" is a single run with no confidence interval beyond curve-fit sensitivity (~1.1% std). (2) The "surpasses 671B" headline uses pass@4, which is a specific and somewhat soft comparison (same-budget pass@N or pass@1 would be more informative). (3) The Guide is a frozen LLM with a prompt that the authors admit was "iteratively" tuned by inspecting failures — this is legitimate, but prompt-engineering leakage is hard to separate from algorithmic contribution, and no sensitivity analysis is shown.</p>
+<p>Reproducibility: Reasonable — code is public, the dataset D3k is released, hyperparameters are tabulated, Lean version and timeout are stated, and infrastructure is documented. The dependence on DeepSeek-Prover-V2-7B as initializer and the 2,048 GPT-4.1-mini-generated SFT examples for the Guide are tighter coupling, and the full training is expensive (H200 node, up to 64 GPU / 128 CPU workers, 8M+ generations) so external replication will be non-trivial.</p>
+<p>Significance: Meaningful within formal theorem proving / LLM self-play. The demonstration that a 7B model can surpass a 671B model's pass@4 with sustained self-play is a real data point for the "small model + lots of self-play compute" thesis. Whether the method generalizes beyond Lean4 (where the reward is a hard verifier) is unvalidated — the authors explicitly punt this to future work.</p>
+<p>Red flags / overclaiming:</p>
+<ul>
+<li>Gains of ~7% asymptote are real but the 67.1% vs 65.5% No-Guide gap (1.6%) is close to the authors' own stated 1.1% robustness band; the "Guide is essential" framing is stronger than the magnitude.</li>
+<li>CISPO is compared only at one learning rate sweep configuration and without an entropy bonus / KL regularizer, even though the authors acknowledge these could fix the collapse — so the "CISPO is unsuitable" claim is somewhat strawmanned.</li>
+<li>The scaling-law extrapolation is used to quote asymptotes that the empirical curves have not actually reached, which is a well-known over-claim failure mode in RL scaling papers (acknowledged by authors but still prominent in the headline numbers).</li>
+<li>Only one target domain (Lean4) and one initializer (DeepSeek-Prover-V2-7B); no evidence that SGS beats a well-tuned RL baseline on e.g. MiniF2F-style held-out theorems or a non-formal verifiable domain.</li>
+</ul>
+<h2>Strengths</h2>
+<ul>
+<li>Clear, well-motivated failure mode (Conjecturer disjunction collapse) supported by compelling qualitative examples (Figure 2 insets).</li>
+<li>Long-horizon training: >6B generation tokens / >200 iterations is well beyond most LLM self-play papers, which makes the plateauing claim credible.</li>
+<li>Careful baselines: sweeps LR for REINFORCE^(1/2), Expert Iteration, and CISPO; reports the best of each.</li>
+<li>Separately identifies and addresses two orthogonal pathologies (Conjecturer reward hacking and Solver entropy collapse), which is more diagnostic than most self-play papers.</li>
+<li>Public code + dataset + detailed hyperparameter / infra appendices.</li>
+<li>Nice external sanity check against 671B DeepSeek-Prover-V2.</li>
+</ul>
+<h2>Limitations</h2>
+<ul>
+<li>Single domain (Lean4 formal math) with a built-in hard verifier; unknown generalization to natural-language math, coding with unit tests, or agentic environments (explicitly acknowledged).</li>
+<li>Single model scale (7B); the authors hypothesize SGS scales with Conjecturer size but do not verify.</li>
+<li>Guide is frozen; authors note a learned Guide would likely be needed for harder problems but leave it to future work.</li>
+<li>No seed variance reported for the main SGS run; asymptote differences of ~1.6% are within the authors' own scaling-law uncertainty band.</li>
+<li>D3k is biased heavily toward undergraduate algebra (Figure 10), so results may not transfer to theorem distributions dominated by geometry, topology, or olympiad-style problems.</li>
+<li>No comparison to agent-scaffolded provers (Seed-Prover, Kimina-Prover) at matched compute — only whole-proof generators.</li>
+</ul>
+<h2>Relevance</h2>
+<p>与你关注的 LLM 训练稳定性/可观测性高度相关：本文把 Solver 熵坍塌、Conjecturer reward hacking 当作两个可诊断的训练失败模式来分析，并用 Solver 熵曲线 + 解题率分布双峰化作为早期崩溃指标，这对你理解长期 RL/self-play 的可靠性与观测信号很有启发；同时它在 6B+ token 尺度上拟合 scaling law 的做法也与你对 ML 可靠性/数学基础的兴趣契合（尽管与量化误差、hidden states 可解释性关联较弱）。</p>
+<h2>Questions for Further Exploration</h2>
+<ul>
+<li>Does SGS work when the Guide is a <em>smaller</em> model than the Solver/Conjecturer, and does the Guide's own reward-hacking become a problem at longer horizons?</li>
+<li>How does SGS interact with explicit entropy bonuses or KL regularization added to CISPO — is REINFORCE^(1/2)'s advantage purely about entropy, or does the "train only on ≤0.5 solve rate" filter also contribute a curriculum effect independent of entropy?</li>
+<li>Would SGS transfer to a weakly verifiable domain (e.g., natural-language math graded by a learned reward model) without a Lean-style hard verifier, and how robust is R_guide to Solver/Conjecturer distribution shift in that setting?</li>
+<li>Can the "problem has disjunctive / inelegant conclusion" pathology be detected automatically (e.g., entropy of Solver over the synthetic x̃, or length statistics) without an LLM judge?</li>
+<li>How does SGS hold up on held-out theorem benchmarks (MiniF2F, ProofNet, PutnamBench) rather than the training set D3k, given that the paper exclusively measures cumulative solve rate on the training distribution?</li>
+<li>Does jointly training or warm-starting the Guide on Solver-progress labels ("did this synthetic problem actually precede a solved target?") outperform the frozen, prompt-only Guide?</li>
+</ul>
+<p class="note">Generated from Markdown summary. Full paper: <a href="https://arxiv.org/abs/2604.20209v1">arXiv:2604.20209v1</a></p>
+</div>
+</body>
+</html>

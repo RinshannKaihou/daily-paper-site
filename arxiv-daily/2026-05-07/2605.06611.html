@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>The Structural Origin of Attention Sink: Variance Discrepancy, Super Neurons, and Dimension Disparity</title>
+<style>
+:root { --paper:#fafafa; --ink:#1a1a1a; --muted:#555; --accent:#1a5276; --line:#ddd; --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif; --serif:Georgia,"Noto Serif SC",serif; }
+body { font-family:var(--serif); background:var(--paper); color:var(--ink); line-height:1.6; margin:0; padding:0; }
+.container { max-width:min(95vw, 760px); margin:0 auto; padding:28px 20px 60px; }
+.topnav { position:fixed; top:12px; left:14px; z-index:50; font-family:var(--sans); font-size:.75rem; background:var(--paper); border:1px solid var(--line); padding:5px 10px; border-radius:999px; }
+.topnav a { color:var(--muted); text-decoration:none; font-weight:600; }
+.topnav a:hover { color:var(--accent); }
+h1 { font-size:1.6rem; margin:2.2rem 0 1rem; border-bottom:2px solid var(--accent); padding-bottom:.3rem; }
+h2 { font-size:1.3rem; margin:1.8rem 0 .8rem; color:var(--accent); }
+h3 { font-size:1.1rem; margin:1.4rem 0 .6rem; }
+p { margin:.8rem 0; }
+.authors { font-style:italic; color:var(--muted); margin-top:-.4rem; }
+.meta { font-family:var(--sans); font-size:.82rem; color:var(--muted); margin:.2rem 0; }
+a { color:var(--accent); text-decoration:none; }
+a:hover { text-decoration:underline; }
+blockquote { border-left:3px solid var(--accent); margin:1rem 0; padding:.2rem 0 .2rem 1rem; color:var(--muted); font-style:italic; }
+code { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; background:#f0f0f0; padding:2px 5px; border-radius:3px; font-size:.9em; }
+pre { background:#f5f5f5; padding:14px; overflow-x:auto; border-radius:4px; border:1px solid var(--line); }
+pre code { background:transparent; padding:0; }
+ul,ol { margin:.6rem 0; padding-left:1.5rem; }
+li { margin:.25rem 0; }
+table { border-collapse:collapse; width:100%; margin:1rem 0; font-family:var(--sans); font-size:.9rem; }
+th,td { border:1px solid var(--line); padding:6px 10px; text-align:left; }
+th { background:#f0f0f0; }
+hr { border:none; border-top:1px solid var(--line); margin:1.5rem 0; }
+.note { font-family:var(--sans); font-size:.78rem; color:var(--muted); border-top:1px solid var(--line); margin-top:2rem; padding-top:1rem; }
+@media (max-width: 600px) { .container { padding:22px 14px 40px; } h1 { font-size:1.35rem; } }
+</style>
+</head>
+<body>
+<div class="topnav"><a href="./index.html">← Today's digest</a></div>
+<div class="container">
+<h1>The Structural Origin of Attention Sink: Variance Discrepancy, Super Neurons, and Dimension Disparity</h1>
+<p class="meta">arXiv: 2605.06611</p>
+<p class="meta">Date: 2026-05-07</p>
+<p class="meta"><a href="https://arxiv.org/abs/2605.06611">https://arxiv.org/abs/2605.06611</a></p>
+<blockquote><strong>一句话总结：</strong> 本文通过追踪因果链条，从理论上揭示了大语言模型中"注意力汇聚"现象的结构性根源——因果掩码导致初始token缺乏值聚合从而产生方差差异，该差异经由输出投影保留、FFN超级神经元放大、下投影稀疏通道形成维度不均衡，最终锁定QK投影产生注意力汇聚，并提出Head-wise RMSNorm在预训练中有效抑制该现象并加速收敛。</blockquote>
+<blockquote><strong>TL;DR:</strong> This paper provides a mechanistic causal explanation for why LLMs develop "attention sinks" — where initial tokens absorb disproportionate attention. The root cause is traced to a <em>variance discrepancy</em> arising from causal masking: the first token never aggregates value vectors, leaving it as a high-variance outlier relative to all subsequent tokens. This discrepancy propagates through the output projection (W_O), selectively activates high-norm "super neurons" in the FFN, gets channeled through sparse down-projections into extreme dimension disparities, and ultimately "locks" the QK projection to attend to the first token. Two controlled interventions (mask manipulation and direct variance amplification) confirm causality. As a fix, the authors propose <em>head-wise RMSNorm</em>, a simple normalization inserted after value aggregation that equalizes variance across positions, demonstrably suppressing attention sinks and accelerating pre-training convergence on a 152M-parameter model. The work is published at ICML 2026. Experiments are limited to 152M-scale models; large-scale validation (7B+) is left as future work.</blockquote>
+<h2>核心贡献</h2>
+<ul>
+<li><strong>揭示注意力汇聚的结构性因果链</strong>：首次系统性地将注意力汇聚现象归因于值聚合过程中的方差差异，并完整追踪其经由 W_O 保留、FFN 超级神经元选择性激活、稀疏下投影维度不均衡到 QK 投影锁定的四步传播路径。</li>
+<li><strong>双重受控实验验证因果关系</strong>：通过注意力掩码干预（隔离任意位置 token 使其只关注自身）和直接方差放大实验，证明高方差表示是注意力汇聚的充分条件，可在任意位置人为诱导汇聚。</li>
+<li><strong>提出 Head-wise RMSNorm</strong>：在值聚合后、输出投影前对每个注意力头的聚合输出进行归一化，同时恢复位置一致的方差和头间一致的方差，在预训练实验中不仅显著抑制注意力汇聚，还提升有效秩并加速收敛。</li>
+<li><strong>揭示 FFN 超级神经元机制</strong>：发现 FFN 中存在权重范数异常巨大的"超级神经元"，其被初始 token 的高方差表示选择性激活，通过稀疏下投影将大规模激活集中注入少数输出维度，造成维度不均衡与流形坍缩。</li>
+</ul>
+<h2>Key Contributions</h2>
+<ul>
+<li><strong>Mechanistic causal chain for attention sinks</strong>: Provides the first end-to-end structural account linking causal masking asymmetry → positional variance discrepancy → output projection preservation → FFN super-neuron activation → dimension disparity → QK projection locking → attention sink formation.</li>
+<li><strong>Causal validation via controlled interventions</strong>: Attention mask intervention (blocking a token from attending to predecessors) and direct variance amplification (scaling aggregated output variance by factor λ) both reproducibly induce attention sinks at arbitrary positions in Llama-2-7B and Llama-3-8B, establishing variance discrepancy as a sufficient cause.</li>
+<li><strong>Head-wise RMSNorm architectural fix</strong>: A lightweight normalization applied per attention head immediately after value aggregation (before W_O), initialized to match the first token's natural output scale. Reduces dimension disparity from 82.67 to 33.74 and improves effective rank from 343 to 445 in 152M pre-training runs, while achieving lower validation loss than both standard Softmax and Sigmoid baselines.</li>
+<li><strong>Super neuron characterization</strong>: Identifies a small subset of FFN neurons with outlier l2-norm weight vectors (e.g., neuron 7890 with norm 9.15 vs. average 1.16) that are selectively and massively activated by the first token's high-variance representation, with heavy-tailed down-projection weights concentrating signal into specific outlier dimensions.</li>
+<li><strong>Generalization across architectures</strong>: Core findings replicated on Llama-3-8B (which uses GQA), supporting the universality of the causal mechanism beyond the standard MHA Llama-2 setup.</li>
+</ul>
+<h2>Methodology</h2>
+<p>The paper proceeds in three phases: analysis, causal validation, and architectural remedy.</p>
+<p><strong>Phase 1 — Identifying the structural origin (Sec. 3)</strong></p>
+<p>The authors analyze Llama-2-7B on WikiText-2, tracking attention patterns, representation l2-norms, and dimension-wise variance across all layers. They observe that: (a) attention sink onset correlates precisely with a spike in the first token's representation norm (both emerge at layer 2); (b) under causal masking, the first token's value aggregation output o_{0,k} = V_{0,k} (it attends only to itself), while subsequent tokens aggregate an expanding context, reducing their variance by the law of large numbers. This creates a <em>systematic positional variance discrepancy</em>.</p>
+<p><strong>Phase 2 — Tracing propagation (Sec. 4)</strong></p>
+<p>Four steps are analyzed:</p>
+<ol>
+<li><em>Output projection W_O</em>: Shown (via Kendall's τ correlation analysis) to be structurally aligned with the first token's high-variance dimensions, preserving — not damping — the discrepancy into the residual stream.</li>
+<li><em>FFN super neurons</em>: High-norm neurons in W_gate and W_up selectively detect the first token's representation via cosine similarity, generating massive raw activations (e.g., neuron 7890 activates at 19.9× for position 0, near zero otherwise).</li>
+<li><em>Sparse down-projection</em>: The W_down row vector for super neurons is heavy-tailed (kurtosis 2486.5), channeling massive activations exclusively into a few dimensions (e.g., dimension 2533, magnitude 1.56 vs. global max/mean ratio of 262.88×).</li>
+<li><em>QK projection locking</em>: Post-FFN RMSNorm collapses the first token's representation onto a near-unit basis vector e_c; since the key projection K approximates a fixed row of W_K, any query with positive dot product with that row will consistently sink attention to the first token.</li>
+</ol>
+<p><strong>Phase 3 — Causal interventions (Sec. 3.2)</strong></p>
+<p>Two experiments validate the causal arrow from variance → attention sink:</p>
+<ul>
+<li><em>Mask intervention</em>: Blocking token k from attending to positions j < k (simulating the first token's isolation) transforms token k into a new attention sink.</li>
+<li><em>Variance amplification</em>: Adding λ·(o_k - μ) to the aggregated output of any token k with increasing λ monotonically increases the attention score that token receives, confirming the magnitude of variance (not norm) is the operative factor.</li>
+</ul>
+<p><strong>Phase 4 — Head-wise RMSNorm (Sec. 5)</strong></p>
+<p>The proposed fix normalizes each head's aggregated output o_t^(h) by its own RMS, scaled by a learnable per-dimension vector λ shared across heads. This decouples signal magnitude from attention entropy, preventing low-entropy (sparse) heads from dominating the residual stream. Initialization sets λ to the standard deviation of the first token's aggregated output to preserve output scale.</p>
+<p>Pre-training experiments use a 152M Llama-2-style model on OpenWebText for 40,000 iterations (20B tokens) on 8× NVIDIA L40 GPUs, compared against Softmax baseline and unnormalized Sigmoid attention.</p>
+<h2>Results & Highlights</h2>
+<ul>
+<li><strong>Attention sink suppression</strong>: Head-wise RMSNorm reduces average attention to the first token from ~0.30 (baseline) to near zero across layers, matching or surpassing the Sigmoid baseline (Figure 2).</li>
+<li><strong>Dimension disparity reduction</strong>: First token's layer-wise dominance ratio (max/mean absolute magnitude) drops from 82.67 ± 8.09 (baseline) to 33.74 ± 2.73 (Head-Norm), a ~59% reduction.</li>
+<li><strong>Effective rank improvement</strong>: Layer-wise mean effective rank increases from 343.71 ± 15.63 to 445.96 ± 5.37, indicating meaningfully higher representational capacity and less manifold collapse.</li>
+<li><strong>Pre-training convergence acceleration</strong>: Head-Norm achieves both lower training loss (2.7073 vs. 2.7483) and lower validation loss (2.7421 vs. 2.7812) than the Softmax baseline, with faster convergence trajectories. The Sigmoid baseline is strictly worse than Softmax on validation loss, underscoring that simply removing the sum-to-one constraint is insufficient.</li>
+<li><strong>Reproducibility across seeds</strong>: Results are consistent across 4 independent pre-training runs (Table 2).</li>
+<li><strong>Generalization to Llama-3-8B</strong>: All three structural phenomena (layer-wise onset, mask intervention causality, variance amplification induction) replicate on Llama-3-8B with GQA (Appendix A).</li>
+<li><strong>Manifold collapse in pretrained models</strong>: Both Llama-2-7B and Llama-3-8B show the same characteristic sharp effective-rank drop in shallow layers (layers 1-3), confirming the phenomenon is not an artifact of the training regime used for controlled experiments (Figure 21).</li>
+</ul>
+<h2>Authors & Credibility</h2>
+<p><strong>Siquan Li</strong> and <strong>Tianyang Hu</strong> (The Chinese University of Hong Kong, Shenzhen; correspondence: hutianyang@cuhk.edu.cn). <strong>Kaiqi Jiang</strong> and <strong>Jiacheng Sun</strong> (Huawei Noah's Ark Lab / Foundation Model Department).</p>
+<p>The paper is published at the <strong>43rd International Conference on Machine Learning (ICML 2026)</strong>, a top-tier venue, lending substantial credibility to the rigor of peer review. The Huawei affiliation gives the team access to serious compute infrastructure (8× L40 GPUs). The mechanistic analysis style aligns with well-established interpretability methodology. The theoretical claims are carefully grounded in empirical evidence with multiple verification strategies.</p>
+<h2>Critical Assessment</h2>
+<p><strong>Novelty</strong>: High. While attention sinks have been extensively observed and functionally analyzed (StreamingLLM, DuoAttention, etc.), and while prior work identified correlations with Softmax sum-to-one constraints or positional encodings, this is the first paper to trace a complete, mechanistically-validated causal chain from value aggregation asymmetry through super neuron activation to QK locking. The identification of super neurons as the amplification mechanism and sparse down-projections as the channeling mechanism is genuinely new.</p>
+<p><strong>Rigor</strong>: Solid at the 152M scale. The causal interventions are well-designed and controls are appropriate (norm scaling vs. variance scaling comparison is particularly careful). The use of Kendall's τ for ordinal alignment analysis is principled. However, the mechanistic analysis is primarily conducted on a single architecture (Llama-2-7B) and the appendix validation on Llama-3-8B is empirical rather than mechanistic.</p>
+<p><strong>Reproducibility</strong>: High for the pre-training experiments — full hyperparameter tables, dataset, optimizer details, and infrastructure specifications are provided (Appendix B). The mask intervention and variance amplification experiments are straightforward to replicate. Code is not explicitly linked in the paper.</p>
+<p><strong>Significance</strong>: Meaningful to both the interpretability and architecture communities. The causal chain explanation resolves a long-standing puzzle and provides principled guidance for architectural interventions. Head-wise RMSNorm is a simple, practically deployable fix that improves training efficiency.</p>
+<p><strong>Red flags</strong>:</p>
+<ul>
+<li>All pre-training validation uses 152M parameters; the claim that this fixes attention sinks in production-scale 7B+ models is asserted but undemonstrated. The authors themselves flag this as a limitation.</li>
+<li>The effective rank and dimension disparity improvements are measured on the 152M controlled model, not on pretrained Llama-2-7B or Llama-3-8B, so it is unclear whether post-hoc insertion of Head-Norm would benefit already-trained models.</li>
+<li>The paper does not report downstream task performance (e.g., zero-shot benchmarks), only pre-training loss. The connection between reduced attention sinks / higher effective rank and task performance is implied but not shown.</li>
+<li>Super neuron analysis is conducted at layer 1 of Llama-2-7B; the generality of the specific neuron-level mechanism across layers and architectures is assumed rather than systematically verified.</li>
+<li>The initialization scheme for Head-Norm affine parameters requires computing the first token's output standard deviation — a somewhat non-standard hyperparameter choice whose sensitivity is not ablated.</li>
+</ul>
+<h2>Strengths</h2>
+<ul>
+<li>Provides a complete, falsifiable causal chain rather than a correlational account; each link is empirically tested with targeted interventions.</li>
+<li>Demonstrates that attention sinks are not an emergent training artifact but a structural consequence of architecture, controllable by design.</li>
+<li>Head-wise RMSNorm is lightweight, requires no change to the attention mechanism itself, and is compatible with standard Softmax — avoiding the downstream performance degradation that plagues Sigmoid-attention alternatives.</li>
+<li>The finding that variance magnitude (not norm) is the operative quantity elegantly explains why simply scaling representations fails to induce sinks while variance amplification succeeds.</li>
+<li>Connects to and explains adjacent phenomena: activation outliers, representation collapse, gradient instability, and the repeated-token phenomenon (Yona et al. 2025) under a unified structural framework.</li>
+<li>The paper is well-organized, with clear figure design that traces the propagation chain visually.</li>
+</ul>
+<h2>Limitations</h2>
+<ul>
+<li>Mechanistic analysis and architectural validation are limited to 152M-parameter models trained from scratch; scaling behavior of Head-wise RMSNorm to 7B+ parameter models is unverified.</li>
+<li>No downstream task benchmarks are reported; pre-training loss improvements may or may not translate to meaningful performance gains on standard evaluation suites.</li>
+<li>Interaction with Mixture-of-Experts (MoE) architectures, grouped query attention (beyond validation of symptom replication), and other architectural variants (e.g., sliding window attention) is unexplored.</li>
+<li>The paper does not address whether Head-Norm can be applied post-hoc (e.g., via continued pre-training or fine-tuning) to models that have already developed attention sinks.</li>
+<li>The analysis focuses on decoder-only architectures under causal masking; applicability to encoder architectures or bidirectional attention is not discussed.</li>
+<li>No ablation of the Head-Norm initialization strategy or sensitivity analysis of the learnable λ parameter.</li>
+</ul>
+<h2>相关性</h2>
+<p>本文深入揭示了Transformer注意力汇聚现象的结构性成因，对大语言模型机制可解释性研究和预训练架构优化具有直接指导意义，尤其适合关注LLM内部机制、训练稳定性及轻量级架构改进方向的研究者阅读。</p>
+<h2>Questions for Further Exploration</h2>
+<ol>
+<li>Does Head-wise RMSNorm maintain its convergence and attention-sink-suppression benefits at 7B and 70B parameter scales, or does its behavior change with model capacity?</li>
+<li>Can the super neuron characterization be extended to other layers and other architectures (e.g., Mistral, Gemma, Falcon)? Are super neurons a universal feature of SwiGLU FFNs?</li>
+<li>The paper shows that variance amplification at arbitrary positions induces attention sinks — does this mean any token that repeatedly appears in a document (and thus has limited aggregation diversity) could become a secondary sink? How does this interact with the repeated token phenomenon?</li>
+<li>Is there a closed-form relationship between the amplification factor λ and the resulting attention score, or is the threshold for sink formation architecture-dependent?</li>
+<li>Could the causal chain be disrupted at an earlier stage — specifically at W_O — by constraining the structural alignment between W_O columns and the first token's high-variance dimensions during training?</li>
+<li>Does Head-wise RMSNorm eliminate the need for dedicated "sink tokens" in KV-cache compression schemes like StreamingLLM, or does it simply relocate the sink to a different position?</li>
+<li>The paper notes that Sigmoid attention partially mitigates variance discrepancy but harms downstream performance — is this a fundamental tradeoff with unnormalized attention, or an artifact of the specific initialization/training setup?</li>
+</ol>
+<p class="note">Generated from Markdown summary. Full paper: <a href="https://arxiv.org/abs/2605.06611">arXiv:2605.06611</a></p>
+</div>
+</body>
+</html>

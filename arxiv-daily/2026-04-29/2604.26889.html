@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Revealing NVIDIA Closed-Source Driver Command Streams for CPU-GPU Runtime Behavior Insight</title>
+<style>
+:root { --paper:#fafafa; --ink:#1a1a1a; --muted:#555; --accent:#1a5276; --line:#ddd; --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif; --serif:Georgia,"Noto Serif SC",serif; }
+body { font-family:var(--serif); background:var(--paper); color:var(--ink); line-height:1.6; margin:0; padding:0; }
+.container { max-width:min(95vw, 760px); margin:0 auto; padding:28px 20px 60px; }
+.topnav { position:fixed; top:12px; left:14px; z-index:50; font-family:var(--sans); font-size:.75rem; background:var(--paper); border:1px solid var(--line); padding:5px 10px; border-radius:999px; }
+.topnav a { color:var(--muted); text-decoration:none; font-weight:600; }
+.topnav a:hover { color:var(--accent); }
+h1 { font-size:1.6rem; margin:2.2rem 0 1rem; border-bottom:2px solid var(--accent); padding-bottom:.3rem; }
+h2 { font-size:1.3rem; margin:1.8rem 0 .8rem; color:var(--accent); }
+h3 { font-size:1.1rem; margin:1.4rem 0 .6rem; }
+p { margin:.8rem 0; }
+.authors { font-style:italic; color:var(--muted); margin-top:-.4rem; }
+.meta { font-family:var(--sans); font-size:.82rem; color:var(--muted); margin:.2rem 0; }
+a { color:var(--accent); text-decoration:none; }
+a:hover { text-decoration:underline; }
+blockquote { border-left:3px solid var(--accent); margin:1rem 0; padding:.2rem 0 .2rem 1rem; color:var(--muted); font-style:italic; }
+code { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; background:#f0f0f0; padding:2px 5px; border-radius:3px; font-size:.9em; }
+pre { background:#f5f5f5; padding:14px; overflow-x:auto; border-radius:4px; border:1px solid var(--line); }
+pre code { background:transparent; padding:0; }
+ul,ol { margin:.6rem 0; padding-left:1.5rem; }
+li { margin:.25rem 0; }
+table { border-collapse:collapse; width:100%; margin:1rem 0; font-family:var(--sans); font-size:.9rem; }
+th,td { border:1px solid var(--line); padding:6px 10px; text-align:left; }
+th { background:#f0f0f0; }
+hr { border:none; border-top:1px solid var(--line); margin:1.5rem 0; }
+.note { font-family:var(--sans); font-size:.78rem; color:var(--muted); border-top:1px solid var(--line); margin-top:2rem; padding-top:1rem; }
+@media (max-width: 600px) { .container { padding:22px 14px 40px; } h1 { font-size:1.35rem; } }
+</style>
+</head>
+<body>
+<div class="topnav"><a href="./index.html">← Today's digest</a></div>
+<div class="container">
+<h1>Revealing NVIDIA Closed-Source Driver Command Streams for CPU-GPU Runtime Behavior Insight</h1>
+<p class="meta">arXiv: 2604.26889v1</p>
+<p class="meta">Date: 2026-04-29</p>
+<p class="meta"><a href="https://arxiv.org/abs/2604.26889v1">https://arxiv.org/abs/2604.26889v1</a></p>
+<blockquote><strong>一句话总结：</strong> 通过修改NVIDIA开源内核驱动并拦截GPU门铃寄存器写入，完整捕获闭源用户态驱动发出的硬件命令流，揭示了CUDA数据传输的双DMA模式机制（内联DMA启动延迟仅24ns，直接DMA带宽达22 GiB/s）以及CUDA Graph在新版本中通过缩减命令足迹降低启动开销的原理。</blockquote>
+<blockquote><strong>TL;DR:</strong> This paper recovers the complete hardware command streams emitted by NVIDIA's closed-source userspace driver by instrumenting the open-source kernel driver and placing hardware watchpoints on the GPU doorbell register. Two case studies demonstrate the value: (1) cudaMemcpy uses two DMA modes -- inline DMA via the compute engine (24 ns startup, saturates at 17.5 GiB/s) for transfers <= 24 KiB, and direct DMA via the copy engine (500 ns startup, saturates at 22 GiB/s) for larger transfers; (2) CUDA 13.0 reduces graph launch overhead from 209 us to 5.9 us (at graph length 2000) compared to CUDA 11.8 by shrinking the command footprint from ~45 KB to ~2.2 KB and reducing doorbell writes. The methodology enables CUDA-bypassing direct DMA command issuance for isolating raw hardware performance from driver overhead.</blockquote>
+<h2>核心贡献</h2>
+<ul>
+<li><strong>命令流捕获与重建</strong>：通过修改NVIDIA开源内核驱动的内存映射路径，在GPU门铃寄存器（doorbell）的用户空间映射上设置硬件观察点（watchpoint），在命令提交瞬间冻结用户态驱动，完整捕获并解析pushbuffer命令流，实现闭源驱动行为的高保真可视化。</li>
+<li><strong>CUDA数据传输机制深度分析</strong>：揭示了cudaMemcpy内部的双DMA模式切换机制——小数据传输（<=24 KiB）使用计算引擎的内联DMA（启动延迟24ns），大数据传输使用专用拷贝引擎的直接DMA（启动延迟500ns、峰值带宽22 GiB/s），并通过绕过CUDA直接编程DMA引擎，首次分离出纯硬件DMA性能。</li>
+<li><strong>CUDA Graph开销优化解析</strong>：通过对比CUDA 11.8与CUDA 13.0的命令流，发现新版本将graph长度2000时的命令足迹从~45KB缩减至~2.2KB、doorbell写入次数大幅减少，从而将启动时间从209us降至5.9us，揭示了命令足迹与启动开销的强耦合关系。</li>
+<li><strong>通用方法论贡献</strong>：提出的方法不仅适用于数据传输和CUDA Graph，还可推广到其他CUDA API的分析与优化，为GPU中间件行为理解和软硬件协同设计提供实用基础。</li>
+</ul>
+<h2>Key Contributions</h2>
+<ul>
+<li><strong>Command-stream capture and reconstruction</strong>: Modifies the NVIDIA open-source kernel driver's memory-mapping path and installs a hardware watchpoint on the userspace mapping of the GPU doorbell register. When the userspace driver rings the doorbell to submit work, the watchdog handler traps into the kernel, pauses the driver, and captures a complete, intact snapshot of the newly submitted pushbuffer and GPFIFO entries. A shadow doorbell page mechanism ensures transparent forwarding of the intercepted write to the real hardware doorbell after observation.</li>
+<li><strong>Dual-DMA-mode analysis in cudaMemcpy</strong>: Identifies that the NVIDIA closed-source driver selects between inline DMA (compute engine, <=24 KiB threshold) and direct DMA (dedicated copy engine, >=24 KiB) for host-to-device transfers. Characterizes raw hardware performance: inline DMA achieves 24 ns startup latency and 17.5 GiB/s peak bandwidth; direct DMA achieves 500 ns startup latency and 22 GiB/s peak bandwidth.</li>
+<li><strong>CUDA-bypassing direct command issuance</strong>: Leverages UVM address unification and knowledge of the submission architecture to inject custom pushbuffer commands directly to the GPU, bypassing the CUDA runtime entirely. This enables device-side timestamped measurement of DMA engine performance without driver overhead contamination.</li>
+<li><strong>CUDA Graph optimization analysis</strong>: Shows that CUDA 13.0 achieves near-constant-time graph launch (1.9-5.9 us for graph lengths 1-2000) compared to CUDA 11.8's linear scaling (1.8-209 us), attributable to a dramatically smaller command footprint (~2.2 KB vs. ~45 KB) and fewer doorbell writes, establishing command size as a useful precursor for launch overhead.</li>
+</ul>
+<h2>Methodology</h2>
+<p>The paper's methodology centers on a modified NVIDIA OpenGPU kernel driver that instruments the GPU command submission path at three levels:</p>
+<ol>
+<li><strong>Shadow doorbell interception</strong>: The original kernel driver maps the PCIe BAR0 doorbell register directly into userspace. The modified driver instead allocates a shadow RAM page and maps that to userspace. When the closed-source userspace driver writes to what it believes is the doorbell, the write lands in the shadow page and triggers a CPU debug register watchpoint. The watchdog handler then reads the channel ID, reconstructs the execution state, and forwards the write to the real doorbell.</li>
+</ol>
+<ol>
+<li><strong>Execution state reconstruction</strong>: Using the intercepted channel ID, the system locates the corresponding KernelChannel object, maps USERD and RAMIN into CPU virtual address space, walks the GPU MMU page tables to resolve physical addresses, and reads GPFIFO entries and pushbuffer contents. The pushbuffer commands are parsed using method listings from the open-sourced driver headers.</li>
+</ol>
+<ol>
+<li><strong>Custom command issuance</strong>: Exploiting the UVM address unification (Finding 1: GPU virtual addresses in pushbuffer commands are shared with the process's userspace virtual address space), the authors inject custom pushbuffer segments with DMA commands and semaphore-based progress trackers. All transfer commands and timestamps are coalesced into a single pushbuffer submission, enabling uninterrupted device-side execution and pure hardware timing via GPU-written timestamps.</li>
+</ol>
+<p>The evaluation platform is an NVIDIA A40 (Ampere) GPU on an Intel Xeon Gold 6338 system with PCIe Gen4 x16, running Rocky Linux 9.5 with a patched Linux 5.14 kernel. Two CUDA stacks are compared: CUDA 11.8 (driver 520.61.07) and CUDA 13.0 (driver 580.105.08).</p>
+<h2>Results & Highlights</h2>
+<ul>
+<li><strong>Inline DMA vs. Direct DMA</strong>: For host-to-device transfers, the driver uses inline DMA (data embedded in pushbuffer payload, dispatched to compute engine) for transfers <= 24 KiB, and direct DMA (source/destination addresses specified, dispatched to dedicated copy engine) for transfers >= 24 KiB. The compute engine achieves much lower startup latency (24 ns vs. 500 ns) but saturates quickly at 17.5 GiB/s, while the copy engine scales to 22 GiB/s at ~1 MiB.</li>
+<li><strong>Profiler vs. raw hardware disparity</strong>: Nsight "CUDA HW" durations include significant non-hardware overhead. The fraction of profiler-reported latency attributable to raw hardware execution declines as transfer size grows (hardware time increasingly dominates), but for small transfers, the overhead fraction is substantial.</li>
+<li><strong>CUDA Graph launch time</strong>: CUDA 11.8 shows linear growth in launch time with graph length (1.8 us to 209 us for lengths 1 to 2000), while CUDA 13.0 shows near-constant behavior (1.9 us to 5.9 us). Command size tracks launch time closely: CUDA 11.8 grows from 328 B to 45,476 B; CUDA 13.0 grows from 340 B to only 2,216 B.</li>
+<li><strong>Staircase pattern</strong>: Under CUDA 11.8, both command size and launch time exhibit a discrete staircase pattern at fine granularity (0-200 kernel chain length), with step transitions closely aligned, further confirming the tight coupling between command footprint and launch overhead.</li>
+<li><strong>Submission pattern</strong>: CUDA 13.0 also reduces the number of doorbell writes (distinct submission cycles) compared to CUDA 11.8, indicating a more efficient batching strategy.</li>
+</ul>
+<h2>Authors & Credibility</h2>
+<ul>
+<li><strong>Yuang Yan</strong> (corresponding author), <strong>Ian Karlin</strong>, and <strong>Ryan Grant</strong> -- The authors appear to be affiliated with a research institution working on GPU systems and performance analysis. The paper demonstrates deep familiarity with NVIDIA GPU internals, the OpenGPU kernel driver codebase, and low-level PCIe/MMIO mechanics.</li>
+<li>The work builds directly on NVIDIA's open-source kernel driver (released 2022) and open-gpu-doc documentation, leveraging public infrastructure rather than requiring any privileged access.</li>
+<li>The methodology is presented with substantial technical depth, including concrete code listings of reconstructed command streams, memory address resolution steps, and GPU MMU page table walking.</li>
+</ul>
+<h2>Critical Assessment</h2>
+<ul>
+<li><strong>Novelty</strong>: High. While prior work has modified the kernel driver for scheduling or security analysis, this is the first to reconstruct the complete end-to-end command trajectory from CUDA API calls through the closed-source userspace driver to hardware-level pushbuffer commands. The shadow doorbell technique and the CUDA-bypassing direct command injection are genuinely novel.</li>
+<li><strong>Rigor</strong>: Strong. The paper provides detailed descriptions of the interception mechanism, state reconstruction procedure, and experimental setup. Two CUDA versions are compared. However, the evaluation is limited to a single GPU (A40) and a single CPU platform. The paper acknowledges this but argues the submission architecture is generation-invariant, which is reasonable but not empirically verified.</li>
+<li><strong>Reproducibility</strong>: Moderate. The methodology requires modifying the kernel driver, patching the Linux kernel (exporting <code>sched_task_fork</code>), and deep knowledge of GPU MMU internals. While the open-source driver provides the base, the barrier to reproduction is high. No open-source code release is mentioned.</li>
+<li><strong>Significance</strong>: High for the GPU systems community. The ability to separate hardware performance from driver overhead addresses a fundamental limitation in current GPU profiling. The findings about dual DMA modes and CUDA Graph optimization internals have practical implications for performance engineering.</li>
+<li><strong>Red flags</strong>: The paper uses "xxx, 2026, xxx" as the venue header, suggesting it is a preprint under submission. The CUDA 13.0 version referenced appears to be a future/internal version not yet publicly available (as of April 2026, CUDA 12.x is the latest public release), which raises questions about general accessibility of the findings. The 24 KiB DMA mode switch threshold is stated for "our environment" without exploring whether it varies across hardware generations or driver versions.</li>
+</ul>
+<h2>Strengths</h2>
+<ul>
+<li>Provides unprecedented visibility into the closed-source NVIDIA userspace driver's command translation process.</li>
+<li>The shadow doorbell interception technique is elegant and minimally invasive -- it does not modify the userspace driver at all.</li>
+<li>The dual case study structure (hardware-centric data movement + software-centric CUDA Graph) effectively demonstrates the methodology's versatility.</li>
+<li>The discovery of UVM address unification being leveraged internally by the driver (Finding 1) is a useful insight for anyone working on GPU command streams.</li>
+<li>Clear and detailed technical writing with informative figures illustrating the command submission hierarchy.</li>
+</ul>
+<h2>Limitations</h2>
+<ul>
+<li>Single GPU platform (NVIDIA A40 only); results may differ on other architectures (Hopper, Ada Lovelace, etc.).</li>
+<li>No open-source code or tool release mentioned, limiting immediate community adoption.</li>
+<li>The CUDA 13.0 stack used may not be publicly available, which could hinder independent verification.</li>
+<li>The methodology requires a modified kernel driver and patched Linux kernel, imposing significant infrastructure requirements.</li>
+<li>The analysis of CUDA Graph internals is limited to macroscopic submission-level indicators (doorbell count, command volume) because many commands use NVIDIA-internal terms with undocumented semantics.</li>
+<li>The performance overhead of the watchpoint interception mechanism itself is not rigorously quantified (though the paper uses separate unmodified-driver runs for performance measurements).</li>
+</ul>
+<h2>Relevance</h2>
+<p>本文对GPU系统性能分析和CUDA底层机制的研究具有重要参考价值，特别是其"绕过CUDA直接编程DMA引擎"的方法论可用于精确测量GPU互连的原始硬件性能，对研究GPU disaggregated memory和异构计算系统中软件开销占比问题特别有意义。</p>
+<h2>Questions for Further Exploration</h2>
+<ul>
+<li>How does the DMA mode switch threshold (observed at 24 KiB on A40) vary across GPU generations (e.g., H100, B200) and driver versions?</li>
+<li>Can the shadow doorbell interception technique be extended to capture multi-GPU communication primitives (NVLink, GPUDirect RDMA) with similar fidelity?</li>
+<li>What is the runtime overhead of the watchpoint interception itself, and could it be used in production profiling scenarios rather than offline analysis?</li>
+<li>Do the CUDA Graph command footprint reductions in CUDA 13.0 generalize to more complex graph topologies (branching, multi-stream)?</li>
+<li>Could the CUDA-bypassing direct command issuance methodology be used to construct lightweight GPU communication runtimes that avoid closed-source driver overhead entirely?</li>
+</ul>
+<p class="note">Generated from Markdown summary. Full paper: <a href="https://arxiv.org/abs/2604.26889v1">arXiv:2604.26889v1</a></p>
+</div>
+</body>
+</html>

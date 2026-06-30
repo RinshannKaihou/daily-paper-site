@@ -1,0 +1,684 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>From Roofline to Ruggedness — Paper Dashboard</title>
+<style>
+  /* ── Design tokens ── */
+  :root {
+    --bg:        #0b0d11;
+    --surface:   #12151c;
+    --surface-2: #191d27;
+    --border:    #252a38;
+    --text:      #d4d9e6;
+    --text-dim:  #6e7690;
+    --accent:    #2ec4a2;
+    --accent-soft: rgba(46,196,162,0.10);
+    --caution:   #e05555;
+    --caution-soft: rgba(224,85,85,0.10);
+    --metric-fg: #3fd9b4;
+    --peak:      #f5c842;
+    --mono:      'SF Mono','Fira Code','Cascadia Code','Consolas', monospace;
+    --sans:      'IBM Plex Sans','Noto Sans SC','Segoe UI',system-ui,sans-serif;
+    --serif:     'IBM Plex Serif','Noto Serif SC',Georgia,serif;
+    --lh:        1.65;
+    --radius:    6px;
+    --gap:       20px;
+  }
+
+  /* ── Reset ── */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html { font-size: 15px; -webkit-font-smoothing: antialiased; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    line-height: var(--lh);
+    min-height: 100vh;
+  }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  /* ── Fixed nav ── */
+  .back-link {
+    position: fixed; top: 16px; left: 20px; z-index: 100;
+    font-size: 0.78rem; color: var(--text-dim);
+    background: var(--surface); padding: 6px 12px;
+    border-radius: var(--radius); border: 1px solid var(--border);
+    transition: color 0.2s;
+  }
+  .back-link:hover { color: var(--accent); text-decoration: none; }
+
+  /* ── Page wrapper ── */
+  .page {
+    max-width: min(95vw, 1120px);
+    margin: 0 auto;
+    padding: 40px 24px 60px;
+  }
+
+  /* ═══════════════════════════════════
+     HERO — above the fold
+     ═══════════════════════════════════ */
+  .hero {
+    padding: 52px 0 36px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: var(--gap);
+  }
+  .hero-tag {
+    display: inline-block;
+    font-size: 0.7rem;
+    font-family: var(--mono);
+    color: var(--accent);
+    background: var(--accent-soft);
+    border: 1px solid rgba(46,196,162,0.25);
+    padding: 3px 10px;
+    border-radius: 3px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    margin-bottom: 14px;
+  }
+  .hero h1 {
+    font-family: var(--serif);
+    font-size: clamp(1.5rem, 3.5vw, 2.15rem);
+    font-weight: 700;
+    line-height: 1.25;
+    color: #f0f2f7;
+    max-width: 820px;
+    margin-bottom: 10px;
+  }
+  .hero-sub {
+    font-size: 0.88rem;
+    color: var(--text-dim);
+    max-width: 700px;
+  }
+  .hero-sub span { color: var(--text); font-weight: 500; }
+  .hero-links {
+    margin-top: 12px;
+    display: flex;
+    gap: 14px;
+    font-size: 0.78rem;
+  }
+  .hero-links a {
+    color: var(--text-dim);
+    border: 1px solid var(--border);
+    padding: 4px 10px;
+    border-radius: var(--radius);
+    transition: all 0.2s;
+  }
+  .hero-links a:hover {
+    color: var(--accent);
+    border-color: var(--accent);
+    text-decoration: none;
+  }
+
+  /* ═══════════════════════════════════
+     ASSET ROW — 4 extracted assets
+     ═══════════════════════════════════ */
+  .asset-row {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: var(--gap);
+    margin-bottom: var(--gap);
+  }
+  @media (max-width: 820px) {
+    .asset-row { grid-template-columns: repeat(2, 1fr); }
+  }
+  @media (max-width: 480px) {
+    .asset-row { grid-template-columns: 1fr; }
+  }
+
+  .asset {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 20px 18px 16px;
+    position: relative;
+    overflow: hidden;
+  }
+  .asset::before {
+    content: '';
+    position: absolute; top: 0; left: 0; right: 0;
+    height: 3px;
+  }
+  .asset.headline::before { background: var(--accent); }
+  .asset.anchor::before  { background: var(--peak); }
+  .asset.sowhat::before  { background: #6c8aff; }
+  .asset.edge::before    { background: var(--caution); }
+
+  .asset-label {
+    font-size: 0.62rem;
+    font-family: var(--mono);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--text-dim);
+    margin-bottom: 10px;
+  }
+  .asset.headline .asset-label { color: var(--accent); }
+  .asset.anchor .asset-label  { color: var(--peak); }
+  .asset.sowhat .asset-label  { color: #6c8aff; }
+  .asset.edge .asset-label    { color: var(--caution); }
+
+  .asset .big-num {
+    font-family: var(--mono);
+    font-size: 2.2rem;
+    font-weight: 700;
+    line-height: 1.1;
+    margin-bottom: 8px;
+  }
+  .asset.headline .big-num { color: var(--accent); }
+  .asset.anchor .big-num   { color: var(--peak); }
+
+  .asset .body-text {
+    font-size: 0.82rem;
+    line-height: 1.55;
+    color: var(--text);
+  }
+  .asset.edge .body-text { color: #d4a0a0; }
+
+  /* ═══════════════════════════════════
+     BODY GRID — non-linear sections
+     ═══════════════════════════════════ */
+  .body-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--gap);
+  }
+  @media (max-width: 760px) {
+    .body-grid { grid-template-columns: 1fr; }
+  }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 20px 18px;
+    animation: fadeUp 0.5s ease both;
+  }
+  .card.wide { grid-column: 1 / -1; }
+
+  .card h2 {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--accent);
+    margin-bottom: 14px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .card p, .card li {
+    font-size: 0.85rem;
+    color: var(--text);
+    line-height: 1.6;
+  }
+  .card ul { padding-left: 16px; }
+  .card li { margin-bottom: 5px; }
+  .card li::marker { color: var(--accent); }
+
+  /* ── Progression table ── */
+  .prog-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.82rem;
+    font-family: var(--mono);
+  }
+  .prog-table th {
+    text-align: left;
+    font-weight: 600;
+    color: var(--text-dim);
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    padding: 6px 10px 8px;
+    border-bottom: 1px solid var(--border);
+  }
+  .prog-table td {
+    padding: 8px 10px;
+    border-bottom: 1px solid rgba(37,42,56,0.5);
+  }
+  .prog-table tr:last-child td { border-bottom: none; }
+  .prog-table .val {
+    font-weight: 600;
+    color: var(--metric-fg);
+  }
+  .prog-table .peak-val {
+    font-weight: 700;
+    color: var(--peak);
+  }
+  .prog-table .delta {
+    font-size: 0.72rem;
+    color: var(--text-dim);
+  }
+  .prog-table .delta.good { color: var(--accent); }
+
+  /* ── Bar visual ── */
+  .bar-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 10px;
+  }
+  .bar-row:last-child { margin-bottom: 0; }
+  .bar-label {
+    font-size: 0.72rem;
+    font-family: var(--mono);
+    color: var(--text-dim);
+    min-width: 110px;
+    text-align: right;
+  }
+  .bar-track {
+    flex: 1;
+    height: 18px;
+    background: var(--surface-2);
+    border-radius: 3px;
+    overflow: hidden;
+    position: relative;
+  }
+  .bar-fill {
+    height: 100%;
+    border-radius: 3px;
+    transition: width 0.8s cubic-bezier(0.22,1,0.36,1);
+  }
+  .bar-fill.green  { background: linear-gradient(90deg, #1a8a6e, var(--accent)); }
+  .bar-fill.gold   { background: linear-gradient(90deg, #c49a28, var(--peak)); }
+  .bar-fill.red    { background: linear-gradient(90deg, #a03030, var(--caution)); }
+  .bar-fill.blue   { background: linear-gradient(90deg, #3a5aaa, #6c8aff); }
+  .bar-val {
+    font-size: 0.72rem;
+    font-family: var(--mono);
+    color: var(--text);
+    min-width: 40px;
+  }
+
+  /* ── Landscape viz (CSS-only mesa) ── */
+  .mesa-chart {
+    position: relative;
+    height: 120px;
+    background: var(--surface-2);
+    border-radius: 4px;
+    overflow: hidden;
+    margin-top: 8px;
+  }
+  .mesa-chart .mesa-layer {
+    position: absolute;
+    left: 0; right: 0;
+    border-radius: 4px 4px 0 0;
+  }
+  .mesa-chart .ml-saturated {
+    bottom: 0; height: 22%;
+    background: linear-gradient(180deg, rgba(245,200,66,0.35), rgba(245,200,66,0.12));
+    border-top: 1px solid rgba(245,200,66,0.3);
+  }
+  .mesa-chart .ml-scaling {
+    bottom: 22%; height: 50%;
+    background: linear-gradient(180deg, rgba(46,196,162,0.25), rgba(46,196,162,0.06));
+    border-top: 1px solid rgba(46,196,162,0.2);
+  }
+  .mesa-chart .ml-launch {
+    bottom: 72%; height: 28%;
+    background: linear-gradient(180deg, rgba(108,138,255,0.18), rgba(108,138,255,0.04));
+    border-top: 1px solid rgba(108,138,255,0.15);
+  }
+  .mesa-label {
+    position: absolute;
+    font-size: 0.62rem;
+    font-family: var(--mono);
+    color: var(--text-dim);
+    right: 8px;
+  }
+  .mesa-label.l1 { top: 6px; }
+  .mesa-label.l2 { top: 35%; }
+  .mesa-label.l3 { bottom: 6px; }
+  .mesa-peak-marker {
+    position: absolute;
+    left: 50%; top: 4%;
+    transform: translateX(-50%);
+    font-size: 0.72rem;
+    font-family: var(--mono);
+    font-weight: 700;
+    color: var(--peak);
+    text-shadow: 0 0 12px rgba(245,200,66,0.4);
+  }
+  .mesa-peak-marker::after {
+    content: '';
+    display: block;
+    width: 1px;
+    height: 90px;
+    background: linear-gradient(180deg, rgba(245,200,66,0.4), transparent);
+    margin: 2px auto 0;
+  }
+
+  /* ── Strengths / Limits split ── */
+  .split-card {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+  }
+  @media (max-width: 500px) {
+    .split-card { grid-template-columns: 1fr; }
+  }
+  .split-card h3 {
+    font-size: 0.7rem;
+    font-family: var(--mono);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 10px;
+  }
+  .split-card .str h3 { color: var(--accent); }
+  .split-card .lim h3 { color: var(--caution); }
+  .split-card ul { padding-left: 14px; font-size: 0.8rem; }
+  .split-card li { margin-bottom: 4px; line-height: 1.5; color: var(--text); }
+  .split-card .lim li { color: #c0a8a8; }
+
+  /* ── Animation ── */
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(12px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  .card:nth-child(1) { animation-delay: 0.05s; }
+  .card:nth-child(2) { animation-delay: 0.10s; }
+  .card:nth-child(3) { animation-delay: 0.15s; }
+  .card:nth-child(4) { animation-delay: 0.20s; }
+  .card:nth-child(5) { animation-delay: 0.25s; }
+  .card:nth-child(6) { animation-delay: 0.30s; }
+
+  /* ── Footer ── */
+  .footer {
+    margin-top: 40px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border);
+    font-size: 0.72rem;
+    color: var(--text-dim);
+    display: flex;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+</style>
+</head>
+<body>
+
+<a class="back-link" href="./index.html">Index</a>
+
+<div class="page">
+
+  <!-- ═══════ HERO ═══════ -->
+  <header class="hero">
+    <div class="hero-tag">cs.PF &middot; GEMM &middot; Intel Battlemage &middot; 2026-05-28</div>
+    <h1>From Roofline to Ruggedness: Decomposing and Smoothing the GEMM Performance Landscape</h1>
+    <p class="hero-sub">
+      Aditya Chatterjee &mdash; <span>Intel Corporation</span>
+      &ensp;|&ensp; arXiv:2605.29752
+    </p>
+    <div class="hero-links">
+      <a href="https://arxiv.org/abs/2605.29752" target="_blank" rel="noopener">arXiv</a>
+      <a href="2605.29752.html">Markdown</a>
+      <a href="./index.html">Daily Index</a>
+    </div>
+  </header>
+
+  <!-- ═══════ ASSET ROW ═══════ -->
+  <section class="asset-row">
+
+    <div class="asset headline">
+      <div class="asset-label">Headline Claim</div>
+      <div class="big-num">30%</div>
+      <p class="body-text">Adjacent BF16 GEMM sizes differing by a single 128-element step can vary 30% in throughput. A DP-based optimizer smooths this ruggedness by 70%.</p>
+    </div>
+
+    <div class="asset anchor">
+      <div class="asset-label">Anchor Fact</div>
+      <div class="big-num">110.8</div>
+      <p class="body-text"><strong>TFLOPs</strong> peak at M=3840, N=2048, K=4096 &mdash; yet only <strong>1.4%</strong> of 32,768 configs exceed 100 TFLOPs. The landscape is a mesa, not a plateau.</p>
+    </div>
+
+    <div class="asset sowhat">
+      <div class="asset-label">So What</div>
+      <p class="body-text">GPU kernel performance is a rugged landscape, not a smooth roofline ceiling. Engineers must actively optimize for it &mdash; a simple DP padding-and-splitting stack raises mean throughput 30%.</p>
+    </div>
+
+    <div class="asset edge">
+      <div class="asset-label">Critical Edge</div>
+      <p class="body-text">Single GPU architecture only (Intel Arc B580). No cross-platform validation on NVIDIA, AMD, or other Intel GPUs. The four hardware-bound residual factors may behave differently elsewhere.</p>
+    </div>
+
+  </section>
+
+  <!-- ═══════ BODY GRID ═══════ -->
+  <div class="body-grid">
+
+    <!-- Card 1: Mesa Landscape -->
+    <div class="card">
+      <h2>Performance Landscape (32,768 Configs)</h2>
+      <p>Mesa-shaped surface with three distinct regimes across BF16 GEMM on 20 Xe-cores:</p>
+      <div class="mesa-chart">
+        <div class="mesa-layer ml-launch"></div>
+        <div class="mesa-layer ml-scaling"></div>
+        <div class="mesa-layer ml-saturated"></div>
+        <span class="mesa-label l1">Launch-dominated &middot; 17%</span>
+        <span class="mesa-label l2">Scaling &middot; 65%</span>
+        <span class="mesa-label l3">Saturated &middot; 18%</span>
+        <div class="mesa-peak-marker">110.8 TFLOPs</div>
+      </div>
+      <ul style="margin-top:12px">
+        <li>Optimal M:N ratio in <strong>1.0&ndash;1.5</strong> range</li>
+        <li>N-alignment matters <strong>2.5x</strong> more than M-alignment</li>
+        <li>Cross-tile peak: <strong>112.1 TFLOPs</strong> at M=3072, N=2560, K=3840</li>
+      </ul>
+    </div>
+
+    <!-- Card 2: Optimization Progression -->
+    <div class="card">
+      <h2>Optimization Stack Progression</h2>
+      <table class="prog-table">
+        <thead>
+          <tr><th>Stage</th><th>Mean TFLOPs</th><th>Roughness</th><th>vs Ideal</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Ideal compute</td>
+            <td class="peak-val">97.2</td>
+            <td class="val">2.0</td>
+            <td class="delta">1.0x</td>
+          </tr>
+          <tr>
+            <td>Fixed 256&times;256</td>
+            <td>58.7</td>
+            <td>16.8</td>
+            <td class="delta">8.2x</td>
+          </tr>
+          <tr>
+            <td>Dynamic best-of-6</td>
+            <td class="val">68.3</td>
+            <td class="val">10.4</td>
+            <td class="delta good">5.1x &darr;</td>
+          </tr>
+          <tr>
+            <td>DP split+pad</td>
+            <td class="peak-val">76.3</td>
+            <td class="val">5.0</td>
+            <td class="delta good">2.5x &darr;</td>
+          </tr>
+        </tbody>
+      </table>
+      <p style="margin-top:12px;font-size:0.78rem;color:var(--text-dim)">
+        Roughness: 16.8 &rarr; 5.0 TFLOPs/step (<strong class="delta good">&minus;70%</strong>).
+        Mean throughput: 58.7 &rarr; 76.3 TFLOPs (<strong class="delta good">+30%</strong>).
+      </p>
+    </div>
+
+    <!-- Card 3: Roughness Attribution -->
+    <div class="card">
+      <h2>Roughness Attribution (16.8 TFLOPs/step)</h2>
+      <p style="margin-bottom:12px;font-size:0.8rem;color:var(--text-dim)">
+        71% is software-removable; 29% is hardware-bound.
+      </p>
+      <div class="bar-row">
+        <span class="bar-label">Coarse partial-tile</span>
+        <div class="bar-track"><div class="bar-fill green" style="width:48%"></div></div>
+        <span class="bar-val">6.4</span>
+      </div>
+      <div class="bar-row">
+        <span class="bar-label">Fine partial-tile</span>
+        <div class="bar-track"><div class="bar-fill green" style="width:40%"></div></div>
+        <span class="bar-val">5.4</span>
+      </div>
+      <div class="bar-row">
+        <span class="bar-label">Wave-fill (20 cores)</span>
+        <div class="bar-track"><div class="bar-fill gold" style="width:21%"></div></div>
+        <span class="bar-val">2.8</span>
+      </div>
+      <div class="bar-row">
+        <span class="bar-label">Kernel overhead var.</span>
+        <div class="bar-track"><div class="bar-fill gold" style="width:11%"></div></div>
+        <span class="bar-val">1.5</span>
+      </div>
+      <div class="bar-row">
+        <span class="bar-label">Pathological shapes</span>
+        <div class="bar-track"><div class="bar-fill green" style="width:3%"></div></div>
+        <span class="bar-val">0.4</span>
+      </div>
+      <div class="bar-row">
+        <span class="bar-label">DPAS asymmetry</span>
+        <div class="bar-track"><div class="bar-fill gold" style="width:4%"></div></div>
+        <span class="bar-val">0.5</span>
+      </div>
+      <div class="bar-row">
+        <span class="bar-label">GDDR6 channel-hash</span>
+        <div class="bar-track"><div class="bar-fill gold" style="width:1.5%"></div></div>
+        <span class="bar-val">0.2</span>
+      </div>
+      <div style="margin-top:10px;display:flex;gap:14px;font-size:0.68rem;font-family:var(--mono);color:var(--text-dim)">
+        <span><span style="color:var(--accent)">&#9632;</span> Software-removable (71%)</span>
+        <span><span style="color:var(--peak)">&#9632;</span> Hardware-bound (29%)</span>
+      </div>
+    </div>
+
+    <!-- Card 4: Measurement Artifacts -->
+    <div class="card">
+      <h2>Measurement Artifacts Discovered</h2>
+      <p style="font-size:0.82rem;margin-bottom:12px">Two previously undescribed artifacts that corrupt large-scale GPU sweeps:</p>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div style="background:var(--surface-2);padding:12px;border-radius:4px;border-left:3px solid var(--caution)">
+          <div style="font-size:0.7rem;font-family:var(--mono);color:var(--caution);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.06em">Co-allocation Interference</div>
+          <div style="font-size:1.3rem;font-family:var(--mono);font-weight:700;color:var(--peak);margin-bottom:4px">50%</div>
+          <div style="font-size:0.76rem;color:var(--text-dim)">worst-case slowdown from reading co-allocated buffers. 32% of configs &gt;20% loss.</div>
+        </div>
+        <div style="background:var(--surface-2);padding:12px;border-radius:4px;border-left:3px solid #6c8aff">
+          <div style="font-size:0.7rem;font-family:var(--mono);color:#6c8aff;margin-bottom:6px;text-transform:uppercase;letter-spacing:0.06em">Temporal Warmup Drift</div>
+          <div style="font-size:1.3rem;font-family:var(--mono);font-weight:700;color:#6c8aff;margin-bottom:4px">43%</div>
+          <div style="font-size:0.76rem;color:var(--text-dim)">TLB/L3 drift across sequential blocks. Spearman &rho;=&minus;0.65 with run order.</div>
+        </div>
+      </div>
+      <p style="margin-top:10px;font-size:0.78rem;color:var(--text-dim)">
+        Fix: <strong style="color:var(--accent)">Randomized-order sweep</strong> eliminates both &mdash; corr(read<sub>A</sub>, N) drops from &minus;0.76 to &minus;0.005.
+      </p>
+    </div>
+
+    <!-- Card 5: Methodology -->
+    <div class="card">
+      <h2>Methodology</h2>
+      <ul>
+        <li><strong>Hardware:</strong> Intel Battlemage G21 (Arc B580), 20 Xe-cores, 116.5 TFLOPs peak BF16, 12 MB L3, 6 GDDR6 channels (~456 GB/s)</li>
+        <li><strong>Stack:</strong> sycl-tla (CUTLASS SYCL port), Intel oneAPI 2025.1, default 256&times;256&times;32 workgroup tiles</li>
+        <li><strong>Sweep:</strong> 32,768 configs at 128-step for (M,N,K) in {128..4096}&sup3;; 5 launches, first discarded; CV 0.04&ndash;0.10%</li>
+        <li><strong>Four-surface decomposition:</strong> compute / memory / GEMM / overhead surfaces attribute texture to subsystems</li>
+        <li><strong>DP optimizer:</strong> O(N&sup4;) offline precomputation, O(1) runtime lookup; 75% pad, 13% K-split, 8% N-split, 5% M-split</li>
+        <li><strong>Cross-tile test:</strong> Fine-N sweep (step=32) at 64&times;64 / 128&times;128 / 256&times;256 tiles proves sawtooth tracks tile size, not cache</li>
+      </ul>
+    </div>
+
+    <!-- Card 6: Strengths & Limits -->
+    <div class="card">
+      <h2>Strengths &amp; Limitations</h2>
+      <div class="split-card">
+        <div class="str">
+          <h3>Strengths</h3>
+          <ul>
+            <li>32K-config sweep with randomized ordering and 50-run variance verification</li>
+            <li>Novel ruggedness framework as complement to roofline</li>
+            <li>DP optimizer: simple, practical, effective</li>
+            <li>Complete quantitative attribution to named mechanisms</li>
+            <li>Cross-tile experiments ruling out cache set conflicts</li>
+            <li>Discovery of two new measurement artifacts with mitigation</li>
+          </ul>
+        </div>
+        <div class="lim">
+          <h3>Limitations</h3>
+          <ul>
+            <li>Single GPU only (Arc B580); no NVIDIA/AMD validation</li>
+            <li>Only BF16 NN GEMM; no FP32, INT8, transpose, or batched</li>
+            <li>No comparison with Triton, TVM, cuBLASLt auto-tuners</li>
+            <li>O(N&sup4;) offline cost and table footprint unanalyzed</li>
+            <li>32% overhead floor listed but not root-caused deeply</li>
+            <li>Generality claims stated but empirically unvalidated</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <!-- Card 7: Key Rules of Thumb (wide) -->
+    <div class="card wide">
+      <h2>Key Takeaways for Practitioners</h2>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:16px">
+        <div style="background:var(--accent-soft);padding:14px 16px;border-radius:4px;border:1px solid rgba(46,196,162,0.2)">
+          <div style="font-family:var(--mono);font-size:1.6rem;font-weight:700;color:var(--peak);margin-bottom:4px">1.0&ndash;1.5</div>
+          <div style="font-size:0.78rem;color:var(--text)">Optimal M:N aspect ratio for BF16 GEMM on tile-based GPUs. N-alignment matters 2.5x more than M.</div>
+        </div>
+        <div style="background:rgba(245,200,66,0.08);padding:14px 16px;border-radius:4px;border:1px solid rgba(245,200,66,0.2)">
+          <div style="font-family:var(--mono);font-size:1.6rem;font-weight:700;color:var(--peak);margin-bottom:4px">~32%</div>
+          <div style="font-size:0.78rem;color:var(--text)">Constant per-kernel base overhead across all configs from pipeline startup, barriers, register spills, and partial-tile waste.</div>
+        </div>
+        <div style="background:rgba(108,138,255,0.08);padding:14px 16px;border-radius:4px;border:1px solid rgba(108,138,255,0.2)">
+          <div style="font-family:var(--mono);font-size:1.6rem;font-weight:700;color:#6c8aff;margin-bottom:4px">N mod t = 24</div>
+          <div style="font-size:0.78rem;color:var(--text)">Consistent sawtooth valley position across tile sizes. Sawtooth period equals tile width exactly.</div>
+        </div>
+        <div style="background:var(--caution-soft);padding:14px 16px;border-radius:4px;border:1px solid rgba(224,85,85,0.2)">
+          <div style="font-family:var(--mono);font-size:1.6rem;font-weight:700;color:var(--caution);margin-bottom:4px">&minus;0.76</div>
+          <div style="font-size:0.78rem;color:var(--text)">Correlation between sequential read bandwidth and N. Randomized sweep drops this to &minus;0.005.</div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ═══════ FOOTER ═══════ -->
+  <footer class="footer">
+    <span>Aditya Chatterjee &middot; Intel Corporation &middot; arXiv:2605.29752</span>
+    <span><a href="./index.html">Daily Index</a> &ensp;|&ensp; <a href="2605.29752.html">Markdown Source</a> &ensp;|&ensp; <a href="https://arxiv.org/abs/2605.29752">arXiv</a></span>
+  </footer>
+
+</div>
+
+<script>
+  // Animate bars on scroll into view
+  const bars = document.querySelectorAll('.bar-fill');
+  const obs = new IntersectionObserver(entries => {
+    entries.forEach(e => {
+      if (e.isIntersecting) {
+        e.target.style.width = e.target.style.width; // trigger reflow for transition
+        obs.unobserve(e.target);
+      }
+    });
+  }, { threshold: 0.3 });
+  bars.forEach(b => {
+    const target = b.style.width;
+    b.style.width = '0%';
+    requestAnimationFrame(() => {
+      const watcher = new IntersectionObserver(entries => {
+        entries.forEach(e => {
+          if (e.isIntersecting) {
+            b.style.width = target;
+            watcher.unobserve(b);
+          }
+        });
+      }, { threshold: 0.2 });
+      watcher.observe(b);
+    });
+  });
+</script>
+
+</body>
+</html>

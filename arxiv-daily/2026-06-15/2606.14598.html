@@ -1,0 +1,778 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>2606.14598 — Fused INT8 GEMM for Ideogram 4.0</title>
+<style>
+  :root {
+    --bg:        #0a0e0d;
+    --bg-2:      #11181a;
+    --panel:     #141c1d;
+    --panel-2:   #1a2325;
+    --line:      #243032;
+    --line-2:    #1a2224;
+    --ink:       #e8f0ee;
+    --ink-2:     #b6c4c2;
+    --muted:     #7a8a88;
+    --muted-2:   #4f5d5b;
+    --accent:    #00e88f;     /* electric mint — single accent */
+    --accent-d:  #00b876;
+    --accent-soft: rgba(0, 232, 143, 0.10);
+    --warn:      #ffb454;     /* used only as semantic warn, not decorative */
+    --bad:       #ff5b5b;     /* only for the regression cells */
+    --mono: "SF Mono", ui-monospace, "JetBrains Mono", "Menlo", "Consolas", monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", system-ui, sans-serif;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--bg); color: var(--ink); }
+  body {
+    font-family: var(--sans);
+    font-size: 14px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  /* ---------- fixed top-left nav ---------- */
+  .nav-fix {
+    position: fixed; top: 14px; left: 14px; z-index: 99;
+    font-family: var(--mono);
+    font-size: 12px;
+    background: rgba(10, 14, 13, 0.85);
+    border: 1px solid var(--line);
+    padding: 6px 10px;
+    border-radius: 4px;
+    backdrop-filter: blur(6px);
+  }
+  .nav-fix a { color: var(--accent); }
+  .nav-fix .verif {
+    display: inline-block; margin-left: 8px;
+    color: var(--muted); font-size: 10.5px; letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+  .nav-fix .verif::before { content: "• "; color: var(--muted-2); }
+
+  /* ---------- shell ---------- */
+  .shell {
+    max-width: 1240px;
+    margin: 0 auto;
+    padding: 64px 28px 80px;
+  }
+
+  /* ---------- HERO ---------- */
+  .hero {
+    display: grid;
+    grid-template-columns: 1.55fr 1fr;
+    gap: 24px;
+    align-items: stretch;
+    margin-bottom: 22px;
+  }
+  .hero-left {
+    border: 1px solid var(--line);
+    background: var(--panel);
+    padding: 28px 30px 26px;
+    position: relative;
+    overflow: hidden;
+  }
+  .hero-left::before {
+    content: "";
+    position: absolute; top: 0; left: 0; right: 0; height: 2px;
+    background: var(--accent);
+  }
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 14px;
+    display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  }
+  .eyebrow .dot { width: 6px; height: 6px; background: var(--accent); border-radius: 50%; }
+  .eyebrow .pill {
+    color: var(--ink-2);
+    border: 1px solid var(--line);
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 10.5px;
+    letter-spacing: 0.1em;
+  }
+  h1.title {
+    font-family: var(--sans);
+    font-size: 30px;
+    line-height: 1.15;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    margin: 0 0 12px;
+    color: var(--ink);
+  }
+  .byline {
+    font-family: var(--mono);
+    font-size: 12.5px;
+    color: var(--ink-2);
+    margin-bottom: 22px;
+  }
+  .byline .id { color: var(--accent); }
+
+  .keycall {
+    border-left: 3px solid var(--accent);
+    padding: 12px 0 12px 16px;
+    background: linear-gradient(90deg, var(--accent-soft) 0%, transparent 70%);
+    font-size: 15.5px;
+    line-height: 1.45;
+    color: var(--ink);
+    margin-bottom: 18px;
+  }
+  .keycall strong { color: var(--accent); font-weight: 700; }
+  .keycall em { font-style: normal; color: var(--ink-2); }
+
+  .badges {
+    display: flex; flex-wrap: wrap; gap: 6px;
+    margin-top: 4px;
+  }
+  .badge {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: 0.06em;
+    color: var(--ink-2);
+    background: var(--bg-2);
+    border: 1px solid var(--line);
+    padding: 3px 8px;
+    border-radius: 3px;
+  }
+  .badge.on {
+    color: var(--accent);
+    border-color: var(--accent-d);
+    background: var(--accent-soft);
+  }
+
+  .hero-right {
+    display: grid;
+    grid-template-rows: auto 1fr auto;
+    gap: 12px;
+  }
+  .tile {
+    border: 1px solid var(--line);
+    background: var(--panel);
+    padding: 14px 16px;
+  }
+  .tile .lbl {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 6px;
+  }
+  .tile .val {
+    font-family: var(--mono);
+    font-size: 22px;
+    font-weight: 600;
+    color: var(--ink);
+    letter-spacing: -0.01em;
+  }
+  .tile .val .u { font-size: 13px; color: var(--ink-2); margin-left: 4px; }
+  .tile .sub {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--muted);
+    margin-top: 4px;
+  }
+  .tile.feature { background: var(--panel-2); }
+  .tile.feature .val { color: var(--accent); }
+
+  /* ---------- ASSET ROW (4 cards) ---------- */
+  .assets {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 14px;
+    margin-bottom: 22px;
+  }
+  .asset {
+    border: 1px solid var(--line);
+    background: var(--panel);
+    padding: 18px 18px 16px;
+    position: relative;
+    min-height: 200px;
+    display: flex; flex-direction: column;
+  }
+  .asset::after {
+    content: "";
+    position: absolute; top: 14px; right: 14px;
+    width: 8px; height: 8px;
+    background: var(--accent);
+    opacity: 0.85;
+  }
+  .asset .tag {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 10px;
+  }
+  .asset h3 {
+    margin: 0 0 10px;
+    font-size: 15.5px;
+    font-weight: 600;
+    line-height: 1.3;
+    color: var(--ink);
+  }
+  .asset p {
+    margin: 0;
+    font-size: 13px;
+    color: var(--ink-2);
+    line-height: 1.5;
+  }
+  .asset .num {
+    margin-top: auto;
+    padding-top: 14px;
+    font-family: var(--mono);
+    font-size: 20px;
+    color: var(--accent);
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+  .asset .num .small { font-size: 12px; color: var(--muted); font-weight: 400; margin-left: 6px; }
+
+  /* ---------- BODY GRID ---------- */
+  .body {
+    display: grid;
+    grid-template-columns: 1.4fr 1fr 1fr;
+    grid-template-areas:
+      "speedup speedup deploy"
+      "kernel  kernel  deadend"
+      "end2end end2end end2end"
+      "recipe  recipe  limit"
+      "audit   audit   audit";
+    gap: 14px;
+  }
+  .card {
+    border: 1px solid var(--line);
+    background: var(--panel);
+    padding: 20px 22px 18px;
+  }
+  .card .ctag {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 6px;
+  }
+  .card h2 {
+    margin: 0 0 14px;
+    font-size: 17px;
+    font-weight: 600;
+    color: var(--ink);
+  }
+  .card p, .card li { font-size: 13.5px; color: var(--ink-2); line-height: 1.55; }
+  .card ul { margin: 0; padding-left: 18px; }
+  .card li { margin-bottom: 6px; }
+  .card li::marker { color: var(--accent); }
+
+  .a-speedup { grid-area: speedup; }
+  .a-deploy  { grid-area: deploy; }
+  .a-kernel  { grid-area: kernel; }
+  .a-deadend { grid-area: deadend; }
+  .a-end2end { grid-area: end2end; }
+  .a-recipe  { grid-area: recipe; }
+  .a-limit   { grid-area: limit; }
+  .a-audit   { grid-area: audit; }
+
+  /* Per-GEMM table */
+  table.shapes {
+    width: 100%; border-collapse: collapse;
+    font-family: var(--mono); font-size: 12px;
+    margin-top: 4px;
+  }
+  table.shapes th, table.shapes td {
+    text-align: left;
+    padding: 9px 10px;
+    border-bottom: 1px solid var(--line-2);
+  }
+  table.shapes th {
+    color: var(--muted);
+    font-weight: 500;
+    font-size: 10.5px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+  table.shapes td.shape { color: var(--ink); }
+  table.shapes td.dim   { color: var(--ink-2); }
+  table.shapes td.speed { color: var(--accent); text-align: right; }
+  table.shapes td.ai    { color: var(--muted); text-align: right; }
+  table.shapes tr:last-child td { border-bottom: 0; }
+  table.shapes tr:hover td { background: var(--bg-2); }
+
+  /* End-to-end 1024px bar comparison */
+  .bars { display: grid; gap: 10px; margin-top: 4px; }
+  .bar-row {
+    display: grid;
+    grid-template-columns: 130px 1fr 90px;
+    align-items: center;
+    gap: 10px;
+    font-family: var(--mono);
+    font-size: 12px;
+  }
+  .bar-row .name { color: var(--ink-2); }
+  .bar-row .name .gpus { color: var(--muted); font-size: 10.5px; }
+  .bar-track {
+    background: var(--bg-2);
+    height: 14px;
+    border: 1px solid var(--line);
+    position: relative;
+  }
+  .bar-fill {
+    height: 100%;
+    background: var(--muted-2);
+  }
+  .bar-fill.best { background: var(--accent); }
+  .bar-row .val { text-align: right; color: var(--ink); }
+  .bar-row .val .small { color: var(--muted); font-size: 10.5px; }
+  .bar-row.win .name { color: var(--accent); }
+
+  /* Deployment map */
+  .deploymap { display: grid; gap: 8px; margin-top: 4px; }
+  .dep {
+    display: grid;
+    grid-template-columns: 90px 1fr 80px;
+    gap: 10px; align-items: center;
+    font-family: var(--mono); font-size: 12px;
+    padding: 8px 10px;
+    border: 1px solid var(--line-2);
+    background: var(--bg-2);
+  }
+  .dep .gpu { color: var(--ink); }
+  .dep .bar {
+    height: 8px; background: var(--bg); border: 1px solid var(--line-2);
+  }
+  .dep .bar > i {
+    display: block; height: 100%;
+    background: var(--accent);
+  }
+  .dep .bar > i.bad { background: var(--bad); }
+  .dep .bar > i.mid { background: var(--warn); }
+  .dep .verdict { text-align: right; }
+  .dep.win  { border-left: 2px solid var(--accent); }
+  .dep.bad  { border-left: 2px solid var(--bad); }
+  .dep.mid  { border-left: 2px solid var(--warn); }
+  .dep .v-good { color: var(--accent); }
+  .dep .v-bad  { color: var(--bad); }
+  .dep .v-mid  { color: var(--warn); }
+
+  /* Kernel anatomy */
+  .pipeline {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr auto 1fr;
+    align-items: center;
+    gap: 8px;
+    font-family: var(--mono);
+    font-size: 12px;
+    margin: 8px 0 14px;
+  }
+  .plnode {
+    border: 1px solid var(--line);
+    background: var(--bg-2);
+    padding: 10px 12px;
+    text-align: center;
+  }
+  .plnode.bad  { border-color: var(--bad); color: var(--bad); }
+  .plnode.good { border-color: var(--accent); color: var(--accent); }
+  .plnode .lbl { font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); }
+  .plnode .op  { font-size: 12.5px; margin-top: 4px; }
+  .plarrow { color: var(--muted-2); font-size: 16px; }
+
+  .pillrow { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+  .pillrow .p {
+    font-family: var(--mono); font-size: 11px;
+    border: 1px solid var(--line);
+    background: var(--bg-2);
+    padding: 3px 8px;
+    color: var(--ink-2);
+  }
+  .pillrow .p b { color: var(--accent); font-weight: 600; }
+
+  /* Dead-end card */
+  .deadlist { display: grid; gap: 10px; margin-top: 4px; }
+  .deaditem {
+    display: grid;
+    grid-template-columns: 1fr 70px;
+    gap: 8px; align-items: center;
+    font-family: var(--mono); font-size: 12px;
+    padding: 8px 10px;
+    border: 1px solid var(--line-2);
+    background: var(--bg-2);
+  }
+  .deaditem .why { color: var(--ink-2); }
+  .deaditem .why b { color: var(--ink); }
+  .deaditem .delta { color: var(--muted); text-align: right; }
+  .deaditem .delta b { color: var(--bad); font-weight: 600; }
+
+  /* End2end resolution split */
+  .split2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 18px;
+    margin-top: 4px;
+  }
+  .split2 .col h3 {
+    margin: 0 0 6px;
+    font-size: 13px;
+    font-family: var(--mono);
+    color: var(--ink);
+  }
+  .split2 .col .meta {
+    font-family: var(--mono); font-size: 11px; color: var(--muted);
+    margin-bottom: 10px;
+  }
+
+  /* Footer */
+  .footer {
+    margin-top: 28px;
+    padding-top: 16px;
+    border-top: 1px solid var(--line-2);
+    display: flex; justify-content: space-between; align-items: center;
+    font-family: var(--mono); font-size: 12px; color: var(--muted);
+  }
+  .footer a { color: var(--accent); }
+
+  /* Aside callouts */
+  .quote {
+    font-family: var(--mono);
+    font-size: 12.5px;
+    color: var(--ink-2);
+    padding: 10px 12px;
+    border-left: 2px solid var(--accent);
+    background: var(--bg-2);
+    margin-top: 10px;
+  }
+
+  /* Responsive */
+  @media (max-width: 1080px) {
+    .hero { grid-template-columns: 1fr; }
+    .assets { grid-template-columns: repeat(2, 1fr); }
+    .body {
+      grid-template-columns: 1fr 1fr;
+      grid-template-areas:
+        "speedup speedup"
+        "deploy  deadend"
+        "kernel  kernel"
+        "end2end end2end"
+        "recipe  limit"
+        "audit   audit";
+    }
+  }
+  @media (max-width: 680px) {
+    .shell { padding: 60px 14px 60px; }
+    .assets { grid-template-columns: 1fr; }
+    .body { grid-template-columns: 1fr; grid-template-areas: "speedup" "deploy" "deadend" "kernel" "end2end" "recipe" "limit" "audit"; }
+    .split2 { grid-template-columns: 1fr; }
+    .pipeline { grid-template-columns: 1fr; }
+    .plarrow { display: none; }
+    .bar-row { grid-template-columns: 100px 1fr 70px; }
+    .dep { grid-template-columns: 80px 1fr 70px; }
+    h1.title { font-size: 24px; }
+  }
+</style>
+</head>
+<body>
+
+<a class="nav-fix" href="./index.html">↩ Today's digest<span class="verif">not browser-verified</span></a>
+
+<div class="shell">
+
+  <!-- ============== HERO ============== -->
+  <section class="hero">
+    <div class="hero-left">
+      <div class="eyebrow">
+        <span class="dot"></span>
+        <span>Paper · arXiv 2606.14598</span>
+        <span class="pill">DiT quantization</span>
+        <span class="pill">Triton kernel</span>
+        <span class="pill">Consumer GPU</span>
+      </div>
+      <h1 class="title">Realizing Native INT8 Compute for Diffusion Transformers on Consumer GPUs</h1>
+      <div class="byline">
+        Ali Asaria · Tony Salomone · Deep Gandhi &nbsp;—&nbsp; <span class="id">Transformer Lab</span>
+        &nbsp;·&nbsp; Ideogram 4.0 (9.3B flow-matching DiT) &nbsp;·&nbsp; <span class="id">2606.14598</span>
+      </div>
+      <div class="keycall">
+        Your <strong>"INT8"</strong> deployment is probably <em>fake-quant</em>: weights and activations are quantized and immediately dequantized back to bf16 for a <span style="font-family:var(--mono)">bf16 F.linear</span> — the integer tensor cores on RTX 3090 are <strong>never engaged</strong>. One fused Triton kernel fixes it.
+      </div>
+      <div class="badges">
+        <span class="badge on">mma.s8 Tensor Cores</span>
+        <span class="badge">int8×int8→int32</span>
+        <span class="badge">per-token × per-channel dequant in epilogue</span>
+        <span class="badge">@triton.autotune · 36 configs</span>
+        <span class="badge">5 DiT GEMM shapes</span>
+        <span class="badge">bit-exact vs torch._int_mm</span>
+      </div>
+    </div>
+
+    <div class="hero-right">
+      <div class="tile feature">
+        <div class="lbl">1024px · end-to-end · 1× RTX 3090</div>
+        <div class="val">156.49<span class="u">s/image</span></div>
+        <div class="sub">beats 2×FP8 (172.9s) and 1×NF4 (164.5s) · peak 23.40 GB</div>
+      </div>
+      <div class="tile">
+        <div class="lbl">Per-GEMM speedup vs bf16</div>
+        <div class="val">2.8 – 4.2<span class="u">×</span></div>
+        <div class="sub">on all 5 DiT GEMM shapes · arithmetic intensity 768–6337 ops/byte</div>
+      </div>
+      <div class="tile">
+        <div class="lbl">Speedup vs unfused INT8</div>
+        <div class="val">4 – 8<span class="u">×</span></div>
+        <div class="sub">i.e. this is the cost of the quantize→dequant round-trip the fake-quant path pays</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============== 4-ASSET ROW ============== -->
+  <section class="assets">
+
+    <div class="asset">
+      <div class="tag">① Key Finding</div>
+      <h3>"INT8" was a lie, and INT8 Tensor Cores were never used</h3>
+      <p>Production W8A8 INT8 for Ideogram 4.0 on consumer Ampere quantizes→<em>immediately</em>→dequantizes back to bf16, so the integer tensor cores sit idle. That is why "INT8" can be slower than FP8 or NF4 on cards that <em>have</em> fast native INT8.</p>
+    </div>
+
+    <div class="asset">
+      <div class="tag">② Key Metric</div>
+      <h3>From slowest variant to fastest on a single RTX 3090</h3>
+      <p>Bit-exact vs <span style="font-family:var(--mono)">torch._int_mm</span>, cosine 1.0, no NaNs. 768px drops 107.06s → 97.79s (1.095×). At 1024px a single 24 GB RTX 3090 generates 156.49s/image — beating 2-card FP8 by ~16s and 1-card NF4 by ~8s.</p>
+      <div class="num">156.49s <span class="small">1024px, 1×RTX 3090</span></div>
+    </div>
+
+    <div class="asset">
+      <div class="tag">③ Why This Matters</div>
+      <h3>An audit checklist for any "W8A8" deployment</h3>
+      <p>Any claim that INT8 is slower than FP8/NF4 on a card with native INT8 tensor cores is now suspect. The fix is one Triton kernel: per-token dynamic activation scale + per-channel weight scale + bias, all applied <em>off the int32 accumulator</em> in the epilogue — one launch, no dequant round trip.</p>
+    </div>
+
+    <div class="asset">
+      <div class="tag">④ Critical Edge</div>
+      <h3>Consumer-Ampere only. A100/B200 actively lose.</h3>
+      <p>The same kernel is <span style="font-family:var(--mono);color:var(--bad)">1.38× slower on A100</span> and <span style="font-family:var(--mono);color:var(--bad)">3.49× slower on B200</span> — their native bf16 is already too fast. n=4 single-run latency. OCR/NED not re-measured for the fused build. Head_dim=256 blocks SageAttention. <em>Use this win only on RTX 30-series.</em></p>
+    </div>
+
+  </section>
+
+  <!-- ============== BODY GRID ============== -->
+  <section class="body">
+
+    <!-- per-GEMM speedup -->
+    <div class="card a-speedup">
+      <div class="ctag">Per-GEMM · healthy RTX 3090</div>
+      <h2>Compute-bound across all 5 DiT linear shapes</h2>
+      <p>Arithmetic intensity 768–6337 ops/byte — every shape is firmly in the compute-bound regime, so moving the multiply onto Ampere's <span style="font-family:var(--mono)">mma.s8</span> tensor cores translates into real wall-clock savings. Range quoted across the autotuner's <span style="font-family:var(--mono)">M ∈ [512, 16384]</span> sweep, which contains the in-model <span style="font-family:var(--mono)">M ≈ 4110</span> at 1024px.</p>
+      <table class="shapes">
+        <thead>
+          <tr><th>Shape</th><th>(N, K)</th><th style="text-align:right">Arith. intensity</th><th style="text-align:right">vs bf16</th></tr>
+        </thead>
+        <tbody>
+          <tr><td class="shape">qkv</td>     <td class="dim">13824 × 4608</td>  <td class="ai">~768</td>  <td class="speed">2.79 – 3.46×</td></tr>
+          <tr><td class="shape">attn-out</td><td class="dim">4608 × 4608</td>   <td class="ai">~768</td>  <td class="speed">2.86 – 3.76×</td></tr>
+          <tr><td class="shape">ffn-up</td>  <td class="dim">12288 × 4608</td>  <td class="ai">~1024</td> <td class="speed">2.78 – 4.18×</td></tr>
+          <tr><td class="shape">ffn-down</td><td class="dim">4608 × 12288</td>  <td class="ai">~1024</td> <td class="speed">2.94 – 3.51×</td></tr>
+          <tr><td class="shape">llm-proj</td><td class="dim">4608 × 53248</td>  <td class="ai">~6337</td> <td class="speed">2.95 – 3.17×</td></tr>
+        </tbody>
+      </table>
+      <div class="quote">Ablation: without autotune the LLM-proj shape <em style="color:var(--bad);font-style:normal">regresses to 0.64× of bf16</em> — a single misconfigured shape can sink the whole build. Autotuning is load-bearing, not optional.</div>
+    </div>
+
+    <!-- deployment map -->
+    <div class="card a-deploy">
+      <div class="ctag">Deployment map · 1024px</div>
+      <h2>The win is hardware-specific</h2>
+      <p>Fused INT8 vs the fake-quant bf16 path, end-to-end. Bar length encodes the unfused/fused ratio (longer bar = larger win for fused).</p>
+      <div class="deploymap">
+        <div class="dep win">
+          <div class="gpu">RTX 3090<br><span style="color:var(--muted);font-size:10.5px">sm_86 · ~65.5 TF</span></div>
+          <div class="bar"><i style="width:100%"></i></div>
+          <div class="verdict v-good">▲ wins</div>
+        </div>
+        <div class="dep bad">
+          <div class="gpu">A100<br><span style="color:var(--muted);font-size:10.5px">sm_80 · ~216 TF</span></div>
+          <div class="bar"><i class="bad" style="width:60%"></i></div>
+          <div class="verdict v-bad">▼ 1.38× slower</div>
+        </div>
+        <div class="dep bad">
+          <div class="gpu">B200<br><span style="color:var(--muted);font-size:10.5px">sm_100 · 587–610 TF</span></div>
+          <div class="bar"><i class="bad" style="width:18%"></i></div>
+          <div class="verdict v-bad">▼ 3.49× slower</div>
+        </div>
+      </div>
+      <p style="margin-top:12px;font-size:12.5px">Native bf16 throughput on A100/B200 leaves nothing for INT8 to win back. The kernel is also <em>not retuned</em> for sm_80/sm_100 — kernel sub-optimality and "bf16 already fast" are not separable on those cards.</p>
+    </div>
+
+    <!-- kernel anatomy -->
+    <div class="card a-kernel">
+      <div class="ctag">Kernel anatomy</div>
+      <h2>One launch, not a matmul + a dequant pass</h2>
+      <p>The central design point: the per-token activation scale is <em>dynamic</em>, so it cannot be baked into the weights offline. It has to be applied <em>in the epilogue</em>, off the int32 accumulator.</p>
+      <div class="pipeline">
+        <div class="plnode bad">
+          <div class="lbl">fake-quant path</div>
+          <div class="op">bf16 F.linear<br><span style="font-size:10.5px">(INT8 cores idle)</span></div>
+        </div>
+        <div class="plarrow">→</div>
+        <div class="plnode good">
+          <div class="lbl">fused kernel</div>
+          <div class="op">int8 × int8 → int32<br>on mma.s8 cores</div>
+        </div>
+        <div class="plarrow">→</div>
+        <div class="plnode good">
+          <div class="lbl">epilogue (off int32)</div>
+          <div class="op">s_a · s_w · acc + bias<br>emit dequantized result</div>
+        </div>
+      </div>
+      <div class="pillrow">
+        <span class="p"><b>Quant</b> per-channel int8 weights</span>
+        <span class="p"><b>Quant</b> per-token dynamic int8 acts</span>
+        <span class="p"><b>SmoothQuant</b> α = 0.5</span>
+        <span class="p"><b>Autotune</b> 36 configs / (M,N,K)</span>
+        <span class="p"><b>Bit-exact</b> vs torch._int_mm</span>
+      </div>
+    </div>
+
+    <!-- dead ends -->
+    <div class="card a-deadend">
+      <div class="ctag">Dead-end extensions · 768px</div>
+      <h2>Two obvious next steps — both inert</h2>
+      <p>The authors report these as honest null results, not glossed-over footnotes.</p>
+      <div class="deadlist">
+        <div class="deaditem">
+          <div class="why"><b>torch.compile</b><br>graph-breaks at the dynamo-disabled linear layers.</div>
+          <div class="delta">97.74s<br><b>≈ 0</b></div>
+        </div>
+        <div class="deaditem">
+          <div class="why"><b>SageAttention INT8</b><br>DiT's head_dim = 256 &gt; 128, forces 100% FP16 fallback.</div>
+          <div class="delta">97.82s<br><b>≈ 0</b></div>
+        </div>
+      </div>
+      <p style="margin-top:10px;font-size:12.5px">Structural ceiling: only ~12% of the Ideogram 4.0 forward is in linear GEMMs (inferred via Amdahl). ~3.5× there ⇒ ~9.5% end-to-end, matching the 768px measurement almost exactly.</p>
+    </div>
+
+    <!-- end-to-end -->
+    <div class="card a-end2end">
+      <div class="ctag">End-to-end · Ideogram 4.0</div>
+      <h2>Two resolutions, two stories</h2>
+      <div class="split2">
+        <div class="col">
+          <h3>768px · n = 4 prompts · single seed</h3>
+          <div class="meta">Healthy RTX 3090 · frozen quality set (n=200)</div>
+          <div class="bars">
+            <div class="bar-row">
+              <div class="name">Fake-quant (bf16 matmul)</div>
+              <div class="bar-track"><div class="bar-fill" style="width:100%"></div></div>
+              <div class="val">107.06s</div>
+            </div>
+            <div class="bar-row win">
+              <div class="name">Fused INT8 <span class="gpus">(this work)</span></div>
+              <div class="bar-track"><div class="bar-fill best" style="width:91%"></div></div>
+              <div class="val">97.79s <span class="small">1.095×</span></div>
+            </div>
+          </div>
+          <div class="pillrow" style="margin-top:10px">
+            <span class="p">PickScore <b>21.22</b> vs 20.14</span>
+            <span class="p">CLIPScore <b>24.35</b> vs 21.76</span>
+          </div>
+        </div>
+        <div class="col">
+          <h3>1024px · n = 4 prompts · single seed</h3>
+          <div class="meta">Single 24 GB RTX 3090 · peak 23.40 GB · 4/4 images</div>
+          <div class="bars">
+            <div class="bar-row">
+              <div class="name">INT8 fake-quant <span class="gpus">2× GPU</span></div>
+              <div class="bar-track"><div class="bar-fill" style="width:100%"></div></div>
+              <div class="val">184.5s</div>
+            </div>
+            <div class="bar-row">
+              <div class="name">FP8 <span class="gpus">2× GPU</span></div>
+              <div class="bar-track"><div class="bar-fill" style="width:94%"></div></div>
+              <div class="val">172.9s</div>
+            </div>
+            <div class="bar-row">
+              <div class="name">NF4 <span class="gpus">1× GPU</span></div>
+              <div class="bar-track"><div class="bar-fill" style="width:89%"></div></div>
+              <div class="val">164.5s</div>
+            </div>
+            <div class="bar-row win">
+              <div class="name">Fused INT8 <span class="gpus">1× GPU</span></div>
+              <div class="bar-track"><div class="bar-fill best" style="width:85%"></div></div>
+              <div class="val">156.49s</div>
+            </div>
+          </div>
+          <p style="font-size:11.5px;color:var(--muted);margin-top:8px">NF4 margin is ~4.9% / ~8s on n=4 single-run — within unquantified run-to-run variance. Single-vs-two-GPU asymmetry in the FP8 comparison is flagged but not retired.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- recipe / context -->
+    <div class="card a-recipe">
+      <div class="ctag">Recipe · what they actually ran</div>
+      <h2>9.3B flow-matching DiT, five GEMM shapes total</h2>
+      <ul>
+        <li><b>Model.</b> Ideogram 4.0 — 34 layers, 18 heads × dim 256, hidden 4608, intermediate 12288, two CFG branches × 211 linears.</li>
+        <li><b>Five (N, K) shapes</b> total — qkv / attn-out / ffn-up / ffn-down / llm-proj. That is the whole kernel's surface area.</li>
+        <li><b>Quant recipe inherited</b> from Transformer Lab's prior study: per-channel int8 weights, per-token dynamic int8 acts, SmoothQuant α = 0.5.</li>
+        <li><b>GPU-health gate.</b> a throttled 3090 measures ~8.1 TFLOPS bf16 vs ~65.5 TFLOPS on a healthy card — every number gated behind that check.</li>
+        <li><b>Cost.</b> ~3 RTX 3090-hours total.</li>
+        <li><b>Release.</b> <span style="font-family:var(--mono)">transformerlab/ideogram-4-int8-fused</span> — gated, non-commercial, research-only.</li>
+      </ul>
+    </div>
+
+    <!-- limitations -->
+    <div class="card a-limit">
+      <div class="ctag">Limitations · read before citing</div>
+      <h2>The paper is honest; you should be too</h2>
+      <ul>
+        <li><b>n = 4 single-run</b> latency. No run-to-run variance, no significance test.</li>
+        <li><b>OCR / NED</b> — the most quantization-fragile metric for an Ideogram model — is <b>not re-measured</b> for the fused build at any resolution.</li>
+        <li>1024px FP8 baseline is <b>two-GPU</b>; the fused measurement is one-GPU. Confound is flagged, not retired.</li>
+        <li>Unfused baseline is <span style="font-family:var(--mono)">torch._int_mm</span> + dequant — a tuned cuBLASLt / CUTLASS INT8 GEMM is <b>not</b> reported. "Best in class" is left open.</li>
+        <li>Kernel is hand-tuned to Ideogram 4.0's five shapes — portability to other DiTs is unproven.</li>
+      </ul>
+    </div>
+
+    <!-- audit checklist -->
+    <div class="card a-audit">
+      <div class="ctag">Audit checklist · if you ship W8A8 on a DiT</div>
+      <h2>Before you conclude "INT8 is slower than FP8 on this card"</h2>
+      <div class="split2">
+        <div class="col">
+          <h3>1. Confirm the GEMM is actually int8</h3>
+          <p style="font-size:13px">Profile the linear path. If you see <span style="font-family:var(--mono)">aten::linear</span> with a bf16 input after a dequantize op, you are running fake-quant. The integer tensor cores are not in the call graph. <b>This is the entire point of the paper.</b></p>
+        </div>
+        <div class="col">
+          <h3>2. Check the shape mix</h3>
+          <p style="font-size:13px">If your DiT's linear GEMMs are &lt; ~15% of forward (the Ideogram 4.0 number), the end-to-end ceiling from even a 4× per-GEMM win is ~10–15%. Plan budget around Amdahl, not around per-op numbers.</p>
+        </div>
+      </div>
+    </div>
+
+  </section>
+
+  <!-- ============== FOOTER ============== -->
+  <div class="footer">
+    <div>2606.14598 · Asaria, Salomone, Gandhi · Transformer Lab · 2026-06-15</div>
+    <div>
+      <a href="2606.14598.html">↗ Markdown source</a>
+      &nbsp;·&nbsp;
+      <a href="./index.html">↩ Today's digest</a>
+      &nbsp;·&nbsp;
+      <span style="color:var(--muted-2)">not browser-verified</span>
+    </div>
+  </div>
+
+</div>
+
+</body>
+</html>

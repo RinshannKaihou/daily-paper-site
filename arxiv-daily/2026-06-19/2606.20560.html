@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>How Transparent is DiffusionGemma?</title>
+<style>
+:root { --paper:#fafafa; --ink:#1a1a1a; --muted:#555; --accent:#1a5276; --line:#ddd; --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif; --serif:Georgia,"Noto Serif SC",serif; }
+body { font-family:var(--serif); background:var(--paper); color:var(--ink); line-height:1.6; margin:0; padding:0; }
+.container { max-width:min(95vw, 760px); margin:0 auto; padding:28px 20px 60px; }
+.topnav { position:fixed; top:12px; left:14px; z-index:50; font-family:var(--sans); font-size:.75rem; background:var(--paper); border:1px solid var(--line); padding:5px 10px; border-radius:999px; }
+.topnav a { color:var(--muted); text-decoration:none; font-weight:600; }
+.topnav a:hover { color:var(--accent); }
+h1 { font-size:1.6rem; margin:2.2rem 0 1rem; border-bottom:2px solid var(--accent); padding-bottom:.3rem; }
+h2 { font-size:1.3rem; margin:1.8rem 0 .8rem; color:var(--accent); }
+h3 { font-size:1.1rem; margin:1.4rem 0 .6rem; }
+p { margin:.8rem 0; }
+.authors { font-style:italic; color:var(--muted); margin-top:-.4rem; }
+.meta { font-family:var(--sans); font-size:.82rem; color:var(--muted); margin:.2rem 0; }
+a { color:var(--accent); text-decoration:none; }
+a:hover { text-decoration:underline; }
+blockquote { border-left:3px solid var(--accent); margin:1rem 0; padding:.2rem 0 .2rem 1rem; color:var(--muted); font-style:italic; }
+code { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; background:#f0f0f0; padding:2px 5px; border-radius:3px; font-size:.9em; }
+pre { background:#f5f5f5; padding:14px; overflow-x:auto; border-radius:4px; border:1px solid var(--line); }
+pre code { background:transparent; padding:0; }
+ul,ol { margin:.6rem 0; padding-left:1.5rem; }
+li { margin:.25rem 0; }
+table { border-collapse:collapse; width:100%; margin:1rem 0; font-family:var(--sans); font-size:.9rem; }
+th,td { border:1px solid var(--line); padding:6px 10px; text-align:left; }
+th { background:#f0f0f0; }
+hr { border:none; border-top:1px solid var(--line); margin:1.5rem 0; }
+.note { font-family:var(--sans); font-size:.78rem; color:var(--muted); border-top:1px solid var(--line); margin-top:2rem; padding-top:1rem; }
+@media (max-width: 600px) { .container { padding:22px 14px 40px; } h1 { font-size:1.35rem; } }
+</style>
+</head>
+<body>
+<div class="topnav"><a href="./index.html">← Today's digest</a></div>
+<div class="container">
+<h1>How Transparent is DiffusionGemma?</h1>
+<p class="meta">arXiv: 2606.20560</p>
+<p class="meta">Date: 2026-06-19</p>
+<p class="meta"><a href="https://arxiv.org/abs/2606.20560">https://arxiv.org/abs/2606.20560</a></p>
+<blockquote><strong>一句话总结：</strong> 本文将扩散语言模型 DiffusionGemma（基于 Gemma 4 26B A4B）的"推理透明度"拆解为变量透明度与算法透明度两个维度，通过用 logit-lens 风格的 top-k/top-p 瓶颈把去噪步之间的自条件矩阵信息限制到少量可解释 token（k=8 或 p=0.03 即可无损下游性能），把表面上相对 Gemma 4 高出 28.6 倍的"不透明串行深度"压缩到仅 1.1 倍，并发现非时序推理（早期长度预测、回溯自校正、骨架优先代码生成）、token/序列涂抹、中间上下文推理等扩散特有现象；最终证明 DiffusionGemma 的可监控性与 Gemma 4 相当。</blockquote>
+<blockquote><strong>TL;DR:</strong> This DeepMind interpretability paper asks whether the latent reasoning of the text-diffusion model DiffusionGemma is less transparent than autoregressive Gemma 4. By decomposing transparency into variable transparency (interpretable intermediate states) and algorithmic transparency (reconstructing the reasoning process), and by routing inter-step self-conditioning information through a top-k=8 / top-p=0.03 token bottleneck (with no downstream capability loss), the apparent 28.6X "opaque serial depth" disadvantage shrinks to 1.1X. Case studies surface diffusion-specific behaviors (non-chronological reasoning, token/sequence smearing, intermediate-context reasoning), and DiffusionGemma proves about as monitorable as Gemma 4.</blockquote>
+<h2>核心贡献</h2>
+<ul>
+<li><strong>形式化的双轴透明度框架</strong>：将"推理透明度"拆解为变量透明度（能否理解中间计算快照）与算法透明度（能否用快照重建输出过程），并引入"不透明串行深度"（opaque serial depth，最长不经可解释瓶颈的串行计算路径）作为统一比较指标，使自回归与扩散式 LM 可在同一语言下比较。</li>
+<li><strong>token 瓶颈把不透明深度从 28.6X 降到 1.1X</strong>：DiffusionGemma 的步间瓶颈 = C 个 token + C 个自条件向量 S_t ∈ ℝ^{C×d_model}。利用构造 S_t = softmax(ℓ̂)·W_E 偏向 embedding 方向这一特性，作者用 logit-lens 风格的 top-k / top-p 修改函数（f_k 与 f_p）把 S_t 限制到 k=8 个或概率>0.03 的 token，在 Natural2Code/LiveCodeBench/AMC-AIME-IMO/GPQA 上与基线持平；在 256k 序列长度上经验上界从 608,016 降到 23,571，仅比 Gemma 4 26B A4B 的 21,235 高 1.1X。</li>
+<li><strong>中间 token 身份分析证明可解释性</strong>：在 800 个 WildChat 提示、T=48 步、最多 1024 token 上分析 top token 类别（Final / Adjacent ±10 / Similar-to-Final / Similar-to-Adjacent / Other），发现 p>0.03 阈值下即便第 1 步也有 >85% 的 token 落入可解释类别；而 top-8 因后期模型对 top-1 极度自信，其余 7 个常为噪声。</li>
+<li><strong>揭示扩散特有算法现象（算法透明度案例研究）</strong>：早期响应长度预测（padding 概率可作 CDF 估计最终长度，式(4)）、回溯自校正（"400 到 800 间平方数个数"问题从 9 修正到 8）、骨架优先的非时序代码生成、token 涂抹（bracket/换行跨多位置铺开）、序列涂抹（同时维护单/双位数两套序列，类 beam search）、中间上下文推理（Fibonacci 中先产生 3 再替换为 "Gold"，3 不出现在最终输出却是因果必要 token）。</li>
+<li><strong>可监控性（monitorability）实证</strong>：采用 Guan et al. 2025 的评估套件（intervention / process / outcome-property），主结果（图4）显示 DiffusionGemma 与 Gemma 4 在 G-mean² 指标上相近；并诚实指出这是多 canvas 下的结论，且 DiffusionGemma 思维链更短（图5），可能存在低估其可监控性的混淆。</li>
+</ul>
+<h2>Key Contributions</h2>
+<ul>
+<li>Formalizes a two-axis transparency framework (variable vs. algorithmic) and operationalizes "opaque serial depth" (Brown-Cohen et al. 2026) as a comparable metric across architectures.</li>
+<li>Shows DiffusionGemma's inter-step bottleneck (canvas tokens + self-conditioning matrix S_t = softmax(ℓ̂)·W_E) can be reduced to top-k=8 / top-p=0.03 tokens with no capability loss on code/math/GPQA benchmarks, collapsing empirical opaque-serial-depth from 608,016 (28.6X Gemma 4) to 23,571 (1.1X).</li>
+<li>Validates interpretability of the bottleneck via a token-identity taxonomy on 800 WildChat prompts: >85% of retained tokens are exact/adjacent/semantically-similar guesses of final tokens under p>0.03.</li>
+<li>Conducts a suite of interpretability case studies that document genuinely diffusion-specific phenomena unavailable to autoregressive LMs: early response-length prediction (padding-probability CDF), retroactive self-correction, skeleton-first code generation, token smearing, sequence smearing (a beam-search-like superposition of candidate sequences), and intermediate-context reasoning (transient causally-necessary tokens absent from final output).</li>
+<li>Empirically evaluates monitorability (Guan et al. 2025 suite) and finds DiffusionGemma ≈ Gemma 4, while honestly flagging that this is multi-canvas and that DiffusionGemma's shorter CoT is an uncontrolled confounder.</li>
+</ul>
+<h2>Methodology</h2>
+<p><strong>Architecture baseline (Section 2.1).</strong> DiffusionGemma adapts Gemma 4 26B A4B. Inference = setup stage (prompt prefill producing static KV cache) + T denoising steps. Each step t consumes the prior canvas o_{t-1} ∈ [V]^C and self-conditioning matrix S_{t-1} ∈ ℝ^{C×d_model}; runs a bidirectional-attention transformer forward pass (S_{t-1} passed through gated MLP and added to token embeddings) to get logits ℓ_t; then in the sampling step computes temperature τ_t ∈ [0.4,0.8], builds the new self-conditioning S_t = softmax(ℓ̂^t)·W_E (Eq. 1), samples candidate tokens, and applies Entropy-Bounded (EB) sampling to keep low-entropy / renoise high-entropy positions. Default T=48 (worst case); adaptive stopping typically uses 12–16 steps. Final canvas = argmax logits. Long outputs use multi-canvas sampling (append prior canvas to prompt).</p>
+<p><strong>Opaque serial depth (Section 2.2).</strong> Defined as the longest serial path in the model's Boolean-circuit equivalent that contains no interpretable node. The authors assume natural-language inputs/outputs are interpretable; they then bound serial depth under two assumptions about the bottleneck S_t (interpretable vs. uninterpretable), computing both by-hand asymptotics and empirical upper bounds via Google DeepMind's open-source serial-depth analyzer at sequence length 256k.</p>
+<p><strong>Bottleneck ablations (Section 3.1).</strong> They replace S_t with S'_t = W_E·softmax(f(ℓ̂^t)) for logit-modification functions f. f_p sets logits below probability p to a constant that preserves other probabilities; f_k keeps only the top-k logits. Capabilities measured on Natural2Code, LiveCodeBench, AMC/AIME/IMO, GPQA with dynamic thinking enabled. k=8 and p=0.03 recover baseline performance.</p>
+<p><strong>Top-token identity analysis (Section 3.2).</strong> On 800 WildChat prompts (max 1024 tokens, T=48, no early stopping), at each position they extract tokens in top-8 or with prob>0.03 and categorize them as Final / Adjacent (±10) / Similar-to-Final (top-50 cosine in Gemma 4 31B embeddings) / Similar-to-Adjacent / Other.</p>
+<p><strong>Monitorability (Section 4).</strong> They run both DiffusionGemma and Gemma 4 26B A4B through Guan et al. 2025's three eval families — Intervention (apply controlled input change, can monitor infer it?), Process (verifiable solution-path evidence), Outcome-property (designed output properties e.g. impossible-but-tests-pass coding) — and compare G-mean² scores with 95% bootstrap CIs. On the one open-source outcome dataset (flaky_tools_charxiv) DiffusionGemma never misbehaves, so that category is omitted.</p>
+<p><strong>Algorithmic-transparency case studies (Section 5).</strong> A custom visualization library provides three views (Summary, Line Graph, Sampling Table) of the denoising process, used to document the six diffusion-specific phenomena listed above on curated prompts.</p>
+<h2>Results & Highlights</h2>
+<ul>
+<li><strong>Serial depth headline (Table 1, 256k seq):</strong> Gemma 4 26B A4B = 21,235; DiffusionGemma uninterpretable-bottleneck = 608,016 (28.6X); DiffusionGemma interpretable-bottleneck = 23,571 (1.1X). Asymptotically the interpretable case is only O(L·log C) deeper.</li>
+<li><strong>Bottleneck ablation (Fig. 2):</strong> Performance is flat from baseline down to k=8 and p=0.03 on N2C/LCB/AMC-AIME/IMO/GPQA — the bottleneck can be hardened to a handful of tokens for free.</li>
+<li><strong>Token interpretability (Fig. 3):</strong> With p>0.03, >85% of intermediate tokens are categorizable (mostly Final/Adjacent) even at step 0; top-8 is noisy at late steps because the model is overconfident in token-1.</li>
+<li><strong>Monitorability (Fig. 4):</strong> DiffusionGemma and Gemma 4 are similar (per-task G-mean²: process 0.94/0.94, 0.96/0.92, 0.96/0.94, 0.97/0.94; intervention 0.82/0.78, 0.85/0.88, 0.88/0.80, 0.94/0.80). Fig. 5 shows DiffusionGemma's CoT is much shorter, a confounder that biases against its monitorability.</li>
+<li><strong>Diffusion-specific phenomena:</strong> (i) Length prediction via padding-probability CDF tracks true length almost perfectly after 2 steps (Fig. 7). (ii) Retroactive self-correction on "squares between 400 and 800" from 9→8 over steps 4–7 (Fig. 8). (iii) Skeleton-first code generation (function signature → core loop → docstring/vars). (iv) Token smearing of grammar tokens (Fig. 10). (v) Sequence smearing — single-digit vs double-digit sequences coexist in superposition at step 3 before collapsing at step 4 (Figs. 11–12). (vi) Intermediate-context reasoning where the digit "3" is generated, used to compute subsequent Fibonacci terms, then replaced by "Gold" without ever appearing in final output (Fig. 13).</li>
+</ul>
+<h2>Authors & Credibility</h2>
+<p>All authors are at Google DeepMind; the three primary contributors (Engels, McDougall, Chughtai) plus advising authors include well-known mechanistic-interpretability researchers — Neel Nanda ( Transformer Circuits / interpretability), Rohin Shah (AI safety, the opaque-serial-depth originator), Senthoran Rajamanoharan, Bilal Chughtai, Brendan O'Donoghue, and Arthur Conmy (Goodfire). They had privileged access to DiffusionGemma internals (the team thanks "the Google DeepMind Text Diffusion team for training and open sourcing the model"). This is a high-credibility group with a strong track record; the serial-depth framework is borrowed from their own prior work (Brown-Cohen, Lindner, Shah 2026). The honesty about confounders and open problems is notable.</p>
+<h2>Critical Assessment</h2>
+<ul>
+<li><strong>Novelty (High):</strong> Applying the opaque-serial-depth lens to a frontier text-diffusion LM and reconciling it with the autoregressive baseline via a logit-lens bottleneck is fresh and timely. The case-study phenomena (smearing, intermediate-context reasoning) are genuinely new and not derivable from prior latent-reasoning work (CODI, COCONUT, Mamba patching).</li>
+<li><strong>Rigor (Medium-High):</strong> The serial-depth numbers are concrete and the capability ablations have real benchmarks behind them. However: (1) the headline 28.6X→1.1X rests on the assumption that the bottleneck is interpretable, and the supporting token-identity analysis is a proxy, not a proof — the authors themselves flag this as "not airtight." (2) The top-8 ablation is admitted to leave uninterpretable noise tokens, which is a monitorability gap the paper does not fully close. (3) OOD concerns: setting discarded logits to a constant-preserving-probability is acknowledged as potentially out-of-distribution, which could bias the capability results optimistically.</li>
+<li><strong>Reproducibility (Medium):</strong> DiffusionGemma weights and the serial-depth analyzer are open-sourced, but several case studies are qualitative and cherry-picked (single prompts), and the bespoke monitor infrastructure is internal. The WildChat-based token-identity quantification is the most reproducible claim; the algorithmic-transparency phenomena are illustrative, not population-level.</li>
+<li><strong>Significance (High for safety, Medium for capability):</strong> Reframes the "diffusion LMs are inherently opaque" objection — a load-bearing concern for AI-control safety cases — and provides a reusable audit template. The authors are explicit that the reassuring results may be an artifact of the current training paradigm and could regress with scale or outcome-based RL, which is the right framing.</li>
+<li><strong>Red flags:</strong> (1) Monitorability is evaluated only over multi-canvas rollouts, where DiffusionGemma behaves more autoregressively; single-canvas monitorability (the regime where diffusion-specific opacity matters most) is left as future work. (2) No production monitor deployed; the proposed transparency method requires extracting intermediate logits at every step, which is impractically expensive. (3) DiffusionGemma's shorter CoT biases the monitorability comparison in its own disfavor, so the "similar monitorability" result is ambiguous in direction. (4) Comparisons vs. Gemma 4 26B A4B share training lineage — they are well-matched, but the "DiffusionGemma barely damages performance" claim leans on a sibling model.</li>
+</ul>
+<h2>Strengths</h2>
+<ul>
+<li>Clean, reusable two-axis transparency framework and the concrete opaque-serial-depth metric.</li>
+<li>A performance-preserving intervention (top-k/top-p bottleneck) rather than a purely descriptive analysis.</li>
+<li>Honest scoping: variable vs. algorithmic transparency are kept distinct, and algorithmic transparency is conceded as only "initially bridged."</li>
+<li>The case studies are visually compelling and demonstrate behaviors (length prediction, self-correction, sequence smearing, intermediate-context tokens) that are provably impossible for autoregressive LMs.</li>
+<li>Ties transparency theory to an applied safety outcome (monitorability), and lists a thorough open-problems section that functions as a research roadmap.</li>
+</ul>
+<h2>Limitations</h2>
+<ul>
+<li>Monitorability is multi-canvas only; single-canvas monitorability (where diffusion-specific opacity bites hardest) is unmeasured.</li>
+<li>It is unclear whether the observed transparency is an inherent property of the architecture or an artifact of DiffusionGemma's specific training/architectural choices (e.g., the embedding-projection that biases S_t toward token directions). Outcome-based RL or larger canvases could regress it.</li>
+<li>The central "bottleneck is interpretable" argument rests on a token-identity proxy; opaque/deceptive reasoning could still hide in the residual "Other" category and be mislabeled benign.</li>
+<li>Case studies are illustrative single-prompt demonstrations; the frequency, triggers, and population-level prevalence of each phenomenon are not quantified.</li>
+<li>The proposed transparency method (extracting and analyzing intermediate logits at every denoising step) is impractical as a deployed monitor.</li>
+</ul>
+<h2>Relevance</h2>
+<p>This paper is highly relevant to your "LLM Hidden States & Interpretability" interest — it is mechanistic interpretability applied to a non-standard (diffusion) LM architecture, using logit-lens / bottleneck / activation-patching-style tools to probe latent structure across the denoising axis. It also speaks directly to "LLM Inference Evaluation" via its monitorability experiments, addressing whether diffusion-based reasoning can be reliably inspected and evaluated.</p>
+<h2>Questions for Further Exploration</h2>
+<ul>
+<li>Is the top-k/top-p bottleneck truly faithful, or does the residual "Other" category of tokens carry load-bearing opaque reasoning on adversarial or scheming tasks?</li>
+<li>How does opaque serial depth and monitorability scale with canvas size and denoising-step count — is the 1.1X ratio stable at larger canvases where single-canvas reasoning dominates?</li>
+<li>Can the diffusion-specific phenomena (smearing, non-chronological reasoning, intermediate-context tokens) be localized to identifiable circuits, analogous to induction heads in autoregressive LMs?</li>
+<li>Does single-canvas monitorability (the regime the paper explicitly could not measure) hold up, or do diffusion-specific opacity behaviors surface there?</li>
+<li>How would outcome-based RL or optimization pressure on the CoT regress the bottleneck's interpretability — i.e., can the authors produce a "model organism" where latent reasoning becomes genuinely opaque?</li>
+<li>Can the sequence-smearing "beam search in latent space" be exploited constructively (e.g., extracted as explicit alternative hypotheses for monitoring)?</li>
+<li>Does intermediate-context reasoning (the Fibonacci 3→Gold case) generalize to a class of tasks where monitoring truly requires intermediate-state access rather than final tokens alone?</li>
+</ul>
+<p class="note">Generated from Markdown summary. Full paper: <a href="https://arxiv.org/abs/2606.20560">arXiv:2606.20560</a></p>
+</div>
+</body>
+</html>

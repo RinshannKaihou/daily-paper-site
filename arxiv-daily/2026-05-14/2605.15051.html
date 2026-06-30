@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>An Interpretable Latency Model for Speculative Decoding in LLM Serving</title>
+<style>
+:root { --paper:#fafafa; --ink:#1a1a1a; --muted:#555; --accent:#1a5276; --line:#ddd; --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif; --serif:Georgia,"Noto Serif SC",serif; }
+body { font-family:var(--serif); background:var(--paper); color:var(--ink); line-height:1.6; margin:0; padding:0; }
+.container { max-width:min(95vw, 760px); margin:0 auto; padding:28px 20px 60px; }
+.topnav { position:fixed; top:12px; left:14px; z-index:50; font-family:var(--sans); font-size:.75rem; background:var(--paper); border:1px solid var(--line); padding:5px 10px; border-radius:999px; }
+.topnav a { color:var(--muted); text-decoration:none; font-weight:600; }
+.topnav a:hover { color:var(--accent); }
+h1 { font-size:1.6rem; margin:2.2rem 0 1rem; border-bottom:2px solid var(--accent); padding-bottom:.3rem; }
+h2 { font-size:1.3rem; margin:1.8rem 0 .8rem; color:var(--accent); }
+h3 { font-size:1.1rem; margin:1.4rem 0 .6rem; }
+p { margin:.8rem 0; }
+.authors { font-style:italic; color:var(--muted); margin-top:-.4rem; }
+.meta { font-family:var(--sans); font-size:.82rem; color:var(--muted); margin:.2rem 0; }
+a { color:var(--accent); text-decoration:none; }
+a:hover { text-decoration:underline; }
+blockquote { border-left:3px solid var(--accent); margin:1rem 0; padding:.2rem 0 .2rem 1rem; color:var(--muted); font-style:italic; }
+code { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; background:#f0f0f0; padding:2px 5px; border-radius:3px; font-size:.9em; }
+pre { background:#f5f5f5; padding:14px; overflow-x:auto; border-radius:4px; border:1px solid var(--line); }
+pre code { background:transparent; padding:0; }
+ul,ol { margin:.6rem 0; padding-left:1.5rem; }
+li { margin:.25rem 0; }
+table { border-collapse:collapse; width:100%; margin:1rem 0; font-family:var(--sans); font-size:.9rem; }
+th,td { border:1px solid var(--line); padding:6px 10px; text-align:left; }
+th { background:#f0f0f0; }
+hr { border:none; border-top:1px solid var(--line); margin:1.5rem 0; }
+.note { font-family:var(--sans); font-size:.78rem; color:var(--muted); border-top:1px solid var(--line); margin-top:2rem; padding-top:1rem; }
+@media (max-width: 600px) { .container { padding:22px 14px 40px; } h1 { font-size:1.35rem; } }
+</style>
+</head>
+<body>
+<div class="topnav"><a href="./index.html">← Today's digest</a></div>
+<div class="container">
+<h1>An Interpretable Latency Model for Speculative Decoding in LLM Serving</h1>
+<p class="meta">arXiv: 2605.15051</p>
+<p class="meta">Date: 2026-05-14</p>
+<p class="meta"><a href="https://arxiv.org/abs/2605.15051">https://arxiv.org/abs/2605.15051</a></p>
+<blockquote><strong>一句话总结：</strong> 本文基于Little's Law推导出一个可解释的延迟模型，将投机解码（Speculative Decoding）在LLM服务系统中的延迟分解为预填充、草稿生成和验证三个组件，揭示了SD加速效果随服务负载增加而衰减的系统性原因，并将框架扩展至MoE架构。</blockquote>
+<blockquote><strong>TL;DR:</strong> This paper derives a closed-form, interpretable latency model for speculative decoding (SD) in LLM serving systems by using Little's Law to infer effective batch size and decomposing per-request costs into prefill, drafting, and verification components. The model explains why SD speedups erode under high server load, shows how draft length and acceptance rate trade off across load regimes, and extends to mixture-of-experts models via an expert-coverage correction.</blockquote>
+<h2>核心贡献</h2>
+<ul>
+<li>建立了基于Little's Law的可解释延迟模型 L = C1 / (1 - RPS × C2)，适用于连续批处理的LLM服务系统，将延迟分解为负载无关和负载相关两部分</li>
+<li>推导出投机解码的加速比闭式表达式，分离了低负载收益项与随负载衰减项，从数学上解释了SD加速效果为何在高利用率下消退</li>
+<li>提出了投机感知成本模型（prefill/verify/draft三分量分解），通过接受率α和草稿长度k参数化有效延迟成本，统一描述所有SD配置下的延迟行为</li>
+<li>将框架扩展至MoE模型，引入专家覆盖率因子φ修正稀疏激活对延迟的影响，在低负载段R²从0.830–0.906提升至0.976–0.997</li>
+<li>系统性地量化了延迟系数随模型规模、草稿模型规模和序列长度的线性缩放规律，并通过留一交叉验证验证了预测泛化性</li>
+</ul>
+<h2>Key Contributions</h2>
+<ul>
+<li>Derives a steady-state latency model L = C1 / (1 − RPS × C2) using Little's Law, decomposing end-to-end request latency into load-independent (C1) and load-dependent (C2) components for continuous-batching LLM servers</li>
+<li>Obtains a closed-form speedup expression that separates the zero-load benefit 1/C1,R from the load-dependent erosion term controlled by (1 − C2,R), mathematically explaining when SD speedup increases, erodes, or reverses</li>
+<li>Proposes a speculation-aware cost decomposition with six parameters (c1,p, c1,v, c1,d, c2,p, c2,v, c2,d) that captures how acceptance rate α and draft length k reshape fixed and variable costs, collapsing all SD configurations onto a unified latency curve</li>
+<li>Extends the framework to MoE architectures via an expert-coverage factor φ(T) = 1 − (1 − m/M)^T, substantially improving fit for sparse models at low load</li>
+<li>Demonstrates near-linear scaling of all six cost coefficients with verifier size, drafter size, and sequence lengths across the Qwen3 family, with leave-n-out predictive R² remaining close to full-data fits</li>
+</ul>
+<h2>Methodology</h2>
+<p>The authors use GuideLLM v0.5.2 to drive a vLLM v0.13.0 inference server under controlled load on NVIDIA A100 (and H100 for cross-hardware validation) GPUs. For each configuration, they measure a synchronous baseline (one request at a time), estimate the highest stable request rate before preemption, and sweep eight evenly spaced RPS values between these endpoints.</p>
+<p>They evaluate dense models (Llama-3.1-8B/70B, Qwen3-0.6B/1.7B/8B/14B/32B) and MoE models (gpt-oss-20b, Qwen3-30B-A3B, Qwen3-235B-A22B). For SD, they use EAGLE-3-style lightweight drafters and sweep acceptance rates α ∈ {50%, 70%, 90%, 100%} and draft lengths k ∈ {1,...,10}, with 16 prefill–decode length combinations over {256, 512, 768, 1024} tokens.</p>
+<p>The core modeling approach applies Little's Law (B = RPS × L) to infer effective batch size, then decomposes per-request service demand. For SD, each decode cycle is split into a verify phase (cv) and k sequential draft phases (cd), amortized over expected acceptance length E = (1 − α^{k+1}) / (1 − α). This yields six interpretable coefficients fitted via SciPy curve_fit.</p>
+<h2>Results & Highlights</h2>
+<ul>
+<li>The base latency model (eq. 1) achieves excellent fit across all non-speculative configurations, with normalized latencies collapsing onto the universal curve y = 1/(1−x) (Figure 1)</li>
+<li>SD configurations also follow the same Little's Law form when fit per-configuration, confirming SD preserves the underlying serving dynamics</li>
+<li>C1,R (fixed-cost ratio) is consistently below 1 across all settings, while C2,R (load-dependent cost ratio) typically exceeds 1, explaining why SD speedup generally diminishes with load (Figure 2b, Figure 3)</li>
+<li>The speculation-aware model (eq. 3) unifies all α and k combinations onto a single latency curve per prefill/decode configuration (Figure 4c), with C1,EFF and C2,EFF closely matching individually-fitted parameters (Figure 4d)</li>
+<li>All six cost coefficients scale approximately linearly with model size and drafter size (Figure 5), and c2,p scales linearly with prefill length while c2,v scales linearly with (prefill + decode/2) (Figure 6)</li>
+<li>Leave-n-out analysis shows predictive R² stays above 0.96 for larger models even when holding out 4 of 16 configurations (Figure 7)</li>
+<li>The MoE-aware model improves R² from 0.830–0.906 to 0.976–0.997 on the lower-load half for all three MoE models</li>
+<li>The model generalizes well to H100 hardware (subset R² > 0.992) and to p95/p99 tail latency, especially for larger models</li>
+</ul>
+<h2>Authors & Credibility</h2>
+<ul>
+<li>Linghao Kong (MIT), Megan Flynn (Red Hat AI), Michael Peng (MIT), Nir Shavit (MIT & Red Hat AI), Mark Kurtz (Red Hat AI), Alexandre Marques (Red Hat AI)</li>
+<li>Nir Shavit is a well-known systems researcher (ACM Fellow, MIT professor). The MIT–Red Hat AI collaboration lends credibility to the systems-oriented analysis</li>
+<li>Supported by an MIT-IBM Watson AI Lab grant</li>
+<li>Experiments are thorough: multiple model families, systematic sweeps of α, k, prefill/decode lengths, cross-hardware validation, and both dense and MoE architectures</li>
+</ul>
+<h2>Critical Assessment</h2>
+<ul>
+<li><strong>Novelty (Moderate-High):</strong> While Little's Law and roofline-style cost decomposition are classical, their application to modeling speculative decoding under realistic serving load is novel and fills a genuine gap. The prefill/verify/draft decomposition and MoE expert-coverage extension are original contributions.</li>
+<li><strong>Rigor (High):</strong> Extensive empirical validation across model sizes, architectures, and hardware. The leave-n-out analysis and cross-hardware experiments demonstrate robustness. However, the model is limited to the stable pre-saturation regime and mean latency (p99 fits degrade for smaller models).</li>
+<li><strong>Reproducibility (Moderate-High):</strong> Uses publicly available vLLM and GuideLLM tools, open models (Llama, Qwen3). The acceptance rate is enforced by overriding vLLM's rejection sampling, which is a controlled but somewhat artificial setup. The fitted coefficients are system-dependent and need re-profiling for different stacks.</li>
+<li><strong>Significance (High):</strong> Addresses a practically important problem — understanding when SD helps vs. hurts in production serving. The finding that draft lengths optimized for batch-size-1 are suboptimal under load has direct deployment implications. The model is lightweight enough to be used for online configuration tuning.</li>
+<li><strong>Red flags:</strong> The constant per-token acceptance probability α assumption may not hold for real workloads with varying token distributions. The gpt-oss-20b model details are from a preprint, which is standard for the field. The study is limited to a single serving engine (vLLM), though the framework claims generality.</li>
+</ul>
+<h2>Strengths</h2>
+<ul>
+<li>Provides a principled, interpretable mathematical framework where previously SD behavior under load was poorly understood</li>
+<li>The closed-form speedup expression (eq. 2) cleanly separates the factors controlling SD benefit at low vs. high load, enabling practical configuration decisions</li>
+<li>Unified model works across dense and MoE architectures with minimal extension</li>
+<li>Strong empirical validation with systematic sweeps and cross-hardware robustness checks</li>
+<li>Practical deployment insight: serving systems can profile a few configurations and predict latency for all feasible k values under changing load</li>
+</ul>
+<h2>Limitations</h2>
+<ul>
+<li>Restricted to the stable pre-saturation regime; excludes the saturation boundary where preemption makes latency unstable</li>
+<li>Mean-latency focused; p99 modeling degrades for smaller models, and full distributional characterization is left to future work</li>
+<li>Acceptance rate α is treated as constant and externally enforced, rather than measured from natural draft-target interactions</li>
+<li>Only evaluated on vLLM; generalization to other serving engines (TensorRT-LLM, TGI, etc.) is claimed but not demonstrated</li>
+<li>Does not model bursty workloads, adaptive drafting, or tree-based verification strategies</li>
+<li>Coefficients are system-specific and require re-profiling for each hardware/serving configuration</li>
+</ul>
+<h2>Relevance</h2>
+<p>本文与LLM推理评估和服务系统性能分析直接相关。其建立的延迟模型为理解LLM推理在真实服务负载下的行为提供了数学框架，尤其是投机解码加速效果的量化分析对评估推理效率具有参考价值。MoE模型下的延迟特性分析也与ML系统的可靠性评估有交集。</p>
+<h2>Questions for Further Exploration</h2>
+<ul>
+<li>How does the model perform under bursty or non-stationary request patterns that deviate from the steady-state assumption?</li>
+<li>Can the framework be extended to model SD variants with tree-structured draft verification (e.g., EAGLE-2/3 dynamic trees) where the per-cycle cost structure differs?</li>
+<li>What is the optimal online policy for dynamically adjusting draft length k as request rate fluctuates, given the trade-off between C1,R and C2,R?</li>
+<li>How do the fitted coefficients transfer across serving engines (TensorRT-LLM, SGLang) and multi-GPU parallelism strategies beyond tensor parallelism?</li>
+<li>Could the expert-coverage factor φ be estimated online from serving telemetry to enable real-time MoE-aware SD configuration?</li>
+</ul>
+<p class="note">Generated from Markdown summary. Full paper: <a href="https://arxiv.org/abs/2605.15051">arXiv:2605.15051</a></p>
+</div>
+</body>
+</html>

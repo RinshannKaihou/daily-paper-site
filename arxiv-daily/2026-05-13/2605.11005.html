@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DisagMoE: Computation-Communication overlapped MoE Training via Disaggregated AF-Pipe Parallelism</title>
+<style>
+:root { --paper:#fafafa; --ink:#1a1a1a; --muted:#555; --accent:#1a5276; --line:#ddd; --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif; --serif:Georgia,"Noto Serif SC",serif; }
+body { font-family:var(--serif); background:var(--paper); color:var(--ink); line-height:1.6; margin:0; padding:0; }
+.container { max-width:min(95vw, 760px); margin:0 auto; padding:28px 20px 60px; }
+.topnav { position:fixed; top:12px; left:14px; z-index:50; font-family:var(--sans); font-size:.75rem; background:var(--paper); border:1px solid var(--line); padding:5px 10px; border-radius:999px; }
+.topnav a { color:var(--muted); text-decoration:none; font-weight:600; }
+.topnav a:hover { color:var(--accent); }
+h1 { font-size:1.6rem; margin:2.2rem 0 1rem; border-bottom:2px solid var(--accent); padding-bottom:.3rem; }
+h2 { font-size:1.3rem; margin:1.8rem 0 .8rem; color:var(--accent); }
+h3 { font-size:1.1rem; margin:1.4rem 0 .6rem; }
+p { margin:.8rem 0; }
+.authors { font-style:italic; color:var(--muted); margin-top:-.4rem; }
+.meta { font-family:var(--sans); font-size:.82rem; color:var(--muted); margin:.2rem 0; }
+a { color:var(--accent); text-decoration:none; }
+a:hover { text-decoration:underline; }
+blockquote { border-left:3px solid var(--accent); margin:1rem 0; padding:.2rem 0 .2rem 1rem; color:var(--muted); font-style:italic; }
+code { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; background:#f0f0f0; padding:2px 5px; border-radius:3px; font-size:.9em; }
+pre { background:#f5f5f5; padding:14px; overflow-x:auto; border-radius:4px; border:1px solid var(--line); }
+pre code { background:transparent; padding:0; }
+ul,ol { margin:.6rem 0; padding-left:1.5rem; }
+li { margin:.25rem 0; }
+table { border-collapse:collapse; width:100%; margin:1rem 0; font-family:var(--sans); font-size:.9rem; }
+th,td { border:1px solid var(--line); padding:6px 10px; text-align:left; }
+th { background:#f0f0f0; }
+hr { border:none; border-top:1px solid var(--line); margin:1.5rem 0; }
+.note { font-family:var(--sans); font-size:.78rem; color:var(--muted); border-top:1px solid var(--line); margin-top:2rem; padding-top:1rem; }
+@media (max-width: 600px) { .container { padding:22px 14px 40px; } h1 { font-size:1.35rem; } }
+</style>
+</head>
+<body>
+<div class="topnav"><a href="./index.html">← Today's digest</a></div>
+<div class="container">
+<h1>DisagMoE: Computation-Communication overlapped MoE Training via Disaggregated AF-Pipe Parallelism</h1>
+<p class="authors">Zhichen Zeng, Chi-Chih Chang, Jiayi Wang, Zezhou Wang, Ningxin Zheng, Zheng Zhong, Cesar A. Stuardo, Dongyang Wang, Mohamed S. Abdelfattah, Haibin Lin, Banghua Zhu, Ang Li, Ziheng Jiang</p>
+<p class="meta">arXiv: 2605.11005</p>
+<p class="meta">Date: 2026-05-13</p>
+<p class="meta">Tags: [moe-training, distributed-systems, pipeline-parallelism, communication-overlap]</p>
+<p class="meta"><a href="https://arxiv.org/abs/2605.11005">https://arxiv.org/abs/2605.11005</a></p>
+<blockquote><strong>一句话总结：</strong> DisagMoE 通过将 Attention 和 FFN 解耦到不同的 GPU 组，配合多级流水线调度（AF-Pipe）和自适应资源分配，在大规模 MoE 训练中实现了高达 1.81× 的加速，有效解决了跨节点 all-to-all 通信瓶颈。</blockquote>
+<blockquote><strong>TL;DR:</strong> DisagMoE is a disaggregated MoE training system that partitions attention and FFN layers into separate GPU groups, introduces a multi-stage pipeline (AF-Pipe) with many-to-many communication overlap, and uses a roofline-model-guided adaptive allocator to balance compute and network resources, achieving up to 1.81× speedup on 128×H800 clusters.</blockquote>
+<h2>核心贡献</h2>
+<ul>
+<li><strong>解耦式组件放置：</strong> 将 Transformer 中的 Attention 层和 FFN（MoE）层分离到不同的 GPU 工作组，Attention 组使用数据并行复制，FFN 组使用专家并行分片，从架构层面消除 all-to-all 通信的关键路径瓶颈。</li>
+<li><strong>AF-Pipe 多级流水线调度：</strong> 提出将 M2N/N2M 通信作为一级流水线阶段，与 Attention 和 FFN 计算阶段对齐，实现系统性的计算-通信重叠，流水线气泡降低至传统 1F1B 的约 1/4。</li>
+<li><strong>自适应资源分配器：</strong> 基于计算-通信 Roofline 模型，将 GPU 和 NIC 带宽在 Attention 与 FFN 组之间的分配建模为混合整数线性规划（MILP）问题，通过 profile-guided 局部搜索优化配置。</li>
+<li><strong>大规模实验验证：</strong> 在 DeepSeek-MoE、GPT-OSS-120B、Qwen3-235B 三个模型上，使用 16 节点（128×H800）集群进行评测，最高实现 1.81× 加速。</li>
+</ul>
+<h2>Key Contributions</h2>
+<ul>
+<li><strong>Disaggregated component placement:</strong> Separates attention and FFN layers into disjoint GPU worker groups — attention groups use data parallelism (replication), FFN groups use expert parallelism (sharding) — architecturally removing all-to-all from the critical path.</li>
+<li><strong>AF-Pipe multi-stage pipeline schedule:</strong> Treats M2N/N2M token exchanges as first-class pipeline stages alongside attention and FFN compute, systematically overlapping communication with both computations and reducing pipeline bubbles to ~1/4 of standard 1F1B.</li>
+<li><strong>Roofline-model-guided adaptive allocator:</strong> Formulates GPU and NIC bandwidth partitioning between attention and FFN groups as a MILP problem, refined by profile-guided local search to balance stage latencies and maximize MFU.</li>
+<li><strong>Large-scale empirical validation:</strong> Evaluates on DeepSeek-MoE, GPT-OSS-120B, and Qwen3-235B across 16-node (128×H800) clusters with sequence lengths 4K–32K, achieving up to 1.81× speedup over Megatron-1F1B and 1.34× over SOTA overlap methods.</li>
+</ul>
+<h2>Methodology</h2>
+<p>DisagMoE addresses the dominant all-to-all communication bottleneck in large-scale MoE training through a three-part design:</p>
+<ol>
+<li><strong>Disaggregated Architecture (Section 4.1):</strong> The model is partitioned by component type. For a model with L layers and p groups per component, each group g receives every p-th occurrence of its component (attention or FFN) across depth. Attention groups replicate dense parameters via DP; FFN groups shard experts via EP. This homogeneity within each component type enables uniform scaling.</li>
+</ol>
+<ol>
+<li><strong>AF-Pipe (Section 4.2):</strong> A tailored pipeline parallelism strategy built on the disaggregated placement. Key innovations include:</li>
+</ol>
+<ul>
+<li><strong>M2N stage boundaries:</strong> Traditional all-to-all exchanges become many-to-many (M2N/N2M) communication between disjoint worker groups, fusing P2P and combine into a single unified stage, reducing communication cost by ~1/k.</li>
+<li><strong>Asynchronous multi-stream execution:</strong> Each worker maintains forward, backward, and communication streams, enabling non-blocking overlap of compute and communication.</li>
+<li><strong>Bubble analysis:</strong> AF-Pipe warmup bubble is B_AF = (PP-1)·[max(T_a, T_f) + T_M2N] / (2v), approximately 1/4 of baseline 1F1B bubble with per-layer staging.</li>
+</ul>
+<ol>
+<li><strong>Adaptive Worker Allocation (Section 4.3):</strong> Extends the classical roofline model to the AFD architecture. The key insight is that attention and FFN have structurally different compute-communication ratios (attention scales quadratically with sequence length; FFN scales linearly). The allocator:</li>
+</ol>
+<ul>
+<li>Solves a two-phase optimization: first minimize the bottleneck stage latency T<em> = min max(T_a, T_f), then maximize aggregate arithmetic intensity I_attn + I_ffn among configurations attaining T</em>.</li>
+<li>Uses MILP (Gurobi) for a roofline-guided seed, refined by profile-guided local search.</li>
+</ul>
+<p>The system is implemented on Megatron-LM (6K lines Python + 2K C++), using GPUDirect and GPUCopy for efficient M2N/N2M communication.</p>
+<h2>Results & Highlights</h2>
+<ul>
+<li><strong>Up to 1.81× speedup</strong> over Megatron-1F1B interleaved overlap across DeepSeek-MoE, GPT-OSS, and Qwen3 models on 128×H800 GPUs.</li>
+<li><strong>1.2–1.5× speedup</strong> over Tutel and Comet (operation-level overlap methods), which suffer from unoverlapped communication tails because FFN computation only covers 40–60% of all-to-all time.</li>
+<li><strong>1.05–1.13× speedup</strong> over DualPipe (microbatch-level bidirectional pipeline), which still has residual communication bubbles from mismatched attention-FFN compute-to-communication ratios.</li>
+<li><strong>88% reduction</strong> in non-overlapped communication time vs. Tutel, 75% vs. Comet, 45% vs. DualPipe (measured on DeepSeek-MoE 8K).</li>
+<li><strong>Adaptive resource allocation matters:</strong> Optimal A:F GPU ratio varies with sequence length — balanced (16:16) at 4K, attention-heavy (16:10) at 16K, yielding 1.29× improvement over homogeneous allocation at 16K.</li>
+<li><strong>Robust across top-k and EP size:</strong> Consistent 1.08–1.92× speedup across top-k ∈ {2,4,8,16} and EP sizes.</li>
+</ul>
+<h2>Authors & Credibility</h2>
+<ul>
+<li><strong>Zhichen Zeng</strong> (ByteDance Seed / University of Washington), <strong>Ziheng Jiang</strong> (ByteDance Seed) — lead authors from a major industrial AI lab with extensive experience in large-scale training systems.</li>
+<li><strong>Ang Li</strong> (University of Washington), <strong>Mohamed S. Abdelfattah</strong> (Cornell University) — academic collaborators with expertise in HPC and distributed systems.</li>
+<li>The work builds on Megatron-LM and evaluates on production-scale models (DeepSeek-MoE, GPT-OSS-120B, Qwen3-235B), providing strong practical credibility.</li>
+<li>The roofline-model formulation and MILP optimization demonstrate rigorous systems methodology.</li>
+</ul>
+<h2>Critical Assessment</h2>
+<p>| Criterion | Rating | Notes |</p>
+<p>|-----------|--------|-------|</p>
+<p>| <strong>Novelty</strong> | High | First work to apply attention-FFN disaggregation to MoE <em>training</em> at this scale with joint placement-scheduling optimization. Prior AFD work (MegaScale-Infer, StepFun) targeted serving only. |</p>
+<p>| <strong>Rigor</strong> | High | Formal roofline analysis, bubble complexity derivations, MILP formulation with profile-guided refinement. Thorough ablations on resource allocation, virtual stages, top-k, and EP size. |</p>
+<p>| <strong>Reproducibility</strong> | Medium | Implemented on Megatron-LM (open-source base), but requires 128×H800 cluster to reproduce main results. Algorithm details are well-specified. |</p>
+<p>| <strong>Significance</strong> | High | Addresses a first-order bottleneck (all-to-all communication) in MoE training. The disaggregation insight and roofline-guided allocation are broadly applicable. |</p>
+<p>| <strong>Red flags</strong> | Low | Minor: assumes fixed pretraining shapes (no dynamic shapes), symmetric pipeline depth for attention and FFN groups. These are acknowledged limitations. |</p>
+<h2>Strengths</h2>
+<ul>
+<li>Principled co-design of architecture placement, pipeline scheduling, and resource allocation — not just a single trick but a holistic system.</li>
+<li>Strong empirical results across three different MoE architectures and diverse configurations (sequence length, top-k, EP size).</li>
+<li>The compute-communication roofline model provides actionable hardware-software co-design insights: uniform bandwidth scaling is insufficient; future hardware should target favorable per-component compute-communication ratios.</li>
+<li>Clean integration into Megatron-LM with minimal user-facing API changes (only module-level definition changes).</li>
+</ul>
+<h2>Limitations</h2>
+<ul>
+<li><strong>Fixed workload shapes:</strong> Assumes pretraining-style stable sequence lengths and batch sizes. Dynamic-shape workloads (e.g., RL training) would require online reallocation, which is not addressed.</li>
+<li><strong>Symmetric pipeline depth:</strong> Uses a single depth p shared by both attention and FFN groups; asymmetric depths (p_A, p_F) could further optimize but introduce scheduling complexity.</li>
+<li><strong>Homogeneous hardware assumption:</strong> All GPUs are H800; the allocator does not account for heterogeneous hardware within a cluster (unlike HeterMoE).</li>
+<li><strong>Scalability beyond 16 nodes:</strong> Experiments top out at 16 nodes (128 GPUs); behavior at hundreds of nodes remains unexplored.</li>
+<li><strong>Memory overhead of virtual stages:</strong> Beyond v=16, OOM occurs, limiting pipeline utilization gains.</li>
+</ul>
+<h2>Relevance</h2>
+<p>本文对大规模 MoE 模型训练中的通信瓶颈问题提出了系统性的解决方案，其解耦式架构设计和 Roofline 引导的资源分配思路对分布式训练系统研究具有重要参考价值。对于关注 LLM 训练效率、MoE 系统优化、以及软硬件协同设计的研究者而言，这项工作提供了从架构到调度的完整优化路径。</p>
+<h2>Questions for Further Exploration</h2>
+<ol>
+<li>How would DisagMoE's adaptive allocator perform with heterogeneous GPU clusters (e.g., mixing H100 and H800), and can the MILP formulation be extended to handle such asymmetry?</li>
+<li>What is the memory overhead of maintaining separate activation storage for attention and FFN groups compared to the baseline, and does this limit the maximum trainable model size?</li>
+<li>Can the AF-Pipe scheduling strategy be combined with sequence parallelism or context parallelism to handle ultra-long sequences (>128K tokens)?</li>
+<li>How does DisagMoE interact with fault tolerance mechanisms (e.g., checkpoint/restart) in the disaggregated architecture — do separate groups complicate consistent checkpointing?</li>
+<li>Would an online version of the adaptive allocator (adjusting ratios dynamically during training as batch composition changes) yield further gains, and what is the overhead of such online profiling?</li>
+</ol>
+<p class="note">Generated from Markdown summary. Full paper: <a href="https://arxiv.org/abs/2605.11005">arXiv:2605.11005</a></p>
+</div>
+</body>
+</html>

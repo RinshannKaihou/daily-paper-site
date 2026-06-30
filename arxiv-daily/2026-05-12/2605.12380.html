@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Trust the Batch, On- or Off-Policy: Adaptive Policy Optimization for RL Post-Training</title>
+<style>
+:root { --paper:#fafafa; --ink:#1a1a1a; --muted:#555; --accent:#1a5276; --line:#ddd; --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif; --serif:Georgia,"Noto Serif SC",serif; }
+body { font-family:var(--serif); background:var(--paper); color:var(--ink); line-height:1.6; margin:0; padding:0; }
+.container { max-width:min(95vw, 760px); margin:0 auto; padding:28px 20px 60px; }
+.topnav { position:fixed; top:12px; left:14px; z-index:50; font-family:var(--sans); font-size:.75rem; background:var(--paper); border:1px solid var(--line); padding:5px 10px; border-radius:999px; }
+.topnav a { color:var(--muted); text-decoration:none; font-weight:600; }
+.topnav a:hover { color:var(--accent); }
+h1 { font-size:1.6rem; margin:2.2rem 0 1rem; border-bottom:2px solid var(--accent); padding-bottom:.3rem; }
+h2 { font-size:1.3rem; margin:1.8rem 0 .8rem; color:var(--accent); }
+h3 { font-size:1.1rem; margin:1.4rem 0 .6rem; }
+p { margin:.8rem 0; }
+.authors { font-style:italic; color:var(--muted); margin-top:-.4rem; }
+.meta { font-family:var(--sans); font-size:.82rem; color:var(--muted); margin:.2rem 0; }
+a { color:var(--accent); text-decoration:none; }
+a:hover { text-decoration:underline; }
+blockquote { border-left:3px solid var(--accent); margin:1rem 0; padding:.2rem 0 .2rem 1rem; color:var(--muted); font-style:italic; }
+code { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; background:#f0f0f0; padding:2px 5px; border-radius:3px; font-size:.9em; }
+pre { background:#f5f5f5; padding:14px; overflow-x:auto; border-radius:4px; border:1px solid var(--line); }
+pre code { background:transparent; padding:0; }
+ul,ol { margin:.6rem 0; padding-left:1.5rem; }
+li { margin:.25rem 0; }
+table { border-collapse:collapse; width:100%; margin:1rem 0; font-family:var(--sans); font-size:.9rem; }
+th,td { border:1px solid var(--line); padding:6px 10px; text-align:left; }
+th { background:#f0f0f0; }
+hr { border:none; border-top:1px solid var(--line); margin:1.5rem 0; }
+.note { font-family:var(--sans); font-size:.78rem; color:var(--muted); border-top:1px solid var(--line); margin-top:2rem; padding-top:1rem; }
+@media (max-width: 600px) { .container { padding:22px 14px 40px; } h1 { font-size:1.35rem; } }
+</style>
+</head>
+<body>
+<div class="topnav"><a href="./index.html">← Today's digest</a></div>
+<div class="container">
+<h1>Trust the Batch, On- or Off-Policy: Adaptive Policy Optimization for RL Post-Training</h1>
+<p class="meta">arXiv: 2605.12380</p>
+<p class="meta">Date: 2026-05-12</p>
+<p class="meta"><a href="https://arxiv.org/abs/2605.12380">https://arxiv.org/abs/2605.12380</a></p>
+<blockquote><strong>一句话总结：</strong> 本文提出 P3O（Policy-on Policy-off Policy Optimization），用批次内策略比率的归一化有效样本量（ESS）替代固定裁剪范围，实现自适应信任域与离策略校正，在大模型 RL 后训练中无需手动调节裁剪超参数即可匹配或超越 GRPO/DAPO 等调优基线。</blockquote>
+<blockquote><strong>TL;DR:</strong> P3O replaces the fixed clip range in PPO/GRPO-style objectives with a batch-adaptive effective sample size (ESS) statistic, automatically tightening updates when data is stale or mismatched and relaxing on fresh data, matching or exceeding tuned baselines with zero clipping hyperparameters.</blockquote>
+<h2>核心贡献</h2>
+<ul>
+<li><strong>消除固定裁剪超参数</strong>：用批次内 policy ratio 的归一化 ESS 替代 PPO/GRPO 中需要预先设定的裁剪范围 $(\epsilon_\ell, \epsilon_h)$，无需针对不同任务、模型规模或数据新鲜度重新调参。</li>
+<li><strong>自适应信任域与离策略校正</strong>：同一个 ESS 统计量同时控制 score-function 上限和 KL 正则化强度——在线数据时松弛、离策略数据时自动收紧，统一了此前需要专门损失函数的两种机制。</li>
+<li><strong>不浪费任何数据</strong>：与固定裁剪直接丢弃超出范围的 token 梯度不同，P3O 的 <code>min{ρ_t, e_B}</code> cap 仅缩放梯度权重（始终为正），确保批次中每个 token 都对更新有贡献。</li>
+<li><strong>实际工程适用性</strong>：在 FP8 rollout + BF16 训练、非标准采样温度等真实离策略场景下保持稳定，而 GRPO 出现性能崩溃。</li>
+<li><strong>首个将 P3O 应用于大模型后训练的工作</strong>：此前 P3O 仅在小规模连续控制上验证，本文首次证明其在 LLM RL post-training 中的有效性。</li>
+</ul>
+<h2>Key Contributions</h2>
+<ul>
+<li><strong>Eliminates the fixed clip range</strong> entirely from PPO/GRPO-style objectives, replacing it with the normalized effective sample size (ESS) of per-token policy ratios computed from the current batch.</li>
+<li><strong>Single adaptive statistic drives two mechanisms</strong>: ESS simultaneously caps the score-function weight and sets the KL regularizer coefficient, unifying trust-region and off-policy correction that prior methods entangle via hyperparameters.</li>
+<li><strong>No wasted data</strong>: Unlike fixed clipping which discards gradients for out-of-range tokens, P3O's <code>min{ρ_t, e_B}</code> cap only scales the gradient by a positive factor, so every token contributes.</li>
+<li><strong>Robust to practical off-policy mismatches</strong>: Handles FP8 quantized rollouts, non-unit sampling temperatures, and multi-epoch data reuse without any configuration changes or specialized losses.</li>
+<li><strong>First application of P3O to large-model post-training</strong>, demonstrating it works at LLM scale where prior P3O work was limited to small continuous-control problems.</li>
+</ul>
+<h2>Methodology</h2>
+<p>The authors adopt the P3O (Policy-on Policy-off Policy Optimization) objective originally proposed by Fakoor et al. (2019) and apply it to RL post-training of large language models for the first time. The core insight is that the two key concerns in policy gradient optimization—trust region control and off-policy correction—are both reflected in the distribution of per-token importance ratios ρ_t = π_θ(y_t|c_{<t}) / π_b(y_t|c_{<t}) within the current batch.</p>
+<p>The effective sample size (ESS) is computed as a normalized statistic over these ratios:</p>
+<p>$$\text{ESS}(B; θ) = \frac{(\mathbb{E}_B[ρ_t])^2}{\mathbb{E}_B[ρ_t^2]} \cdot \frac{1}{|B|}$$</p>
+<p>This ESS is close to 1 when the batch is on-policy (ratios are uniform) and falls when stale or mismatched data causes ratio concentration. The P3O loss replaces the fixed clip with two ESS-driven terms:</p>
+<ol>
+<li><strong>Score-function cap</strong>: <code>sg(min{ρ_t, e_B})</code> replaces the hard clip, capping the importance weight but keeping it positive for all tokens.</li>
+<li><strong>Adaptive KL regularizer</strong>: <code>(1 - e_B) · KL(π_θ ∥ π_b)</code> penalizes deviation from the behavior policy, with coefficient that vanishes on fresh data and grows on stale data.</li>
+</ol>
+<p>The method uses GRPO-style group-relative advantages (no learned value function) and shares the same rollout phase. Only the update step differs—no clip range, no staleness budget, no behavior-weight cap.</p>
+<p>Experiments use Qwen3-4B-Thinking-2507 and Qwen2.5-1.5B trained on the DeepScaleR-Preview math dataset (40K problems) with binary reward matching, evaluated on AIME24/25/26, AMO-Bench, and AMC benchmarks.</p>
+<h2>Results & Highlights</h2>
+<ul>
+<li><strong>Clip sensitivity eliminated</strong>: GRPO's reward varies substantially across clip range ϵ ∈ {0.2, 0.4, 0.6}; P3O runs once with no clip hyperparameter and matches or exceeds the best GRPO variant on both model families (Fig. 1).</li>
+<li><strong>Robust to off-policy temperature shifts</strong>: At T=0.6 and T=1.2, GRPO degrades noticeably while P3O maintains or improves performance without retuning (Fig. 2).</li>
+<li><strong>BF16 train + FP8 rollout stability</strong>: Under mixed-precision rollouts (a practically important setting for faster inference), GRPO collapses to near-zero pass@k by iteration 30, while P3O retains strong performance throughout training (Fig. 3–4).</li>
+<li><strong>Benchmark results</strong>: On five held-out math reasoning benchmarks, P3O is competitive with or better than the averaged GRPO sweep across all pass@k values, while avoiding clip selection entirely (Fig. 4a).</li>
+<li><strong>Simpler algorithm</strong>: P3O removes the clip range (ϵ_ℓ, ϵ_h) and introduces no new hyperparameters in its place (Algorithm 2 vs Algorithm 1).</li>
+</ul>
+<h2>Authors & Credibility</h2>
+<ul>
+<li><strong>Rasool Fakoor</strong> (corresponding author), <strong>Alexander J. Smola</strong> — both at Boson AI. Fakoor has prior work on the original P3O (UAI 2019), meta-RL, and offline RL. Smola is a highly cited ML researcher (co-founder of Amazon SageMaker, CMU/Australian National University professor).</li>
+<li><strong>Murdock Aubry</strong>, <strong>Nicholas Stranges</strong> — Boson AI.</li>
+<li>The authors have deep expertise in both the theoretical foundations (importance sampling, off-policy RL) and practical large-model training, lending strong credibility to this work.</li>
+<li>Code is open-sourced at <code>github.com/FeynRL-project/FeynRL</code>.</li>
+</ul>
+<h2>Critical Assessment</h2>
+<ul>
+<li><strong>Novelty (Moderate)</strong>: The core algorithm (P3O) is not new—it was published by the same first author in 2019. The novelty lies in the application domain (LLM post-training) and the empirical demonstration that batch-adaptive clipping outperforms fixed clipping at scale. This is a significant practical contribution but not a fundamentally new algorithmic idea.</li>
+<li><strong>Rigor (Good)</strong>: The paper carefully isolates variables (clip sensitivity, temperature mismatch, precision mismatch) and uses identical hyperparameters across methods except for the clip range. The mathematical presentation is clean and the connection between ESS and trust-region/off-policy concerns is well-argued.</li>
+<li><strong>Reproducibility (Strong)</strong>: Open-source code, standard models (Qwen), public dataset (DeepScaleR-Preview), standard benchmarks (AIME/AMC). Training details are provided in appendix tables.</li>
+<li><strong>Significance (High)</strong>: Removing the clip hyperparameter is a practically valuable simplification for the RLHF/RL post-training community, where tuning costs are enormous. The robustness to FP8 rollouts is particularly impactful for production systems.</li>
+<li><strong>Red flags</strong>: (1) Baseline comparison is limited to GRPO—no comparison with DAPO, GSPO, or decoupled-loss methods on the same experimental setup, though the paper argues these share the same fundamental clip fragility. (2) Experiments are limited to mathematical reasoning with binary rewards; it remains to be seen whether P3O generalizes to open-ended generation with learned reward models. (3) The single-anchor P3O is used throughout despite the paper discussing a two-anchor extension—no empirical comparison of the two variants is provided.</li>
+</ul>
+<h2>Strengths</h2>
+<ul>
+<li>Elegant unification of trust-region and off-policy concerns through a single batch statistic (ESS).</li>
+<li>Zero new hyperparameters; removes existing ones rather than adding more knobs.</li>
+<li>Strong practical results on realistic engineering scenarios (FP8 rollouts, temperature variation).</li>
+<li>Clean mathematical exposition that clearly motivates why fixed clipping is the root cause of fragility.</li>
+<li>Every token in the batch contributes to the update—no wasted data.</li>
+</ul>
+<h2>Limitations</h2>
+<ul>
+<li>Only tested on mathematical reasoning tasks with binary verifiable rewards; generalization to open-ended RLHF with learned reward models is untested.</li>
+<li>GRPO is the sole baseline; direct comparison with DAPO, GSPO, and decoupled-loss methods under the same conditions would strengthen the claims.</li>
+<li>The two-anchor extension (Sec. 3.1) is motivated but not empirically validated against single-anchor P3O.</li>
+<li>No experiments at very large scale (e.g., 70B+ models) where the off-policy mismatch may be more severe.</li>
+<li>ESS is computed globally over the batch; per-prompt or per-sequence ESS could provide finer-grained adaptivity.</li>
+</ul>
+<h2>Relevance</h2>
+<p>本文提出的自适应策略优化方法直接解决了大模型 RL 后训练中超参数敏感性这一核心痛点，对 LLM reasoning 能力的训练流程具有重要实践价值，尤其是 FP8 rollout 场景下的稳定性对实际工程部署意义重大。</p>
+<h2>Questions for Further Exploration</h2>
+<ol>
+<li>How does P3O perform with learned reward models (not just binary verifiers) in open-ended generation tasks like summarization or dialogue?</li>
+<li>Would per-prompt or per-sequence ESS provide better adaptivity than the global batch ESS?</li>
+<li>Can P3O be combined with curriculum learning or dynamic reward shaping for multi-stage post-training?</li>
+<li>What is the computational overhead of computing ESS at each gradient step at very large scale (70B+ models)?</li>
+<li>How does P3O interact with other post-training techniques like DPO or rejection sampling fine-tuning?</li>
+</ol>
+<p class="note">Generated from Markdown summary. Full paper: <a href="https://arxiv.org/abs/2605.12380">arXiv:2605.12380</a></p>
+</div>
+</body>
+</html>

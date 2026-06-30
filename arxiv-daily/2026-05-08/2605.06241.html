@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Rethinking RL for LLM Reasoning: It&#x27;s Sparse Policy Selection, Not Capability Learning</title>
+<style>
+:root { --paper:#fafafa; --ink:#1a1a1a; --muted:#555; --accent:#1a5276; --line:#ddd; --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif; --serif:Georgia,"Noto Serif SC",serif; }
+body { font-family:var(--serif); background:var(--paper); color:var(--ink); line-height:1.6; margin:0; padding:0; }
+.container { max-width:min(95vw, 760px); margin:0 auto; padding:28px 20px 60px; }
+.topnav { position:fixed; top:12px; left:14px; z-index:50; font-family:var(--sans); font-size:.75rem; background:var(--paper); border:1px solid var(--line); padding:5px 10px; border-radius:999px; }
+.topnav a { color:var(--muted); text-decoration:none; font-weight:600; }
+.topnav a:hover { color:var(--accent); }
+h1 { font-size:1.6rem; margin:2.2rem 0 1rem; border-bottom:2px solid var(--accent); padding-bottom:.3rem; }
+h2 { font-size:1.3rem; margin:1.8rem 0 .8rem; color:var(--accent); }
+h3 { font-size:1.1rem; margin:1.4rem 0 .6rem; }
+p { margin:.8rem 0; }
+.authors { font-style:italic; color:var(--muted); margin-top:-.4rem; }
+.meta { font-family:var(--sans); font-size:.82rem; color:var(--muted); margin:.2rem 0; }
+a { color:var(--accent); text-decoration:none; }
+a:hover { text-decoration:underline; }
+blockquote { border-left:3px solid var(--accent); margin:1rem 0; padding:.2rem 0 .2rem 1rem; color:var(--muted); font-style:italic; }
+code { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; background:#f0f0f0; padding:2px 5px; border-radius:3px; font-size:.9em; }
+pre { background:#f5f5f5; padding:14px; overflow-x:auto; border-radius:4px; border:1px solid var(--line); }
+pre code { background:transparent; padding:0; }
+ul,ol { margin:.6rem 0; padding-left:1.5rem; }
+li { margin:.25rem 0; }
+table { border-collapse:collapse; width:100%; margin:1rem 0; font-family:var(--sans); font-size:.9rem; }
+th,td { border:1px solid var(--line); padding:6px 10px; text-align:left; }
+th { background:#f0f0f0; }
+hr { border:none; border-top:1px solid var(--line); margin:1.5rem 0; }
+.note { font-family:var(--sans); font-size:.78rem; color:var(--muted); border-top:1px solid var(--line); margin-top:2rem; padding-top:1rem; }
+@media (max-width: 600px) { .container { padding:22px 14px 40px; } h1 { font-size:1.35rem; } }
+</style>
+</head>
+<body>
+<div class="topnav"><a href="./index.html">← Today's digest</a></div>
+<div class="container">
+<h1>Rethinking RL for LLM Reasoning: It&#x27;s Sparse Policy Selection, Not Capability Learning</h1>
+<p class="meta">arXiv: 2605.06241</p>
+<p class="meta">Date: 2026-05-08</p>
+<p class="meta"><a href="https://arxiv.org/abs/2605.06241">https://arxiv.org/abs/2605.06241</a></p>
+<blockquote><strong>一句话总结：</strong> 强化学习对 LLM 推理的提升本质是在极少数高熵"决策点"（仅占 token 位置的 1–3%）上的稀疏策略选择，而非学习新能力；据此提出的 ReasonMaxxer 方法用对比损失微调 LoRA，训练成本不足 $10，性能媲美乃至超过耗资数千美元的全量 RL 基线。</blockquote>
+<blockquote><strong>TL;DR:</strong> This paper argues that RLVR (RL with verifiable rewards) does not teach LLMs new reasoning strategies — it merely reranks a small fraction (1–3%) of tokens at high-entropy "decision points" where the model was already uncertain between plausible alternatives. The authors prove this causally using oracle interventions and entropy analysis, then introduce <strong>ReasonMaxxer</strong>: an RL-free method that runs a few hundred base-model rollouts, identifies decision points via token entropy, and applies an advantage-weighted contrastive LoRA loss only at those positions. Across 3 model families, 6 model scales, and 6 math benchmarks, ReasonMaxxer matches or exceeds publicly available RL-trained checkpoints at a training cost roughly <strong>3 orders of magnitude lower</strong> ($4–$25 vs. $100–$103,000).</blockquote>
+<p>---</p>
+<h2>核心贡献</h2>
+<ul>
+<li><strong>机制性发现：</strong> 通过跨多个模型族（Qwen2.5、Qwen3、DeepSeek、Mistral）和 RL 算法（GRPO、PPO、RLOO）的 token 级对比分析，证明 RL 的有益改变极其稀疏：仅 1–4% 的 token 位置被重新排名，被提升的 token 平均位于基础模型 top-5 候选中的第 2 位，且这些位置的基础模型熵比其他位置高 5–12 倍。</li>
+<li><strong>因果验证：</strong> 用 oracle 干预实验证明，仅在这些被 RL 重新排名的位置替换 token 即可精确复现 RL 模型的 pass@1；随机替换则不起作用，确立了稀疏决策点与精度提升之间的因果关系。</li>
+<li><strong>低维性验证：</strong> 通过 KL-LoRA 蒸馏实验证明，RL 的纠正信号本质上是低维的：rank-32 的 LoRA 适配器（仅占模型参数的 0.27–0.49%）用 100 个随机问题即可复现 RL 教师的准确率。</li>
+<li><strong>ReasonMaxxer 方法：</strong> 将上述发现转化为直接可用的 RL-free 训练流程——基础模型生成 rollout、熵门控定位决策点、优势加权对比损失 + KL 锚定项微调 LoRA 适配器，无需在线生成、无需 RL 优化器。</li>
+<li><strong>极致效率：</strong> ReasonMaxxer 在全部对比实验中以 $4–$25 的训练成本匹配或超越花费 $100–$103,000 的 RL 基线，训练数据规模降低 2 个数量级（50 道题 vs. 数千至数万道题）。</li>
+</ul>
+<p>---</p>
+<h2>Key Contributions</h2>
+<ul>
+<li><strong>Mechanistic characterization of RL for reasoning:</strong> Token-level comparison across four base/RL model pairs shows RL is strikingly sparse — only 1–4% of positions are reranked, the promoted token is on average the base model's second-most-likely candidate (mean rank 2.14–2.39), and reranked positions exhibit 5–12x higher base-model entropy than unchanged ones.</li>
+<li><strong>Causal validation via oracle interventions:</strong> An oracle that substitutes only the RL-reranked tokens into base-model generations exactly reproduces the RL model's pass@1; random substitutions at the same positions perform no better than the base model, establishing causality.</li>
+<li><strong>Low-dimensionality of the correction:</strong> A rank-32 LoRA adapter distilled from the RL teacher on just 100 problems recovers the teacher's accuracy while modifying only 0.27–0.49% of model parameters, confirming the signal is inherently low-dimensional and does not require large-scale optimization.</li>
+<li><strong>ReasonMaxxer — RL-free entropy-gated contrastive fine-tuning:</strong> A minimal method that (1) samples base-model rollouts, (2) filters for problems with mixed-success pass rates, (3) identifies decision points via per-token entropy thresholding, and (4) applies an advantage-weighted cross-entropy loss at decision points with a KL anchor at all other positions, implemented as a rank-32 LoRA adapter.</li>
+<li><strong>Three-orders-of-magnitude cost reduction:</strong> ReasonMaxxer costs $4–$25 end-to-end and trains on 50 problems and hundreds of rollouts (single-digit GPU-hours), versus $100–$103,000 and thousands to tens-of-thousands of problems for RL baselines.</li>
+</ul>
+<p>---</p>
+<h2>Methodology</h2>
+<h3>Problem Framing</h3>
+<p>The paper asks whether the RL optimization loop is necessary for reasoning improvement, given mounting evidence that RL does not teach new strategies but merely redistributes probability mass. To answer this, the authors conduct a systematic token-level mechanistic analysis across three model families (Qwen2.5, Qwen3, DeepSeek/Mistral) and three RL algorithms (GRPO, PPO, RLOO).</p>
+<h3>Step 1 — Characterizing RL's Token-Level Effect (Section 3)</h3>
+<p>For each base/RL pair, base-model generations are collected and each token position is classified as:</p>
+<ul>
+<li><strong>UNSHIFTED:</strong> base and RL models agree on the top token</li>
+<li><strong>RERANKED:</strong> RL prefers a different token, but that token was already in the base model's top-5</li>
+<li><strong>SHIFTED:</strong> RL introduces a token not in the base model's top-5 (essentially never observed: <0.12%)</li>
+</ul>
+<p>Key finding: only 1–4% of positions are reranked; the mean rank of the RL-preferred token under the base model is 2.14–2.39; reranked positions have 5–12x higher base-model entropy (token-level generation entropy H_t = −Σ π(v|q,o<t) log π(v|q,o<t)).</p>
+<h3>Step 2 — Causal Validation (Section 3.2)</h3>
+<p>Oracle intervention: during base-model generation, at every reranked position, substitute the base token with the RL teacher's preferred token. This exactly reproduces the RL model's pass@1. Random substitution (same number of positions, random top-20 alternative) performs no better than base. The fraction of tokens touched by the oracle equals the rerank percentages (1–4%), confirming these sparse corrections account for RL's full accuracy advantage.</p>
+<h3>Step 3 — Entropy as a Teacher-Free Proxy (Section 3.3)</h3>
+<p>An entropy-gated intervention (substitute base token with a random top-20 alternative at positions where H_t > τ = 1.2, without knowing the teacher's preference) substantially improves over the base model on multiple pairs, nearly matching the oracle. This shows the <em>where</em> of RL's correction is predictable from base-model entropy alone.</p>
+<h3>Step 4 — Low-Dimensional Correction (Section 4)</h3>
+<p>KL-LoRA distillation: a LoRA adapter is trained to minimize KL divergence between the adapter-augmented base model and the RL teacher's cached top-k logits on just 100 problems. A rank-32 QKVO adapter (0.27–0.49% of parameters) matches the RL teacher's accuracy on MATH-500 and GSM8K across all four pairs. Even a rank-8 output-projection-only adapter approaches this performance, suggesting RL's signal is concentrated in the output layer.</p>
+<h3>ReasonMaxxer (Section 5)</h3>
+<p>Three-stage pipeline:</p>
+<ol>
+<li><strong>Problem selection:</strong> Sample K=20 rollouts from the frozen base model at nonzero temperature for a pool of ~150 problems; retain only problems with pass rate strictly between 0 and 1 (mixed success), yielding ~50 training problems.</li>
+<li><strong>Decision-point identification:</strong> Compute per-token entropy H_t for the base model; mark positions where H_t > τ as decision points D (τ is swept over {1.2, 1.4, 1.6, 1.8} on a 50-problem validation split).</li>
+<li><strong>Advantage-weighted contrastive fine-tuning:</strong> For each rollout, compute normalized advantage A_i = (r_i − r̄)/(σ_r + ε). Apply loss: L_dec = −Σ_{t∈D} A_i · log p_θ(x_t | x_{<t}) at decision points; L_anchor = Σ_{t∉D} KL(p_base(·|x_{<t}) ‖ p_θ(·|x_{<t})) elsewhere. Total loss L = L_dec + 0.2 · L_anchor. Implemented as a rank-32 LoRA adapter (Q, K, V, O projections); base model frozen.</li>
+</ol>
+<p>Training runs for one epoch with batch size 1, gradient accumulation 8, AdamW optimizer, linear warmup + decay, on a single GPU in minutes.</p>
+<p>---</p>
+<h2>Results & Highlights</h2>
+<p><strong>Main benchmark results (Table 3):</strong> Across Qwen2.5 (1.5B, 7B, Math-7B, 32B), Qwen3 (0.6B, 4B), DeepSeek-R1-Distill-1.5B, and Mistral-7B, ReasonMaxxer matches or exceeds all RL baselines on the average of six benchmarks (MATH-500, GSM8K, AMC23, AIME24, Minerva Math, OlympiadBench) while costing $4–$25 vs. $100–$103,000.</p>
+<p>Selected comparisons:</p>
+<ul>
+<li><strong>Qwen2.5-1.5B:</strong> ReasonMaxxer avg 0.282 vs. SimpleRL-Zoo 0.287 ($200) and Open-Reasoner-Zero 0.246 ($1,200), at $4.</li>
+<li><strong>Qwen2.5-7B:</strong> ReasonMaxxer avg 0.475 vs. SimpleRL-Zoo 0.410 ($600) and Open-Reasoner-Zero 0.485 ($6,300), at $5.</li>
+<li><strong>Qwen3-4B:</strong> ReasonMaxxer avg 0.472 vs. General-Reasoner 0.406 ($4,600), at $4.</li>
+<li><strong>DeepSeek-R1-Distill-1.5B:</strong> ReasonMaxxer avg 0.401, outperforming DeepScaleR (0.340/$4,500), STILL-3 (0.356/$2,268), and Open-RS3 (0.314/$42), at $4.</li>
+</ul>
+<p><strong>Ablation: necessity of contrastive term (Section 6.3):</strong> Positive-only training (supervised on correct rollouts at decision points) raises MATH-500 from 0.298 to 0.398 on Qwen2.5-1.5B but falls far short of the RL model (0.496) and full ReasonMaxxer (0.502). The two-sided contrastive signal contributes roughly half the total gain.</p>
+<p><strong>Sensitivity to τ (Section 6.3):</strong> Performance is stable across τ ∈ [1.0, 2.0] (decision fractions 8.9%–2.0%), with peak MATH-500 at τ = 1.4 (5.2% of tokens), confirming robustness without requiring precise replication of RL's sparsity.</p>
+<p>---</p>
+<h2>Authors & Credibility</h2>
+<p>The paper comes from the <strong>University of Southern California</strong> (Akgül, Neiswanger, Prasanna) and <strong>DEVCOM ARL</strong> (Kannan). Willie Neiswanger and Viktor Prasanna are established ML researchers with broad publication records. Ömer Faruk Akgül is also a co-author on the related LYNX paper (arXiv:2512.05325), indicating ongoing work in efficient reasoning.</p>
+<p>The paper is well-situated in the literature, engaging directly with concurrent mechanistic work (Wang et al. 2025a on forking tokens, Davis & Recht 2025 on RL objectives, Zhang et al. 2025 on edge-of-competence learning) and providing what they claim is the first causal, token-level characterization that eliminates the need for RL infrastructure.</p>
+<p>A public GitHub repository (<strong>ReasonMaxxer</strong>) is linked in the paper, which supports reproducibility claims.</p>
+<p>---</p>
+<h2>Critical Assessment</h2>
+<p><strong>Novelty:</strong> The core conceptual contribution — that RL for reasoning reduces to sparse policy selection at decision points — is genuinely valuable and unifies several prior observations into a clean mechanistic framework. The RERANKED/SHIFTED taxonomy and causal oracle experiment are the strongest novel elements. ReasonMaxxer as a method is relatively straightforward (entropy-gated contrastive LoRA), but its simplicity is the point, and the empirical results are the argument.</p>
+<p><strong>Rigor:</strong> The analysis is careful. The causal oracle experiment is well-designed and the random-substitution control is appropriate. Token-level entropy statistics are reported across four base/RL pairs with consistent findings. However, the analysis is exclusively on math reasoning — it is an open question whether the same sparse decision-point structure holds for code, science, or open-ended reasoning tasks.</p>
+<p><strong>Reproducibility:</strong> The training configuration is fully specified (Table 6), prompts are given (Appendix C), cost estimation methodology is detailed (Appendix D), and a public code repository is linked. This is a strong reproducibility posture. Cost estimates for baselines rely on inferences from published training scripts in some cases (italicized in Table 3), which is a minor caveat.</p>
+<p><strong>Significance:</strong> If the claims generalize, this paper substantially challenges the prevailing assumption that heavy RLVR infrastructure is necessary for post-training reasoning improvement. The cost reduction of ~1000x is economically significant, especially for academic labs. The mechanistic insight (RL = sparse reranking at high-entropy forks) is a clean contribution that should influence how the community thinks about RL for language models.</p>
+<p><strong>Potential red flags / limitations to scrutinize:</strong></p>
+<ul>
+<li>Results are limited to <strong>mathematical reasoning benchmarks</strong>; generalization to other domains (code, science, instruction-following) is asserted but not tested.</li>
+<li>The comparison is against <strong>publicly available</strong> RL checkpoints, not state-of-the-art proprietary systems. Some baselines (e.g., Open-Reasoner-Zero) involve additional data or training stages not present in ReasonMaxxer, making the comparison slightly asymmetric.</li>
+<li>The mechanism analysis focuses on <strong>greedy decoding</strong> (T=0) outputs for the base model with RL teacher preferences evaluated at the same prefix. It is unclear how representative this is of behavior during training or at nonzero temperature.</li>
+<li>The entropy threshold τ requires a <strong>50-problem validation split</strong>, a small but non-zero hyperparameter cost.</li>
+<li>The claim that RL is "never" necessary (i.e., SHIFTED tokens are essentially 0%) is strong; edge cases where RL does introduce genuinely new tokens are not explored in depth.</li>
+</ul>
+<p>---</p>
+<h2>Strengths</h2>
+<ul>
+<li>Clean, falsifiable mechanistic hypothesis with a well-designed causal experiment (oracle intervention + random control).</li>
+<li>Consistent findings across four model families and three RL algorithms strengthen the generality claim.</li>
+<li>ReasonMaxxer is simple enough to re-implement from scratch; no proprietary infrastructure required.</li>
+<li>Three-orders-of-magnitude cost reduction is a concrete, practically significant contribution.</li>
+<li>The paper connects its findings to prior theoretical work (Davis & Recht on RL objective, Yue et al. on pass@k) in a way that is intellectually coherent rather than just empirically claiming superiority.</li>
+<li>Ablation study clearly isolates the contribution of the contrastive (negative) loss term.</li>
+</ul>
+<p>---</p>
+<h2>Limitations</h2>
+<ul>
+<li><strong>Domain scope:</strong> All experiments are on mathematical reasoning. Whether the sparse-decision-point structure persists in code generation, multi-hop QA, or agentic tasks is unknown.</li>
+<li><strong>Comparison scope:</strong> Baselines are publicly released RL checkpoints; the method has not been compared to the most recent proprietary or heavily-optimized RL systems.</li>
+<li><strong>No new capabilities:</strong> By design, ReasonMaxxer can only select among paths the base model already considers. For tasks genuinely at or beyond the base model's competence boundary, the method would provide no benefit — a limitation acknowledged but not empirically bounded.</li>
+<li><strong>Static rollout generation:</strong> Rollouts are generated once offline from the frozen base model. It is unclear whether iterative or online rollout generation (as used in standard RL) could further improve performance beyond what ReasonMaxxer achieves.</li>
+<li><strong>Small training set:</strong> While 50 problems is a strength for efficiency, it raises questions about whether performance might be sensitive to the specific problems selected from the pool of 150.</li>
+<li><strong>Entropy threshold sensitivity at extremes:</strong> Although performance is robust over a broad range, the method requires selecting τ; in a zero-shot deployment where a validation split is unavailable, the optimal τ may not be obvious.</li>
+</ul>
+<p>---</p>
+<h2>Relevance</h2>
+<p>本文直接挑战了"大规模强化学习是提升 LLM 推理能力的必要条件"这一主流假设，以极低成本（$4–$25）复现乃至超越全量 RL 训练效果，对研究者评估 post-training 技术路线选择及降低推理模型训练门槛具有重要参考价值。</p>
+<p>---</p>
+<h2>Questions for Further Exploration</h2>
+<ol>
+<li>Does the sparse-decision-point structure hold beyond math reasoning — specifically for code generation, multi-step scientific reasoning, or tool-use tasks where the reasoning trajectory structure differs fundamentally from chain-of-thought math?</li>
+<li>Could ReasonMaxxer be applied iteratively (i.e., use the updated adapter as the new base model for the next round of rollout generation), and would this close the performance gap on harder benchmarks like AIME where it currently underperforms some RL baselines?</li>
+<li>The paper shows RL's correction is low-dimensional; is this because the base model's attention patterns already concentrate on the right evidence (RL mainly tunes the output layer), or is there a richer representational change being compressed? The rank-8 W_O-only adapter experiment (Appendix A) hints at the former, but a probing study would clarify this.</li>
+<li>How does ReasonMaxxer interact with different base model qualities? The paper notes gains are possible only when the base model has "edge of competence" on training problems — does this create a floor (too-weak models) and ceiling (already-strong models) on where the method is applicable?</li>
+<li>The KL anchor term prevents changes outside decision points. What happens at inference time if the entropy threshold is set differently than at training time — does the adapter degrade gracefully or exhibit distribution shift artifacts?</li>
+</ol>
+<p class="note">Generated from Markdown summary. Full paper: <a href="https://arxiv.org/abs/2605.06241">arXiv:2605.06241</a></p>
+</div>
+</body>
+</html>

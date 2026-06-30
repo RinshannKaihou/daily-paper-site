@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Not All Errors Are Equal: A Systematic Study of Error Propagation in Large Language Model Inference</title>
+<style>
+:root { --paper:#fafafa; --ink:#1a1a1a; --muted:#555; --accent:#1a5276; --line:#ddd; --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif; --serif:Georgia,"Noto Serif SC",serif; }
+body { font-family:var(--serif); background:var(--paper); color:var(--ink); line-height:1.6; margin:0; padding:0; }
+.container { max-width:min(95vw, 760px); margin:0 auto; padding:28px 20px 60px; }
+.topnav { position:fixed; top:12px; left:14px; z-index:50; font-family:var(--sans); font-size:.75rem; background:var(--paper); border:1px solid var(--line); padding:5px 10px; border-radius:999px; }
+.topnav a { color:var(--muted); text-decoration:none; font-weight:600; }
+.topnav a:hover { color:var(--accent); }
+h1 { font-size:1.6rem; margin:2.2rem 0 1rem; border-bottom:2px solid var(--accent); padding-bottom:.3rem; }
+h2 { font-size:1.3rem; margin:1.8rem 0 .8rem; color:var(--accent); }
+h3 { font-size:1.1rem; margin:1.4rem 0 .6rem; }
+p { margin:.8rem 0; }
+.authors { font-style:italic; color:var(--muted); margin-top:-.4rem; }
+.meta { font-family:var(--sans); font-size:.82rem; color:var(--muted); margin:.2rem 0; }
+a { color:var(--accent); text-decoration:none; }
+a:hover { text-decoration:underline; }
+blockquote { border-left:3px solid var(--accent); margin:1rem 0; padding:.2rem 0 .2rem 1rem; color:var(--muted); font-style:italic; }
+code { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; background:#f0f0f0; padding:2px 5px; border-radius:3px; font-size:.9em; }
+pre { background:#f5f5f5; padding:14px; overflow-x:auto; border-radius:4px; border:1px solid var(--line); }
+pre code { background:transparent; padding:0; }
+ul,ol { margin:.6rem 0; padding-left:1.5rem; }
+li { margin:.25rem 0; }
+table { border-collapse:collapse; width:100%; margin:1rem 0; font-family:var(--sans); font-size:.9rem; }
+th,td { border:1px solid var(--line); padding:6px 10px; text-align:left; }
+th { background:#f0f0f0; }
+hr { border:none; border-top:1px solid var(--line); margin:1.5rem 0; }
+.note { font-family:var(--sans); font-size:.78rem; color:var(--muted); border-top:1px solid var(--line); margin-top:2rem; padding-top:1rem; }
+@media (max-width: 600px) { .container { padding:22px 14px 40px; } h1 { font-size:1.35rem; } }
+</style>
+</head>
+<body>
+<div class="topnav"><a href="./index.html">← Today's digest</a></div>
+<div class="container">
+<h1>Not All Errors Are Equal: A Systematic Study of Error Propagation in Large Language Model Inference</h1>
+<p class="meta">arXiv: 2606.02430</p>
+<p class="meta">Date: 2026-06-01</p>
+<p class="meta"><a href="https://arxiv.org/abs/2606.02430">https://arxiv.org/abs/2606.02430</a></p>
+<blockquote><strong>一句话总结：</strong> 本研究提出了LLMFI确定性故障注入框架，对Phi-3.5-mini、DeepSeek-7B和Gemma-7B三种开源LLM在13项任务上进行了系统性软错误注入实验，揭示了推理阶段、网络层位置和数据类型对错误传播的决定性影响，并据此提出了四种仅通过软件修改即可实现的低开销可靠性增强方案。</blockquote>
+<blockquote><strong>TL;DR:</strong> This paper presents LLMFI, the first configurable and deterministic fault-injection framework designed for fine-grained modeling of error propagation in LLM inference. Through ~3,000 GPU hours of experiments across three open-weight LLMs (Phi-3.5-mini, DeepSeek-7B, Gemma-7B) and 13 tasks spanning reasoning, multilingual, math, and coding, the authors distill 17 actionable takeaways characterizing how soft errors propagate across layers, inference stages, data representations, and architectures. Four low-overhead, software-only mitigation strategies are proposed and validated: Mixed-precision Inference, Selective Checksum-based Protection, Dual First-token Generation, and Dynamic Shot Inference. Accepted at ICS 2026.</blockquote>
+<h2>核心贡献</h2>
+<ul>
+<li>提出了LLMFI，首个可配置、确定性、模型无关且推理阶段感知的故障注入框架，支持在任意LLM架构、任务、子模块和推理阶段进行可复现的故障注入。</li>
+<li>对三种开源权重LLM（Phi-3.5-mini-instruct 3.8B、DeepSeek-LLM-7B-chat 6.91B、Gemma-7B 8.54B）和13项代表性任务进行了大规模系统性实验，覆盖推理、多语言理解、数学求解和代码生成四大领域。</li>
+<li>通过六个细粒度案例研究，揭示了错误在层内、跨阶段、跨数据类型以及MoE架构中的传播规律，总结出17条关于LLM推理错误传播的见解。</li>
+<li>基于实验洞察，提出了四种仅通过软件修改即可实现的低开销可靠性增强方案，并在实验中验证了其有效性。</li>
+</ul>
+<h2>Key Contributions</h2>
+<ul>
+<li><strong>LLMFI Framework</strong>: A task-agnostic, model-agnostic, and inference-stage-aware fault injector built on PyTorch and HuggingFace Transformers. It supports deterministic execution (via greedy decoding) and diverse fault models including computation faults (bit-flips in activations via forward hooks) and memory faults (bit-flips in weights via forward_pre hooks), with controllable injection timing across prefill, first-token, and decode-loop stages.</li>
+<li><strong>Large-scale Empirical Study</strong>: Evaluates across 3 open-weight LLMs and 13 representative tasks with fine-tuned prompts matching industrial standards. The study covers ~3,000 GPU hours on NVIDIA A100 GPUs.</li>
+<li><strong>17 Takeaways</strong>: Six case studies analyzing layer-wise, stage-wise, KV-cache, data-type, MoE, and multi-bit fault propagation yield 17 actionable insights characterizing LLM resilience behavior.</li>
+<li><strong>Four Mitigation Prototypes</strong>: Mixed-precision Inference, Selective Checksum-based Protection, Dual First-token Generation, and Dynamic Shot Inference — all software-only, low-overhead directions with validated coverage and overhead metrics.</li>
+</ul>
+<h2>Methodology</h2>
+<p><strong>LLMFI Architecture</strong>: The framework comprises three core components orchestrated by a Runtime Wrapper:</p>
+<ul>
+<li><strong>Injector</strong>: Defines fault type (computation vs. memory) and bit-flip pattern (random or manual bit index).</li>
+<li><strong>Inspector</strong>: Parses arbitrary LLM architectures using regex-based matching to locate injection targets at three granularities: submodule (e.g., qkv_proj), functional layer (e.g., self-attention), or entire Transformer block.</li>
+<li><strong>Scheduler</strong>: Controls injection timing across prefill, first-token, and decode-loop stages. The prefill stage is further decoupled into prefill (KV cache construction) and first-token (initial output generation) to distinguish context corruption from initial trajectory corruption.</li>
+</ul>
+<p><strong>Deterministic Execution</strong>: LLMFI disables stochastic decoding (top-p, temperature) and enforces manual greedy decoding to ensure reproducible outputs for fair fault-free vs. faulty comparisons.</p>
+<p><strong>Evaluation Setup</strong>:</p>
+<ul>
+<li><strong>Models</strong>: Phi-3.5-mini-instruct (3.8B, Microsoft), DeepSeek-LLM-7B-chat (6.91B, DeepSeek AI), Gemma-7B (8.54B, Google). Supplementary evaluations on Qwen2.5-7B, Mistral-7B-v0.3, and Meta-Llama-3-8B confirm generalizability.</li>
+<li><strong>Tasks</strong>: 13 tasks in 4 categories — Reasoning (ARC, BoolQ, HellaSwag, OpenBookQA, PIQA, TruthfulQA, WinoGrande), Multilingual (MMMLU, XCOPA), Math (GSM8K, MATH500), Code (HumanEval, MBPP).</li>
+<li><strong>Fault Model</strong>: Single bit-flip per trial. Computation faults perturb activations; memory faults perturb weights. Float16 is the default precision.</li>
+<li><strong>Platform</strong>: NVIDIA A100 GPUs (40GB) on Argonne National Laboratory's Swing cluster; PyTorch 2.6.0, Transformers 4.40.1.</li>
+</ul>
+<p><strong>Runtime Overhead</strong>: LLMFI adds ~10% overhead for short generations and ~10–15% for long generations, making it practical for large-scale studies.</p>
+<h2>Results & Highlights</h2>
+<p><strong>Overall Resilience (Table 3)</strong>:</p>
+<ul>
+<li>Fault injection causes measurable accuracy degradation across all tasks: up to 4.25% in multi-choice reasoning and 5.01% in generative tasks.</li>
+<li>The inference stage at which a fault occurs has a dominant impact. For reasoning tasks (constrained output format), only prefill and first-token stages matter; decode-stage faults have negligible effect.</li>
+<li>First-token stage is highly sensitive to computation faults but less affected by memory faults, because computation faults directly perturb the activation determining the first output token, while memory fault effects take time to manifest.</li>
+<li>In generative tasks, memory faults have greater sustained impact than computation faults because corrupted weights persist across all forward passes, whereas computation faults affect only a single pass.</li>
+</ul>
+<p><strong>Layer-wise Propagation (Section 5.1)</strong>:</p>
+<ul>
+<li>Accuracy remains stable across early and middle Transformer layers but degrades consistently in the final 3–4 blocks.</li>
+<li>Early/middle layers exhibit natural self-correction via nonlinear activations and residual connections; final layers lack downstream correction.</li>
+<li>Submodule analysis reveals <strong>dimensional expansion mitigates errors</strong> (gate_up_proj is most resilient), while <strong>dimensional reduction amplifies them</strong> (down_proj is most vulnerable).</li>
+</ul>
+<p><strong>Stage-wise Propagation (Section 5.2)</strong>:</p>
+<ul>
+<li>In generative tasks, errors in early decode iterations are less likely to recover than those in later steps.</li>
+<li>Certain decode steps act as "critical points" that disproportionately influence accuracy — likely corresponding to tokens anchoring reasoning chains or numerical values.</li>
+</ul>
+<p><strong>KV Cache (Section 5.3)</strong>:</p>
+<ul>
+<li>Direct memory faults in KV cache cause modest accuracy reductions (0.23–0.78), indicating KV cache is generally more resilient than model weights.</li>
+<li>KV cache sensitivity fluctuates across layers, determined by internal attention semantics rather than depth alone.</li>
+</ul>
+<p><strong>Data Type Sensitivity (Section 5.4)</strong>:</p>
+<ul>
+<li>In float16, bit 14 (most significant exponent bit) causes catastrophic, irrecoverable deviations.</li>
+<li>Recovery ability ranks: quantized integers > float16 > float32 > bfloat16. Bfloat16 is most vulnerable due to its larger exponent field amplifying bit-flip impact.</li>
+</ul>
+<p><strong>MoE Architecture (Section 5.5)</strong>:</p>
+<ul>
+<li>MoE models (Phi-3.5-MoE-instruct, 41.9B) show similar resilience to dense models for computation faults.</li>
+<li>For memory faults, MoE models are notably more robust because only 20–30% of experts are activated, masking faults in inactive parameters.</li>
+<li>The expert router is highly sensitive — even a single error may alter expert selection severely — but constitutes <0.1% of parameters.</li>
+</ul>
+<p><strong>Multi-bit Faults (Section 5.6)</strong>:</p>
+<ul>
+<li>Double bit-flip faults reduce average accuracy from 63.97% to 61.92%, showing slightly lower resilience as multiple bit flips are more likely to corrupt values into irrecoverable patterns.</li>
+</ul>
+<p><strong>Mitigation Validation</strong>:</p>
+<ul>
+<li><strong>Mixed-precision Inference</strong>: Replacing float16 with int8 for mlp.down_proj layers improves faulty accuracy (ARC: 81.76%→83.01%; BoolQ: 79.35%→81.74%) with minimal fault-free accuracy loss (~0.8%).</li>
+<li><strong>Selective Checksum</strong>: Protecting only dimension-reducing GEMM layers achieves 80.04–90.31% fault coverage while protecting only ~30.5–32.1% of total GEMM workloads.</li>
+<li><strong>Dual First-token Generation</strong>: Achieves 82.20% fault coverage with only 3.37% increase in Time-to-First-Token (TTFT).</li>
+<li><strong>Dynamic Shot Inference</strong>: Increasing in-context examples from 0 to 10 shots improves faulty accuracy on ARC from 78.46% to 81.76% without degrading fault-free performance.</li>
+</ul>
+<h2>Authors & Credibility</h2>
+<ul>
+<li><strong>Yafan Huang</strong> (University of Iowa): First author with established track record in HPC reliability, GPU error detection, and lossy compression (multiple SC/DSN/ISSRE papers). Brings deep expertise in fault injection and soft error propagation.</li>
+<li><strong>Sheng Di</strong> (Argonne National Laboratory): Senior researcher at a DOE national lab with extensive experience in HPC resilience, compression, and error-bounded scientific computing.</li>
+<li><strong>Guanpeng Li</strong> (University of Florida): Well-established researcher in resilient computing, with foundational work on error propagation modeling (DSN 2018) and GPU fault tolerance (SC 2020).</li>
+</ul>
+<p>The collaboration spans university and national lab, with funding from DOE ASCR and NSF. The paper is accepted at ICS 2026 (ACM International Conference on Supercomputing), a top-tier HPC venue. The code is open-sourced at https://github.com/hyfshishen/LLMFI.</p>
+<h2>Critical Assessment</h2>
+<p><strong>Novelty</strong>: High. While fault injection for DNNs and LLMs has been explored (e.g., PyTorchFI, LLTFI, Sun et al.'s end-to-end study), this is the first work to provide a <em>fine-grained, stage-aware, model-agnostic</em> fault injector specifically for LLM inference, and the first systematic characterization across diverse tasks and architectures. The decoupling of prefill into prefill+first-token stages is a particularly insightful methodological contribution.</p>
+<p><strong>Rigor</strong>: Strong. The study controls for prompt fine-tuning, deterministic decoding, industrial-standard evaluation settings, and reports raw accuracy. The ~3,000 GPU hours and supplementary evaluations on 6 total models demonstrate thoroughness. However, the single bit-flip model, while standard for computation faults, is somewhat optimistic for modern ECC-protected memory (the authors acknowledge this and extend to multi-bit faults). The 10-trial repetition per sample is adequate but could benefit from confidence intervals.</p>
+<p><strong>Reproducibility</strong>: Good. LLMFI is open-sourced, models are open-weight, tasks use standard benchmarks with documented settings. The deterministic greedy decoding ensures reproducible comparisons. One minor concern: the paper does not explicitly state whether the exact random seeds for fault location sampling are provided.</p>
+<p><strong>Significance</strong>: High for HPC-AI convergence. As LLMs are deployed in exascale systems for scientific discovery, understanding soft error propagation is critical. The 17 takeaways provide actionable guidance for system designers, and the four mitigation directions are practical and immediately deployable.</p>
+<p><strong>Red Flags</strong>:</p>
+<ul>
+<li><strong>Baseline performance dependency</strong>: The authors correctly note that tasks with near-random baseline accuracy (e.g., MMMLU, XCOPA for some models) make resilience analysis meaningless. This is an honest acknowledgment, but it also means some reported task results are uninformative.</li>
+<li><strong>Limited model scale</strong>: All primary models are ≤8.5B parameters. The MoE evaluation uses a 41.9B model but only on two reasoning tasks. Whether findings generalize to 70B+ models remains unverified.</li>
+<li><strong>Mitigation overhead claims</strong>: "Low-overhead" is substantiated for three of four directions, but Dynamic Shot Inference's overhead in terms of context length / memory is not quantified, and the optimal policy is explicitly left for future work.</li>
+<li><strong>Cherry-picking concern</strong>: The mitigation prototypes are evaluated on subsets of tasks (e.g., Mixed-precision on ARC/BoolQ only). Broader validation across all 13 tasks would strengthen claims.</li>
+</ul>
+<h2>Strengths</h2>
+<ul>
+<li><strong>First principled fault injector for LLM inference stages</strong>: LLMFI's decoupling of prefill/first-token/decode enables stage-specific analysis that prior end-to-end studies missed.</li>
+<li><strong>Exceptionally broad empirical coverage</strong>: 3 models × 13 tasks × multiple fault types × multiple stages × layer-wise and bit-wise granularity = one of the most comprehensive LLM reliability studies to date.</li>
+<li><strong>Actionable insights</strong>: The 17 takeaways are concrete and often counter-intuitive (e.g., early layers self-correct, dimensional expansion mitigates errors, bfloat16 is worse than float16).</li>
+<li><strong>Practical mitigations</strong>: All four proposed directions are software-only, validated with real measurements, and target specific vulnerabilities identified in the study.</li>
+<li><strong>Intellectual honesty</strong>: The authors explicitly flag limitations (weak baselines making some tasks uninformative, model scale constraints, MoE router sensitivity) rather than overclaiming.</li>
+</ul>
+<h2>Limitations</h2>
+<ul>
+<li><strong>Model scale</strong>: Primary experiments limited to 3.8B–8.5B dense models. MoE evaluation is brief (two tasks). Findings may not fully generalize to frontier-scale models (70B+).</li>
+<li><strong>Fault model scope</strong>: Single bit-flip is standard but may not capture all real-world soft error scenarios. Multi-bit evaluation is present but limited to two bit-flips in the same word.</li>
+<li><strong>Task coverage</strong>: Only 13 tasks evaluated; long-context tasks (e.g., document summarization, retrieval-augmented generation) are not studied.</li>
+<li><strong>Mitigation breadth</strong>: Each mitigation prototype is validated on a subset of tasks rather than the full benchmark suite.</li>
+<li><strong>Quantization interaction</strong>: The Mixed-precision Inference uses basic int8 range-based quantization. How advanced quantization (e.g., GPTQ, AWQ) interacts with error resilience is unexplored.</li>
+<li><strong>Dynamic Shot Inference lacks automation</strong>: The paper shows shot count improves resilience but does not provide an automatic policy for selecting the optimal number of shots per task.</li>
+</ul>
+<h2>Relevance</h2>
+<p>随着大语言模型越来越多地部署在高性能计算和关键任务环境中，理解软错误在推理过程中的传播机制对确保AI系统的可靠性至关重要。本研究不仅提供了首个系统性的错误传播分析框架，还提出了四种立即可部署的软件级缓解方案，对关注LLM系统鲁棒性、可靠性工程和HPC-AI融合的研究者与工程师具有极高的实践参考价值。</p>
+<h2>Questions for Further Exploration</h2>
+<ol>
+<li>How do the vulnerability patterns identified in 3.8B–8.5B models scale to 70B+ parameter models and multi-GPU tensor-parallel inference, where communication errors may compound local faults?</li>
+<li>Can the critical decode steps identified in generative tasks be predicted <em>a priori</em> using attention entropy or logit confidence, enabling targeted protection without full dual-generation?</li>
+<li>How does error resilience interact with advanced quantization methods (GPTQ, AWQ, SmoothQuant) and speculative decoding, which are increasingly standard in production inference?</li>
+<li>What is the impact of soft errors in long-context inference (>100K tokens), where KV cache size and attention patterns differ significantly from the evaluated tasks?</li>
+<li>Can the layer-wise self-correction phenomenon (Takeaway 8) be exploited to design <em>adaptive</em> precision or checkpointing strategies that dynamically protect only the final few layers?</li>
+</ol>
+<p class="note">Generated from Markdown summary. Full paper: <a href="https://arxiv.org/abs/2606.02430">arXiv:2606.02430</a></p>
+</div>
+</body>
+</html>

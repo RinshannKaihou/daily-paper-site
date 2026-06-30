@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>A Hardware-Aware, Per-Layer Methodology for Post-Training Quantization of Large Language Models</title>
+<style>
+:root { --paper:#fafafa; --ink:#1a1a1a; --muted:#555; --accent:#1a5276; --line:#ddd; --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif; --serif:Georgia,"Noto Serif SC",serif; }
+body { font-family:var(--serif); background:var(--paper); color:var(--ink); line-height:1.6; margin:0; padding:0; }
+.container { max-width:min(95vw, 760px); margin:0 auto; padding:28px 20px 60px; }
+.topnav { position:fixed; top:12px; left:14px; z-index:50; font-family:var(--sans); font-size:.75rem; background:var(--paper); border:1px solid var(--line); padding:5px 10px; border-radius:999px; }
+.topnav a { color:var(--muted); text-decoration:none; font-weight:600; }
+.topnav a:hover { color:var(--accent); }
+h1 { font-size:1.6rem; margin:2.2rem 0 1rem; border-bottom:2px solid var(--accent); padding-bottom:.3rem; }
+h2 { font-size:1.3rem; margin:1.8rem 0 .8rem; color:var(--accent); }
+h3 { font-size:1.1rem; margin:1.4rem 0 .6rem; }
+p { margin:.8rem 0; }
+.authors { font-style:italic; color:var(--muted); margin-top:-.4rem; }
+.meta { font-family:var(--sans); font-size:.82rem; color:var(--muted); margin:.2rem 0; }
+a { color:var(--accent); text-decoration:none; }
+a:hover { text-decoration:underline; }
+blockquote { border-left:3px solid var(--accent); margin:1rem 0; padding:.2rem 0 .2rem 1rem; color:var(--muted); font-style:italic; }
+code { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; background:#f0f0f0; padding:2px 5px; border-radius:3px; font-size:.9em; }
+pre { background:#f5f5f5; padding:14px; overflow-x:auto; border-radius:4px; border:1px solid var(--line); }
+pre code { background:transparent; padding:0; }
+ul,ol { margin:.6rem 0; padding-left:1.5rem; }
+li { margin:.25rem 0; }
+table { border-collapse:collapse; width:100%; margin:1rem 0; font-family:var(--sans); font-size:.9rem; }
+th,td { border:1px solid var(--line); padding:6px 10px; text-align:left; }
+th { background:#f0f0f0; }
+hr { border:none; border-top:1px solid var(--line); margin:1.5rem 0; }
+.note { font-family:var(--sans); font-size:.78rem; color:var(--muted); border-top:1px solid var(--line); margin-top:2rem; padding-top:1rem; }
+@media (max-width: 600px) { .container { padding:22px 14px 40px; } h1 { font-size:1.35rem; } }
+</style>
+</head>
+<body>
+<div class="topnav"><a href="./index.html">← Today's digest</a></div>
+<div class="container">
+<h1>A Hardware-Aware, Per-Layer Methodology for Post-Training Quantization of Large Language Models</h1>
+<p class="meta">arXiv: 2605.14929</p>
+<p class="meta">Date: 2026-05-14</p>
+<p class="meta"><a href="https://arxiv.org/abs/2605.14929">https://arxiv.org/abs/2605.14929</a></p>
+<blockquote><strong>一句话总结：</strong> 本文提出 Scaled Outer Product (SOP) 方法，通过逐层搜索固定/动态码本对、带符号逐块缩放（含逐层指数偏移 Flayer）、激活加权余弦度量、多选背包分配器以及离群值/稀疏残差校正，在专用 LUT 解码硬件上以 4.5–6 bpw 实现 LLM 权重量化；其推荐的 E2M3sUE4M4 配置（6.5 bpw）在六个模型家族上权重重构 MSE 低于传统 FP8（8.0 bpw）基线 18–24%。</blockquote>
+<blockquote><strong>TL;DR:</strong> Proposes Scaled Outer Product (SOP), a hardware-aware PTQ method for LLM weights combining per-layer pair-searched codebooks (NF4/BOF4/Split87/SH4/DD4), signed per-block scales with a per-layer exponent shift (Flayer), activation-weighted cosine fidelity metric, MCKP budget allocation for layer promotion, OPQ outlier extraction, and sparse residual correction. The recommended FP6 point (E2M3sUE4M4, 6.5 bpw) achieves 18–24% lower weight MSE than per-layer-POT FP8 (E4M3, 8.0 bpw) across six model families. A companion paper reports end-to-end evaluation; this paper focuses on the methodology, hardware format (HIF7/HIF8), and weight-reconstruction results.</blockquote>
+<h2>核心贡献</h2>
+<ul>
+<li>提出 Scaled Outer Product (SOP) 后训练量化方法学，面向支持逐层 LUT 解码的专用硬件，目标 4.5–6 bpw</li>
+<li>设计 per-layer pair search 机制：从固定码本（NF4、BOF4、Split87、SH4）和数据自适应码本（DD4）的字母表中，逐层搜索最优码本对 (La, Lb)，通过 per-block 1-bit 元数据动态选择</li>
+<li>引入 Flayer 逐层整数偏移，使窄指数 scale format（如 UE4M4）能覆盖不同层的动态范围；实验证明 12-bit scale 精度即可饱和重构质量</li>
+<li>设计 HIF7（80 值）/ HIF8（96 值）LUT 输出格式，基于 5-bit two's complement coefficient + power-of-two shift 的移位累加数据通路，替代传统浮点乘法器</li>
+<li>提出激活加权余弦（ACos）作为保真度度量，结合 multiple-choice knapsack（MCKP）分配器在全局 BPW 预算下逐层选择精度档位</li>
+<li>设计 OPQ（离群值提取）和 Wr（稀疏残差校正）两个正交校正机制，分别处理高幅度离群值和中幅度码本残差</li>
+<li>推荐配置 E2M3sUE4M4（6.5 bpw）在六个模型家族上权重 MSE 比 E4M3^0sUE8M0（8.0 bpw）低 18–24%</li>
+</ul>
+<h2>Key Contributions</h2>
+<ul>
+<li>Introduces SOP, a PTQ methodology for LLM weights targeting 4.5–6 bpw on hardware with per-layer LUT decode</li>
+<li>Per-layer pair search over a codebook alphabet (NF4, BOF4, Split87, SH4, DD4 at n=4; extended at n=5), with a per-block metadata bit selecting between two codebooks per layer</li>
+<li>Flayer per-layer integer shift on block scales, enabling narrow-exponent scale formats (e.g., UE4M4 at 8-bit) to cover diverse per-layer dynamic ranges; empirical saturation at 12-bit scale precision</li>
+<li>HIF7 (80-value) and HIF8 (96-value) LUT output formats using shift-add datapath (5-bit two's complement coefficient × power-of-two shift) instead of general FP multipliers</li>
+<li>Activation-weighted cosine (ACos) fidelity metric using channel norms from a calibration corpus, replacing Hessian or block-reconstruction surrogates</li>
+<li>MCKP (multiple-choice knapsack) allocator that jointly selects per-layer precision and correction settings under a global BPW budget</li>
+<li>OPQ outlier extraction (sparse BF16 side channel at ~0.1 bpw) and Wr sparse residual correction (activation-weighted, ~0.032 bpw at default sparsity), orthogonal to codebook choice</li>
+<li>Recommended E2M3sUE4M4 (6.5 bpw) achieves 18–24% lower weight MSE than E4M3^0sUE8M0 (8.0 bpw) across Gemma-3-1B, SmolLM3-3B, Llama-3.2-3B, Qwen3.5-4B, Mistral-7B, Qwen3-8B</li>
+</ul>
+<h2>Methodology</h2>
+<p>The SOP pipeline consists of five stages:</p>
+<ol>
+<li><strong>Calibrate</strong>: Compute per-layer channel norms (L2 norms of weight columns) from a small text corpus. These norms weight the fidelity metric without requiring gradients.</li>
+</ol>
+<ol>
+<li><strong>Pair Search</strong> (per-layer): For each linear layer, search over the codebook alphabet for the best (La, p, Lb) tuple. La is constructed first (ROM lookup for fixed atoms, histogram-DP clustering on LUT grid points for data-adaptive DD4). Blocks are ranked by per-block ACos; the top p% form the FMTa pool, the rest form the FMTb fitting pool. A finishing reassignment evaluates each block under both LUTs (and both scale signs for signed formats). Critical finding: no single codebook pair is globally optimal — the winner varies by layer, LUT format, and scale format.</li>
+</ol>
+<ol>
+<li><strong>Scale Format</strong> (§7): Per-block scales in SwExMy containers (8/12/16-bit). The Flayer search finds a per-layer integer shift k* that maximizes the fraction of scales in the format's normal range. At 12-bit, both sign bit and metabit coexist; at 8-bit they compete. Recommended: S1E5M5 (12-bit, signed, one metabit).</li>
+</ol>
+<ol>
+<li><strong>Promotion & Allocation</strong>: Per-layer promotion profiles (ACos at each candidate precision) feed an MCKP solver that selects format + correction per layer under a global BPW budget. Solved exactly via DP in seconds (few hundred layers, small candidate sets).</li>
+</ol>
+<ol>
+<li><strong>Correction Mechanisms</strong>:</li>
+</ol>
+<ul>
+<li><strong>OPQ</strong> (§8): Positions where |wi|/σb exceeds a threshold (derived from quantile q=0.92 at g=16, yielding m≈2.7, ~0.3% outlier rate) are stored as exact BF16 in a sparse side channel (~0.1 bpw). Orthogonal to codebook choice.</li>
+<li><strong>Wr</strong> (§9): After codebook quantization, the top-σ entries of the activation-weighted residual are stored as sparse corrections (E3M4 values, ~0.032 bpw at σ=0.1%). Composes additively with OPQ.</li>
+</ul>
+<p><strong>Hardware Design</strong>: HIF7/HIF8 grids decompose each value into a 5-bit two's complement coefficient and a power-of-two shift. The matrix unit computes <code>iacc += (wtc5 · atc5) << (wsa + asa)</code> where wsa∈{0,1,2,3} and asa∈{0,1,2,3,4}. The asymmetric shift budget reflects that weight outliers have software escape valves (OPQ, Wr, rotation) while activation outliers must be absorbed in hardware.</p>
+<h2>Results & Highlights</h2>
+<p><strong>Block-scaled FP6 vs. per-layer-POT FP8</strong> (Table 4, weight MSE × 10⁻⁷):</p>
+<p>| Model | E2M3sUE4M4 (6.5 bpw) | E4M3^0sUE8M0 (8.0 bpw) | Improvement |</p>
+<p>|---|---|---|---|</p>
+<p>| Gemma-3-1B | 3.41 | 4.40 | 22.5% |</p>
+<p>| SmolLM3-3B | 1.81 | 2.35 | 23.0% |</p>
+<p>| Llama-3.2-3B | 2.11 | 2.72 | 22.4% |</p>
+<p>| Qwen3.5-4B | 0.674 | 0.869 | 22.4% |</p>
+<p>| Mistral-7B | 0.0536 | 0.0689 | 22.2% |</p>
+<p>| Qwen3-8B | 3.98 | 5.13 | 22.4% |</p>
+<p><strong>Scale precision saturation</strong> (Table 2): 12-bit scale formats match 16-bit E8M7 reference to three significant figures across all models, establishing 12 bits as sufficient.</p>
+<p><strong>HIF7 vs. E2M3 substitutability</strong> (Table 3): E2M3 (63 values) incurs only 3.8–4.1% MSE penalty over HIF7 (80 values), ~15× less than uniform quantization theory would predict, supporting E2M3 as a publication-friendly substitute.</p>
+<p><strong>KL divergence</strong> (Table 6, Llama-3.2-3B): E3M4sUE4M6 achieves 3.6× lower KL than E4M3^0sUE8M0; E2M5sUE4M6 achieves 5.5× lower KL. Mantissa precision and per-block scale resolution are independent levers.</p>
+<p><strong>Unsigned vs. signed scales</strong>: At 8-bit, unsigned UE4M4 beats signed E4M3 by 17–20%; at 12-bit, they are indistinguishable. The sign-bit opportunity cost vanishes with mantissa headroom.</p>
+<h2>Authors & Credibility</h2>
+<ul>
+<li><strong>Earl Killian</strong> — Single author. The paper demonstrates deep expertise across quantization algorithms, codebook theory, combinatorial optimization (MCKP), and hardware datapath design. References concurrent work with Egiazarian et al. (Grid Games), acknowledging connections and differences. Companion papers [Killian, 2026a, 2026b] are listed as "in preparation." A provisional patent was filed May 2026, suggesting commercial intent.</li>
+<li>Cited prior art comprehensively: LLM.int8(), SpQR, SqueezeLLM, QLoRA, AWQ, HAWQ-V3, BRECQ, Grid Games, microscaling formats, adaptive block-scaled data types.</li>
+</ul>
+<h2>Critical Assessment</h2>
+<ul>
+<li><strong>Novelty</strong>: High. The integration of per-layer pair search, Flayer shift, HIF datapath, MCKP allocation, and OPQ/Wr correction into a single resumable pipeline is novel. The finding that no single codebook pair is globally optimal — and that SOP exploits this via per-layer SRAM-resident codebooks — is a meaningful architectural insight. The HIF shift-add datapath is a legitimate hardware contribution.</li>
+</ul>
+<ul>
+<li><strong>Rigor</strong>: Mixed. Strengths include: (1) evaluation across six diverse model families (Gemma, SmolLM, Llama, Qwen, Mistral); (2) careful ablation of scale format precision (Table 2); (3) per-layer max-to-mean MSE ratio analysis (Table 7) validating the fairness of the FP8 comparator; (4) decomposing KL improvements into independent atom and scale effects. Weaknesses: (1) <strong>primary metric is weight MSE, not perplexity or downstream task accuracy</strong> — this is the biggest concern. The companion paper reportedly has full evaluation, but this paper alone cannot validate real-world impact; (2) only one calibration/evaluation dataset pair (c4/wikitext2) is mentioned in the KL tables; (3) the Mistral-7B anomaly (30–70× lower MSE) is acknowledged but not fully explained.</li>
+</ul>
+<ul>
+<li><strong>Reproducibility</strong>: Moderate. Fixed codebooks are well-specified (NF4, SH4 formula given). DD4 construction uses histogram-DP on grid points, which is described but may require careful implementation. The pair search and MCKP solver are described algorithmically but no code is provided. The hardware format (HIF) requires custom hardware, making software-only reproduction incomplete.</li>
+</ul>
+<ul>
+<li><strong>Significance</strong>: Potentially high for hardware-software co-design of LLM inference, but limited by: (1) requiring custom hardware (per-layer LUT decode, SRAM-hosted codebooks) that does not exist in current GPUs/TPUs; (2) end-to-end evaluation deferred to companion paper; (3) the methodology is weight-only — activation quantization is not addressed.</li>
+</ul>
+<ul>
+<li><strong>Red flags</strong>: (1) Weight MSE as the sole primary metric is a well-known proxy that can diverge from task performance, especially for sensitive layers. (2) Full end-to-end evaluation is in a companion paper — this paper's claims rest on reconstruction quality alone. (3) The hardware substrate does not exist yet; results are simulated/analytical, not measured on silicon. (4) Single author for a paper spanning algorithm, optimization, and hardware design is unusual. (5) The patent filing (provisional, May 2026) may limit open adoption.</li>
+</ul>
+<h2>Strengths</h2>
+<ul>
+<li>Technically comprehensive: integrates codebook search, scale optimization, budget allocation, and hardware design into one coherent framework</li>
+<li>Strong empirical finding: 6.5 bpw FP6 consistently beats 8.0 bpw FP8 by 18–24% on weight MSE across all six models</li>
+<li>Careful dissection of scale precision saturation (12 bits sufficient) and unsigned-vs-signed tradeoffs</li>
+<li>HIF shift-add datapath is well-motivated: asymmetric shift budgets between weights and activations reflect genuine asymmetry in outlier handling</li>
+<li>Per-layer max-to-mean MSE analysis (Appendix D) honestly validates the FP8 comparator</li>
+<li>The Flayer shift is an elegant low-cost mechanism for narrow-exponent scale formats</li>
+<li>Honest about Mistral-7B anomaly and provides analysis</li>
+</ul>
+<h2>Limitations</h2>
+<ul>
+<li><strong>No end-to-end evaluation</strong>: Perplexity, zero-shot accuracy, and downstream task results are deferred to the companion paper. Weight MSE is an imperfect proxy.</li>
+<li><strong>Requires custom hardware</strong>: Per-layer LUT decode with SRAM-hosted codebooks does not map to current GPU/TPU architectures. Practical deployment is years away.</li>
+<li><strong>Weight-only quantization</strong>: No activation quantization scheme; full INT4/INT8 inference pipelines need both.</li>
+<li><strong>Single calibration dataset</strong>: c4 for calibration, wikitext2 for evaluation in KL tables. No diversity analysis.</li>
+<li><strong>Complexity</strong>: Many hyperparameters (codebook alphabet, block size g, scale format, OPQ threshold, Wr sparsity, MCKP budget). Sensitivity to these choices is not fully characterized in this paper.</li>
+<li><strong>Single author</strong>: Increases risk of unchallenged assumptions or overlooked alternatives.</li>
+<li><strong>Patent encumbrance</strong>: Provisional patent filed May 2026 may limit community adoption.</li>
+</ul>
+<h2>Relevance</h2>
+<p>与 LLM 量化部署和硬件-算法协同设计直接相关。SOP 展示了逐层码本搜索 + 逐块缩放在重构质量上显著优于 FP8 的可能性，其 HIF 移位累加数据通路和 MCKP 分配器设计对研究低精度推理架构有参考价值。但需注意该工作依赖尚不存在的专用硬件，且端到端评估在另一篇论文中。</p>
+<h2>Questions for Further Exploration</h2>
+<ol>
+<li>What are the perplexity and zero-shot accuracy numbers for the recommended 6.5 bpw configuration? How do they compare to GPTQ, AWQ, QuIP#, and AQLM at similar bpw?</li>
+<li>How does SOP interact with activation quantization (e.g., W4A8 or W6A8 configurations)? Can the HIF framework extend to activations?</li>
+<li>What is the silicon area and energy cost of per-layer LUT SRAM + shift-add matrix units vs. standard FP16 tensor cores? Is the hardware overhead justified by the bpw savings?</li>
+<li>How sensitive are the results to calibration data choice and calibration set size?</li>
+<li>Can the pair-search mechanism be made online/adaptive to handle distribution shift during inference (e.g., for fine-tuned or merged models)?</li>
+<li>The companion paper reports full 4.5–6 bpw evaluation — does the Pareto frontier shift meaningfully when perplexity (not MSE) is the objective?</li>
+</ol>
+<p class="note">Generated from Markdown summary. Full paper: <a href="https://arxiv.org/abs/2605.14929">arXiv:2605.14929</a></p>
+</div>
+</body>
+</html>

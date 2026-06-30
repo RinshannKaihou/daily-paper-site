@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Grouped Query Experts: Mixture-of-Experts on GQA Self-Attention</title>
+<style>
+:root { --paper:#fafafa; --ink:#1a1a1a; --muted:#555; --accent:#1a5276; --line:#ddd; --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif; --serif:Georgia,"Noto Serif SC",serif; }
+body { font-family:var(--serif); background:var(--paper); color:var(--ink); line-height:1.6; margin:0; padding:0; }
+.container { max-width:min(95vw, 760px); margin:0 auto; padding:28px 20px 60px; }
+.topnav { position:fixed; top:12px; left:14px; z-index:50; font-family:var(--sans); font-size:.75rem; background:var(--paper); border:1px solid var(--line); padding:5px 10px; border-radius:999px; }
+.topnav a { color:var(--muted); text-decoration:none; font-weight:600; }
+.topnav a:hover { color:var(--accent); }
+h1 { font-size:1.6rem; margin:2.2rem 0 1rem; border-bottom:2px solid var(--accent); padding-bottom:.3rem; }
+h2 { font-size:1.3rem; margin:1.8rem 0 .8rem; color:var(--accent); }
+h3 { font-size:1.1rem; margin:1.4rem 0 .6rem; }
+p { margin:.8rem 0; }
+.authors { font-style:italic; color:var(--muted); margin-top:-.4rem; }
+.meta { font-family:var(--sans); font-size:.82rem; color:var(--muted); margin:.2rem 0; }
+a { color:var(--accent); text-decoration:none; }
+a:hover { text-decoration:underline; }
+blockquote { border-left:3px solid var(--accent); margin:1rem 0; padding:.2rem 0 .2rem 1rem; color:var(--muted); font-style:italic; }
+code { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; background:#f0f0f0; padding:2px 5px; border-radius:3px; font-size:.9em; }
+pre { background:#f5f5f5; padding:14px; overflow-x:auto; border-radius:4px; border:1px solid var(--line); }
+pre code { background:transparent; padding:0; }
+ul,ol { margin:.6rem 0; padding-left:1.5rem; }
+li { margin:.25rem 0; }
+table { border-collapse:collapse; width:100%; margin:1rem 0; font-family:var(--sans); font-size:.9rem; }
+th,td { border:1px solid var(--line); padding:6px 10px; text-align:left; }
+th { background:#f0f0f0; }
+hr { border:none; border-top:1px solid var(--line); margin:1.5rem 0; }
+.note { font-family:var(--sans); font-size:.78rem; color:var(--muted); border-top:1px solid var(--line); margin-top:2rem; padding-top:1rem; }
+@media (max-width: 600px) { .container { padding:22px 14px 40px; } h1 { font-size:1.35rem; } }
+</style>
+</head>
+<body>
+<div class="topnav"><a href="./index.html">← Today's digest</a></div>
+<div class="container">
+<h1>Grouped Query Experts: Mixture-of-Experts on GQA Self-Attention</h1>
+<p class="authors">[&quot;Vishesh Tripathi&quot;, &quot;Abhay Kumar&quot;]</p>
+<p class="meta">arXiv: 2606.20945</p>
+<p class="meta">Date: 2026-06-22</p>
+<p class="meta">Tags: [&quot;mixture-of-experts&quot;, &quot;grouped-query-attention&quot;, &quot;sparse-attention&quot;, &quot;efficient-transformers&quot;, &quot;long-context&quot;]</p>
+<p class="meta"><a href="https://arxiv.org/abs/2606.20945">https://arxiv.org/abs/2606.20945</a></p>
+<h2>TL;DR</h2>
+<p>GQE applies mixture-of-experts routing to query heads within each GQA group, selecting only a subset of query-head experts per token while keeping all KV heads dense and unchanged. At 250M parameters on a 30B-token budget, GQE matches the dense GQA baseline in downstream accuracy while activating only 9 of 16 query-attention heads per token, yielding 1.7-1.8x prefill speedup at long context lengths.</p>
+<p>GQE 在每个 GQA 组内对 query head 施加 MoE 路由，每个 token 仅选取部分 query-head expert，同时保持所有 KV head 密集不变。在 250M 参数、30B token 训练预算下，GQE 在下游任务精度上匹配密集 GQA 基线，同时每个 token 仅激活 16 个 query-attention head 中的 9 个，在长上下文场景下实现 1.7-1.8 倍的 prefill 加速。</p>
+<p>---</p>
+<h2>Background & Motivation / 背景与动机</h2>
+<p>Self-attention is the most computationally expensive component of Transformers at long context lengths due to its quadratic scaling with sequence length. Standard dense attention evaluates every attention head for every token, regardless of token difficulty or information content. This uniform compute allocation is wasteful: content-bearing words and rare terms may need specialized heads, while punctuation and stop words do not.</p>
+<p>Mixture-of-experts (MoE) has been successfully applied to Transformer MLP blocks (e.g., GShard, Switch Transformers) to create conditional computation. This paper asks: can MoE be moved from the MLP block into the attention block, specifically on top of grouped-query attention (GQA)?</p>
+<p>GQA reduces KV-cache memory by sharing KV heads across groups of query heads, but it still evaluates all query heads for every token. The authors propose making query-head computation conditional while preserving the GQA KV-cache structure intact.</p>
+<p>自注意力在长上下文中计算量最大，因为其与序列长度呈二次方增长。标准密集注意力对每个 token 激活所有注意力 head，不考虑 token 的难度或信息含量，导致计算浪费。MoE 已在 Transformer MLP 层中成功应用，本文探索将 MoE 从 MLP 迁移到注意力层，具体是在 GQA 之上实现条件计算。GQA 虽然通过共享 KV head 减少了 KV 缓存，但仍对每个 token 计算所有 query head。作者提出在保持 GQA KV 缓存结构不变的前提下，使 query head 计算变为条件激活。</p>
+<p>---</p>
+<h2>Method / 方法</h2>
+<h3>Within-Group Query Experts / 组内 Query Expert 路由</h3>
+<p>GQE treats the query heads within each GQA group as a pool of experts. Given N total query-head experts partitioned into G groups (one per KV head), each group contains M = N/G experts sharing the same KV head. For each token, a router produces scores over the M experts in each group, applies softmax, and selects the top-k highest-scoring experts:</p>
+<p>$$p_{i,g} = \text{softmax}(r_g(x_i)) \in \mathbb{R}^M$$</p>
+<p>$$\mathcal{K}_g(x_i) = \text{TopK}_m(p_{i,g,m}, k)$$</p>
+<p>Key design choice: routing is <em>within</em> each fixed GQA group, not across groups. This means every group always contributes at least k experts, preserving the GQA KV-cache layout. KV projections remain dense and shared, so the KV cache is identical to standard GQA.</p>
+<p>GQE 将每个 GQA 组内的 query head 视为 expert 池。给定 N 个 query-head expert 分为 G 组（每组对应一个 KV head），每组包含 M = N/G 个 expert，共享同一 KV head。对每个 token，路由器在每组内产生 M 个 expert 的分数，经 softmax 后选择 top-k。核心设计：路由在固定的 GQA 组内进行，而非跨组，从而保证每组始终贡献至少 k 个 expert，保持 GQA KV 缓存布局不变。</p>
+<h3>Output Construction with Shared Head / 带共享 Head 的输出构造</h3>
+<p>The output combines three components:</p>
+<ol>
+<li><strong>Hard-routed expert slots</strong>: The selected experts' outputs are concatenated (not weighted-averaged).</li>
+<li><strong>Weighted-sum slot</strong>: A renormalized weighted sum of the selected expert outputs, where weights come from the router probabilities. This is the <em>only</em> differentiable path from the language-modeling loss back to the router.</li>
+<li><strong>Always-on shared head</strong>: A dense attention head computed for every token regardless of routing, providing a stable, token-independent pathway that anchors training.</li>
+</ol>
+<p>$$y_i = \text{Concat}(O_i, \bar{o}_i, s(x_i)) \cdot W_O$$</p>
+<p>In the main 16-query-head / 8-KV-head setting with k=1, this gives 8 hard-routed + 1 weighted-sum + 1 shared = 10 head slots feeding into the output projection (vs. 16 in baseline GQA).</p>
+<p>输出由三部分组成：(1) 硬路由 expert 槽位：所选 expert 的输出直接拼接；(2) 加权求和槽位：对所选 expert 输出按路由概率重归一化加权求和，这是从语言建模损失到路由器的唯一可微路径；(3) 始终激活的共享 head：为每个 token 计算的密集注意力 head，提供稳定的训练锚点。在主实验设置（16 query head / 8 KV head，k=1）下，输出包含 10 个 head 槽位（8 硬路由 + 1 加权求和 + 1 共享），而基线 GQA 为 16 个。</p>
+<h3>Load-Balancing Auxiliary Loss / 负载均衡辅助损失</h3>
+<p>A standard load-balancing auxiliary loss prevents router collapse (all tokens routing to the same expert within a group), encouraging balanced expert utilization across tokens.</p>
+<p>使用标准负载均衡辅助损失防止路由器坍缩。</p>
+<h3>Compute Profile / 计算概况</h3>
+<p>With k active experts per group, the active query-attention fraction is (kG + 1)/N. In the main setting (k=1, G=8, N=16), this is 9/16 = 56%. The compute savings come from skipping inactive query-head experts, not from KV-cache reduction. The savings scale with sequence length since attention cost grows quadratically.</p>
+<p>在主实验设置下，活跃 query-attention 比例为 9/16 = 56%。计算节省来自跳过未激活的 query-head expert（而非 KV 缓存减少），且随序列长度增加而更显著。</p>
+<p>---</p>
+<h2>Experiments & Results / 实验与结果</h2>
+<h3>Setup / 实验设置</h3>
+<ul>
+<li><strong>Scale</strong>: 250M parameters, 30B-token budget from FineWeb-Edu</li>
+<li><strong>Architecture</strong>: 16 query heads, 8 KV heads, k=1 expert per group</li>
+<li><strong>Benchmarks</strong>: HellaSwag, ARC-Easy, PIQA</li>
+<li><strong>Optimizer</strong>: Fused AdamW, WSD learning-rate schedule, BFloat16 precision</li>
+<li><strong>Sequence length</strong>: 2048 for training; throughput measured across 2k-1024k</li>
+</ul>
+<h3>Accuracy Results / 精度结果</h3>
+<p>| Variant | HellaSwag | ARC-E | PIQA | Average |</p>
+<p>|---------|-----------|-------|------|---------|</p>
+<p>| GQA baseline (all 16 heads active) | 41.31 | 61.36 | 64.90 | 55.86 |</p>
+<p>| Weighted concat, no renorm slot | 40.16 | 60.52 | 64.85 | 55.18 |</p>
+<p>| Hard concat only | 40.66 | 60.56 | 65.07 | 55.43 |</p>
+<p>| <strong>GQE (renorm. scoring + shared head)</strong> | <strong>41.01</strong> | <strong>62.41</strong> | <strong>64.69</strong> | <strong>56.04</strong> |</p>
+<p>The full GQE matches the dense GQA baseline within 0.2 average points while activating only 9/16 query-attention heads. The ablation ladder shows both components are critical: without the renormalized weighted-sum slot (the differentiable router path), performance drops 0.68 points; without the shared head, it drops 0.43 points.</p>
+<p>完整 GQE 在仅激活 9/16 query-attention head 的情况下，与密集 GQA 基线的平均分差距仅 0.2 分以内（实际 GQE 略高 0.18 分）。消融实验表明两个组件都至关重要：去掉重归一化加权求和槽位（可微路由路径）导致下降 0.68 分，去掉共享 head 导致下降 0.43 分。</p>
+<h3>Throughput Results / 吞吐量结果</h3>
+<p>Measured as prefill speedup (GQA baseline latency / GQE latency):</p>
+<ul>
+<li>At 2k tokens: modest 1.15x (routing overhead is relatively large)</li>
+<li>At 4k+ tokens: enters the long-context regime</li>
+<li>At 128k-1024k tokens: consistently 1.67x-1.80x speedup</li>
+</ul>
+<p>The benefit grows with sequence length because attention's quadratic cost increasingly dominates the fixed routing overhead.</p>
+<p>Prefill 加速随序列长度增加：2k token 时为 1.15 倍（路由开销相对较大），128k-1024k token 时稳定在 1.67-1.80 倍。收益随序列长度增长，因为注意力的二次方开销逐渐主导固定的路由开销。</p>
+<p>---</p>
+<h2>Critical Assessment / 批判性评估</h2>
+<h3>Strengths / 优势</h3>
+<ol>
+<li><strong>Clean, well-scoped design</strong>: GQE is a minimal intervention -- it adds routing only to query heads within existing GQA groups, leaving the KV path untouched. This makes the method orthogonal to KV-cache optimizations and easy to integrate.</li>
+<li><strong>Informative ablation ladder</strong>: The paper clearly demonstrates that naive sparse routing fails and identifies the two necessary ingredients (renormalized weighted-sum slot for router gradients, always-on shared head for training stability). This is genuinely useful for practitioners.</li>
+<li><strong>Honest reporting</strong>: The authors report their result as "matching" rather than "improving" the baseline, which is accurate. The small accuracy margin (0.18 points) is not overclaimed.</li>
+</ol>
+<h3>Weaknesses / 不足</h3>
+<ol>
+<li><strong>Small scale only</strong>: All experiments are at 250M parameters with 30B tokens. Whether the accuracy match holds at 1B+ or 7B+ scale is unknown, and the compute savings profile could change at larger scales where attention is a smaller fraction of total compute.</li>
+<li><strong>Not parameter-matched</strong>: The GQE output projection has 10 input slots vs. 16 for baseline GQA, meaning $W_O$ is smaller. The paper acknowledges this but does not resolve it. A truly fair comparison would require parameter matching.</li>
+<li><strong>Limited benchmarks</strong>: Only three downstream tasks (HellaSwag, ARC-Easy, PIQA) are reported. No evaluation on generation quality, reasoning, or instruction-following tasks.</li>
+<li><strong>No comparison with other attention sparsity methods</strong>: The paper discusses MoA, SwitchHead, MoH, and MoMHA in related work but does not include them as experimental baselines.</li>
+<li><strong>Single seed</strong>: Results are from single training runs without confidence intervals, making the 0.18-point "match" less definitive.</li>
+</ol>
+<h3>Missing Elements / 缺失内容</h3>
+<ul>
+<li>No analysis of what the router actually learns (which tokens select which experts, whether expert specialization emerges)</li>
+<li>No evaluation of the method during autoregressive decoding (only prefill throughput is measured)</li>
+<li>No investigation of larger expert pools (M > 2 per group)</li>
+</ul>
+<p>---</p>
+<h2>Relevance & Implications / 相关性与启示</h2>
+<p>This work represents a natural extension of the MoE paradigm from MLP blocks to attention blocks, specifically respecting the GQA structure that modern LLMs already use. The practical relevance depends on scale validation: if the accuracy match holds at 7B+ scale, GQE could be a drop-in way to reduce attention compute for long-context inference. The design insight that sparse attention routing needs both a differentiable router signal and a shared stabilizing head is the most transferable takeaway.</p>
+<p>本工作将 MoE 范式从 MLP 层自然延伸到注意力层，且尊重现代 LLM 已采用的 GQA 结构。实际相关性取决于大规模验证：若精度匹配在 7B+ 规模成立，GQE 可作为减少长上下文推理注意力计算的即插即用方案。最有迁移价值的设计洞察是：稀疏注意力路由需要可微路由信号和共享稳定 head 两者兼备。</p>
+<p class="note">Generated from Markdown summary. Full paper: <a href="https://arxiv.org/abs/2606.20945">arXiv:2606.20945</a></p>
+</div>
+</body>
+</html>

@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Memory-Efficient LLM Training with Dynamic Sparsity: From Stability to Practical Scaling</title>
+<style>
+:root { --paper:#fafafa; --ink:#1a1a1a; --muted:#555; --accent:#1a5276; --line:#ddd; --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif; --serif:Georgia,"Noto Serif SC",serif; }
+body { font-family:var(--serif); background:var(--paper); color:var(--ink); line-height:1.6; margin:0; padding:0; }
+.container { max-width:min(95vw, 760px); margin:0 auto; padding:28px 20px 60px; }
+.topnav { position:fixed; top:12px; left:14px; z-index:50; font-family:var(--sans); font-size:.75rem; background:var(--paper); border:1px solid var(--line); padding:5px 10px; border-radius:999px; }
+.topnav a { color:var(--muted); text-decoration:none; font-weight:600; }
+.topnav a:hover { color:var(--accent); }
+h1 { font-size:1.6rem; margin:2.2rem 0 1rem; border-bottom:2px solid var(--accent); padding-bottom:.3rem; }
+h2 { font-size:1.3rem; margin:1.8rem 0 .8rem; color:var(--accent); }
+h3 { font-size:1.1rem; margin:1.4rem 0 .6rem; }
+p { margin:.8rem 0; }
+.authors { font-style:italic; color:var(--muted); margin-top:-.4rem; }
+.meta { font-family:var(--sans); font-size:.82rem; color:var(--muted); margin:.2rem 0; }
+a { color:var(--accent); text-decoration:none; }
+a:hover { text-decoration:underline; }
+blockquote { border-left:3px solid var(--accent); margin:1rem 0; padding:.2rem 0 .2rem 1rem; color:var(--muted); font-style:italic; }
+code { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; background:#f0f0f0; padding:2px 5px; border-radius:3px; font-size:.9em; }
+pre { background:#f5f5f5; padding:14px; overflow-x:auto; border-radius:4px; border:1px solid var(--line); }
+pre code { background:transparent; padding:0; }
+ul,ol { margin:.6rem 0; padding-left:1.5rem; }
+li { margin:.25rem 0; }
+table { border-collapse:collapse; width:100%; margin:1rem 0; font-family:var(--sans); font-size:.9rem; }
+th,td { border:1px solid var(--line); padding:6px 10px; text-align:left; }
+th { background:#f0f0f0; }
+hr { border:none; border-top:1px solid var(--line); margin:1.5rem 0; }
+.note { font-family:var(--sans); font-size:.78rem; color:var(--muted); border-top:1px solid var(--line); margin-top:2rem; padding-top:1rem; }
+@media (max-width: 600px) { .container { padding:22px 14px 40px; } h1 { font-size:1.35rem; } }
+</style>
+</head>
+<body>
+<div class="topnav"><a href="./index.html">← Today's digest</a></div>
+<div class="container">
+<h1>Memory-Efficient LLM Training with Dynamic Sparsity: From Stability to Practical Scaling</h1>
+<p class="meta">arXiv: 2606.00888</p>
+<p class="meta">Date: 2026-06-02</p>
+<p class="meta"><a href="https://arxiv.org/abs/2606.00888">https://arxiv.org/abs/2606.00888</a></p>
+<blockquote><strong>一句话总结：</strong> 本文提出SMET方法，通过优化器状态预热和密度感知学习率缩放解决了动态稀疏训练在LLM预训练中的不稳定问题，并以仅保存活跃参数梯度/优化器状态的方式大幅降低显存开销。</blockquote>
+<blockquote><strong>TL;DR:</strong> This paper proposes SMET (Sparse Memory-Efficient Training), which stabilizes Dynamic Sparse Training (DST) for LLM pre-training via optimizer-state warm-up and density-aware learning-rate scaling, while reducing memory by storing gradients and optimizer states only for active parameters.</blockquote>
+<h2>核心贡献</h2>
+<ul>
+<li>首次识别并分析了DST在LLM预训练中的损失尖峰（loss spike）现象，指出新再生长参数在Adam优化器中的"冷启动"效应是训练不稳定的根源。</li>
+<li>提出SMET框架，结合优化器状态预热（时间步重置 + 线性预热）与密度感知学习率缩放，有效抑制拓扑更新后的损失尖峰。</li>
+<li>开发了仅对活跃参数保存梯度和优化器状态的稀疏训练实现，显著降低显存占用，同时支持非结构化和块级稀疏模式。</li>
+<li>在LLaMA 60M–1B模型上的实验表明，SMET在多个稀疏度下均优于LoRA、ReLoRA、GaLore等基线，且大模型对稀疏的容忍度更高。</li>
+</ul>
+<h2>Key Contributions</h2>
+<ul>
+<li>Identifies and analyzes the loss-spiking phenomenon in DST for LLM pre-training, attributing the root cause to the "cold-start" effect of newly regrown parameters under Adam-based optimization.</li>
+<li>Proposes SMET, a DST framework that combines optimizer-state warm-up (timestep reset + linear warm-up) with density-aware learning-rate scaling to stabilize training after topology updates.</li>
+<li>Develops a memory-efficient sparse optimization implementation that stores gradients and optimizer states only for active parameters, supporting both unstructured and block-wise sparsity.</li>
+<li>Demonstrates on LLaMA models from 60M to 1B parameters that SMET outperforms LoRA, ReLoRA, and GaLore across sparsity levels, with larger models exhibiting greater tolerance to sparsity.</li>
+</ul>
+<h2>Methodology</h2>
+<p>The paper introduces <strong>Sparse Memory-Efficient Training (SMET)</strong>, a Dynamic Sparse Training (DST) framework tailored for LLM pre-training. SMET addresses three core challenges:</p>
+<p><strong>1. Optimizer-State Warm-Up:</strong> The authors identify that newly regrown parameters in DST lack accumulated Adam moments (m, v), causing disproportionately large updates (~3.16× the learning rate) that trigger sharp loss spikes. SMET applies two complementary warm-up mechanisms:</p>
+<ul>
+<li><strong>Timestep Reset:</strong> Reset the per-parameter timestep $t_i$ for regrown parameters, reactivating Adam's bias correction so early updates are gradient-normalized and bounded.</li>
+<li><strong>Explicit Linear Warm-Up:</strong> Scale the learning rate linearly from 0 to the target over $W$ steps (default $W=10$), further constraining early updates.</li>
+</ul>
+<p><strong>2. Density-Aware Learning-Rate Scaling:</strong> To compensate for the conservative updates introduced by warm-up and the reduced effective fan-in of sparse layers, SMET scales the learning rate as $\alpha_s = \alpha_0 / \sqrt{d}$, where $d$ is the density. This is motivated by Maximal Update Parameterization ($\mu$P) and ensures comparable update magnitudes to dense training.</p>
+<p><strong>3. Memory-Efficient Sparse Implementation:</strong> Unlike conventional DST that uses binary masks over full dense tensors, SMET stores gradients and optimizer states only for active (non-zero) parameters using index-based representations. Parameters are grouped into blocks of size $B$ to amortize index/timestep metadata overhead. This reduces gradient and optimizer-state memory proportionally to density $d$.</p>
+<p>The paper also provides a local stability analysis using L-smoothness, showing that SMET bounds the update norm of regrown parameters and thus controls the quadratic loss term after topology updates.</p>
+<h2>Results & Highlights</h2>
+<ul>
+<li><strong>Performance on LLaMA/C4:</strong> SMET achieves validation perplexity very close to dense training across 60M, 130M, 350M, and 1B parameter scales. For example, on LLaMA-1B trained with 13.1B tokens, SMET reaches 15.61 vs. dense 15.56 (Table 1), outperforming GaLore (15.64), ReLoRA (18.33), and LoRA (19.21).</li>
+<li><strong>Memory Efficiency:</strong> At density $d=0.1$ on LLaMA-1B, SMET substantially reduces memory for gradients and optimizer states while incurring only a small perplexity increase (Figure 3b-c). At $d=0.4$, the memory breakdown shows clear savings over dense training (Figure 4).</li>
+<li><strong>Block-Wise Sparsity:</strong> SMET remains stable across block sizes up to $B=32$, with only ~1 perplexity point increase vs. unstructured sparsity. This is hardware-friendly and enables practical inference speedups.</li>
+<li><strong>Generalization Across Regrowth Strategies:</strong> SMET improves over both SET (random regrowth) and RigL (gradient-based regrowth). A gradient-based variant SMET$_{\text{grad}}$ also consistently outperforms vanilla RigL (Table 2), showing the stabilization mechanisms are strategy-agnostic.</li>
+<li><strong>Scaling Behavior:</strong> Larger models tolerate sparsity better—the perplexity gap between sparse and dense training narrows as model size increases, making SMET particularly attractive for large-scale regimes.</li>
+<li><strong>Ablation Studies:</strong> Warm-up alone improves stability but has limited performance gains; LR scaling alone helps but is insufficient. Their combination in SMET yields the best results. The optimal update interval is $\Delta T = 100$ steps.</li>
+</ul>
+<h2>Authors & Credibility</h2>
+<ul>
+<li><strong>Qiao Xiao</strong> (TU Eindhoven), <strong>Boqian Wu</strong> (University of Luxembourg) — co-first authors.</li>
+<li><strong>Patrik Okanovic, Tomasz Sternal, Torsten Hoefler</strong> — ETH Zürich (Hoefler is a highly recognized systems/ML researcher).</li>
+<li><strong>Maurice van Keulen, Elena Mocanu, Mykola Pechenizkiy, Decebal Constantin Mocanu</strong> — University of Twente / TU Eindhoven / University of Luxembourg (Mocanu is a pioneer in DST with the original SET paper).</li>
+<li><strong>Venue:</strong> ICML 2026 (Seoul). The paper includes theoretical analysis, extensive ablations, and code release, indicating strong rigor.</li>
+</ul>
+<h2>Critical Assessment</h2>
+<p><strong>Novelty:</strong> The work provides a focused, well-motivated advance in applying DST to LLMs. The identification of the Adam cold-start effect as the source of DST instability in LLMs is a meaningful insight, and the combination of warm-up with density-aware LR scaling is a practical contribution. However, the individual components (warm-up, LR scaling) are not entirely new concepts—they are adapted from dense training and parameterization theory to the sparse regime.</p>
+<p><strong>Rigor:</strong> The paper is technically solid. It includes: (1) empirical ablation isolating the cold-start effect, (2) theoretical analysis bounding regrowth updates via L-smoothness, and (3) extensive experiments across model scales, datasets, and sparsity levels. The memory measurements are transparent (batch size 1, BF16, gradient checkpointing disabled).</p>
+<p><strong>Reproducibility:</strong> The authors state that code is publicly available. Experimental details (architecture, hyperparameters, training tokens) are clearly reported, and the setup follows prior work (Zhao et al., 2024) for comparability.</p>
+<p><strong>Significance:</strong> If sparse training can match dense training at scale with meaningful memory savings, it could reduce the hardware barrier for LLM research. The support for block-wise sparsity is particularly important for practical deployment. However, the paper notes that training speedups still depend on sparse kernel support, which remains a practical limitation.</p>
+<p><strong>Red Flags:</strong></p>
+<ul>
+<li>The memory savings are primarily for gradients and optimizer states; activation memory (which often dominates at larger batch sizes) is not addressed.</li>
+<li>The evaluation is limited to pre-training on C4 and OpenWebText; fine-tuning or downstream task performance is not reported.</li>
+<li>The largest model evaluated is 1B parameters—still far from production-scale LLMs (7B+), though the scaling trend is encouraging.</li>
+</ul>
+<h2>Strengths</h2>
+<ul>
+<li>Clear diagnosis of the DST instability problem in LLMs with controlled ablations.</li>
+<li>Elegant and simple solution (warm-up + LR scaling) that is easy to implement and generalizes across regrowth strategies.</li>
+<li>Memory-efficient implementation that realizes practical savings, not just theoretical sparsity.</li>
+<li>Strong empirical results with near-dense performance even at high sparsity (d=0.1) on 1B models.</li>
+<li>Support for block-wise sparsity bridges the gap between research and hardware deployment.</li>
+<li>Published at a top-tier venue (ICML) with code release.</li>
+</ul>
+<h2>Limitations</h2>
+<ul>
+<li>Does not address activation memory or KV-cache memory, which are significant bottlenecks in LLM training and inference.</li>
+<li>No evaluation on downstream tasks or fine-tuning scenarios—perplexity is the sole metric.</li>
+<li>Largest evaluated model is 1B; validation at 7B+ scale is needed to confirm practical applicability.</li>
+<li>Training wall-clock speedups are not demonstrated end-to-end; sparse kernel efficiency remains a prerequisite.</li>
+<li>The theoretical analysis is local (per-update stability) rather than a global convergence guarantee for Adam in the sparse setting.</li>
+</ul>
+<h2>Relevance</h2>
+<p>本文对追求高效LLM训练的读者极具参考价值：SMET不仅将动态稀疏训练成功扩展到语言模型预训练，还通过块级稀疏支持为实际硬件加速铺平道路，是稀疏训练从理论走向实用的重要一步。</p>
+<h2>Questions for Further Exploration</h2>
+<ul>
+<li>How does SMET perform on models beyond 1B parameters (e.g., 7B, 13B, 70B), and does the trend of improved sparsity tolerance continue?</li>
+<li>Can SMET be combined with activation sparsity or KV-cache compression techniques for end-to-end memory reduction?</li>
+<li>What is the wall-clock training time comparison against dense training when using optimized sparse kernels (e.g., block-wise sparsity on modern GPUs/TPUs)?</li>
+<li>Does SMET preserve downstream task performance after sparse pre-training, or is additional dense fine-tuning required?</li>
+<li>Can the warm-up and LR scaling principles be extended to other optimizers (e.g., AdamW, Lion, Sophia) or to sparse training in non-transformer architectures?</li>
+</ul>
+<p class="note">Generated from Markdown summary. Full paper: <a href="https://arxiv.org/abs/2606.00888">arXiv:2606.00888</a></p>
+</div>
+</body>
+</html>

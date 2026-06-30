@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Scalable Hyperparameter-Divergent Ensemble Training with Automatic Learning Rate Exploration for Large Models</title>
+<style>
+:root { --paper:#fafafa; --ink:#1a1a1a; --muted:#555; --accent:#1a5276; --line:#ddd; --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif; --serif:Georgia,"Noto Serif SC",serif; }
+body { font-family:var(--serif); background:var(--paper); color:var(--ink); line-height:1.6; margin:0; padding:0; }
+.container { max-width:min(95vw, 760px); margin:0 auto; padding:28px 20px 60px; }
+.topnav { position:fixed; top:12px; left:14px; z-index:50; font-family:var(--sans); font-size:.75rem; background:var(--paper); border:1px solid var(--line); padding:5px 10px; border-radius:999px; }
+.topnav a { color:var(--muted); text-decoration:none; font-weight:600; }
+.topnav a:hover { color:var(--accent); }
+h1 { font-size:1.6rem; margin:2.2rem 0 1rem; border-bottom:2px solid var(--accent); padding-bottom:.3rem; }
+h2 { font-size:1.3rem; margin:1.8rem 0 .8rem; color:var(--accent); }
+h3 { font-size:1.1rem; margin:1.4rem 0 .6rem; }
+p { margin:.8rem 0; }
+.authors { font-style:italic; color:var(--muted); margin-top:-.4rem; }
+.meta { font-family:var(--sans); font-size:.82rem; color:var(--muted); margin:.2rem 0; }
+a { color:var(--accent); text-decoration:none; }
+a:hover { text-decoration:underline; }
+blockquote { border-left:3px solid var(--accent); margin:1rem 0; padding:.2rem 0 .2rem 1rem; color:var(--muted); font-style:italic; }
+code { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; background:#f0f0f0; padding:2px 5px; border-radius:3px; font-size:.9em; }
+pre { background:#f5f5f5; padding:14px; overflow-x:auto; border-radius:4px; border:1px solid var(--line); }
+pre code { background:transparent; padding:0; }
+ul,ol { margin:.6rem 0; padding-left:1.5rem; }
+li { margin:.25rem 0; }
+table { border-collapse:collapse; width:100%; margin:1rem 0; font-family:var(--sans); font-size:.9rem; }
+th,td { border:1px solid var(--line); padding:6px 10px; text-align:left; }
+th { background:#f0f0f0; }
+hr { border:none; border-top:1px solid var(--line); margin:1.5rem 0; }
+.note { font-family:var(--sans); font-size:.78rem; color:var(--muted); border-top:1px solid var(--line); margin-top:2rem; padding-top:1rem; }
+@media (max-width: 600px) { .container { padding:22px 14px 40px; } h1 { font-size:1.35rem; } }
+</style>
+</head>
+<body>
+<div class="topnav"><a href="./index.html">← Today's digest</a></div>
+<div class="container">
+<h1>Scalable Hyperparameter-Divergent Ensemble Training with Automatic Learning Rate Exploration for Large Models</h1>
+<p class="meta">arXiv: 2604.24708v1</p>
+<p class="meta">Date: 2026-04-27</p>
+<p class="meta"><a href="https://arxiv.org/abs/2604.24708v1">https://arxiv.org/abs/2604.24708v1</a></p>
+<blockquote><strong>一句话总结：</strong> HDET利用数据并行训练中已有的GPU副本，通过结构化的学习率散布和周期性参数平均，在不增加硬件成本的前提下实现学习率自动探索，在工业级推荐系统上以9倍学习率稳定训练并获得更低损失。</blockquote>
+<blockquote><strong>TL;DR:</strong> HDET repurposes the N GPU replicas already present in data-parallel training to simultaneously explore N different learning rates via a fan-out/converge cycle (diverge independently, then AllReduce-average every T steps). An auto-LR controller uses cross-replica loss differences as a gradient-free signal to adaptively shift the base schedule toward better configurations. On a production news-feed recommendation model trained on 8 H100 GPUs, HDET stably trains at 9x the learning rate that causes standard DDP to diverge, and achieves lower final training loss (3.277 vs. 3.294) with negligible extra communication overhead (~0.1% wall-clock time). The method is a drop-in PyTorch OneCycleLR replacement and generalizes to any scalar hyperparameter.</blockquote>
+<h2>核心贡献</h2>
+<ul>
+<li>提出HDET方法，将标准DDP训练中原本执行相同更新的GPU副本转化为学习率探索集成，零额外硬件开销</li>
+<li>设计自动学习率控制器（auto-LR），利用跨副本损失差异作为零阶超梯度信号，通过动量更新自适应调整学习率调度</li>
+<li>提出预热噪声初始化策略，从预训练检查点出发并注入高斯噪声，使各副本在不同邻域启动训练</li>
+<li>框架可推广至任意标量超参数（dropout、权重衰减、温度等）的同时探索，无需修改模型架构或数据管道</li>
+<li>在工业级新闻流推荐系统上验证：以9倍于标准方法的学习率稳定训练，最终损失从3.294降至3.277</li>
+</ul>
+<h2>Key Contributions</h2>
+<ul>
+<li>Proposes HDET, a training method that transforms existing DDP replicas into a structured learning rate exploration ensemble at zero additional hardware cost, using a fan-out/converge protocol</li>
+<li>Introduces an automatic LR controller that treats relative training loss across replicas as a performance signal, updating the shared base schedule via a momentum-based gradient-free meta-update</li>
+<li>Develops warm noisy initialization from pre-trained checkpoints, adding independent Gaussian perturbations to seed each replica in a distinct neighborhood of a high-quality solution</li>
+<li>Generalizes the framework beyond learning rate: any scalar hyperparameter (dropout, weight decay, attention temperature) can be explored using the same protocol with inter-replica losses as zero-order hypergradients</li>
+<li>Demonstrates stable training at 9x the baseline learning rate on a production recommendation system, achieving lower final loss (3.277 vs. 3.294) with only ~0.1% additional wall-clock time</li>
+</ul>
+<h2>Methodology</h2>
+<p>HDET modifies standard DDP+OneCycleLR training through three components:</p>
+<p><strong>Fan-out phase (LR Divergence):</strong> Each of the N GPU replicas receives a distinct learning rate multiplier $\rho_r$ drawn from a symmetric spread $[1-\alpha, 1+\alpha]$ around the base schedule. All replicas still share the same AllReduce-averaged gradient, but take steps of different sizes, causing parameters to diverge between sync events. The spread is structured so that multipliers sum to N (preserving the mean).</p>
+<p><strong>Converge phase (Weight Averaging):</strong> Every T steps (T=1,000 in experiments), parameters are AllReduce-averaged across all replicas. By SWA theory, averaging diverse trajectories produces flatter minima. The added communication cost is O(1/T), negligible for T>=100.</p>
+<p><strong>Auto-LR Controller:</strong> After a warmup period, at each sync step the controller: (1) computes per-rank average losses; (2) softmax-weights ranks by inverse loss (lower loss = higher weight); (3) computes the deviation between the performance-weighted average LR and the uniform average as a "hypergradient" signal; (4) applies a momentum-based update to shift the base schedule toward better-performing LR configurations. After updating, learning rate multipliers are randomly reshuffled across ranks via independent permutations per hyperparameter group to decorrelate cross-parameter effects.</p>
+<p><strong>Warm Noisy Initialization:</strong> Optionally seeds training from a pre-trained checkpoint with independent Gaussian noise added to each replica's parameters ($\nu=0.01$), providing distinct starting points near a high-quality solution.</p>
+<h2>Results & Highlights</h2>
+<ul>
+<li><strong>Stability:</strong> At $\eta_{max}=0.0009$ (9x the conservative baseline), standard DDP crashes at ~18K steps and warm-init-only diverges at ~185K steps. HDET trains stably throughout the full run.</li>
+<li><strong>Quality:</strong> HDET (full) achieves final training loss of 3.277, beating Baseline-Low (3.294) trained at 9x lower LR. The ensemble averaging and auto-LR each contribute ~0.013-0.014 loss reduction independently.</li>
+<li><strong>Efficiency:</strong> The extra AllReduce for weight averaging adds approximately 0.1% wall-clock time on 8 H100 GPUs with T=1,000.</li>
+<li><strong>Emergent behavior:</strong> The auto-LR controller automatically discovers the empirically correct per-group decay ordering -- transformer layers decay fastest, non-decay parameters slowest -- mirroring discriminative fine-tuning heuristics without manual specification.</li>
+<li><strong>Production deployment:</strong> The model is deployed in the production ranking system of a major social network, with consistent improvements over 10+ independent training replications on offline AUC and NE metrics.</li>
+</ul>
+<h2>Authors & Credibility</h2>
+<p>All four authors (Hailing Cheng, Tao Huang, Chen Zhu, Antonio Alonso) are from LinkedIn Inc., Mountain View, CA. The work is evaluated on LinkedIn's production news-feed recommendation system, lending strong industrial credibility. The paper references a companion paper (Cheng, 2026) for backbone details. Code is publicly available at https://github.com/hailingc/ensemble_training. The experimental setup is specific enough (8 H100 GPUs, ~30 hours per run) to suggest genuine production-scale validation, though the single-task evaluation limits generalizability claims.</p>
+<h2>Critical Assessment</h2>
+<p><strong>Novelty (Moderate):</strong> The core idea -- assigning different LRs to DDP replicas and periodically averaging -- is a natural but clever combination of SWA-style weight averaging with population-based hyperparameter exploration. The auto-LR controller using cross-replica loss as a zero-order gradient signal is a genuine contribution, though the momentum-based meta-update is straightforward. The generalization to arbitrary scalar hyperparameters is claimed but not empirically demonstrated beyond LR.</p>
+<p><strong>Rigor (Moderate):</strong> The paper provides a clean ablation study isolating each component (spread, auto-LR, warm-init). However, the evaluation is limited to a single production task and a single model architecture. The statistical analysis relies on "10+ independent models" but does not report confidence intervals or standard deviations in the main results table. The three auto-LR hyperparameters ($\beta, \sigma, \lambda$) are stated as "fixed, not tuned" but the sensitivity to these choices is not explored.</p>
+<p><strong>Reproducibility (Good):</strong> Code is publicly available. The method is described as a drop-in replacement for PyTorch's OneCycleLR. Hyperparameters are specified. However, the dataset is proprietary (LinkedIn news-feed data), making exact reproduction impossible for external researchers.</p>
+<p><strong>Significance (Moderate-High):</strong> If the claims hold, HDET offers a practically useful technique for industrial practitioners: better training quality at zero additional hardware cost. The auto-LR discovery of per-group decay rates is particularly interesting. However, the lack of evaluation on standard public benchmarks (e.g., LLM pretraining, vision tasks) makes it hard to assess broader applicability.</p>
+<p><strong>Red flags:</strong></p>
+<ul>
+<li>Only one task/domain evaluated; generalization claims (especially to LLM pretraining) are purely speculative</li>
+<li>The loss improvement (3.277 vs. 3.294) is modest (~0.5% relative), and without variance estimates, statistical significance is unclear</li>
+<li>The "N replicas" framing slightly overclaims: the method uses 8 GPUs, and it is unclear how the approach scales to hundreds or thousands of replicas where inter-replica divergence could be far more extreme</li>
+<li>The self-citation to "Cheng (2026)" for the backbone architecture raises minor concerns about the independence of the experimental evaluation from the method itself</li>
+</ul>
+<h2>Strengths</h2>
+<ul>
+<li>Zero additional hardware cost: repurposes existing DDP replicas that would otherwise compute identical updates</li>
+<li>Negligible communication overhead (~0.1% wall-clock time) makes it practically deployable</li>
+<li>Clean ablation design clearly isolates the contribution of each component</li>
+<li>The auto-LR controller's emergent discovery of per-group decay ordering is a noteworthy finding</li>
+<li>Drop-in PyTorch integration lowers adoption barrier</li>
+<li>The random permutation strategy for multi-hyperparameter exploration is a thoughtful design choice that addresses confounding correlations</li>
+</ul>
+<h2>Limitations</h2>
+<ul>
+<li>Evaluated on only one proprietary task; no validation on standard public benchmarks (CIFAR, ImageNet, GLUE, etc.)</li>
+<li>No convergence theory or formal analysis of the fan-out/converge dynamics</li>
+<li>The 0.5% relative loss improvement is modest and presented without confidence intervals</li>
+<li>Scalability beyond 8 GPUs is not demonstrated, despite the title claiming "scalable"</li>
+<li>The generalization to non-LR hyperparameters (dropout, weight decay) is stated but not empirically validated</li>
+<li>The auto-LR controller introduces three new hyperparameters ($\beta, \sigma, \lambda$), partially undermining the "no additional tuning" claim</li>
+<li>Single-epoch training regime; behavior in multi-epoch settings is unexplored</li>
+</ul>
+<h2>Relevance</h2>
+<p>本论文提出了一种在不增加硬件成本的前提下优化大模型学习率调度的新方法，对从事分布式训练和超参数优化的研究人员具有直接参考价值。其"利用已有计算资源做超参数探索"的思路也可启发AutoML和大规模预训练场景下的效率优化研究。</p>
+<h2>Questions for Further Exploration</h2>
+<ul>
+<li>How does HDET behave with 64+ GPUs where the LR spread becomes very wide? Does the periodic averaging still prevent divergence?</li>
+<li>Can the auto-LR controller be applied during LLM pretraining (billions of tokens, hundreds of GPUs) where schedule selection is notoriously expensive?</li>
+<li>What happens when multiple hyperparameters (LR + dropout + weight decay) are explored simultaneously -- does the random permutation decorrelation suffice, or do higher-order interactions overwhelm the signal?</li>
+<li>Is the 0.5% loss improvement in the single task statistically robust, or does it fall within normal training variance?</li>
+<li>Could the fan-out/converge protocol be combined with tensor parallelism or pipeline parallelism, or does it require the model to fit entirely on each replica?</li>
+<li>How sensitive is the auto-LR controller to the temperature parameter $\sigma$, and does it need retuning across different model scales or architectures?</li>
+</ul>
+<p class="note">Generated from Markdown summary. Full paper: <a href="https://arxiv.org/abs/2604.24708v1">arXiv:2604.24708v1</a></p>
+</div>
+</body>
+</html>

@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>The Illusion of Power Capping in LLM Decode: A Phase-Aware Energy Characterisation Across Attention Architectures</title>
+<style>
+:root { --paper:#fafafa; --ink:#1a1a1a; --muted:#555; --accent:#1a5276; --line:#ddd; --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif; --serif:Georgia,"Noto Serif SC",serif; }
+body { font-family:var(--serif); background:var(--paper); color:var(--ink); line-height:1.6; margin:0; padding:0; }
+.container { max-width:min(95vw, 760px); margin:0 auto; padding:28px 20px 60px; }
+.topnav { position:fixed; top:12px; left:14px; z-index:50; font-family:var(--sans); font-size:.75rem; background:var(--paper); border:1px solid var(--line); padding:5px 10px; border-radius:999px; }
+.topnav a { color:var(--muted); text-decoration:none; font-weight:600; }
+.topnav a:hover { color:var(--accent); }
+h1 { font-size:1.6rem; margin:2.2rem 0 1rem; border-bottom:2px solid var(--accent); padding-bottom:.3rem; }
+h2 { font-size:1.3rem; margin:1.8rem 0 .8rem; color:var(--accent); }
+h3 { font-size:1.1rem; margin:1.4rem 0 .6rem; }
+p { margin:.8rem 0; }
+.authors { font-style:italic; color:var(--muted); margin-top:-.4rem; }
+.meta { font-family:var(--sans); font-size:.82rem; color:var(--muted); margin:.2rem 0; }
+a { color:var(--accent); text-decoration:none; }
+a:hover { text-decoration:underline; }
+blockquote { border-left:3px solid var(--accent); margin:1rem 0; padding:.2rem 0 .2rem 1rem; color:var(--muted); font-style:italic; }
+code { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; background:#f0f0f0; padding:2px 5px; border-radius:3px; font-size:.9em; }
+pre { background:#f5f5f5; padding:14px; overflow-x:auto; border-radius:4px; border:1px solid var(--line); }
+pre code { background:transparent; padding:0; }
+ul,ol { margin:.6rem 0; padding-left:1.5rem; }
+li { margin:.25rem 0; }
+table { border-collapse:collapse; width:100%; margin:1rem 0; font-family:var(--sans); font-size:.9rem; }
+th,td { border:1px solid var(--line); padding:6px 10px; text-align:left; }
+th { background:#f0f0f0; }
+hr { border:none; border-top:1px solid var(--line); margin:1.5rem 0; }
+.note { font-family:var(--sans); font-size:.78rem; color:var(--muted); border-top:1px solid var(--line); margin-top:2rem; padding-top:1rem; }
+@media (max-width: 600px) { .container { padding:22px 14px 40px; } h1 { font-size:1.35rem; } }
+</style>
+</head>
+<body>
+<div class="topnav"><a href="./index.html">← Today's digest</a></div>
+<div class="container">
+<h1>The Illusion of Power Capping in LLM Decode: A Phase-Aware Energy Characterisation Across Attention Architectures</h1>
+<p class="meta">arXiv: 2605.11999</p>
+<p class="meta">Date: 2026-05-12</p>
+<p class="meta"><a href="https://arxiv.org/abs/2605.11999">https://arxiv.org/abs/2605.11999</a></p>
+<blockquote><strong>一句话总结：</strong> 本文揭示GPU功耗上限（power capping）对LLM自回归解码阶段完全无效——因为解码是显存带宽受限而非计算受限，GPU功耗仅137–300W远低于700W上限——并提出SM时钟锁定作为正确的节能手段，可节省高达32%的解码能耗；同时首次系统对比了GQA、MLA、Gated DeltaNet和Mamba2四种注意力架构在H200上的能效特征。</blockquote>
+<blockquote><strong>TL;DR:</strong> Power capping is structurally ineffective for memory-bound LLM decode (GPU draws only 137–300W of 700W TDP). SM clock locking is the correct energy lever, recovering up to 32% of decode energy at <1% throughput loss, and Pareto-dominates power capping universally across four attention paradigms on NVIDIA H200.</blockquote>
+<h2>核心贡献</h2>
+<ul>
+<li><strong>揭露功耗上限的假象：</strong> 首次明确证明power capping对LLM解码阶段完全无效——GPU仅消耗137–300W，远低于700W TDP，任何功耗上限都不会被触发。</li>
+<li><strong>提出SM时钟锁定为正确方案：</strong> 通过直接控制内存受限解码中真正关键的频率参数，静态时钟锁定在每个操作点上都Pareto优于功耗上限，可回收高达32%解码能耗。</li>
+<li><strong>识别三种DVFS行为类别：</strong> batch-invariant（GQA）、batch-sensitive（MLA/Mamba2）和compute-light（GDN），为不同架构提供可部署的时钟策略。</li>
+<li><strong>跨架构能效对比：</strong> 首次系统比较GQA、MLA、GDN、Mamba2在相同硬件上的能效，发现新型注意力架构共享"高prefill代价→高效decode回收"模式。</li>
+<li><strong>受控GQA↔MLA消融实验：</strong> 使用TransMLA在共享Minitron-4B权重上转换注意力机制，隔离了注意力机制本身的影响。</li>
+</ul>
+<h2>Key Contributions</h2>
+<ul>
+<li><strong>The power-capping illusion:</strong> Demonstrates that power capping is structurally ineffective for memory-bound LLM decode across four attention paradigms—the GPU never reaches the cap (drawing only 137–300W on a 700W GPU), the driver ignores it, and firmware clock throttling creates confounding artifacts in throughput measurements.</li>
+<li><strong>SM clock locking as the correct lever:</strong> Shows that static SM clock locking Pareto-dominates power capping at every matched operating point, recovering up to 32% of decode energy at <1% throughput loss, by targeting the frequency lever that is actually on the critical path.</li>
+<li><strong>Three architecture-dependent DVFS classes:</strong> Identifies batch-invariant (GQA), batch-sensitive (MLA/Mamba2), and compute-light (GDN) behavioral classes, providing deployable per-architecture clock policies.</li>
+<li><strong>Cross-architecture energy landscape:</strong> Provides the first systematic energy characterization under both DVFS mechanisms for dense attention, compressed-KV, linear-recurrent, and state-space designs served via vLLM on H200 SXM.</li>
+<li><strong>Controlled GQA↔MLA ablation:</strong> Uses TransMLA on shared Minitron-4B weights to isolate attention mechanism effects from confounding model differences—the only such controlled comparison in the literature.</li>
+</ul>
+<h2>Methodology</h2>
+<p>The authors conduct a comprehensive measurement study on a single NVIDIA H200 SXM (700W TDP, HBM3e at 4.8 TB/s), serving all models via vLLM in BF16 with no custom kernels. They evaluate five architectures (~4B parameters each): GQA (Qwen3-4B), GQA-ctrl (Minitron-4B), MLA (TransMLA-converted Minitron-4B), GDN (Qwen3.5-4B), and Mamba2 (Nemotron-Nano).</p>
+<p>The experimental design sweeps five SM clock levels (390–1980 MHz), five power cap levels (280–700W), batch sizes 1–32, and sequence lengths 1K–64K tokens. Energy is measured via NVML power sampling at 50ms intervals, integrated with the trapezoidal rule, and cross-validated against hardware energy counters. Nsight Compute provides per-kernel roofline diagnostics. Each configuration is repeated 10–20 times with three warmup iterations.</p>
+<p>The key methodological innovation is the controlled GQA↔MLA ablation: both models share identical Minitron-4B base weights, differing only in the attention mechanism (GQA caches 2048-dim KV vs. MLA caches 576-dim compressed latent), enabled by TransMLA checkpoint conversion.</p>
+<h2>Results & Highlights</h2>
+<ul>
+<li><strong>Power capping is inert for decode:</strong> Across all five architectures, decode power draw ranges 137–300W on a 700W GPU. Even the lowest 280W cap never triggers; the driver holds ~1830 MHz regardless of configured limit.</li>
+<li><strong>Clock locking saves 24–32% decode energy:</strong> At 780 MHz with seq=1024, every architecture saves 47–90W (24–32%) with <1% throughput loss. GDN benefits most (32%) due to its elementwise-dominated decode path.</li>
+<li><strong>Three DVFS classes identified:</strong> GQA stays memory-bound at all batch sizes (single low clock works). MLA/Mamba2 shift toward compute-bound at large batches (optimal clock must rise). GDN tolerates the most aggressive underclocking unconditionally.</li>
+<li><strong>Novel architectures share a crossover pattern:</strong> GDN and Mamba2 pay 10× higher prefill energy but recover it via efficient decode. Mamba2 crosses below GQA after ~1000 output tokens at production batch sizes, eventually achieving >2× energy advantage.</li>
+<li><strong>MLA's crossover is context- and batch-dependent:</strong> At short context, MLA is 12–29% worse than GQA-ctrl due to KV decompression overhead. At BS=32, crossover arrives at 4K tokens; at BS=1, it never arrives. At BS=32/seq=65K, MLA uses <50% of GQA-ctrl's decode energy.</li>
+<li><strong>The 1830→1980 MHz gap is wasted:</strong> The 240 MHz above 1590 MHz produces zero throughput gain (<0.1% median difference) at 7–13% more power across all architectures, confirming decode is entirely memory-paced.</li>
+<li><strong>Batching dominates everything:</strong> Increasing BS from 1 to 32 reduces energy/token by >20× by amortizing weight loading cost.</li>
+</ul>
+<h2>Authors & Credibility</h2>
+<p>The authors are from the Erlangen National High Performance Computing Center (NHR@FAU) and Friedrich-Alexander-Universität Erlangen-Nürnberg, Germany—well-established institutions in HPC and performance engineering. The work is funded by the Free State of Bavaria (DSgenAI project) and DFG. The methodology is rigorous: controlled ablation, 10–20 repetitions per configuration, cross-validation of energy measurements, and Nsight Compute roofline analysis. The paper includes 25 references spanning inference systems, attention mechanisms, DVFS, and energy management.</p>
+<h2>Critical Assessment</h2>
+<ul>
+<li><strong>Novelty (High):</strong> The paper's central claim—that power capping is structurally ineffective for LLM decode—is both surprising and well-supported. No prior work explicitly poses and answers this question. The identification of three DVFS behavioral classes and the controlled GQA↔MLA ablation are genuine contributions.</li>
+<li><strong>Rigor (High):</strong> The experimental design is thorough: controlled ablation with shared weights, multiple repetition counts, cross-validated energy measurements, roofline analysis, and a sweep across clock/cap/batch/context dimensions. The discussion of the firmware-imposed clock clamp (1980→1830 MHz) and its distinction from thermal or silicon limits is careful.</li>
+<li><strong>Reproducibility (Moderate-High):</strong> All models are publicly available on HuggingFace, served via standard vLLM with no custom kernels. The hardware (H200 SXM) is specific but widely deployed. The <code>nvidia-smi --lock-gpu-clocks</code> clamp behavior may vary across driver versions—acknowledged as a limitation.</li>
+<li><strong>Significance (High):</strong> The practical implications are substantial: a single <code>nvidia-smi</code> call can save megawatts at data-center scale. The cross-architecture energy characterization fills a genuine gap in the literature.</li>
+<li><strong>Red flags:</strong> The single-GPU, single-framework, dense-model-only scope is a limitation—though the authors argue (convincingly) that the memory-boundedness is structural and scale-invariant. The vLLM eager-mode execution for GDN/Mamba2 inflates their prefill costs; fused kernels could change the crossover analysis. Some MLA overhead is vLLM-specific (hundreds of small cat/copy/reshape kernels) rather than inherent to the architecture.</li>
+</ul>
+<h2>Strengths</h2>
+<ul>
+<li>Elegant identification of a widely-deployed but fundamentally flawed practice (power capping for decode)</li>
+<li>Controlled ablation experiment isolating attention mechanism from model confounds</li>
+<li>Clear, actionable recommendation (static SM clock locking) that costs nothing to implement</li>
+<li>Comprehensive cross-architecture comparison spanning four distinct attention paradigms</li>
+<li>Honest discussion of limitations, including software-stack artifacts and single-GPU scope</li>
+</ul>
+<h2>Limitations</h2>
+<ul>
+<li>Single GPU (H200 SXM) and single serving framework (vLLM)—results may differ on other hardware or with TensorRT-LLM</li>
+<li>Dense models only; MoE routing may interact differently with DVFS</li>
+<li>GDN/Mamba2 prefill costs reflect unfused eager-mode execution, not inherent architectural limits</li>
+<li>The firmware clock clamp behavior (1980→1830 MHz under lock) may be driver-version specific</li>
+<li>No multi-GPU communication energy measured; tensor-parallel scenarios not directly tested</li>
+<li>MLA's decompression overhead is partly a vLLM implementation artifact that fused kernels could eliminate</li>
+</ul>
+<h2>Relevance</h2>
+<p>本文与LLM推理评估和系统可靠性高度相关。功耗管理是数据中心GPU部署的核心运维手段，本文揭示标准实践在解码阶段的系统性失效，对推理系统的能耗建模和基准测试具有直接指导意义。</p>
+<h2>Questions for Further Exploration</h2>
+<ul>
+<li>Does the power-cap ineffectiveness extend to AMD MI300X or Intel GPUs with different DVFS implementations?</li>
+<li>Can adaptive runtime DVFS (dynamically switching clocks between prefill and decode phases) outperform static clock locking in colocated serving?</li>
+<li>How does KV cache quantization (e.g., KIVI 2-bit) shift the MLA crossover point and alter the GQA vs. MLA energy trade-off?</li>
+<li>What energy savings are achievable in tensor-parallel deployments where per-GPU memory traffic is partitioned but still bandwidth-bound?</li>
+<li>Do fused decompression kernels for MLA eliminate the hundreds of small data-movement kernels that currently dominate the MLA–GQA energy gap?</li>
+</ul>
+<p class="note">Generated from Markdown summary. Full paper: <a href="https://arxiv.org/abs/2605.11999">arXiv:2605.11999</a></p>
+</div>
+</body>
+</html>

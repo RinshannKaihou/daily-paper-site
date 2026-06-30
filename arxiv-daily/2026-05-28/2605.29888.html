@@ -1,0 +1,1063 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LaRA — Layer-wise Representation Analysis for Data Contamination Detection</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@300;400;500;600;700&display=swap');
+
+  :root {
+    --bg: #0a0c10;
+    --bg-raised: #12151c;
+    --bg-card: #181c26;
+    --bg-card-hover: #1e2330;
+    --fg: #e8eaf0;
+    --fg-dim: #8b92a8;
+    --fg-muted: #555d75;
+    --accent: #f0a030;
+    --accent-glow: rgba(240,160,48,0.12);
+    --accent-bright: #ffc04d;
+    --red: #ef5350;
+    --red-dim: rgba(239,83,80,0.15);
+    --green: #66bb6a;
+    --green-dim: rgba(102,187,106,0.12);
+    --cyan: #26c6da;
+    --cyan-dim: rgba(38,198,218,0.12);
+    --border: #252a38;
+    --border-accent: rgba(240,160,48,0.3);
+    --radius: 10px;
+    --radius-sm: 6px;
+    --mono: 'IBM Plex Mono', monospace;
+    --sans: 'IBM Plex Sans', -apple-system, sans-serif;
+    --serif: 'DM Serif Display', Georgia, serif;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html { font-size: 16px; scroll-behavior: smooth; }
+
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: var(--sans);
+    line-height: 1.65;
+    min-height: 100vh;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ---- noise overlay ---- */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");
+    pointer-events: none;
+    z-index: 9999;
+  }
+
+  /* ---- top bar ---- */
+  .topbar {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 14px 32px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-raised);
+    position: sticky;
+    top: 0;
+    z-index: 100;
+  }
+  .topbar-brand {
+    font-family: var(--mono);
+    font-weight: 600;
+    font-size: 0.8rem;
+    color: var(--accent);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+  .topbar-sep { color: var(--fg-muted); font-size: 0.75rem; }
+  .topbar-title {
+    font-size: 0.82rem;
+    color: var(--fg-dim);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .topbar-links {
+    margin-left: auto;
+    display: flex;
+    gap: 12px;
+  }
+  .topbar-links a {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    color: var(--fg-muted);
+    text-decoration: none;
+    padding: 4px 10px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    transition: all 0.2s;
+    letter-spacing: 0.03em;
+  }
+  .topbar-links a:hover {
+    color: var(--accent);
+    border-color: var(--border-accent);
+    background: var(--accent-glow);
+  }
+
+  /* ---- container ---- */
+  .container {
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: 0 28px;
+  }
+
+  /* ---- hero ---- */
+  .hero {
+    padding: 72px 0 48px;
+    position: relative;
+  }
+  .hero::after {
+    content: '';
+    position: absolute;
+    top: 0; right: -120px;
+    width: 480px; height: 480px;
+    background: radial-gradient(circle, rgba(240,160,48,0.06) 0%, transparent 70%);
+    pointer-events: none;
+  }
+  .hero-tag {
+    display: inline-block;
+    font-family: var(--mono);
+    font-size: 0.68rem;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--accent);
+    background: var(--accent-glow);
+    border: 1px solid var(--border-accent);
+    padding: 5px 14px;
+    border-radius: 20px;
+    margin-bottom: 24px;
+    animation: fadeIn 0.6s ease both;
+  }
+  .hero h1 {
+    font-family: var(--serif);
+    font-size: clamp(2rem, 4.5vw, 3.2rem);
+    line-height: 1.15;
+    color: var(--fg);
+    font-weight: 400;
+    max-width: 780px;
+    margin-bottom: 20px;
+    animation: fadeIn 0.6s ease 0.1s both;
+  }
+  .hero h1 em {
+    font-style: normal;
+    color: var(--accent);
+  }
+  .hero-sub {
+    font-size: 0.95rem;
+    color: var(--fg-dim);
+    max-width: 640px;
+    line-height: 1.7;
+    animation: fadeIn 0.6s ease 0.2s both;
+  }
+  .hero-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 20px;
+    margin-top: 24px;
+    animation: fadeIn 0.6s ease 0.3s both;
+  }
+  .hero-meta span {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    color: var(--fg-muted);
+  }
+  .hero-meta span strong { color: var(--fg-dim); font-weight: 500; }
+
+  /* ---- asset row ---- */
+  .asset-row {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 16px;
+    margin-bottom: 40px;
+  }
+  .asset-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 24px 22px;
+    position: relative;
+    overflow: hidden;
+    transition: all 0.25s;
+    animation: fadeSlideUp 0.5s ease both;
+  }
+  .asset-card:nth-child(1) { animation-delay: 0.2s; }
+  .asset-card:nth-child(2) { animation-delay: 0.3s; }
+  .asset-card:nth-child(3) { animation-delay: 0.4s; }
+  .asset-card:nth-child(4) { animation-delay: 0.5s; }
+  .asset-card:hover {
+    border-color: var(--border-accent);
+    background: var(--bg-card-hover);
+    transform: translateY(-2px);
+  }
+  .asset-card .label {
+    font-family: var(--mono);
+    font-size: 0.62rem;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--fg-muted);
+    margin-bottom: 14px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .asset-card .label .dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    display: inline-block;
+  }
+  .asset-card .big-number {
+    font-family: var(--mono);
+    font-size: 2.4rem;
+    font-weight: 600;
+    line-height: 1.1;
+    margin-bottom: 6px;
+  }
+  .asset-card .desc {
+    font-size: 0.82rem;
+    color: var(--fg-dim);
+    line-height: 1.55;
+  }
+  .asset-card .sub-stat {
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    color: var(--fg-muted);
+  }
+  .asset-card .sub-stat strong { color: var(--fg-dim); }
+  .asset-card--accent .big-number { color: var(--accent); }
+  .asset-card--accent .dot { background: var(--accent); }
+  .asset-card--red .big-number { color: var(--red); }
+  .asset-card--red .dot { background: var(--red); }
+  .asset-card--green .big-number { color: var(--green); }
+  .asset-card--green .dot { background: var(--green); }
+  .asset-card--cyan .big-number { color: var(--cyan); }
+  .asset-card--cyan .dot { background: var(--cyan); }
+
+  /* ---- body grid ---- */
+  .body-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin-bottom: 48px;
+  }
+  .body-grid .full-width {
+    grid-column: 1 / -1;
+  }
+  .panel {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 28px 26px;
+    animation: fadeSlideUp 0.5s ease 0.5s both;
+  }
+  .panel h2 {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--fg-muted);
+    margin-bottom: 20px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .panel h2 .icon {
+    width: 18px; height: 18px;
+    border-radius: 4px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.6rem;
+  }
+
+  /* ---- metric bars ---- */
+  .metric-bars { display: flex; flex-direction: column; gap: 14px; }
+  .metric-bar {
+    display: grid;
+    grid-template-columns: 52px 1fr 60px;
+    align-items: center;
+    gap: 12px;
+  }
+  .metric-bar .bar-label {
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    font-weight: 600;
+    color: var(--fg-dim);
+  }
+  .metric-bar .bar-track {
+    height: 8px;
+    background: var(--bg);
+    border-radius: 4px;
+    overflow: hidden;
+    position: relative;
+  }
+  .metric-bar .bar-fill {
+    height: 100%;
+    border-radius: 4px;
+    transition: width 1s cubic-bezier(0.22, 1, 0.36, 1);
+    width: 0;
+  }
+  .metric-bar .bar-value {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    color: var(--fg-dim);
+    text-align: right;
+  }
+
+  /* ---- pipeline steps ---- */
+  .pipeline {
+    display: flex;
+    gap: 0;
+    align-items: stretch;
+    margin-top: 8px;
+  }
+  .pipeline-step {
+    flex: 1;
+    padding: 18px 16px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    position: relative;
+    text-align: center;
+  }
+  .pipeline-step:first-child { border-radius: var(--radius) 0 0 var(--radius); }
+  .pipeline-step:last-child { border-radius: 0 var(--radius) var(--radius) 0; }
+  .pipeline-step:not(:last-child)::after {
+    content: '';
+    position: absolute;
+    right: -8px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 0; height: 0;
+    border-top: 7px solid transparent;
+    border-bottom: 7px solid transparent;
+    border-left: 8px solid var(--border);
+    z-index: 2;
+  }
+  .pipeline-step .step-num {
+    font-family: var(--mono);
+    font-size: 0.6rem;
+    font-weight: 600;
+    color: var(--accent);
+    letter-spacing: 0.08em;
+    margin-bottom: 6px;
+  }
+  .pipeline-step .step-title {
+    font-size: 0.78rem;
+    font-weight: 500;
+    color: var(--fg);
+    margin-bottom: 4px;
+  }
+  .pipeline-step .step-desc {
+    font-size: 0.68rem;
+    color: var(--fg-muted);
+    line-height: 1.45;
+  }
+
+  /* ---- findings list ---- */
+  .findings-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .finding-item {
+    display: flex;
+    gap: 14px;
+    align-items: flex-start;
+    padding: 14px 16px;
+    background: var(--bg);
+    border-radius: var(--radius-sm);
+    border-left: 3px solid var(--border);
+    transition: border-color 0.2s;
+  }
+  .finding-item:hover { border-left-color: var(--accent); }
+  .finding-item .finding-icon {
+    width: 28px; height: 28px;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--mono);
+    font-size: 0.65rem;
+    font-weight: 700;
+    flex-shrink: 0;
+  }
+  .finding-item .finding-text {
+    font-size: 0.82rem;
+    color: var(--fg-dim);
+    line-height: 1.55;
+  }
+  .finding-item .finding-text strong { color: var(--fg); font-weight: 500; }
+
+  /* ---- concern cards ---- */
+  .concern-list { display: flex; flex-direction: column; gap: 10px; }
+  .concern-item {
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+    padding: 12px 14px;
+    background: var(--red-dim);
+    border-radius: var(--radius-sm);
+    border: 1px solid rgba(239,83,80,0.15);
+  }
+  .concern-item .concern-icon {
+    color: var(--red);
+    font-size: 0.8rem;
+    flex-shrink: 0;
+    margin-top: 2px;
+  }
+  .concern-item .concern-text {
+    font-size: 0.8rem;
+    color: var(--fg-dim);
+    line-height: 1.5;
+  }
+
+  /* ---- layer heatmap (CSS-only) ---- */
+  .heatmap-wrap { margin-top: 8px; }
+  .heatmap-label-row {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 8px;
+  }
+  .heatmap-label-row span {
+    font-family: var(--mono);
+    font-size: 0.62rem;
+    color: var(--fg-muted);
+  }
+  .heatmap-grid {
+    display: grid;
+    grid-template-columns: repeat(12, 1fr);
+    gap: 4px;
+  }
+  .heatmap-cell {
+    aspect-ratio: 1;
+    border-radius: 4px;
+    position: relative;
+    cursor: default;
+    transition: transform 0.15s;
+  }
+  .heatmap-cell:hover {
+    transform: scale(1.2);
+    z-index: 2;
+  }
+  .heatmap-cell::after {
+    content: attr(data-tooltip);
+    position: absolute;
+    bottom: calc(100% + 6px);
+    left: 50%;
+    transform: translateX(-50%);
+    font-family: var(--mono);
+    font-size: 0.58rem;
+    color: var(--fg);
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    padding: 3px 8px;
+    border-radius: 4px;
+    white-space: nowrap;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.15s;
+  }
+  .heatmap-cell:hover::after { opacity: 1; }
+  .heatmap-legend {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 12px;
+  }
+  .heatmap-legend .legend-gradient {
+    width: 120px;
+    height: 8px;
+    border-radius: 4px;
+    background: linear-gradient(to right, #1a1e2a, #f0a030);
+  }
+  .heatmap-legend span {
+    font-family: var(--mono);
+    font-size: 0.6rem;
+    color: var(--fg-muted);
+  }
+
+  /* ---- model comparison table ---- */
+  .model-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.8rem;
+  }
+  .model-table th {
+    font-family: var(--mono);
+    font-size: 0.62rem;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--fg-muted);
+    text-align: left;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
+  }
+  .model-table td {
+    padding: 10px 12px;
+    border-bottom: 1px solid rgba(37,42,56,0.5);
+    color: var(--fg-dim);
+    font-family: var(--mono);
+    font-size: 0.76rem;
+  }
+  .model-table tr:hover td { background: var(--bg); }
+  .model-table .highlight { color: var(--accent); font-weight: 600; }
+  .model-table .model-name { color: var(--fg); font-weight: 500; }
+
+  /* ---- tabs ---- */
+  .tab-bar {
+    display: flex;
+    gap: 2px;
+    margin-bottom: 20px;
+    background: var(--bg);
+    border-radius: var(--radius-sm);
+    padding: 3px;
+  }
+  .tab-btn {
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    font-weight: 500;
+    color: var(--fg-muted);
+    background: none;
+    border: none;
+    padding: 7px 16px;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .tab-btn:hover { color: var(--fg-dim); }
+  .tab-btn.active {
+    background: var(--bg-card);
+    color: var(--accent);
+    box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+  }
+  .tab-content { display: none; }
+  .tab-content.active { display: block; }
+
+  /* ---- quote callout ---- */
+  .callout {
+    padding: 20px 24px;
+    border-left: 3px solid var(--accent);
+    background: var(--accent-glow);
+    border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+    margin-bottom: 16px;
+  }
+  .callout p {
+    font-size: 0.9rem;
+    color: var(--fg);
+    line-height: 1.65;
+    font-style: italic;
+  }
+  .callout--red {
+    border-left-color: var(--red);
+    background: var(--red-dim);
+  }
+  .callout--green {
+    border-left-color: var(--green);
+    background: var(--green-dim);
+  }
+
+  /* ---- footer ---- */
+  .footer {
+    border-top: 1px solid var(--border);
+    padding: 24px 0;
+    margin-top: 16px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+  .footer-left {
+    font-family: var(--mono);
+    font-size: 0.68rem;
+    color: var(--fg-muted);
+  }
+  .footer-right {
+    display: flex;
+    gap: 16px;
+  }
+  .footer-right a {
+    font-family: var(--mono);
+    font-size: 0.68rem;
+    color: var(--fg-muted);
+    text-decoration: none;
+    transition: color 0.2s;
+  }
+  .footer-right a:hover { color: var(--accent); }
+
+  /* ---- animations ---- */
+  @keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+  @keyframes fadeSlideUp {
+    from { opacity: 0; transform: translateY(18px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  /* ---- responsive ---- */
+  @media (max-width: 900px) {
+    .asset-row { grid-template-columns: repeat(2, 1fr); }
+    .body-grid { grid-template-columns: 1fr; }
+    .pipeline { flex-direction: column; }
+    .pipeline-step:not(:last-child)::after { display: none; }
+    .pipeline-step:first-child { border-radius: var(--radius) var(--radius) 0 0; }
+    .pipeline-step:last-child { border-radius: 0 0 var(--radius) var(--radius); }
+  }
+  @media (max-width: 600px) {
+    .asset-row { grid-template-columns: 1fr; }
+    .topbar { padding: 12px 16px; }
+    .container { padding: 0 16px; }
+    .hero { padding: 40px 0 32px; }
+    .topbar-links { display: none; }
+  }
+
+  /* ---- scrollbar ---- */
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-track { background: var(--bg); }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--fg-muted); }
+
+  /* ---- ablation bars ---- */
+  .ablation-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 8px;
+  }
+  .ablation-label {
+    width: 90px;
+    font-family: var(--mono);
+    font-size: 0.65rem;
+    color: var(--fg-muted);
+    text-align: right;
+    flex-shrink: 0;
+  }
+  .ablation-bar-track {
+    flex: 1;
+    height: 6px;
+    background: var(--bg);
+    border-radius: 3px;
+    overflow: hidden;
+  }
+  .ablation-bar-fill {
+    height: 100%;
+    border-radius: 3px;
+    transition: width 1.2s cubic-bezier(0.22, 1, 0.36, 1);
+    width: 0;
+  }
+  .ablation-value {
+    width: 36px;
+    font-family: var(--mono);
+    font-size: 0.65rem;
+    color: var(--fg-dim);
+    text-align: right;
+  }
+
+  /* tag pills */
+  .tag-pills { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+  .tag-pill {
+    font-family: var(--mono);
+    font-size: 0.6rem;
+    color: var(--fg-muted);
+    background: var(--bg);
+    padding: 4px 10px;
+    border-radius: 12px;
+    border: 1px solid var(--border);
+  }
+</style>
+</head>
+<body>
+
+<!-- Top Bar -->
+<nav class="topbar">
+  <span class="topbar-brand">arxiv daily</span>
+  <span class="topbar-sep">/</span>
+  <span class="topbar-title">2605.29888</span>
+  <div class="topbar-links">
+    <a href="./index.html">&larr; Index</a>
+    <a href="2605.29888.html">Markdown</a>
+    <a href="https://arxiv.org/abs/2605.29888" target="_blank" rel="noopener">arXiv &nearr;</a>
+  </div>
+</nav>
+
+<div class="container">
+
+  <!-- Hero -->
+  <section class="hero">
+    <div class="hero-tag">Representation-Level Contamination Detection</div>
+    <h1><em>LaRA</em> catches what output-level methods miss in RL post-training data</h1>
+    <p class="hero-sub">
+      By probing layer-wise representation geometry under controlled perturbations, LaRA reveals that RL-induced memorization produces anomalous internal responses invisible to token-level detectors.
+    </p>
+    <div class="hero-meta">
+      <span>arXiv <strong>2605.29888</strong></span>
+      <span>2026-05-28</span>
+      <span>Gwak, Kwak, Lee, Son, Ritter, Kim</span>
+      <span>Yonsei / SNU / Georgia Tech</span>
+    </div>
+    <div class="tag-pills">
+      <span class="tag-pill">data-contamination</span>
+      <span class="tag-pill">reinforcement-learning</span>
+      <span class="tag-pill">LLM-reasoning</span>
+      <span class="tag-pill">representation-analysis</span>
+      <span class="tag-pill">post-training</span>
+    </div>
+  </section>
+
+  <!-- Asset Row -->
+  <section class="asset-row">
+    <div class="asset-card asset-card--accent">
+      <div class="label"><span class="dot"></span> Key Metric</div>
+      <div class="big-number">+9.6%</div>
+      <div class="desc">AUC improvement over strongest output-level baseline (Self-Critique)</div>
+      <div class="sub-stat">TPR@FPR=5% improved by <strong>3.5&times;</strong></div>
+    </div>
+    <div class="asset-card asset-card--cyan">
+      <div class="label"><span class="dot"></span> Key Finding</div>
+      <div class="big-number" style="font-size:1.4rem; line-height:1.3;">Contaminated samples are overly stable yet shift violently when memorized info is removed</div>
+    </div>
+    <div class="asset-card asset-card--green">
+      <div class="label"><span class="dot"></span> Why This Matters</div>
+      <div class="desc" style="margin-top:4px;">RL post-training is now standard for reasoning models. Contamination detection is essential for evaluation integrity.</div>
+    </div>
+    <div class="asset-card asset-card--red">
+      <div class="label"><span class="dot"></span> Critical Edge</div>
+      <div class="desc" style="margin-top:4px;">Only 30+30 samples per model. Untested beyond 7B. Computationally expensive. Marked "Work in Progress."</div>
+    </div>
+  </section>
+
+  <!-- Body Grid -->
+  <div class="body-grid">
+
+    <!-- Left: Metrics Breakdown -->
+    <div class="panel">
+      <h2><span class="icon" style="background:var(--accent-glow);color:var(--accent);">M</span> Three Complementary Metrics</h2>
+      <div class="tab-bar">
+        <button class="tab-btn active" data-tab="rsm">RSM</button>
+        <button class="tab-btn" data-tab="dc">DC</button>
+        <button class="tab-btn" data-tab="rsi">RSI</button>
+      </div>
+
+      <div class="tab-content active" id="tab-rsm">
+        <h3 style="font-size:0.85rem;color:var(--fg);margin-bottom:8px;font-weight:600;">Representation Shift Magnitude</h3>
+        <p style="font-size:0.8rem;color:var(--fg-dim);margin-bottom:16px;line-height:1.6;">
+          Measures how strongly representations change when key information is removed. Computes z-scored L2 distance between original and blanked representations, standardized against semantic neighbors.
+        </p>
+        <div class="callout">
+          <p>High RSM = strong perturbation sensitivity, indicating memorized dependence on removed information.</p>
+        </div>
+        <div class="metric-bars">
+          <div class="metric-bar">
+            <span class="bar-label">LIMR</span>
+            <div class="bar-track"><div class="bar-fill" data-width="80" style="background:var(--accent);"></div></div>
+            <span class="bar-value">0.80</span>
+          </div>
+          <div class="metric-bar">
+            <span class="bar-label">Eurus</span>
+            <div class="bar-track"><div class="bar-fill" data-width="73" style="background:var(--accent);opacity:0.7;"></div></div>
+            <span class="bar-value">0.73</span>
+          </div>
+          <div class="metric-bar">
+            <span class="bar-label">Olmo</span>
+            <div class="bar-track"><div class="bar-fill" data-width="69" style="background:var(--accent);opacity:0.55;"></div></div>
+            <span class="bar-value">0.69</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="tab-content" id="tab-dc">
+        <h3 style="font-size:0.85rem;color:var(--fg);margin-bottom:8px;font-weight:600;">Directional Collapse</h3>
+        <p style="font-size:0.8rem;color:var(--fg-dim);margin-bottom:16px;line-height:1.6;">
+          Measures cosine alignment between the original perturbation direction and the average direction of semantic neighbors. Captures whether representation changes collapse into a low-dimensional subspace.
+        </p>
+        <div class="callout callout--green">
+          <p>DC provides the strongest standalone discrimination signal but varies across training epochs.</p>
+        </div>
+        <div class="findings-list">
+          <div class="finding-item">
+            <div class="finding-icon" style="background:var(--green-dim);color:var(--green);">1</div>
+            <div class="finding-text">High DC = reduced representational diversity, indicating contamination-induced rigidity</div>
+          </div>
+          <div class="finding-item">
+            <div class="finding-icon" style="background:var(--green-dim);color:var(--green);">2</div>
+            <div class="finding-text">DC amplifies in <strong>deeper layers</strong> during RL training</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="tab-content" id="tab-rsi">
+        <h3 style="font-size:0.85rem;color:var(--fg);margin-bottom:8px;font-weight:600;">Representation Stability Index</h3>
+        <p style="font-size:0.8rem;color:var(--fg-dim);margin-bottom:16px;line-height:1.6;">
+          Measures local representation variability under paraphrastic perturbations. Computes average L2 distance from local centroid across paraphrase variants, z-scored against neighbors.
+        </p>
+        <div class="callout">
+          <p>Low RSI = more rigid and invariant local representation geometry. RSI concentrated in earlier layers.</p>
+        </div>
+        <div class="findings-list">
+          <div class="finding-item">
+            <div class="finding-icon" style="background:var(--accent-glow);color:var(--accent);">!</div>
+            <div class="finding-text">Removing <strong>any single metric</strong> degrades overall detection performance &mdash; all three are complementary</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Right: Detection Pipeline -->
+    <div class="panel">
+      <h2><span class="icon" style="background:var(--cyan-dim);color:var(--cyan);">P</span> Detection Pipeline</h2>
+      <div class="pipeline">
+        <div class="pipeline-step">
+          <div class="step-num">01</div>
+          <div class="step-title">Perturb</div>
+          <div class="step-desc">Generate K similar questions + blank key info + M paraphrase variants</div>
+        </div>
+        <div class="pipeline-step">
+          <div class="step-num">02</div>
+          <div class="step-title">Extract</div>
+          <div class="step-desc">Compute RSM, DC, RSI at each transformer layer</div>
+        </div>
+        <div class="pipeline-step">
+          <div class="step-num">03</div>
+          <div class="step-title">Detect</div>
+          <div class="step-desc">MAD-based standardization, metric alignment, cross-layer aggregation</div>
+        </div>
+      </div>
+
+      <!-- Layer-wise heatmap -->
+      <div style="margin-top:28px;">
+        <h2 style="margin-bottom:14px;"><span class="icon" style="background:var(--accent-glow);color:var(--accent);">H</span> Contamination Signal by Layer</h2>
+        <p style="font-size:0.72rem;color:var(--fg-muted);margin-bottom:14px;">
+          Relative contamination signal intensity across transformer layers (approximated). Hover for details.
+        </p>
+        <div class="heatmap-wrap">
+          <div class="heatmap-label-row">
+            <span>Layer 0</span>
+            <span>Layer 11</span>
+          </div>
+          <div class="heatmap-grid" id="heatmap-rsm">
+            <!-- filled by JS -->
+          </div>
+          <div class="heatmap-legend">
+            <span>Low</span>
+            <div class="legend-gradient"></div>
+            <span>High</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Full-width: Model Comparison -->
+    <div class="panel full-width">
+      <h2><span class="icon" style="background:var(--accent-glow);color:var(--accent);">T</span> Detection Performance Across Models</h2>
+      <table class="model-table">
+        <thead>
+          <tr>
+            <th>Model</th>
+            <th>Method</th>
+            <th>AUC (Init)</th>
+            <th>TPR@5% (Init)</th>
+            <th>AUC (Post-RL)</th>
+            <th>TPR@5% (Post-RL)</th>
+            <th>&Delta; AUC vs SC</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="model-name">LIMR</td>
+            <td>S_LaRA</td>
+            <td>&mdash;</td>
+            <td>&mdash;</td>
+            <td class="highlight">0.80</td>
+            <td class="highlight">0.46</td>
+            <td class="highlight">+9.6%</td>
+          </tr>
+          <tr>
+            <td class="model-name">Eurus-2-7B</td>
+            <td>SC + S_LaRA</td>
+            <td>0.73</td>
+            <td>0.31</td>
+            <td>0.79</td>
+            <td>0.38</td>
+            <td>+6.8%</td>
+          </tr>
+          <tr>
+            <td class="model-name">Olmo-3.1-7B</td>
+            <td>S_LaRA</td>
+            <td>&mdash;</td>
+            <td>&mdash;</td>
+            <td>0.69</td>
+            <td>0.31</td>
+            <td>+4.3%</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Left: Ablation -->
+    <div class="panel">
+      <h2><span class="icon" style="background:var(--green-dim);color:var(--green);">A</span> Ablation: Perturbation Robustness</h2>
+      <p style="font-size:0.76rem;color:var(--fg-muted);margin-bottom:16px;">AUC by number of blanks applied (k) to input questions.</p>
+      <div id="ablation-bars">
+        <div class="ablation-row">
+          <span class="ablation-label">k = 1</span>
+          <div class="ablation-bar-track"><div class="ablation-bar-fill" data-width="62" style="background:var(--green);"></div></div>
+          <span class="ablation-value">0.62</span>
+        </div>
+        <div class="ablation-row">
+          <span class="ablation-label">k = 2</span>
+          <div class="ablation-bar-track"><div class="ablation-bar-fill" data-width="69" style="background:var(--green);"></div></div>
+          <span class="ablation-value">0.69</span>
+        </div>
+        <div class="ablation-row">
+          <span class="ablation-label">k = 3</span>
+          <div class="ablation-bar-track"><div class="ablation-bar-fill" data-width="74" style="background:var(--accent);"></div></div>
+          <span class="ablation-value">0.74</span>
+        </div>
+        <div class="ablation-row">
+          <span class="ablation-label">k = 4</span>
+          <div class="ablation-bar-track"><div class="ablation-bar-fill" data-width="77" style="background:var(--accent);"></div></div>
+          <span class="ablation-value">0.77</span>
+        </div>
+      </div>
+      <div style="margin-top:20px;">
+        <p style="font-size:0.76rem;color:var(--fg-muted);margin-bottom:12px;">AUC by perturbation type.</p>
+        <div class="ablation-row">
+          <span class="ablation-label">Info Remove</span>
+          <div class="ablation-bar-track"><div class="ablation-bar-fill" data-width="69" style="background:var(--cyan);"></div></div>
+          <span class="ablation-value">0.69</span>
+        </div>
+        <div class="ablation-row">
+          <span class="ablation-label">Distractor</span>
+          <div class="ablation-bar-track"><div class="ablation-bar-fill" data-width="63" style="background:var(--cyan);opacity:0.8;"></div></div>
+          <span class="ablation-value">0.63</span>
+        </div>
+        <div class="ablation-row">
+          <span class="ablation-label">Num Replace</span>
+          <div class="ablation-bar-track"><div class="ablation-bar-fill" data-width="56" style="background:var(--cyan);opacity:0.6;"></div></div>
+          <span class="ablation-value">0.56</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Right: Limitations -->
+    <div class="panel">
+      <h2><span class="icon" style="background:var(--red-dim);color:var(--red);">!</span> Limitations &amp; Concerns</h2>
+      <div class="concern-list">
+        <div class="concern-item">
+          <span class="concern-icon">&#9888;</span>
+          <span class="concern-text"><strong>Small evaluation set:</strong> 30+30 samples per model provides limited statistical power; AUC estimates have wide confidence intervals.</span>
+        </div>
+        <div class="concern-item">
+          <span class="concern-icon">&#9888;</span>
+          <span class="concern-text"><strong>Scale uncertainty:</strong> Only tested on 7B models. Unclear whether findings transfer to 70B+ models where per-layer extraction becomes memory-intensive.</span>
+        </div>
+        <div class="concern-item">
+          <span class="concern-icon">&#9888;</span>
+          <span class="concern-text"><strong>Computational cost:</strong> Requires multiple forward passes per sample (K questions &times; M paraphrases &times; all layers), far more expensive than output-level methods.</span>
+        </div>
+        <div class="concern-item">
+          <span class="concern-icon">&#9888;</span>
+          <span class="concern-text"><strong>Proprietary dependency:</strong> Uses GPT-4o-mini for perturbation generation, introducing variability and a closed-source dependency.</span>
+        </div>
+        <div class="concern-item">
+          <span class="concern-icon">&#9888;</span>
+          <span class="concern-text"><strong>Work in Progress:</strong> Paper is explicitly marked as not final; results and methodology may change.</span>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /body-grid -->
+
+  <!-- Footer -->
+  <footer class="footer">
+    <div class="footer-left">arxiv daily digest &middot; 2026-05-28</div>
+    <div class="footer-right">
+      <a href="./index.html">Index</a>
+      <a href="2605.29888.html">Markdown</a>
+      <a href="https://arxiv.org/abs/2605.29888">arXiv</a>
+    </div>
+  </footer>
+
+</div><!-- /container -->
+
+<script>
+(function() {
+  // ---- Tabs ----
+  const tabBtns = document.querySelectorAll('.tab-btn');
+  tabBtns.forEach(btn => {
+    btn.addEventListener('click', () => {
+      const tabId = btn.getAttribute('data-tab');
+      tabBtns.forEach(b => b.classList.remove('active'));
+      document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+      btn.classList.add('active');
+      document.getElementById('tab-' + tabId).classList.add('active');
+    });
+  });
+
+  // ---- Animate bars on scroll ----
+  function animateBars() {
+    document.querySelectorAll('.bar-fill[data-width], .ablation-bar-fill[data-width]').forEach(el => {
+      const rect = el.getBoundingClientRect();
+      if (rect.top < window.innerHeight - 40) {
+        el.style.width = el.getAttribute('data-width') + '%';
+      }
+    });
+  }
+  window.addEventListener('scroll', animateBars, { passive: true });
+  setTimeout(animateBars, 300);
+
+  // ---- Heatmap ----
+  // Approximate contamination signal intensity by layer for RSM metric
+  const heatmapData = [
+    { layer: 'L0', intensity: 15, desc: 'L0: Minimal signal' },
+    { layer: 'L1', intensity: 20, desc: 'L1: Weak signal' },
+    { layer: 'L2', intensity: 28, desc: 'L2: Emerging' },
+    { layer: 'L3', intensity: 38, desc: 'L3: Moderate' },
+    { layer: 'L4', intensity: 50, desc: 'L4: Growing' },
+    { layer: 'L5', intensity: 62, desc: 'L5: Elevated' },
+    { layer: 'L6', intensity: 75, desc: 'L6: Strong' },
+    { layer: 'L7', intensity: 92, desc: 'L7: Peak contamination signal' },
+    { layer: 'L8', intensity: 95, desc: 'L8: Peak contamination signal' },
+    { layer: 'L9', intensity: 82, desc: 'L9: Strong' },
+    { layer: 'L10', intensity: 60, desc: 'L10: Declining' },
+    { layer: 'L11', intensity: 45, desc: 'L11: Moderate' },
+  ];
+
+  const heatmapGrid = document.getElementById('heatmap-rsm');
+  heatmapData.forEach(d => {
+    const cell = document.createElement('div');
+    cell.className = 'heatmap-cell';
+    const pct = d.intensity;
+    // Interpolate from dark blue-gray to accent orange
+    const r = Math.round(26 + (240 - 26) * pct / 100);
+    const g = Math.round(30 + (160 - 30) * pct / 100);
+    const b = Math.round(42 + (48 - 42) * pct / 100);
+    cell.style.background = 'rgb(' + r + ',' + g + ',' + b + ')';
+    cell.setAttribute('data-tooltip', d.desc);
+    heatmapGrid.appendChild(cell);
+  });
+
+})();
+</script>
+
+</body>
+</html>

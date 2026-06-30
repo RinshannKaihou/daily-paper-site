@@ -1,0 +1,589 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PolicyGuard — Test-time RL Backdoor Defense</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg: #0B0F14;
+  --surface: #131920;
+  --surface2: #1A2230;
+  --border: #253040;
+  --fg: #E2E8F0;
+  --muted: #7A8BA0;
+  --accent: #D4943A;
+  --accent-dim: rgba(212,148,58,0.12);
+  --accent-glow: rgba(212,148,58,0.25);
+  --danger: #E8564A;
+  --danger-dim: rgba(232,86,74,0.10);
+  --mono: 'SF Mono', 'Fira Code', 'Cascadia Code', 'Menlo', monospace;
+  --sans: -apple-system, 'Segoe UI', 'Helvetica Neue', 'Noto Sans SC', 'PingFang SC', sans-serif;
+  --serif: 'Charter', 'Noto Serif SC', 'Georgia', serif;
+}
+
+html { font-size: 15px; scroll-behavior: smooth; }
+body {
+  font-family: var(--sans);
+  background: var(--bg);
+  color: var(--fg);
+  line-height: 1.55;
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ---------- NAV ---------- */
+.topbar {
+  position: fixed; top: 0; left: 0; right: 0;
+  z-index: 100;
+  background: rgba(11,15,20,0.85);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--border);
+  padding: 0.65rem 1.5rem;
+  display: flex; align-items: center; gap: 1rem;
+  font-size: 0.82rem;
+}
+.topbar a {
+  color: var(--muted);
+  text-decoration: none;
+  transition: color 0.2s;
+}
+.topbar a:hover { color: var(--accent); }
+.topbar .tag {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  background: var(--accent-dim);
+  color: var(--accent);
+  padding: 0.15rem 0.55rem;
+  border-radius: 3px;
+  letter-spacing: 0.03em;
+}
+
+/* ---------- CONTAINER ---------- */
+.container {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 0 1.5rem;
+}
+
+/* ---------- HERO ---------- */
+.hero {
+  padding-top: 5rem;
+  padding-bottom: 2rem;
+  border-bottom: 1px solid var(--border);
+  animation: fadeUp 0.5s ease both;
+}
+.hero-venue {
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  color: var(--accent);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  margin-bottom: 0.75rem;
+}
+.hero h1 {
+  font-family: var(--serif);
+  font-size: clamp(1.55rem, 3.8vw, 2.35rem);
+  font-weight: 700;
+  line-height: 1.25;
+  color: #fff;
+  margin-bottom: 0.35rem;
+}
+.hero .authors {
+  font-size: 0.88rem;
+  color: var(--muted);
+  margin-bottom: 1.35rem;
+}
+.hero-claim {
+  font-size: 1.05rem;
+  line-height: 1.65;
+  color: var(--fg);
+  border-left: 3px solid var(--accent);
+  padding: 0.75rem 1.1rem;
+  background: var(--accent-dim);
+  border-radius: 0 6px 6px 0;
+  max-width: 780px;
+}
+.hero-claim strong { color: #fff; }
+
+/* ---------- ASSET ROW ---------- */
+.assets {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 1rem;
+  padding: 2rem 0;
+  border-bottom: 1px solid var(--border);
+}
+.asset-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 1.25rem 1.35rem;
+  position: relative;
+  animation: fadeUp 0.5s ease both;
+}
+.asset-card:nth-child(1) { animation-delay: 0.08s; }
+.asset-card:nth-child(2) { animation-delay: 0.14s; }
+.asset-card:nth-child(3) { animation-delay: 0.20s; }
+.asset-card:nth-child(4) { animation-delay: 0.26s; }
+.asset-label {
+  font-family: var(--mono);
+  font-size: 0.65rem;
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 0.65rem;
+}
+.asset-card.metric .asset-label { color: var(--accent); }
+.asset-card.edge .asset-label { color: var(--danger); }
+.asset-value {
+  font-family: var(--mono);
+  font-size: 2.1rem;
+  font-weight: 700;
+  color: var(--accent);
+  line-height: 1.1;
+  margin-bottom: 0.45rem;
+}
+.asset-card.edge .asset-value { color: var(--danger); font-size: 1.05rem; font-weight: 600; font-family: var(--sans); line-height: 1.5; }
+.asset-desc {
+  font-size: 0.82rem;
+  color: var(--muted);
+  line-height: 1.5;
+}
+.asset-card.why .asset-desc,
+.asset-card.context .asset-desc { font-size: 0.88rem; color: var(--fg); opacity: 0.82; }
+
+/* ---------- BODY GRID ---------- */
+.body-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.5rem;
+  padding: 2.5rem 0 2rem;
+}
+@media (max-width: 720px) {
+  .body-grid { grid-template-columns: 1fr; }
+}
+.body-grid .full { grid-column: 1 / -1; }
+
+/* ---------- SECTION ---------- }
+.section {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 1.35rem 1.5rem;
+  animation: fadeUp 0.45s ease both;
+}
+.section h2 {
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 0.85rem;
+  display: flex; align-items: center; gap: 0.5rem;
+}
+.section h2::before {
+  content: '';
+  display: inline-block;
+  width: 6px; height: 6px;
+  background: var(--accent);
+  border-radius: 1px;
+  flex-shrink: 0;
+}
+.section ul {
+  list-style: none;
+  padding: 0;
+}
+.section li {
+  font-size: 0.85rem;
+  line-height: 1.6;
+  color: var(--fg);
+  opacity: 0.88;
+  padding: 0.35rem 0;
+  padding-left: 0.9rem;
+  border-left: 2px solid var(--border);
+}
+.section li + li { margin-top: 0.15rem; }
+.section p {
+  font-size: 0.88rem;
+  line-height: 1.65;
+  color: var(--fg);
+  opacity: 0.88;
+}
+
+/* strengths section */
+.section.strengths li { border-left-color: rgba(80,200,120,0.35); }
+.section.strengths h2 { color: #50C878; }
+.section.strengths h2::before { background: #50C878; }
+
+/* limitations section */
+.section.limitations li { border-left-color: rgba(232,86,74,0.30); }
+.section.limitations h2 { color: var(--danger); }
+.section.limitations h2::before { background: var(--danger); }
+
+/* ---------- RESULT TABLE ---------- */
+.results-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--mono);
+  font-size: 0.78rem;
+}
+.results-table th {
+  text-align: left;
+  color: var(--muted);
+  font-weight: 500;
+  padding: 0.45rem 0.6rem;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.7rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.results-table td {
+  padding: 0.5rem 0.6rem;
+  color: var(--fg);
+  border-bottom: 1px solid var(--border);
+  opacity: 0.85;
+}
+.results-table tr:last-child td { border-bottom: none; }
+.results-table .hl { color: var(--accent); font-weight: 700; opacity: 1; }
+.results-table .dim { color: var(--muted); opacity: 0.6; }
+
+/* ---------- COMPARISON BAR ---------- */
+.bar-group { margin: 0.6rem 0; }
+.bar-label {
+  font-size: 0.78rem;
+  color: var(--muted);
+  margin-bottom: 0.25rem;
+  display: flex; justify-content: space-between;
+}
+.bar-track {
+  height: 7px;
+  background: var(--surface2);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.bar-fill {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 0.8s cubic-bezier(0.22, 1, 0.36, 1);
+  width: 0;
+}
+.bar-fill.accent { background: var(--accent); }
+.bar-fill.muted-bar { background: var(--muted); opacity: 0.4; }
+.bar-fill.danger { background: var(--danger); opacity: 0.5; }
+
+/* ---------- METHOD FLOW ---------- */
+.method-flow {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+.method-step {
+  display: flex;
+  gap: 1rem;
+  align-items: flex-start;
+}
+.method-num {
+  font-family: var(--mono);
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--accent);
+  opacity: 0.5;
+  min-width: 2rem;
+  text-align: right;
+  line-height: 1;
+  padding-top: 0.15rem;
+}
+.method-text {
+  font-size: 0.88rem;
+  line-height: 1.6;
+  color: var(--fg);
+  opacity: 0.88;
+}
+.method-text code {
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  background: var(--surface2);
+  color: var(--accent);
+  padding: 0.1rem 0.35rem;
+  border-radius: 3px;
+}
+
+/* ---------- QUESTIONS ---------- */
+.questions-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 0.85rem;
+}
+.q-card {
+  background: var(--surface2);
+  border-radius: 6px;
+  padding: 0.9rem 1rem;
+  font-size: 0.84rem;
+  line-height: 1.55;
+  color: var(--fg);
+  opacity: 0.82;
+  border-left: 3px solid var(--accent);
+}
+
+/* ---------- FOOTER ---------- */
+.footer {
+  border-top: 1px solid var(--border);
+  padding: 1.5rem 0 2rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.82rem;
+}
+.footer a {
+  color: var(--muted);
+  text-decoration: none;
+  transition: color 0.2s;
+}
+.footer a:hover { color: var(--accent); }
+
+/* ---------- ANIMATIONS ---------- */
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
+
+/* ---------- RESPONSIVE ---------- */
+@media (max-width: 600px) {
+  .hero { padding-top: 4rem; }
+  .assets { grid-template-columns: 1fr; }
+  .hero-claim { font-size: 0.92rem; }
+  .container { padding: 0 1rem; }
+  .questions-grid { grid-template-columns: 1fr; }
+  .footer { flex-direction: column; gap: 0.5rem; align-items: flex-start; }
+}
+</style>
+</head>
+<body>
+
+<!-- TOPBAR -->
+<nav class="topbar">
+  <a href="./index.html">↩ Today's digest</a>
+  <span class="tag">2606.12896</span>
+</nav>
+
+<!-- HERO -->
+<section class="hero">
+  <div class="container">
+    <div class="hero-venue">ICML 2026 · PMLR 306 · University of Maryland</div>
+    <h1>PolicyGuard: Test-time Step-level Adversary Defense for RL Agents</h1>
+    <p class="authors">Junfeng Guo, Heng Huang</p>
+    <div class="hero-claim">
+      <strong>First practical black-box defense</strong> that detects backdoors in RL agents at test time, step by step — remaining effective (<strong>AUROC 0.868</strong>) even against hard-coded attacks where every prior defense collapses to random chance.
+    </div>
+  </div>
+</section>
+
+<!-- ASSET ROW -->
+<div class="container">
+  <div class="assets">
+    <!-- KEY METRIC -->
+    <div class="asset-card metric">
+      <div class="asset-label">Key Metric</div>
+      <div class="asset-value">0.868</div>
+      <div class="asset-desc">AUROC on hard-coded attacks — vs ≈ 0.5 for Neural Cleanse, STRIP, SCALE-UP, and PolicyCleanse.</div>
+    </div>
+    <!-- WHY THIS MATTERS -->
+    <div class="asset-card why">
+      <div class="asset-label">Why This Matters</div>
+      <div class="asset-desc">Deployed RL agents can carry hard-coded adversarial policies invisible to parameter-level inspection. PolicyGuard detects them using only observed state-action pairs — no model access, no future trajectory.</div>
+    </div>
+    <!-- CRITICAL EDGE -->
+    <div class="asset-card edge">
+      <div class="asset-label">Critical Edge</div>
+      <div class="asset-value">Clean-env assumption · Detection only · Sim only</div>
+      <div class="asset-desc">Requires a clean environment for GP training. Does not mitigate. Evaluated only in Atari/MuJoCo simulation.</div>
+    </div>
+    <!-- CONTEXT -->
+    <div class="asset-card context">
+      <div class="asset-label">Context</div>
+      <div class="asset-desc">
+        <strong>7 RL games</strong> · 2 attack paradigms + hard-coded variant<br>
+        <strong>Method:</strong> Additive Gaussian Process on learned behavior manifold + adaptive pseudo trajectories<br>
+        <strong>Venue:</strong> ICML 2026
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- BODY GRID -->
+<div class="container">
+  <div class="body-grid">
+
+    <!-- METHODOLOGY (full width) -->
+    <div class="section full" style="animation-delay:0.12s">
+      <h2>Methodology</h2>
+      <div class="method-flow">
+        <div class="method-step">
+          <span class="method-num">1</span>
+          <div class="method-text"><strong>Behavioral manifold learning.</strong> Collect trajectories from a <em>clean environment</em> (black-box). Encode state-action pairs: <code>CNN + GRU</code> for Atari, <code>MLP + GRU</code> for MuJoCo. Project final hidden state → episode embedding.</div>
+        </div>
+        <div class="method-step">
+          <span class="method-num">2</span>
+          <div class="method-text"><strong>Additive GP with deep recurrent kernels.</strong> Predict episode reward as <code>f = α_t·f_t + α_e·f_e</code> — timestep correlations via SE kernel + episode-level patterns via SE kernel. Train with sparse variational inference (inducing points), end-to-end.</div>
+        </div>
+        <div class="method-step">
+          <span class="method-num">3</span>
+          <div class="method-text"><strong>Step-level uncertainty via pseudo trajectories.</strong> At test time, concatenate observed history up to <code>t</code> with future segments from held-out reference trajectories. Feed each pseudo trajectory through encoder + GP, extract posterior variance, aggregate across trajectories using <strong>Interquartile Mean</strong>. Backdoor steps → elevated variance.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- RESULTS (full width) -->
+    <div class="section full" style="animation-delay:0.18s">
+      <h2>Detection Performance</h2>
+      <div style="overflow-x:auto;">
+        <table class="results-table">
+          <thead>
+            <tr>
+              <th>Method</th>
+              <th>Perturbation</th>
+              <th>Adversary-Agent</th>
+              <th>Hard-coded (Pert.)</th>
+              <th>Hard-coded (Adv.)</th>
+              <th>Access Required</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong style="color:var(--accent)">PolicyGuard</strong></td>
+              <td class="hl">0.856</td>
+              <td class="hl">0.859</td>
+              <td class="hl">0.868</td>
+              <td class="hl">0.878</td>
+              <td>Black-box (s,a only)</td>
+            </tr>
+            <tr>
+              <td>SHINE</td>
+              <td class="dim">—</td>
+              <td class="dim">—</td>
+              <td>0.826</td>
+              <td>0.810</td>
+              <td>Black-box</td>
+            </tr>
+            <tr>
+              <td>STRIP</td>
+              <td>0.900</td>
+              <td class="dim">—</td>
+              <td class="dim">≈ 0.5</td>
+              <td class="dim">≈ 0.5</td>
+              <td>Probability vectors</td>
+            </tr>
+            <tr>
+              <td>Neural Cleanse</td>
+              <td class="dim">—</td>
+              <td class="dim">—</td>
+              <td class="dim">≈ 0.5</td>
+              <td class="dim">≈ 0.5</td>
+              <td>Model internals</td>
+            </tr>
+            <tr>
+              <td>SCALE-UP / PolicyCleanse</td>
+              <td class="dim">—</td>
+              <td class="dim">—</td>
+              <td class="dim">≈ 0.5</td>
+              <td class="dim">≈ 0.5</td>
+              <td>Varies</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <!-- Visual comparison bars -->
+      <div style="margin-top:1.2rem;">
+        <div class="bar-group">
+          <div class="bar-label"><span>PolicyGuard — Hard-coded pert.</span><span style="color:var(--accent)">0.868</span></div>
+          <div class="bar-track"><div class="bar-fill accent" data-width="86.8"></div></div>
+        </div>
+        <div class="bar-group">
+          <div class="bar-label"><span>SHINE — Hard-coded pert.</span><span>0.826</span></div>
+          <div class="bar-track"><div class="bar-fill muted-bar" data-width="82.6"></div></div>
+        </div>
+        <div class="bar-group">
+          <div class="bar-label"><span>Prior defenses (avg) — Hard-coded</span><span style="color:var(--danger)">≈ 0.5</span></div>
+          <div class="bar-track"><div class="bar-fill danger" data-width="50"></div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- STRENGTHS -->
+    <div class="section strengths" style="animation-delay:0.24s">
+      <h2>Strengths</h2>
+      <ul>
+        <li>First test-time, step-level RL backdoor defense working in black-box settings without future trajectories.</li>
+        <li>Robust to hard-coded attacks that break all optimization-based defenses.</li>
+        <li>Theoretically grounded: benign posterior variance → 0 with sufficient clean data (Theorem 3.1).</li>
+        <li>Broad evaluation: 7 games, 2 attack paradigms, adaptive attacks, ablations.</li>
+        <li>~9% faster inference than SHINE.</li>
+      </ul>
+    </div>
+
+    <!-- LIMITATIONS -->
+    <div class="section limitations" style="animation-delay:0.28s">
+      <h2>Limitations</h2>
+      <ul>
+        <li>Requires clean environment for GP training — non-trivial for real-world deployment with environment shift.</li>
+        <li>Detection only; no built-in mitigation or intervention.</li>
+        <li>Evaluated only in simulation (Atari / MuJoCo); sim-to-real gap unknown.</li>
+        <li>GP inference + pseudo-trajectory Monte Carlo adds per-step computational overhead.</li>
+        <li>Not tested on continuous-action or partially observable environments.</li>
+      </ul>
+    </div>
+
+    <!-- RELEVANCE -->
+    <div class="section full" style="animation-delay:0.32s">
+      <h2>Relevance</h2>
+      <p>对强化学习安全、后门攻击检测以及对抗鲁棒性研究具有直接参考价值；PolicyGuard 的"测试时+逐时间步+黑盒"范式为在线部署的 RL 系统提供了一条不依赖模型内部参数的实用防御路径，尤其适合需要早期发现异常行为的安全关键场景。</p>
+    </div>
+
+    <!-- QUESTIONS -->
+    <div class="section full" style="animation-delay:0.36s">
+      <h2>Open Questions</h2>
+      <div class="questions-grid">
+        <div class="q-card">How would PolicyGuard perform in continuous-control or partially observable environments where trajectory manifolds are more complex?</div>
+        <div class="q-card">Can the clean-environment requirement be relaxed through domain adaptation or sim-to-real transfer?</div>
+        <div class="q-card">What is the most effective intervention strategy to pair with detection — safe defaults, input sanitization, or human oversight?</div>
+        <div class="q-card">How does the method scale to very long episodes or high-dimensional observations (e.g., autonomous driving pixel streams)?</div>
+        <div class="q-card">Can adaptive attackers craft triggers that lie exactly on the learned clean manifold, and what inductive biases would detect them?</div>
+      </div>
+    </div>
+
+  </div><!-- /body-grid -->
+</div><!-- /container -->
+
+<!-- FOOTER -->
+<div class="container">
+  <div class="footer">
+    <a href="https://arxiv.org/abs/2606.12896" target="_blank" rel="noopener">arxiv.org/abs/2606.12896</a>
+    <a href="2606.12896.html">↗ Markdown source</a>
+  </div>
+</div>
+
+<script>
+// Animate comparison bars on scroll
+(function() {
+  const fills = document.querySelectorAll('.bar-fill[data-width]');
+  if (!fills.length) return;
+  const observer = new IntersectionObserver(function(entries) {
+    entries.forEach(function(entry) {
+      if (entry.isIntersecting) {
+        var el = entry.target;
+        el.style.width = el.getAttribute('data-width') + '%';
+        observer.unobserve(el);
+      }
+    });
+  }, { threshold: 0.3 });
+  fills.forEach(function(f) { observer.observe(f); });
+})();
+</script>
+</body>
+</html>

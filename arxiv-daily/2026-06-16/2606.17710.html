@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Vision-language models for chest radiography do not always need the image</title>
+<style>
+:root { --paper:#fafafa; --ink:#1a1a1a; --muted:#555; --accent:#1a5276; --line:#ddd; --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif; --serif:Georgia,"Noto Serif SC",serif; }
+body { font-family:var(--serif); background:var(--paper); color:var(--ink); line-height:1.6; margin:0; padding:0; }
+.container { max-width:min(95vw, 760px); margin:0 auto; padding:28px 20px 60px; }
+.topnav { position:fixed; top:12px; left:14px; z-index:50; font-family:var(--sans); font-size:.75rem; background:var(--paper); border:1px solid var(--line); padding:5px 10px; border-radius:999px; }
+.topnav a { color:var(--muted); text-decoration:none; font-weight:600; }
+.topnav a:hover { color:var(--accent); }
+h1 { font-size:1.6rem; margin:2.2rem 0 1rem; border-bottom:2px solid var(--accent); padding-bottom:.3rem; }
+h2 { font-size:1.3rem; margin:1.8rem 0 .8rem; color:var(--accent); }
+h3 { font-size:1.1rem; margin:1.4rem 0 .6rem; }
+p { margin:.8rem 0; }
+.authors { font-style:italic; color:var(--muted); margin-top:-.4rem; }
+.meta { font-family:var(--sans); font-size:.82rem; color:var(--muted); margin:.2rem 0; }
+a { color:var(--accent); text-decoration:none; }
+a:hover { text-decoration:underline; }
+blockquote { border-left:3px solid var(--accent); margin:1rem 0; padding:.2rem 0 .2rem 1rem; color:var(--muted); font-style:italic; }
+code { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; background:#f0f0f0; padding:2px 5px; border-radius:3px; font-size:.9em; }
+pre { background:#f5f5f5; padding:14px; overflow-x:auto; border-radius:4px; border:1px solid var(--line); }
+pre code { background:transparent; padding:0; }
+ul,ol { margin:.6rem 0; padding-left:1.5rem; }
+li { margin:.25rem 0; }
+table { border-collapse:collapse; width:100%; margin:1rem 0; font-family:var(--sans); font-size:.9rem; }
+th,td { border:1px solid var(--line); padding:6px 10px; text-align:left; }
+th { background:#f0f0f0; }
+hr { border:none; border-top:1px solid var(--line); margin:1.5rem 0; }
+.note { font-family:var(--sans); font-size:.78rem; color:var(--muted); border-top:1px solid var(--line); margin-top:2rem; padding-top:1rem; }
+@media (max-width: 600px) { .container { padding:22px 14px 40px; } h1 { font-size:1.35rem; } }
+</style>
+</head>
+<body>
+<div class="topnav"><a href="./index.html">← Today's digest</a></div>
+<div class="container">
+<h1>Vision-language models for chest radiography do not always need the image</h1>
+<p class="meta">arXiv: 2606.17710</p>
+<p class="meta">Date: 2026-06-16</p>
+<p class="meta"><a href="https://arxiv.org/abs/2606.17710">https://arxiv.org/abs/2606.17710</a></p>
+<blockquote><strong>一句话总结：</strong> 论文设计了一个因果"图像干预三联审计"（目标区域遮挡 / 同大小不相关区域遮挡 / 跨患者同标签图像替换），评估9个胸片视觉语言模型，发现3个完全忽略图像、1个不稳定、5个选择性使用图像；纯文本模型与放射科医生准确率统计不可区分但 grounding 为零，作者据此提出"以接地审计而非准确率"作为临床部署门槛。</blockquote>
+<blockquote><strong>TL;DR:</strong> A causal "image-intervention triad" — (1) occlude the radiologist-marked target region, (2) occlude a same-size irrelevant region, and (3) swap in a different patient's same-label radiograph — is applied to 9 chest-X-ray VLMs. Three behavioral metrics (CGR = causal grounding rate; UAR = unrelated-image answer rate; IS = irrelevant-mask stability) sort the cohort into 3 models that ignore the image (CGR=0, UAR=100, IS=100), 1 unstable system (Mistral-Small-4-119B), and 5 selective image users. A 7B text-only model reaches within 5.7 points of the best multimodal system, a 119B multimodal model is statistically indistinguishable from the 7B text-only one (p=0.219), and the text-only model is not separable from a board-certified radiologist's accuracy while grounding at zero. Image use is partial (image-contingent fraction only 17.9–24.7%), finding-specific (atelectasis/lung-opacity are inert; cardiomegaly/edema/pneumonia are best-grounded), and view-dependent (PA > AP, the opposite of clinical need). Reported confidence separates grounded from ungrounded answers <strong>only</strong> for systems that actually use the image; ECE is 31–47 and AUROC tops out at 72.2. Conclusion: <strong>grounding audits, not accuracy, should gate clinical deployment</strong>.</blockquote>
+<h2>核心贡献</h2>
+<ul>
+<li>提出 <strong>图像干预三联（causal triad）</strong>：目标区域遮挡、同大小不相关区域遮挡（噪声基线控制）、跨患者同标签图像替换——三者联合而非单用，才能判定一个正确答案是否真正依赖图像。</li>
+<li>给出可形式化的三项行为指标：<strong>因果接地率 CGR</strong>（遮挡目标区域后正确答案翻转的比例）、<strong>无关图像答案保留率 UAR</strong>（跨患者换图后正确答案仍保留的比例）、<strong>无关区域遮挡稳定性 IS</strong>（遮挡无关区域后答案保留的比例），并派生出"接地特异性溢价" GSP = CGR − (100 − IS)。</li>
+<li>在 2,575 题的 MS-CXR + MIMIC-CXR + ReXErr-v1 综合探针集上审计 <strong>9 个系统</strong>（4 个通用多模态 Gemma-4-26B / Qwen3-VL-32B / Mistral-Small-4-119B / GPT-5；2 个医学专用 MedGemma-1.5-4B / LLaVA-Med-7B；2 个纯文本 MedGemma-27B-text / DeepSeek-R1-7B；1 个视觉专用 RAD-DINO 探针）。</li>
+<li>行为分类结果：<strong>3 个完全忽略图像</strong>（LLaVA-Med-7B、MedGemma-27B-text、DeepSeek-R1-7B，全部 CGR=0、UAR=IS=100）、<strong>1 个不稳定</strong>（Mistral-Small-4-119B，IS=56，CGR 不可解读）、<strong>5 个选择性使用图像</strong>（Gemma-4-26B、GPT-5、Qwen3-VL-32B、MedGemma-1.5-4B、RAD-DINO；CGR 6.4–33.5）。</li>
+<li>报告反直觉发现：<strong>最强多模态 Gemma-4-26B 仅比强文本基线 MedGemma-27B-text 高 5.7 ± 1.3 点</strong>；<strong>119B 多模态 Mistral-Small-4-119B 与 7B 文本 DeepSeek-R1-7B 准确率统计不可区分</strong>（差 −1.9 ± 1.4，pFDR = 0.219，n = 2,386）。</li>
+<li>与两名执业放射科医生比较：<strong>纯文本模型与医生准确率统计不可区分</strong>（差 +2.5，pFDR = 0.746）但 <strong>grounding 远低于医生</strong>（差 −25.0，pFDR = 0.001）；使用图像的模型 grounding 与医生相当或更高（MedGemma-1.5-4B 高出 +27.7）。</li>
+<li>揭示置信度的局限：<strong>自报置信度只在"使用图像"的模型上</strong>才能区分接地 / 未接地答案（最高 AUROC = 72.2），对忽略图像的模型反而是误导；ECE 31–47，远超通常 <5 的可接受水平。</li>
+<li>揭示图像使用的三层局部性：<strong>(a)</strong> 图像所决定的正确答案比例仅 17.9–24.7%；<strong>(b)</strong> 8 个发现中仅 5 个可被接地（心影增大、肺实变、水肿、胸腔积液、肺炎），肺不张与肺混浊完全惰性；<strong>(c)</strong> PA 视图 grounding 显著高于 AP 视图，临床方向相反。</li>
+<li>在 CheXpert（仅 UAR 可计算）、512 像素分辨率、3 种 prompt 措辞（默认/简洁/放射科角色）下分类稳健；UAR 的 Spearman ρ 在 MIMIC↔CheXpert 间达 0.931（p<0.001）。</li>
+<li>部署建议：<strong>接地审计应纳入临床部署的强制评估环节，准确率不足以作为监管/床边决策依据</strong>。</li>
+</ul>
+<h2>Key Contributions</h2>
+<ul>
+<li>A <strong>causal triad of image interventions</strong> (target-region occlusion, equal-area irrelevant-region occlusion, cross-patient same-label image swap) — none of the three interventions is informative alone; reading them jointly is the methodological advance.</li>
+<li>Three formalized behavioral metrics: <strong>Causal Grounding Rate (CGR)</strong>, <strong>Unrelated-Image Answer rate (UAR)</strong>, <strong>Irrelevant-mask Stability (IS)</strong>, plus the derived <strong>Grounding-Specificity Premium GSP = CGR − (100 − IS)</strong>, which is positive only when answers are more sensitive to relevant than to irrelevant occlusion of identical area.</li>
+<li>A 2,575-question probe set combining MS-CXR (radiologist-marked boxes for 8 findings), MIMIC-CXR (study-level labels, balanced), and ReXErr-v1 (report-error questions), plus a 1,380-question CheXpert cross-dataset probe.</li>
+<li>Behavioral taxonomy on <strong>9 systems</strong>: <strong>3 ignore the image</strong> (LLaVA-Med-7B, MedGemma-27B-text, DeepSeek-R1-7B; all CGR=0, UAR=IS=100); <strong>1 unstable</strong> (Mistral-Small-4-119B; IS=56, so CGR is uninterpretable); <strong>5 selectively use the image</strong> (Gemma-4-26B, GPT-5, Qwen3-VL-32B, MedGemma-1.5-4B, RAD-DINO; CGR 6.4–33.5).</li>
+<li>Empirical demonstration that <strong>benchmark accuracy is decoupled from image use</strong>: the strongest multimodal Gemma-4-26B beats the strong text-only baseline MedGemma-27B-text by only <strong>+5.7 ± 1.3 pp</strong> (pFDR < 0.001, n = 2,322); <strong>Mistral-Small-4-119B is statistically indistinguishable from DeepSeek-R1-7B</strong> (diff −1.9 ± 1.4, pFDR = 0.219, n = 2,386); <strong>MedGemma-27B-text significantly outscores the medical-specialist multimodal MedGemma-1.5-4B</strong> (+3.7, pFDR = 0.005) and <strong>LLaVA-Med-7B</strong> (+5.9, pFDR < 0.001).</li>
+<li><strong>Radiologist-comparator benchmarking</strong> by two board-certified radiologists (S.Z., 6 yrs; L.A., 10 yrs) on an 80-case sub-sample: the text-only model is not separable from the reference reader on accuracy (diff +2.5, pFDR = 0.746) but grounds far below (diff −25.0, pFDR = 0.001); uses-image models ground at reader-comparable or higher rates (MedGemma-1.5-4B +27.7, pFDR = 0.006).</li>
+<li><strong>Three-layer partiality of image use</strong>: image-contingent fraction only 17.9–24.7%; finding-specific (5 grounded findings: cardiomegaly / consolidation / edema / pleural effusion / pneumonia; 2 inert: atelectasis, lung opacity); view-dependent (PA > AP for every image user, significantly for Gemma-4-26B, GPT-5, RAD-DINO; AP views are the portable / supine / acutely-ill cases where grounding matters most).</li>
+<li><strong>Confidence-as-a-signal finding</strong>: confidence separates grounded vs. ungrounded correct answers by <strong>+33 to +52 points</strong> in uses-image multimodal models (Gemma-4-26B 97.5 vs 45.6; GPT-5 100.0 vs 48.6) but the signal <strong>vanishes or inverts</strong> for image-ignoring and unstable systems; ECE 31.4–47.0, AUROC tops at 72.2 — confidence alone is an insufficient deployment safeguard.</li>
+<li>Cross-dataset transfer of the <strong>UAR</strong> ranking (Spearman ρ = 0.931, p < 0.001) and stability across 512-pixel resolution and three prompt phrasings; the categorizations are deterministic and hold for any IS threshold in [50, 90].</li>
+<li><strong>Regulatory and clinical deployment recommendation</strong>: grounding audits of this kind should accompany — not replace — accuracy benchmarks, and should be required before any clinical-deployment claim for medical multimodal systems.</li>
+</ul>
+<h2>Methodology</h2>
+<h3>Probe set (MIMIC ecosystem, n = 2,575)</h3>
+<p>Three corpora are combined once and used unchanged for every model:</p>
+<ul>
+<li><strong>MS-CXR (n = 452)</strong>: radiologist-marked bounding boxes for 8 findings (atelectasis, cardiomegaly, consolidation, edema, lung opacity, pleural effusion, pneumonia, pneumothorax); only source that supports target-region and irrelevant-region occlusion. Capped at 100 per finding.</li>
+<li><strong>MIMIC-CXR test split (n = 1,400)</strong>: study-level CheXpert-vocabulary labels (CheXpert labeler), balanced 50 present / 50 absent per finding + 100 normals; supports original + swap only (no boxes).</li>
+<li><strong>ReXErr-v1 (n = 723)</strong>: 483 image-dependent synthetic errors + 120 text-only errors + 120 no-error controls; supports original + swap.</li>
+</ul>
+<p>Frontal-only (PA / AP), age/gender metadata required, MS-CXR cases removed from MIMIC-CXR pool to avoid double-counting. Cases whose finding label was uncertain were excluded. <strong>CheXpert cross-dataset probe (n = 1,380)</strong>: same per-finding stratification but only original + swap are evaluable (no phrase-grounding boxes).</p>
+<h3>Four interventional conditions</h3>
+<p>For each (image I, question q, label y), with the question and model held fixed:</p>
+<ol>
+<li><strong>Original</strong>: a_o = a(I, q).</li>
+<li><strong>Swap</strong>: a_s = a(I′, q) where I′ is a different patient's same-label radiograph (label-matched to break patient-specific content).</li>
+<li><strong>Target mask</strong>: a_t = a(M_T(I), q) where M_T masks the radiologist-marked box with a black rectangle.</li>
+<li><strong>Irrelevant mask</strong>: a_i = a(M_I(I), q) where M_I masks an equal-size black rectangle at the corner farthest from the box centroid — the negative control for generic occlusion sensitivity.</li>
+</ol>
+<h3>Three behavioral metrics</h3>
+<ul>
+<li><strong>Causal Grounding Rate (CGR)</strong> = fraction of <em>correct-on-original</em> answers that flip under target-region occlusion (Eq. 6).</li>
+<li><strong>Unrelated-Image Answer rate (UAR)</strong> = fraction of <em>correct-on-original</em> answers preserved under image swap (Eq. 7); equals 100 for a model that only uses the label, drops below 100 for a model that uses patient-specific image content.</li>
+<li><strong>Irrelevant-mask Stability (IS)</strong> = fraction of answers preserved under equal-area irrelevant-region occlusion; computed on <strong>all parsed cases</strong> (not conditioned on correctness, since it characterizes generic occlusion sensitivity).</li>
+<li><strong>Grounding-Specificity Premium (GSP) = CGR − (100 − IS)</strong>; positive only when target-region occlusion flips answers more than irrelevant-region occlusion of the same area.</li>
+</ul>
+<h3>Category decision rules (deterministic on MIMIC probe)</h3>
+<ul>
+<li><strong>Ignores image</strong>: CGR = 0, UAR = 100, IS = 100, each on ≥ 100 cases.</li>
+<li><strong>Unstable</strong>: IS < 70 (CGR cannot be read as localized grounding).</li>
+<li><strong>Uses image</strong>: CGR > 0 with 95% bootstrap CI excluding zero AND IS ≥ 90.</li>
+</ul>
+<p>Rules were verified to assign every model to the same category for any threshold in IS ∈ [50, 90].</p>
+<h3>Models (n = 9)</h3>
+<p>| Class | Model | Modality | Note |</p>
+<p>|---|---|---|---|</p>
+<p>| General multimodal | Gemma-4-26B | Multimodal | Uses image; highest accuracy |</p>
+<p>| General multimodal | Qwen3-VL-32B | Multimodal | Uses image |</p>
+<p>| General multimodal | Mistral-Small-4-119B | Multimodal | <strong>Unstable</strong> (IS=56 on n=25) |</p>
+<p>| Frontier closed | GPT-5 | Multimodal | Uses image |</p>
+<p>| Medical specialist | MedGemma-1.5-4B | Multimodal | Uses image |</p>
+<p>| Medical specialist | LLaVA-Med-7B | Multimodal | Ignores image (always-Yes: sens 99.9, spec 0.0) |</p>
+<p>| Text-only baseline | MedGemma-27B-text | Text-only | Ignores image by construction |</p>
+<p>| Text-only baseline | DeepSeek-R1-7B | Text-only | Ignores image by construction |</p>
+<p>| Vision-only probe | RAD-DINO + L2 logreg | Vision-only | Uses image (global features) |</p>
+<h3>Inference protocol</h3>
+<ul>
+<li>Greedy decoding, temperature 0, 10-token budget for non-reasoning models, 2,048 for GPT-5 / DeepSeek-R1-7B.</li>
+<li>Images resized to 224 × 224 bilinear (512 × 512 reserved for resolution robustness).</li>
+<li>Default prompt: <code>Is [display] present in this chest X-ray? Answer with a single word: Yes or No.</code> (plus ReXErr sentence-accuracy variant).</li>
+<li>Confidence = renormalized first-token probability over {Yes, yes, …} ∪ {No, no, …}.</li>
+<li>RAD-DINO: frozen encoder at native 518 × 518; L2 logreg per finding trained on the source dataset's training split (MIMIC for MIMIC probe; CheXpert for CheXpert probe) — hence RAD-DINO is <strong>in-distribution on CheXpert</strong> (flagged in cross-dataset plots).</li>
+</ul>
+<h3>Statistical analysis</h3>
+<ul>
+<li>All proportions: analytical SE (binomial) + percentile bootstrap 95% CI (10,000 resamples); Wilson intervals for per-finding cells with n < 30.</li>
+<li>Paired bootstrap for between-model comparisons; shift-and-reflect two-sided p-value (clip at 1/B).</li>
+<li>Benjamini–Hochberg FDR at 5% within declared comparison families.</li>
+<li>Subgroup tests: 1,000-permutation distribution-free tests on gender (M/F), view (PA/AP), age (<50, 50–70, >70).</li>
+</ul>
+<h3>Radiologist evaluation</h3>
+<p>Two board-certified radiologists (S.Z. 6 yrs, L.A. 10 yrs), blinded to model identity, source corpus, and each other, on a stratified MIMIC probe-set sub-sample: 120-case box-validity task (15/finding), 80-case finding-presence task under original + target + irrelevant masks (radiologist accuracy / CGR / IS computed by same metric definitions), and failure-mode classification for Gemma-4-26B / GPT-5 / RAD-DINO.</p>
+<h2>Results & Highlights</h2>
+<h3>Headline accuracy vs. grounding</h3>
+<ul>
+<li><strong>Master metrics on the MIMIC probe (n = 2,575)</strong>: see Table 1. Headline values:</li>
+<li>Gemma-4-26B: Acc 66.2 ± 0.9, CGR 33.2 ± 2.4, UAR 80.4 ± 1.0, IS 96.0 ± 1.0 — <strong>Uses image</strong>.</li>
+<li>GPT-5: Acc 64.7 ± 1.0, CGR 24.5 ± 2.3, UAR 75.4 ± 1.1, IS 90.3 ± 1.6 — Uses image.</li>
+<li>Qwen3-VL-32B: Acc 62.9 ± 1.0, CGR 17.5 ± 2.1, UAR 78.7 ± 1.0, IS 90.1 ± 1.7 — Uses image.</li>
+<li>MedGemma-27B-text (no image): Acc <strong>60.1 ± 1.0</strong>, CGR <strong>0.0</strong>, UAR 100.0, IS 100.0 — <strong>Ignores image</strong>.</li>
+<li>RAD-DINO: Acc 58.8 ± 1.1, CGR 6.4 ± 1.2, UAR 82.1 ± 1.1, IS 99.5 ± 0.4 — Uses image.</li>
+<li>MedGemma-1.5-4B: Acc 55.3 ± 1.0, CGR 33.5 ± 2.4, UAR 76.5 ± 1.1, IS 94.4 ± 1.2 — Uses image.</li>
+<li>LLaVA-Med-7B: Acc 51.4 ± 1.0, CGR 0.0, UAR 100.0, IS 100.0 — <strong>Ignores image</strong> (degenerate always-Yes).</li>
+<li>DeepSeek-R1-7B (no image): Acc 45.5 ± 1.0, CGR 0.0, UAR 100.0, IS 100.0 — Ignores image.</li>
+<li>Mistral-Small-4-119B: Acc <strong>43.0 ± 1.0</strong>, CGR 40.0 ± 9.8, UAR 84.5 ± 1.1, IS <strong>56.0 ± 9.9</strong> — <strong>Unstable</strong> (CGR uninterpretable; only 25 informative cases).</li>
+</ul>
+<h3>Accuracy ↔ image use decoupling (paired, on shared cases)</h3>
+<ul>
+<li>Gemma-4-26B vs. MedGemma-27B-text: <strong>+5.7 ± 1.3 pp</strong> (pFDR < 0.001, n = 2,322).</li>
+<li>GPT-5 vs. MedGemma-27B-text: <strong>+3.0 pp</strong> (p = 0.032).</li>
+<li>RAD-DINO vs. MedGemma-27B-text: <strong>+3.0 pp</strong> (p = 0.011).</li>
+<li>Qwen3-VL-32B vs. MedGemma-27B-text: +2.2 (p = 0.115, n.s.).</li>
+<li>MedGemma-1.5-4B vs. MedGemma-27B-text: <strong>−3.7</strong> (p = 0.005) — <em>a uses-image system loses to a text-only model</em>.</li>
+<li>LLaVA-Med-7B vs. MedGemma-27B-text: <strong>−5.9</strong> (p < 0.001).</li>
+<li>Mistral-Small-4-119B vs. DeepSeek-R1-7B: <strong>−1.9 ± 1.4</strong> (pFDR = 0.219, n = 2,386) — <strong>a 119B multimodal is statistically indistinguishable from a 7B text-only</strong>.</li>
+<li>vs. weak baseline DeepSeek-R1-7B: Mistral-Small-4-119B is the only "multimodal" system that still loses (−18.9, p < 0.001); the gap for image-using models grows to +12.0 to +20.5 pp.</li>
+</ul>
+<h3>Image-contingent fraction (Fig. 4a)</h3>
+<p>Of correct-on-original answers, the fraction that <strong>flips under image swap</strong> (i.e., depends on the actual patient-specific image content) is only:</p>
+<ul>
+<li>GPT-5: 24.7%, MedGemma-1.5-4B: 23.5%, Qwen3-VL-32B: 21.3%, Gemma-4-26B: 19.6%, RAD-DINO: 17.9%, Mistral-Small-4-119B: 15.5%.</li>
+<li>Every multimodal / unstable system has UAR significantly below 100 (paired vs. text-only baselines, all pFDR < 0.001; differences −15.1 to −30.3 pp) — <em>but the swap-invariant majority means accuracy is not what it looks like</em>.</li>
+</ul>
+<h3>Per-finding grounding (Fig. 5)</h3>
+<p>8 findings: atelectasis, lung opacity, pneumothorax, pleural effusion, edema, consolidation, pneumonia, cardiomegaly.</p>
+<ul>
+<li><strong>Inert across the cohort</strong>: atelectasis (CGR = 0 for 4/5 image users; only Gemma-4-26B at 27.3 ± 7.8) and lung opacity (CGR = 0 for 4/5).</li>
+<li><strong>Grounded block</strong> (Wilson lower > 0 for every evaluable image user): cardiomegaly, consolidation, edema, pleural effusion, pneumonia. Peak CGRs:</li>
+<li>Gemma-4-26B: pneumonia 63.2 ± 6.4, cardiomegaly 48.0.</li>
+<li>MedGemma-1.5-4B: <strong>edema 69.7 ± 8.0</strong>, pneumonia 53.1.</li>
+<li>GPT-5: cardiomegaly 50.0, pneumonia 21.3.</li>
+<li>Qwen3-VL-32B: pleural effusion 100.0 (n=1), cardiomegaly 3.0.</li>
+<li>RAD-DINO: cardiomegaly 1.0, pleural effusion 16.9 — <em>collapses on the findings multimodal systems ground best, getting accuracy through global features</em>.</li>
+<li><strong>Model ranking inverts across findings</strong> — no system grounds uniformly.</li>
+</ul>
+<h3>View-dependent grounding (Table 2)</h3>
+<p>CGR is higher on PA than AP for every image user, significantly for:</p>
+<ul>
+<li>Gemma-4-26B: 73.0 (PA) vs 25.1 (AP), q = 0.002.</li>
+<li>GPT-5: 38.9 vs 22.0, q = 0.050.</li>
+<li>RAD-DINO: 13.5 vs 4.8, q = 0.028.</li>
+<li>And in the same direction for Qwen3-VL-32B (q = 0.265) and MedGemma-1.5-4B (q = 0.110).</li>
+</ul>
+<p>AP acquisitions are portable / supine on more acutely ill patients — <strong>grounding is weakest where it would matter most</strong>.</p>
+<h3>Robustness</h3>
+<ul>
+<li><strong>Cross-dataset (MIMIC ↔ CheXpert, n = 1,380)</strong>: UAR Spearman ρ = 0.931 (p < 0.001; 0.900 excluding RAD-DINO) — ignores-image systems all at UAR = 100, image users at 73.4–86.5; <strong>accuracy</strong> transfer is weaker (Spearman ρ = 0.617, p = 0.077; 0.786 excluding RAD-DINO), driven by RAD-DINO going in-distribution on CheXpert (58.8 → 71.4). Multimodal-over-baseline gap grows on CheXpert: 5.7 → 8.6 pp; MedGemma-1.5-4B reverses its deficit to +5.5 pp.</li>
+<li><strong>Resolution (224 ↔ 512 px)</strong>: CGR Spearman ρ = 0.948; no system crosses a category boundary; Mistral stays highest-CGR (40.0 → 50.0).</li>
+<li><strong>Prompt phrasing (default / terse / radiologist-framed)</strong>: terse variant collapses parsing for 5 systems (LLaVA-Med-7B parse rate 1%, MedGemma-27B-text 33%, MedGemma-1.5-4B 40%, Gemma-4-26B 68%, Mistral 9%); on parseable subsets, category assignment is unchanged — UAR 100 for ignores-image, <100 for image users.</li>
+</ul>
+<h3>Confidence calibration (Table 3)</h3>
+<ul>
+<li><strong>Uses-image multimodal</strong>: grounded-correct confidence >> ungrounded-correct confidence (Gemma-4-26B 97.5 vs 45.6, GPT-5 100.0 vs 48.6, Qwen3-VL-32B 82.3 vs 44.6, MedGemma-1.5-4B 95.0 vs 62.1). Differences are several × SE — low confidence is informative for these systems.</li>
+<li><strong>RAD-DINO</strong>: highest on incorrect cases (74.4 ± 26.5) — confidence is <em>anti</em>-calibrated for a global-feature model.</li>
+<li><strong>Mistral-Small-4-119B</strong>: AUROC 45.0 ± 1.2 [42.7, 47.3] — <strong>below chance</strong>.</li>
+<li><strong>Ignores-image</strong>: no grounded-correct pool; LLaVA-Med-7B near-constant confidence across regimes; MedGemma-27B-text 76.6 ungrounded-correct vs 77.9 incorrect.</li>
+<li><strong>AUROC for label detection</strong>: best 72.2 ± 1.0 (Gemma-4-26B); Qwen3-VL-32B 69.4; MedGemma-1.5-4B 63.7; RAD-DINO 57.9; LLaVA-Med-7B 64.8; MedGemma-27B-text 54.2.</li>
+<li><strong>ECE</strong>: 31.4 (Mistral) to 47.0 (LLaVA-Med-7B) — <strong>far above the <5 typically considered acceptable</strong>.</li>
+</ul>
+<h3>Radiologist comparator</h3>
+<ul>
+<li><strong>Reference reader S.Z.</strong>: 81.3 ± 4.3 acc, CGR 23.1 ± 5.2, IS 93.8 ± 3.0.</li>
+<li><strong>Second reader L.A.</strong>: 58.8 ± 5.5 acc, CGR 0.0, IS 100.0 — <em>a board-certified radiologist can register no answer change under masking</em>.</li>
+<li><strong>Inter-rater agreement</strong>: percent 64.6, Cohen's κ <strong>0.224</strong> (slight-fair), weighted κ 0.199 — fair agreement on 240 shared judgments.</li>
+<li><strong>Box validity</strong>: 48.3 ± 4.6 of MS-CXR boxes fully contain the queried evidence, 83.3 contain it partially; per-finding from 100.0 (cardiomegaly) to 6.7 (edema). <strong>The "ground truth" against which CGR is scored is itself noisy and subjective.</strong></li>
+<li><strong>Model vs. radiologist (paired)</strong>:</li>
+<li>MedGemma-27B-text vs S.Z.: Acc +2.5 (p = 0.746, n.s.); CGR <strong>−25.0</strong> (p = 0.001) — text-only ≍ radiologist accuracy, grounds far less.</li>
+<li>RAD-DINO: Acc +8.6 (p = 0.180, n.s.); CGR +9.4 (p = 0.342, n.s.).</li>
+<li>MedGemma-1.5-4B: Acc −15.0 (p = 0.019); CGR <strong>+27.7</strong> (p = 0.006) — exceeds the reader.</li>
+<li>Gemma-4-26B: Acc −20.0 (p = 0.002); CGR −9.1 (p = 0.354).</li>
+<li>Mistral-Small-4-119B: Acc −76.2 (p < 0.001); CGR −16.9 (no paired p).</li>
+<li><strong>Failure-mode classification</strong> of model errors (radiologist review): most classified as ambiguous or plausible image confounders; GPT-5 35% image-quality + 29% plausible-confounder; RAD-DINO 62% plausible-confounder; Gemma-4-26B 59% ambiguous.</li>
+</ul>
+<h2>Authors & Credibility</h2>
+<ul>
+<li><strong>Authors</strong>: Mahshad Lotfinia (Pattern Recognition Lab, FAU Erlangen-Nürnberg), Sebastian Ziegelmayer (TUM University Clinic, Department of Diagnostic and Interventional Radiology), Lisa Adams (TUM), Daniel Truhn (RWTH Aachen — Lab for AI in Medicine, and University Hospital RWTH Aachen Department of Radiology), Andreas Maier (Pattern Recognition Lab, FAU), Soroosh Tayebi Arasteh (RWTH Aachen Lab for AI in Medicine — corresponding author).</li>
+<li><strong>Author track record</strong>: Soroosh Tayebi Arasteh and the LME / Truhn group at RWTH have a strong recent footprint in medical VLM auditing (RadioRAG, multi-step retrieval for radiology QA, calibration in clinical LLMs); Andreas Maier's Pattern Recognition Lab has decades of work on medical image analysis. The radiologist co-authors (S.Z., L.A.) at TUM and RWTH ensure clinical grounding.</li>
+<li><strong>Reproducibility assets</strong>: code + prompts + manifests + interventional conditions + bootstrap indices all released at https://github.com/mahshadlotfinia/causal ; open-weight checkpoints served via vLLM from Hugging Face; GPT-5 accessed via API (gpt-5). RAD-DINO frozen at microsoft/rad-dino with per-finding L2 logreg (scikit-learn). NVIDIA RTX PRO 6000 GPUs.</li>
+<li><strong>Datasets used</strong>: MIMIC-CXR, MS-CXR, ReXErr-v1, CheXpert, MIMIC-IV (all under their respective PhysioNet / Stanford data-use agreements).</li>
+</ul>
+<h2>Critical Assessment</h2>
+<h3>Strengths</h3>
+<ul>
+<li>The <strong>interventional framing</strong> is the strongest part: post-hoc saliency / attention maps can fail sanity checks and do not establish causal dependence, but the image-side do-interventions (Pearl-style) directly test whether the answer moves when evidence is removed.</li>
+<li>The <strong>triad is read jointly</strong>, not as three independent metrics — correctly handles the case where CGR is high only because the model is unstable to any occlusion (Mistral).</li>
+<li><strong>Concrete, named model panel</strong> (including the strongest available frontier closed system GPT-5) and a <strong>strong matched text-only baseline</strong> (MedGemma-27B-text) are exactly the right controls; the additional weak baseline (DeepSeek-R1-7B) is a thoughtful inclusion.</li>
+<li><strong>Statistical hygiene</strong> is strong: paired bootstrap with shift-and-reflect p-values, BH-FDR within declared families, Wilson intervals for small-n cells, fixed seeds. Bootstrap CIs accompany every proportion.</li>
+<li><strong>Robustness</strong> checks (cross-dataset, 2 resolutions, 3 prompt phrasings) are exactly what's needed to defend a "category, not leaderboard" claim.</li>
+<li><strong>Radiologist comparator</strong> with 6 / 10 yrs post-training experience; failure-mode classification by radiologists avoids the common trap of blaming models for label noise.</li>
+<li><strong>Honest framing of failure modes</strong> for the method itself (conservatism of CGR, IS noise floor, redundant evidence, box validity ~50%, inter-rater κ = 0.224). The paper does not oversell.</li>
+<li><strong>Reproducibility</strong>: code, prompts, manifests, parser, bootstrap indices, model IDs all public.</li>
+</ul>
+<h3>Limitations (as acknowledged and additional)</h3>
+<ol>
+<li><strong>CGR is a conservative lower bound</strong> on image use. A model reading through global features that survive a local occlusion (the signature of RAD-DINO) registers low CGR despite genuinely using the image; a swap to a same-label image preserves the finding for diffuse / bilateral pathologies. The best system rises only from 33.2 → 43.9 when restricted to boxes the radiologist rated as fully covering the finding. The authors propose opposite-label swaps, attribution methods targeting global cues, or generative counterfactuals as future work.</li>
+<li><strong>Box validity itself is noisy</strong>: only 48% of MS-CXR boxes fully contain the queried evidence; per-finding box validity ranges from 100% (cardiomegaly) to 6.7% (edema). The ground truth against which grounding is scored is subjective — and notably, model CGR tracks box validity (Fig. 7e), so the metric is partly measuring <em>where the label can be localized</em>, not only whether the model reads.</li>
+<li><strong>Interventions push off-distribution</strong>: a share of answer changes reflects sensitivity to unfamiliar images (occluded patches, swapped patients) rather than loss of diagnostic evidence; semantically realistic counterfactuals would be more faithful.</li>
+<li><strong>Small human reference</strong>: only 2 radiologists on 80 cases; Cohen's κ = 0.224; one reader (L.A.) registered CGR = 0, so the human comparison rests largely on the reference reader (S.Z.). The "+2.5 pp accuracy" finding vs. S.Z. is a "failure to reject" on n=80, not a formal equivalence test.</li>
+<li><strong>Binary QA only</strong>: the probe is yes/no finding-presence and report-error questions, not free-form report generation — these models' primary clinical use. Grounding in open-ended generation may differ substantially.</li>
+<li><strong>Fixed protocol</strong>: zero-shot, single-turn, deterministic decoding, small prompt set. Few-shot, chain-of-thought, RAG (e.g., RadioRAG from the same lab, ref. 43), or agentic tool use could change image use. The categorizations are diagnostic, version- and protocol-specific.</li>
+<li><strong>Label noise</strong>: CheXpert labeler, not pixel-verified; base rates on the binary QA are exploitable, so absolute accuracies are benchmark-relative. The text-only baselines partly exploit the statistical structure of the benchmark itself.</li>
+<li><strong>No protected attribute or fairness audit</strong> beyond gender / age subgroup descriptives; subgroup effects that did not replicate across models are explicitly not interpreted.</li>
+<li><strong>No release of GPT-5</strong>: closed-source model accessed via API, so weight-level reproducibility is impossible — but the intervention works without weights, which is a deliberate strength.</li>
+<li><strong>Categories are properties of model × probe × protocol</strong>: the assignment of LLaVA-Med-7B and Mistral-Small-4-119B in particular could change with fine-tuning or prompt engineering. The paper flags this honestly.</li>
+<li><strong>LLaVA-Med-7B failure mode</strong> (always-Yes, sensitivity 99.9, specificity 0.0) is a striking but not new finding in the medical-VLM literature; including it in a "grounding" panel is informative but slightly tangential to the central "uses vs ignores" message.</li>
+</ol>
+<h3>Red flags / things to verify on a re-read</h3>
+<ul>
+<li>The text-only-vs-radiologist comparison rests on n=80 cases and a single reference reader — the "statistically indistinguishable" framing is correct (it is a non-rejection) but should not be read as equivalence.</li>
+<li>The CheXpert cross-dataset transfer is a single additional dataset; a third (e.g., NIH ChestX-ray14, PadChest) would strengthen the claim.</li>
+<li>Mistral-Small-4-119B has only 25 informative cases for CGR / IS on MIMIC — the "unstable" classification has wide CIs (CGR [20.0, 60.0]; IS [36.0, 76.0]) and should be considered suggestive rather than definitive.</li>
+<li>The five grounded findings are also the ones with highest box validity (cardio 100%, pneumonia / consolidation / pleural effusion / edema all > 60%); the "finding-specific grounding" finding partially reduces to "grounding tracks label localizability" — a subtle but important interpretive caveat the authors do flag.</li>
+</ul>
+<h3>Novelty</h3>
+<ul>
+<li>The causal-audit framing for medical VLMs is timely and addresses a real gap. Most prior benchmarks reward finding-name priors as much as image use. The intervention design is straightforward but well-motivated.</li>
+<li>The behavioral taxonomy (ignores / unstable / uses) is a useful conceptual contribution over raw accuracy.</li>
+<li>The paper explicitly does <strong>not</strong> propose a new model or training objective — it is a measurement paper, and the right contribution at this stage of the field.</li>
+</ul>
+<h3>Significance</h3>
+<ul>
+<li><strong>High</strong> for the medical-AI deployment community: a frontier closed model (GPT-5) grounds at only 24.5% on a conservative metric; a 119B open model is statistically indistinguishable from a 7B text-only; a text-only model matches a radiologist's accuracy while grounding at 0%. These are not academic findings.</li>
+<li>The regulatory framing ("grounding audits should gate clinical deployment") is exactly the conversation the field needs to have.</li>
+</ul>
+<h2>Strengths</h2>
+<ul>
+<li>Clean, Pearl-style <strong>causal framing</strong> of a question the field has been hand-waving about.</li>
+<li><strong>Strong empirical evidence</strong> with statistical comparisons: text-only ≍ multimodal on accuracy; multimodal ≍ radiologist; grounding is the orthogonal axis that separates them.</li>
+<li><strong>Matched text-only baselines</strong> (both a strong MedGemma-27B-text and a weak DeepSeek-R1-7B) — the right controls for "is the image even helping".</li>
+<li><strong>Vision-only probe</strong> (RAD-DINO + L2 logreg) provides a global-feature comparator that helps interpret the multimodal findings.</li>
+<li><strong>Radiologist comparator</strong> at board-certified level with a second-reader agreement analysis; failure-mode classification.</li>
+<li><strong>Robustness across dataset, resolution, and prompt phrasing</strong> with the categorizations stable.</li>
+<li><strong>Actionable deployment recommendation</strong> tied directly to the empirical findings.</li>
+<li><strong>Code + prompts + manifests released</strong>; transparent about bootstrap seeds, parser, confidence formula.</li>
+<li><strong>Honest about the conservative nature of CGR</strong> and the noise in the box annotations and the human reference.</li>
+<li><strong>Per-finding resolution</strong> gives a clinically actionable picture — which findings any given model grounds, and which it ignores.</li>
+</ul>
+<h2>Limitations</h2>
+<ul>
+<li>Chest X-ray only; <strong>generalization to CT, MRI, dermatology, pathology</strong> is open.</li>
+<li><strong>Binary QA only</strong>; free-form report generation is the primary clinical use and is not audited.</li>
+<li><strong>Small human reference</strong> (2 radiologists, 80 cases, κ = 0.224) — the radiologist comparison is indicative, not definitive.</li>
+<li><strong>Box validity ~50%</strong> — the ground truth against which grounding is scored is itself noisy and subjective.</li>
+<li><strong>Single protocol</strong> (zero-shot, single-turn, deterministic, 3 prompts) — few-shot / CoT / RAG / agentic tool use could change the categorization.</li>
+<li><strong>9 systems only</strong> — broader coverage (e.g., Med-PaLM M, RadFM, BiomedGPT, CheXagent, MedSAM-2) would strengthen the cohort claims.</li>
+<li><strong>No fairness audit</strong> beyond descriptive gender/age subgroup effects.</li>
+<li><strong>Labels are report-derived</strong>, not pixel-verified — finding-presence questions carry exploitable base rates that the text-only baselines are partly leveraging.</li>
+<li><strong>CGR / IS are conservative</strong> for models using global features and for diffuse / bilateral findings.</li>
+<li><strong>Mistral "unstable" classification has wide CIs</strong> (n = 25 informative cases) — the labeling is suggestive.</li>
+<li><strong>LLaVA-Med-7B's "ignores image" status is a degenerate always-Yes</strong> (sens 99.9, spec 0.0) — a known pathology in medical VLMs, included for completeness but not the central message.</li>
+<li><strong>No proposed training objective or deployment protocol</strong> — the paper diagnoses but does not fix; training objectives that explicitly reward causal image use are flagged as future work.</li>
+</ul>
+<h2>Relevance</h2>
+<p>与"多模态模型可靠性评估、模型校准与失败模式分析、临床 AI 部署治理"三个研究方向高度相关。该工作用因果干预三联替代传统准确率基准，提出"行为接地审计"作为新的评测范式，可直接迁移到 CT、MRI、病理等其它医学影像模态的多模态模型审计，并对模型校准与置信度门控提出了明确的方法论批判。</p>
+<h2>Questions for Further Exploration</h2>
+<ul>
+<li>Does the audit generalize to <strong>free-form report generation</strong> (the primary clinical use of these models), where grounding in generated text may be subtler than in binary answers?</li>
+<li><strong>Per-finding</strong> resolution is currently confined to 8 MS-CXR findings. Does the "selectively uses the image" pattern hold across a broader label set — and do the inert findings (atelectasis, lung opacity) become grounded when defined more tightly (e.g., segmental atelectasis vs subsegmental)?</li>
+<li>Could a <strong>calibrated, model-agnostic ungroundedness detector</strong> be trained on the audit signals alone, so models can flag when they are guessing from text priors at inference time — and would it be deployable as a guardrail for image-ignoring systems where self-confidence is uninformative?</li>
+<li>How does the audit behave under <strong>counterfactual image interventions</strong> (generative removal of the finding while preserving image statistics) — would opposite-label swap give a cleaner signal than same-label swap, and does GSP retain its sign?</li>
+<li>Would a <strong>grounding-required model card</strong> or regulatory standard be feasible to operationalize, and what statistical threshold should define clinical acceptance? (e.g., CGR ≥ 0.5 with CI excluding 0.3, on a stratified-finding benchmark.)</li>
+<li>Can <strong>training objectives that explicitly reward causal image use</strong> (ref. 45 in the paper, "right for the right reasons") actually move models from "ignores" or "selective" to "consistently uses" — and at what cost to benchmark accuracy?</li>
+<li>How does the audit interact with <strong>RAG and agentic tool use</strong> (RadioRAG, ref. 43, from the same lab) — does retrieval reduce the model's incentive to ground locally, or force it to?</li>
+<li>Does the <strong>view-dependence (PA > AP)</strong> reflect training-data imbalance (most public CXR training sets are PA-heavy), and would retraining / fine-tuning on balanced PA / AP cohorts close the gap?</li>
+<li>Would a <strong>multi-reader adjudicated</strong> reference (with consensus regions rather than single boxes) change the conclusions about which models are "grounding enough"?</li>
+<li>How robust is the <strong>UAR ranking transfer</strong> (Spearman ρ = 0.931) when adding a third or fourth dataset (NIH ChestX-ray14, PadChest, VinDr-CXR)?</li>
+</ul>
+<p class="note">Generated from Markdown summary. Full paper: <a href="https://arxiv.org/abs/2606.17710">arXiv:2606.17710</a></p>
+</div>
+</body>
+</html>

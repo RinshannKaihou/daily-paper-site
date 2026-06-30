@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DODOCO — Diagnosing Overhead in Dispatch Operations</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --accent: #00897b;
+  --accent-light: #e0f2f1;
+  --accent-dark: #005a4f;
+  --bg: #fafafa;
+  --surface: #fff;
+  --text: #1a1a1a;
+  --text-2: #555;
+  --text-3: #888;
+  --border: #e0e0e0;
+  --red: #c62828;
+  --amber: #e65100;
+  --width: min(95vw, 1100px);
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+
+a { color: var(--accent-dark); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+nav {
+  max-width: var(--width);
+  margin: 0 auto;
+  padding: 16px 24px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-3);
+}
+nav a { color: var(--text-3); font-weight: 500; }
+nav a:hover { color: var(--accent); text-decoration: none; }
+nav .sep { margin: 0 4px; }
+
+main {
+  max-width: var(--width);
+  margin: 0 auto;
+  padding: 0 24px 40px;
+}
+
+.hero {
+  display: grid;
+  grid-template-columns: 1fr 260px;
+  gap: 24px;
+  margin-bottom: 24px;
+  border-bottom: 2px solid var(--accent);
+  padding-bottom: 32px;
+}
+
+.hero-main h1 {
+  font-size: clamp(22px, 3.2vw, 32px);
+  font-weight: 700;
+  line-height: 1.2;
+  margin-bottom: 10px;
+}
+.hero-main h1 a { color: var(--text); }
+.hero-main h1 a:hover { color: var(--accent); }
+
+.hero-finding {
+  margin-top: 14px;
+  font-size: 15px;
+  color: var(--text-2);
+  max-width: 640px;
+  line-height: 1.6;
+}
+.hero-finding strong { color: var(--accent-dark); }
+
+.hero-meta {
+  margin-top: 18px;
+  font-size: 12px;
+  color: var(--text-3);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+}
+.hero-meta span { white-space: nowrap; }
+
+.metric-card {
+  background: var(--accent);
+  color: #fff;
+  padding: 28px 24px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  position: relative;
+}
+.metric-card .metric-value {
+  font-size: 48px;
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: -1px;
+}
+.metric-card .metric-unit {
+  font-size: 20px;
+  font-weight: 600;
+  opacity: 0.85;
+  margin-top: 2px;
+}
+.metric-card .metric-label {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  opacity: 0.8;
+  margin-top: 12px;
+  line-height: 1.4;
+}
+
+.insight-grid {
+  display: grid;
+  grid-template-columns: 3fr 2fr;
+  gap: 24px;
+  margin-bottom: 24px;
+}
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  padding: 24px;
+}
+.card-label {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1.2px;
+  color: var(--text-3);
+  margin-bottom: 12px;
+}
+.card h2 {
+  font-size: 17px;
+  font-weight: 700;
+  margin-bottom: 8px;
+  color: var(--text);
+}
+.card p {
+  font-size: 14px;
+  color: var(--text-2);
+  line-height: 1.6;
+}
+
+.card ul {
+  list-style: none;
+  padding: 0;
+  margin-top: 10px;
+}
+.card li {
+  font-size: 13px;
+  color: var(--text-2);
+  padding: 5px 0;
+  border-bottom: 1px solid var(--border);
+  line-height: 1.5;
+}
+.card li:last-child { border-bottom: none; }
+.card li strong { color: var(--text); }
+
+.edge-card { border-left: 3px solid var(--amber); }
+.edge-card .card-label { color: var(--amber); }
+
+.classes-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+  margin-bottom: 24px;
+}
+
+.class-card {
+  padding: 20px 24px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+}
+.class-card.resilient { border-top: 3px solid var(--accent); }
+.class-card.concentrated { border-top: 3px solid var(--red); }
+.class-card .class-tag {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin-bottom: 8px;
+}
+.class-card.resilient .class-tag { color: var(--accent); }
+.class-card.concentrated .class-tag { color: var(--red); }
+.class-card h3 { font-size: 15px; font-weight: 600; margin-bottom: 6px; }
+.class-card p { font-size: 13px; color: var(--text-2); line-height: 1.5; }
+
+.class-stats {
+  display: flex;
+  gap: 20px;
+  margin-top: 10px;
+}
+.class-stat {
+  font-size: 12px;
+  color: var(--text-3);
+}
+.class-stat strong {
+  display: block;
+  font-size: 18px;
+  color: var(--text);
+  font-weight: 700;
+}
+
+.evidence-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+  margin-bottom: 24px;
+}
+.ev-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  padding: 16px 18px;
+}
+.ev-card .ev-label {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: var(--text-3);
+  margin-bottom: 6px;
+}
+.ev-card .ev-val {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--accent-dark);
+  line-height: 1.2;
+}
+.ev-card .ev-note {
+  font-size: 11px;
+  color: var(--text-3);
+  margin-top: 4px;
+  line-height: 1.4;
+}
+
+footer {
+  max-width: var(--width);
+  margin: 0 auto;
+  padding: 16px 24px 32px;
+  border-top: 1px solid var(--border);
+  font-size: 12px;
+  color: var(--text-3);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+footer a { font-weight: 500; }
+
+@media (max-width: 760px) {
+  .hero {
+    grid-template-columns: 1fr;
+  }
+  .insight-grid {
+    grid-template-columns: 1fr;
+  }
+  .classes-grid {
+    grid-template-columns: 1fr;
+  }
+  .evidence-row {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media (max-width: 480px) {
+  .evidence-row {
+    grid-template-columns: 1fr;
+  }
+  main { padding: 0 16px 32px; }
+  nav { padding: 12px 16px; }
+  footer { padding: 12px 16px 24px; flex-direction: column; align-items: flex-start; gap: 8px; }
+}
+</style>
+</head>
+<body>
+
+<nav>
+  <a href="./index.html">&larr; Daily Index</a>
+  <span class="sep">/</span>
+  <span>2605.20982</span>
+</nav>
+
+<main>
+
+<section class="hero">
+  <div class="hero-main">
+    <h1><a href="https://arxiv.org/abs/2605.20982">Diagnosing Overhead in Dispatch Operations: Cross-architecture Observatory</a></h1>
+    <div class="hero-finding">
+      Scaling expert parallelism from <strong>4 to 32 ranks</strong> changes per-expert max/mean token ratio by <strong>at most 5%</strong>. The routing straggler is intrinsic to the model&rsquo;s attention geometry — <strong>not fixable by EP scaling</strong>.
+    </div>
+    <div class="hero-meta">
+      <span>Ma, Eitzinger, Koestler, Wellein</span>
+      <span>NHR@FAU Erlangen</span>
+      <span>5 architectures &times; 6 data conditions</span>
+      <span>H100 cluster</span>
+    </div>
+  </div>
+  <div class="metric-card">
+    <div class="metric-value">2.35</div>
+    <div class="metric-unit">&times; overestimate</div>
+    <div class="metric-label">Mock benchmarks vs real text<br>(Mamba-2 routing Gini)</div>
+  </div>
+</section>
+
+<section class="insight-grid">
+  <div class="card">
+    <div class="card-label">Why This Matters</div>
+    <h2>Mock benchmarks mislead interconnect design</h2>
+    <p>Synthetic dispatch patterns fabricate a &ldquo;bigger batch &rarr; worse imbalance&rdquo; trend that completely vanishes with real text. Published AlltoAll proposals built on mock data are optimizing for a phantom workload.</p>
+    <ul>
+      <li><strong>MLA mock Gini</strong> rises 0.33 &rarr; 0.62 as GBS grows; wikitext Gini stays flat at 0.39&ndash;0.43</li>
+      <li><strong>Nemotron</strong> shows a 47&times; gap in Dirichlet &alpha; between mock and real data</li>
+      <li>Architecture class, not EP degree or batch size, is the correct workload input for dispatch design</li>
+    </ul>
+  </div>
+  <div class="card edge-card">
+    <div class="card-label">Critical Edge</div>
+    <h2>Not yet validated at scale</h2>
+    <p>The EP-invariance claim stops at EP&nbsp;=&nbsp;32 (8 nodes). Production MoE training runs at EP&nbsp;=&nbsp;256&ndash;4096. Whether the flat max/mean holds across multi-rail InfiniBand or Slingspot fabrics is an open question.</p>
+    <ul>
+      <li>All five models use aux-loss balancing; aux-loss-free routing (DeepSeek-V3) is out of scope</li>
+      <li>Three 128-expert models lack EP&nbsp;=&nbsp;4 data points (GPU memory)</li>
+      <li>Gini-vs-P99 correlation validated only at EP&nbsp;=&nbsp;16</li>
+    </ul>
+  </div>
+</section>
+
+<section class="classes-grid">
+  <div class="class-card resilient">
+    <div class="class-tag">Data-Resilient</div>
+    <h3>MHA &middot; Mamba-2</h3>
+    <p>Gini drops to 0.105&ndash;0.150 on real text. Near-uniform at layer 0, amenable to hash routing. Uniform-load interconnect models apply.</p>
+    <div class="class-stats">
+      <div class="class-stat"><strong>0.105</strong>MHA Gini</div>
+      <div class="class-stat"><strong>0.150</strong>Mamba-2 Gini</div>
+    </div>
+  </div>
+  <div class="class-card concentrated">
+    <div class="class-tag">Persistently Concentrated</div>
+    <h3>MLA &middot; GDN</h3>
+    <p>Gini &gt; 0.24 on every condition. Concentrated from the first MoE layer. Demands locality-aware dispatch and topology-aware scheduling.</p>
+    <div class="class-stats">
+      <div class="class-stat"><strong>0.245</strong>MLA Gini</div>
+      <div class="class-stat"><strong>0.285</strong>GDN Gini</div>
+    </div>
+  </div>
+</section>
+
+<section class="evidence-row">
+  <div class="ev-card">
+    <div class="ev-label">Router Swap</div>
+    <div class="ev-val">Gini follows body</div>
+    <div class="ev-note">Hidden-state geometry, not router weights, determines routing distribution</div>
+  </div>
+  <div class="ev-card">
+    <div class="ev-label">EP Invariance</div>
+    <div class="ev-val">&le; 5%</div>
+    <div class="ev-note">max/mean change across EP {4, 8, 16, 32}, all architectures</div>
+  </div>
+  <div class="ev-card">
+    <div class="ev-label">Latency Correlation</div>
+    <div class="ev-val">r &ge; 0.76</div>
+    <div class="ev-note">Per-rank Gini vs dispatch P99 within each architecture</div>
+  </div>
+  <div class="ev-card">
+    <div class="ev-label">GQA Temporal</div>
+    <div class="ev-val">r = 0.93</div>
+    <div class="ev-note">Consecutive-iteration Pearson; best candidate for predictive placement</div>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <span>DODOCO &middot; 2026-05-20 &middot; arXiv:2605.20982</span>
+  <a href="2605.20982.html">Full summary &rarr;</a>
+</footer>
+
+</body>
+</html>

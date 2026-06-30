@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Knowledge Capsules: Structured Nonparametric Memory Units for LLMs</title>
+<style>
+:root { --paper:#fafafa; --ink:#1a1a1a; --muted:#555; --accent:#1a5276; --line:#ddd; --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif; --serif:Georgia,"Noto Serif SC",serif; }
+body { font-family:var(--serif); background:var(--paper); color:var(--ink); line-height:1.6; margin:0; padding:0; }
+.container { max-width:min(95vw, 760px); margin:0 auto; padding:28px 20px 60px; }
+.topnav { position:fixed; top:12px; left:14px; z-index:50; font-family:var(--sans); font-size:.75rem; background:var(--paper); border:1px solid var(--line); padding:5px 10px; border-radius:999px; }
+.topnav a { color:var(--muted); text-decoration:none; font-weight:600; }
+.topnav a:hover { color:var(--accent); }
+h1 { font-size:1.6rem; margin:2.2rem 0 1rem; border-bottom:2px solid var(--accent); padding-bottom:.3rem; }
+h2 { font-size:1.3rem; margin:1.8rem 0 .8rem; color:var(--accent); }
+h3 { font-size:1.1rem; margin:1.4rem 0 .6rem; }
+p { margin:.8rem 0; }
+.authors { font-style:italic; color:var(--muted); margin-top:-.4rem; }
+.meta { font-family:var(--sans); font-size:.82rem; color:var(--muted); margin:.2rem 0; }
+a { color:var(--accent); text-decoration:none; }
+a:hover { text-decoration:underline; }
+blockquote { border-left:3px solid var(--accent); margin:1rem 0; padding:.2rem 0 .2rem 1rem; color:var(--muted); font-style:italic; }
+code { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; background:#f0f0f0; padding:2px 5px; border-radius:3px; font-size:.9em; }
+pre { background:#f5f5f5; padding:14px; overflow-x:auto; border-radius:4px; border:1px solid var(--line); }
+pre code { background:transparent; padding:0; }
+ul,ol { margin:.6rem 0; padding-left:1.5rem; }
+li { margin:.25rem 0; }
+table { border-collapse:collapse; width:100%; margin:1rem 0; font-family:var(--sans); font-size:.9rem; }
+th,td { border:1px solid var(--line); padding:6px 10px; text-align:left; }
+th { background:#f0f0f0; }
+hr { border:none; border-top:1px solid var(--line); margin:1.5rem 0; }
+.note { font-family:var(--sans); font-size:.78rem; color:var(--muted); border-top:1px solid var(--line); margin-top:2rem; padding-top:1rem; }
+@media (max-width: 600px) { .container { padding:22px 14px 40px; } h1 { font-size:1.35rem; } }
+</style>
+</head>
+<body>
+<div class="topnav"><a href="./index.html">← Today's digest</a></div>
+<div class="container">
+<h1>Knowledge Capsules: Structured Nonparametric Memory Units for LLMs</h1>
+<p class="meta">arXiv: 2604.20487v1</p>
+<p class="meta">Date: 2026-04-22</p>
+<p class="meta"><a href="https://arxiv.org/abs/2604.20487v1">https://arxiv.org/abs/2604.20487v1</a></p>
+<blockquote><strong>一句话总结：</strong> 本文提出 Knowledge Capsules 与 External KV Injection (KVI) 框架，将外部知识编译为与注意力兼容的 key-value 张量，并通过图引导检索 + 双通道注入（KV 前缀 + Prompt 证据）将其直接注入冻结 LLM 的注意力记忆，从而在多跳 QA 上相比 RAG/GraphRAG 获得一致提升。</blockquote>
+<blockquote><strong>TL;DR:</strong> This paper introduces Knowledge Capsules (structured (S, R, O, provenance) tuples) and the External KV Injection (KVI) framework that compiles capsules into pre-computed key-value tensors via a frozen LLM, then injects them as a KV prefix alongside prompt-channel evidence for multi-hop QA. The result is a training-free, backbone-preserving memory-level augmentation that outperforms RAG and GraphRAG on multi-hop benchmarks (HotpotQA, MedHopQA).</blockquote>
+<h2>核心贡献</h2>
+<ol>
+<li><strong>Knowledge Capsule 表示</strong>：将外部知识结构化为 <code>(S, R, O, I)</code> 四元组（主语、关系、宾语、来源句子 ID），既保留可溯源性，又形成结构化的、可聚合的语义单元。</li>
+<li><strong>两级记忆架构</strong>：Level 1 为磁盘上的符号胶囊（JSON/Parquet，人类可读、可增量扩展）；Level 2 是用冻结 LLM 预编译成的连续 KV 张量库 B，用于注意力层注入。</li>
+<li><strong>External KV Injection (KVI)</strong>：在每个 Transformer 层将外部 KV 张量作为前缀拼接到 prompt 的 KV 之前，使外部知识直接参与 softmax 注意力竞争，而不再作为 token 级上下文。</li>
+<li><strong>双通道注入</strong>：KV 通道注入结构化关系（Anchor KV + Triple KV），Prompt 通道保留原始证据句用于 grounding；两者互补不重复。</li>
+<li><strong>图引导多跳检索 + DRM 评分</strong>：基于知识图实体锚点进行多跳遍历，用 Dual Relation Matching 评分选 Top-k 三元组。</li>
+<li><strong>训练无关、骨干模型不变</strong>：不改变参数，适用于 Qwen2.5-7B-Instruct、Mistral-7B-Instruct-v0.3。</li>
+</ol>
+<h2>Key Contributions</h2>
+<ol>
+<li><strong>Training-free, evidence-grounded knowledge capsules</strong> distilled from corpora using a frozen base LLM, preserving provenance to source sentences.</li>
+<li><strong>Memory-level injection as a complementary channel</strong> to context expansion: capsules are compiled into attention-compatible KV representations that participate directly in softmax competition rather than being re-encoded from tokens.</li>
+<li><strong>Dual-channel graph-guided retrieval for multi-hop reasoning</strong>: KV prefix supplies relational structure; prompt channel supplies raw evidence for grounding. The authors emphasize the two channels are non-duplicative.</li>
+<li><strong>A unified ablation grid</strong> where LLM / RAG / GraphRAG / KV Prefix / KVI form a 2x2 decomposition over {graph retrieval, KV injection}.</li>
+<li><strong>Evaluation on multi-hop QA (HotpotQA, MedHopQA) and hallucination proxies (TruthfulQA, FEVER)</strong> with two backbones.</li>
+</ol>
+<h2>Methodology</h2>
+<p><strong>Compile-time pipeline (Algorithm 1):</strong></p>
+<ul>
+<li>Segment PDF corpus, run section-aware evidence extraction (Deepseek), and extract relational triples (S, R, O) per sentence via a frozen LLM.</li>
+<li>Build knowledge graph G = (V, E) with a sentence-level provenance index I.</li>
+<li>For each entity, construct a canonical anchor sentence (e.g., "SFTSV infection is a viral disease"), forward-pass through frozen LLM, and store layer-wise (K_l, V_l) as <strong>Entity Anchor KV</strong>.</li>
+<li>For each triple, compile a canonical natural-language statement into <strong>Triple KV</strong> tensors. The raw text is NOT encoded into these tensors — only the vectors are stored in KV bank B.</li>
+</ul>
+<p><strong>Query-time pipeline (Algorithm 2):</strong></p>
+<ul>
+<li>Detect query entity e; if absent, fall back to vanilla LLM.</li>
+<li>Classify intent, map to relation set R, perform bounded multi-hop BFS over G (max hops H).</li>
+<li>Score candidate triples with DRM (Dual Relation Matching) against query-evidence alignment; select Top-k.</li>
+<li><strong>KV channel</strong>: compose prefix <code>[Anchor_KV(e); Triple_KV(t_1); ...]</code>, concatenate before prompt KVs at every layer: <code>K_l^full = [K_l^ext; K_l^prompt]</code>, same for V.</li>
+<li><strong>Prompt channel</strong>: provides raw evidence sentences + query + task requirements as standard tokens.</li>
+<li>Generate with <code>past_key_values</code> set to the external KV; apply grounding filter (removes outputs with low token overlap vs. retrieved evidence).</li>
+</ul>
+<p><strong>Experimental setup:</strong></p>
+<ul>
+<li>Backbones: Qwen2.5-7B-Instruct, Mistral-7B-Instruct-v0.3 (frozen).</li>
+<li>Datasets: NQ (N=100), HotpotQA (N=120), MedHopQA-ID (N=40), MedHopQA_official (N=342), TruthfulQA (500), FEVER (1000).</li>
+<li>Metric: Exact Match (EM, %) with 95% bootstrap CI; paired permutation tests against KVI.</li>
+<li>Dense baselines use all-MiniLM-L6-v2 + FAISS. KV Prefix baseline = dense retrieval + raw KV injection (no structure).</li>
+</ul>
+<h2>Results & Highlights</h2>
+<p><strong>Main QA (Table 2, EM%):</strong></p>
+<ul>
+<li>Qwen2.5-7B: KVI wins on NQ (49.0 vs RAG 41.0), HotpotQA (33.3 vs 22.5), MedHopQA_n40 (92.5 vs 0.0 for LLM/RAG), MedHopQA_official (75.4 vs GraphRAG 74.3).</li>
+<li>Mistral-7B: KVI ties GraphRAG on NQ (67.0), wins on HotpotQA (40.8 vs GraphRAG 38.3), MedHopQA_n40 (12.5 vs 10.0), MedHopQA_official (33.3 vs GraphRAG 13.5).</li>
+<li>KV Prefix (naive KV injection without structure) performs poorly, often below the base LLM — supporting the claim that structure, not raw KV injection, drives gains.</li>
+</ul>
+<p><strong>Ablation (Table 3, Qwen2.5):</strong></p>
+<ul>
+<li>Removing graph: HotpotQA 33.3 → 22.5; MedHopQA_official 75.4 → 0.0 (catastrophic).</li>
+<li>Removing KV: HotpotQA 33.3 → 32.5; MedHopQA_n40 92.5 → 82.5 (modest).</li>
+<li>Interpretation: graph retrieval is the dominant factor; KV injection provides a smaller complementary lift.</li>
+</ul>
+<p><strong>Hallucination bench (Figure 3):</strong></p>
+<ul>
+<li>TruthfulQA-MC1 proxy: KV Prefix wins (3.2%) lowest hallucination; KVI 22.2%, GraphRAG 15.6%. Mixed result — KVI does NOT uniformly dominate.</li>
+<li>TruthfulQA-MC2 proxy: KV Prefix worst (96.5%); KVI 94.5% — also poor here, close to baseline LLM.</li>
+<li>FEVER label accuracy → hallucination rate: GraphRAG 7.5% (best), RAG second, KVI 10.7%.</li>
+<li>Authors acknowledge "no single method dominates across all hallucination metrics."</li>
+</ul>
+<h2>Authors & Credibility</h2>
+<p>Authors are from Zhejiang Angel Medical AI Technology, Miti AI Technology, and the First Affiliated Hospital's State Key Lab (China-Singapore Belt and Road Joint Lab). Corresponding authors: Bin Ju (jubin_hz@163.com) and Kunkai Su (ksu@zju.edu.cn). Published as a technical report on arXiv (cs.CL, April 2026). Code promised at https://github.com/jubin75/KVI. The SFTSV (Severe Fever with Thrombocytopenia Syndrome Virus) running example and medical benchmarks suggest the team's primary focus is biomedical QA — this is plausibly a medical-domain motivated paper framed for a general audience.</p>
+<h2>Critical Assessment</h2>
+<ul>
+<li><strong>Sample sizes are small and uneven.</strong> MedHopQA_n40 has only 40 examples; NQ is trimmed to 100. EM differences on MedHopQA_n40 (92.5 vs 82.5) translate to ~4 examples — well within the bootstrap CI [82.5, 100.0] which overlaps heavily with GraphRAG's 74.3 [69.6, 78.9]. Some "wins" may not be statistically meaningful.</li>
+<li><strong>MedHopQA EM=0 for LLM/RAG is suspicious.</strong> The paper attributes this to "free-form generation produces malformed IDs" under strict ID matching (e.g., <code>DBxxxx</code>). This is an evaluation-format artifact, not a failure of the baseline's knowledge — it inflates KVI's apparent lead. Graph methods win largely because they constrain output space to candidate DrugBank IDs.</li>
+<li><strong>Weak baselines.</strong> KV Prefix (raw dense-retrieved sentences injected as KV) is a strawman — no prior work seriously proposes this. The realistic comparison should be against KBLaM (cited as [35]) or other attention-level knowledge injection methods, which are absent from results.</li>
+<li><strong>Hallucination results undercut the claim.</strong> KVI does not consistently reduce hallucination; GraphRAG and even KV Prefix win on some metrics. The paper handles this honestly but the abstract's "improved stability" claim is not fully supported.</li>
+<li><strong>Ablation is narrow.</strong> Only "w/o Graph" and "w/o KV" — no ablation on (a) number of layers with KV injection, (b) KV budget k, (c) Entity Anchor vs Triple-only KV, (d) relation filtering threshold. The "two-level memory" design has many knobs that are not independently justified.</li>
+<li><strong>Unstated compute cost.</strong> Pre-compiling layer-wise KV tensors for every entity and every triple is non-trivial at scale. The Limitations section acknowledges memory overhead but no numbers are reported.</li>
+<li><strong>Only 7B instruction-tuned backbones.</strong> Generalization to larger models or base (non-instruct) models is untested.</li>
+<li><strong>MedHopQA dataset (BioCreative IX, [38])</strong> is cited as "2025" — proximity of authors to this shared task may indicate unintended familiarity bias in the graph schema.</li>
+</ul>
+<h2>Strengths</h2>
+<ul>
+<li>Clean, principled framing of the gap between token-level RAG and attention-level memory, backed by the "attention as associative memory" literature.</li>
+<li>Genuinely elegant two-level architecture: symbolic for storage/extensibility, continuous for runtime.</li>
+<li>Complete 2x2 ablation grid (LLM / RAG / GraphRAG / KV Prefix / KVI) is a rare and welcome design.</li>
+<li>Training-free and backbone-preserving, which is practically attractive.</li>
+<li>Honest reporting of mixed hallucination results rather than suppressing them.</li>
+<li>Useful provenance design — capsules retain sentence IDs for grounding.</li>
+</ul>
+<h2>Limitations</h2>
+<p>The paper itself lists:</p>
+<ol>
+<li>Dependence on triple-extraction quality; errors propagate.</li>
+<li>Reliance on entity detection — degrades on entity-sparse queries.</li>
+<li>KV injection adds inference-time memory overhead; scaling to very large KGs needs better compression.</li>
+<li>Evaluation focused on structured-answer QA; free-text generalization untested.</li>
+</ol>
+<p>Additional limitations I'd add:</p>
+<ul>
+<li>No end-to-end latency numbers.</li>
+<li>No analysis of how KV injection interacts with RoPE / positional encodings — a known subtle issue for KV prefix injection that the paper does not discuss.</li>
+<li>No comparison to parameter-efficient knowledge editing (ROME, MEMIT, which are cited but not compared).</li>
+</ul>
+<h2>Relevance</h2>
+<p>与你关注方向的相关性：</p>
+<ul>
+<li><strong>Hidden states / interpretability（中等相关）</strong>：KVI 直接操作每层的 K/V 张量，本质上是在研究“外部知识如何与内部 hidden state 空间对齐”，与你关注的可解释性/隐藏状态方向有接口。Entity Anchor KV 作为“语义 prime”的设计对理解注意力记忆的工作方式有启发。</li>
+<li><strong>Inference evaluation（中等相关）</strong>：论文在推理期注入 KV，且自行定义了 hallucination proxy 指标，方法论上与推理评估有直接联系；但其 EM 评测和代理指标的选择存在偏倚（见 Critical Assessment）。</li>
+<li><strong>LLM training stability（弱相关）</strong>：训练无关方法，不直接涉及训练稳定性。</li>
+<li><strong>Quantization/precision（不相关）</strong>：未讨论精度或量化。</li>
+<li><strong>System cards / silent data corruption / ML reliability（弱相关）</strong>：论文强调“stability and controllability”，但未做 SDC 或可靠性系统层面的分析。</li>
+</ul>
+<p>简言之：如果你关心“注意力作为关联记忆”“external memory 与 hidden state 对齐”“推理期非参数增强”的话值得一读；如果你关心训练稳定性或量化，这篇不必深读。</p>
+<h2>Questions for Further Exploration</h2>
+<ol>
+<li>How does KVI interact with RoPE or other relative positional encodings? Injected KV tensors were computed with fixed positions — do they collide with prompt-token positions in attention?</li>
+<li>What is the actual wall-clock overhead of KVI at inference vs. RAG with equivalent evidence? The KV prefix grows with |Top-k triples| x L layers.</li>
+<li>How sensitive is the method to triple-extraction errors? A noise-injection ablation on the extracted triples would quantify the "garbage in, garbage out" risk.</li>
+<li>Does KVI degrade on queries with no clear entity anchor? The fallback-to-LLM behavior suggests a silent coverage hole.</li>
+<li>How does KVI compare head-to-head with KBLaM [35], which appears to be the closest prior work on attention-level knowledge injection?</li>
+<li>Can Entity Anchor KV alone (without Triple KV) recover most of the gain? The ablation does not isolate these.</li>
+<li>Are the EM gains on MedHopQA driven by output-format constraints (valid DrugBank ID generation) rather than better reasoning? A free-text variant of MedHopQA would disambiguate.</li>
+<li>Does KVI reduce or increase the model's propensity for confident hallucination on out-of-graph queries?</li>
+</ol>
+<p class="note">Generated from Markdown summary. Full paper: <a href="https://arxiv.org/abs/2604.20487v1">arXiv:2604.20487v1</a></p>
+</div>
+</body>
+</html>

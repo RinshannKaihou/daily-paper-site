@@ -1,0 +1,957 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>COAST: Contrastive Conceptor Activation Steering for VLA Models</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Sans:wght@300;400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --accent: #e8450e;
+    --accent-dim: #c93a0b;
+    --accent-glow: rgba(232, 69, 14, 0.12);
+    --accent-glow2: rgba(232, 69, 14, 0.06);
+    --teal: #0d9488;
+    --teal-dim: #0f766e;
+    --teal-glow: rgba(13, 148, 136, 0.10);
+    --bg: #0c0c0e;
+    --bg-raised: #141418;
+    --bg-card: #1a1a20;
+    --bg-card-hover: #22222a;
+    --surface: #26262e;
+    --text: #e8e8ec;
+    --text-secondary: #a0a0ac;
+    --text-muted: #6e6e7a;
+    --border: #2e2e38;
+    --border-light: #3a3a46;
+    --metric-positive: #22c55e;
+    --metric-negative: #ef4444;
+    --font-display: "Space Grotesk", "Noto Sans SC", system-ui, sans-serif;
+    --font-body: "IBM Plex Sans", "Noto Sans SC", system-ui, sans-serif;
+    --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+    --max-w: min(96vw, 1200px);
+    --radius: 8px;
+    --radius-lg: 12px;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html { font-size: 16px; -webkit-font-smoothing: antialiased; scroll-behavior: smooth; }
+  body {
+    font-family: var(--font-body);
+    color: var(--text);
+    background: var(--bg);
+    line-height: 1.6;
+    min-height: 100vh;
+  }
+
+  /* ---------- NOISE OVERLAY ---------- */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    opacity: 0.025;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    background-size: 256px 256px;
+  }
+
+  /* ---------- FIXED NAV ---------- */
+  .nav-back {
+    position: fixed; top: 0; left: 0; z-index: 100;
+    background: rgba(12,12,14,0.85);
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--border);
+    border-right: 1px solid var(--border);
+    border-radius: 0 0 var(--radius) 0;
+    padding: 10px 18px;
+    display: flex; align-items: center; gap: 14px;
+  }
+  .nav-back a {
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    text-decoration: none;
+    transition: color 0.2s;
+    letter-spacing: 0.02em;
+  }
+  .nav-back a:hover { color: var(--accent); }
+  .nav-back .sep { color: var(--border); font-size: 0.7rem; }
+
+  /* ---------- CONTAINER ---------- */
+  .container {
+    position: relative;
+    z-index: 1;
+    max-width: var(--max-w);
+    margin: 0 auto;
+    padding: 70px 24px 80px;
+  }
+
+  /* ---------- HERO BAND ---------- */
+  .hero {
+    margin-bottom: 48px;
+    padding: 0 0 40px;
+    border-bottom: 1px solid var(--border);
+    animation: fadeUp 0.6s ease-out both;
+  }
+  .hero-tag {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--accent);
+    background: var(--accent-glow);
+    border: 1px solid rgba(232,69,14,0.2);
+    padding: 4px 12px;
+    border-radius: 100px;
+    margin-bottom: 20px;
+  }
+  .hero h1 {
+    font-family: var(--font-display);
+    font-size: clamp(2rem, 4.5vw, 3.2rem);
+    font-weight: 700;
+    line-height: 1.12;
+    color: #fff;
+    margin-bottom: 14px;
+    max-width: 900px;
+  }
+  .hero h1 .dim { color: var(--text-secondary); font-weight: 500; }
+  .hero-sub {
+    font-size: 1.05rem;
+    color: var(--text-secondary);
+    line-height: 1.65;
+    max-width: 780px;
+  }
+  .hero-meta {
+    margin-top: 20px;
+    display: flex; flex-wrap: wrap; gap: 16px;
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+  }
+  .hero-meta span { display: flex; align-items: center; gap: 5px; }
+
+  /* ---------- HEADLINE CLAIM BAR ---------- */
+  .claim-bar {
+    background: var(--accent-glow);
+    border: 1px solid rgba(232,69,14,0.18);
+    border-radius: var(--radius-lg);
+    padding: 22px 28px;
+    margin-bottom: 36px;
+    animation: fadeUp 0.6s ease-out 0.15s both;
+  }
+  .claim-bar .label {
+    font-family: var(--font-mono);
+    font-size: 0.65rem;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--accent);
+    margin-bottom: 8px;
+  }
+  .claim-bar p {
+    font-family: var(--font-display);
+    font-size: 1.15rem;
+    font-weight: 500;
+    color: #fff;
+    line-height: 1.5;
+  }
+
+  /* ---------- ASSET CARD GRID ---------- */
+  .asset-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 16px;
+    margin-bottom: 48px;
+  }
+  .asset-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 24px;
+    transition: border-color 0.25s, background 0.25s;
+    animation: fadeUp 0.6s ease-out both;
+  }
+  .asset-card:nth-child(1) { animation-delay: 0.2s; }
+  .asset-card:nth-child(2) { animation-delay: 0.28s; }
+  .asset-card:nth-child(3) { animation-delay: 0.36s; }
+  .asset-card:nth-child(4) { animation-delay: 0.44s; }
+  .asset-card:hover { border-color: var(--border-light); background: var(--bg-card-hover); }
+  .asset-card .card-label {
+    font-family: var(--font-mono);
+    font-size: 0.62rem;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    margin-bottom: 14px;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .asset-card .card-label .dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    display: inline-block;
+  }
+  .asset-card .card-value {
+    font-family: var(--font-display);
+    font-size: 2.4rem;
+    font-weight: 700;
+    color: #fff;
+    line-height: 1.1;
+    margin-bottom: 8px;
+  }
+  .asset-card .card-value .unit {
+    font-size: 1rem;
+    font-weight: 500;
+    color: var(--text-secondary);
+    margin-left: 4px;
+  }
+  .asset-card .card-desc {
+    font-size: 0.88rem;
+    color: var(--text-secondary);
+    line-height: 1.55;
+  }
+
+  /* color variants */
+  .card-metric .dot { background: var(--metric-positive); }
+  .card-metric .card-label { color: var(--metric-positive); }
+  .card-why .dot { background: var(--teal); }
+  .card-why .card-label { color: var(--teal); }
+  .card-edge .dot { background: var(--metric-negative); }
+  .card-edge .card-label { color: var(--metric-negative); }
+  .card-data .dot { background: #a78bfa; }
+  .card-data .card-label { color: #a78bfa; }
+
+  /* ---------- SECTION HEADERS ---------- */
+  .section-header {
+    display: flex; align-items: center; gap: 12px;
+    margin-bottom: 20px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--border);
+  }
+  .section-header h2 {
+    font-family: var(--font-display);
+    font-size: 1.25rem;
+    font-weight: 600;
+    color: #fff;
+  }
+  .section-header .section-tag {
+    font-family: var(--font-mono);
+    font-size: 0.6rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--text-muted);
+    background: var(--surface);
+    padding: 3px 10px;
+    border-radius: 100px;
+  }
+
+  /* ---------- METHOD FLOW ---------- */
+  .method-section { margin-bottom: 48px; }
+  .method-flow {
+    display: grid;
+    grid-template-columns: 1fr 40px 1fr;
+    gap: 0;
+    align-items: stretch;
+    margin-bottom: 24px;
+  }
+  .method-step {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 24px;
+  }
+  .method-step .step-num {
+    font-family: var(--font-mono);
+    font-size: 0.6rem;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--accent);
+    margin-bottom: 10px;
+  }
+  .method-step h3 {
+    font-family: var(--font-display);
+    font-size: 1.05rem;
+    font-weight: 600;
+    color: #fff;
+    margin-bottom: 10px;
+  }
+  .method-step p {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    line-height: 1.6;
+  }
+  .method-step code {
+    font-family: var(--font-mono);
+    font-size: 0.78rem;
+    background: var(--surface);
+    color: var(--accent);
+    padding: 2px 6px;
+    border-radius: 4px;
+  }
+  .method-arrow {
+    display: flex; align-items: center; justify-content: center;
+    color: var(--text-muted);
+    font-size: 1.2rem;
+  }
+  .method-arrow svg { width: 20px; height: 20px; }
+
+  .formula-block {
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 18px 24px;
+    margin-top: 16px;
+    font-family: var(--font-mono);
+    font-size: 0.82rem;
+    color: var(--text-secondary);
+    line-height: 1.8;
+    overflow-x: auto;
+  }
+  .formula-block .highlight { color: var(--accent); font-weight: 500; }
+
+  /* ---------- RESULTS TABLE ---------- */
+  .results-section { margin-bottom: 48px; }
+  .results-table-wrap {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    overflow: hidden;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.85rem;
+  }
+  thead th {
+    font-family: var(--font-mono);
+    font-size: 0.68rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-muted);
+    text-align: left;
+    padding: 14px 18px;
+    background: var(--bg-raised);
+    border-bottom: 1px solid var(--border);
+  }
+  tbody td {
+    padding: 12px 18px;
+    border-bottom: 1px solid var(--border);
+    color: var(--text-secondary);
+  }
+  tbody tr:last-child td { border-bottom: none; }
+  tbody tr:hover { background: rgba(255,255,255,0.02); }
+  .model-name {
+    font-family: var(--font-display);
+    font-weight: 600;
+    color: #fff;
+  }
+  .delta {
+    font-family: var(--font-mono);
+    font-weight: 600;
+    font-size: 0.82rem;
+  }
+  .delta.positive { color: var(--metric-positive); }
+  .delta.negative { color: var(--metric-negative); }
+  .sr-val { font-family: var(--font-mono); font-size: 0.82rem; }
+  .sr-before { color: var(--text-muted); }
+  .sr-after { color: #fff; font-weight: 500; }
+  .arrow-icon { color: var(--text-muted); margin: 0 4px; font-size: 0.75rem; }
+
+  /* ---------- BAR CHART VIS ---------- */
+  .chart-row {
+    display: grid;
+    grid-template-columns: 200px 1fr 70px;
+    gap: 12px;
+    align-items: center;
+    padding: 10px 18px;
+    border-bottom: 1px solid var(--border);
+  }
+  .chart-row:last-child { border-bottom: none; }
+  .chart-row:hover { background: rgba(255,255,255,0.015); }
+  .chart-label {
+    font-family: var(--font-display);
+    font-size: 0.82rem;
+    font-weight: 500;
+    color: var(--text-secondary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .chart-bar-wrap {
+    display: flex; align-items: center; gap: 4px;
+    height: 22px;
+  }
+  .chart-bar-before, .chart-bar-after {
+    height: 100%;
+    border-radius: 3px;
+    transition: width 0.8s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  .chart-bar-before {
+    background: var(--surface);
+    opacity: 0.7;
+  }
+  .chart-bar-after {
+    background: var(--accent);
+    opacity: 0.85;
+  }
+  .chart-delta {
+    font-family: var(--font-mono);
+    font-size: 0.78rem;
+    font-weight: 600;
+    text-align: right;
+  }
+  .chart-delta.positive { color: var(--metric-positive); }
+
+  /* ---------- INSIGHTS GRID ---------- */
+  .insights-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    gap: 16px;
+    margin-bottom: 48px;
+  }
+  .insight-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 24px;
+    transition: border-color 0.25s;
+  }
+  .insight-card:hover { border-color: var(--border-light); }
+  .insight-card h3 {
+    font-family: var(--font-display);
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: #fff;
+    margin-bottom: 10px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .insight-card h3 .icon {
+    font-size: 1rem;
+    width: 28px; height: 28px;
+    display: flex; align-items: center; justify-content: center;
+    border-radius: 6px;
+    flex-shrink: 0;
+  }
+  .insight-card p {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    line-height: 1.6;
+  }
+  .icon-teal { background: var(--teal-glow); color: var(--teal); }
+  .icon-accent { background: var(--accent-glow); color: var(--accent); }
+  .icon-purple { background: rgba(167,139,250,0.1); color: #a78bfa; }
+  .icon-green { background: rgba(34,197,94,0.1); color: #22c55e; }
+
+  /* ---------- STRENGTHS / LIMITATIONS ---------- */
+  .tradeoff-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin-bottom: 48px;
+  }
+  .tradeoff-col {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 24px;
+  }
+  .tradeoff-col h3 {
+    font-family: var(--font-display);
+    font-size: 0.9rem;
+    font-weight: 600;
+    margin-bottom: 14px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .tradeoff-col ul {
+    list-style: none;
+    padding: 0;
+  }
+  .tradeoff-col li {
+    font-size: 0.82rem;
+    color: var(--text-secondary);
+    line-height: 1.55;
+    padding: 6px 0;
+    border-bottom: 1px solid var(--border);
+    padding-left: 16px;
+    position: relative;
+  }
+  .tradeoff-col li:last-child { border-bottom: none; }
+  .tradeoff-col li::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 13px;
+    width: 5px; height: 5px;
+    border-radius: 50%;
+  }
+  .col-strengths h3 { color: var(--metric-positive); }
+  .col-strengths li::before { background: var(--metric-positive); }
+  .col-limits h3 { color: var(--metric-negative); }
+  .col-limits li::before { background: var(--metric-negative); }
+
+  /* ---------- REAL-WORLD CALLOUT ---------- */
+  .realworld-callout {
+    background: linear-gradient(135deg, rgba(13,148,136,0.08) 0%, rgba(13,148,136,0.02) 100%);
+    border: 1px solid rgba(13,148,136,0.18);
+    border-radius: var(--radius-lg);
+    padding: 28px;
+    margin-bottom: 48px;
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 24px;
+    align-items: center;
+  }
+  .realworld-callout h3 {
+    font-family: var(--font-display);
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: var(--teal);
+    margin-bottom: 8px;
+  }
+  .realworld-callout p {
+    font-size: 0.88rem;
+    color: var(--text-secondary);
+    line-height: 1.6;
+  }
+  .realworld-stat {
+    text-align: center;
+    padding: 12px 24px;
+  }
+  .realworld-stat .big-num {
+    font-family: var(--font-display);
+    font-size: 2.8rem;
+    font-weight: 700;
+    color: var(--teal);
+    line-height: 1;
+  }
+  .realworld-stat .big-label {
+    font-family: var(--font-mono);
+    font-size: 0.65rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--text-muted);
+    margin-top: 6px;
+  }
+
+  /* ---------- BASELINE COMPARISON ---------- */
+  .baseline-strip {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 12px;
+    margin-bottom: 48px;
+  }
+  .baseline-item {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 18px;
+    text-align: center;
+    transition: border-color 0.2s;
+  }
+  .baseline-item:hover { border-color: var(--border-light); }
+  .baseline-item .bl-name {
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-muted);
+    margin-bottom: 8px;
+  }
+  .baseline-item .bl-delta {
+    font-family: var(--font-display);
+    font-size: 1.6rem;
+    font-weight: 700;
+  }
+  .baseline-item .bl-note {
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    margin-top: 4px;
+  }
+  .bl-coast { border-color: rgba(232,69,14,0.3); background: var(--accent-glow2); }
+  .bl-coast .bl-name { color: var(--accent); }
+  .bl-coast .bl-delta { color: var(--accent); }
+
+  /* ---------- CROSS-TASK CALLOUT ---------- */
+  .transfer-block {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 24px;
+    margin-bottom: 48px;
+  }
+  .transfer-block h3 {
+    font-family: var(--font-display);
+    font-size: 1rem;
+    font-weight: 600;
+    color: #fff;
+    margin-bottom: 12px;
+  }
+  .transfer-block p {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    line-height: 1.6;
+    margin-bottom: 12px;
+  }
+  .transfer-evidence {
+    display: flex; flex-wrap: wrap; gap: 12px;
+  }
+  .transfer-chip {
+    background: var(--surface);
+    border-radius: 100px;
+    padding: 6px 14px;
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    color: var(--text-secondary);
+    display: flex; align-items: center; gap: 6px;
+  }
+  .transfer-chip .tc-arrow { color: var(--accent); }
+  .transfer-chip .tc-gain { color: var(--metric-positive); font-weight: 600; }
+
+  /* ---------- FOOTER ---------- */
+  .footer {
+    padding-top: 32px;
+    border-top: 1px solid var(--border);
+    display: flex; flex-wrap: wrap; gap: 20px;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 0.78rem;
+    color: var(--text-muted);
+  }
+  .footer a {
+    color: var(--text-muted);
+    text-decoration: none;
+    transition: color 0.2s;
+  }
+  .footer a:hover { color: var(--accent); }
+
+  /* ---------- ANIMATIONS ---------- */
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(18px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  /* ---------- RESPONSIVE ---------- */
+  @media (max-width: 768px) {
+    .container { padding: 60px 14px 60px; }
+    .method-flow { grid-template-columns: 1fr; }
+    .method-arrow { padding: 8px 0; }
+    .method-arrow svg { transform: rotate(90deg); }
+    .tradeoff-grid { grid-template-columns: 1fr; }
+    .realworld-callout { grid-template-columns: 1fr; }
+    .chart-row { grid-template-columns: 140px 1fr 60px; }
+    .asset-grid { grid-template-columns: 1fr; }
+    .hero h1 { font-size: clamp(1.6rem, 6vw, 2.4rem); }
+    .baseline-strip { grid-template-columns: 1fr 1fr; }
+  }
+  @media (max-width: 480px) {
+    .nav-back { padding: 8px 12px; }
+    .hero-meta { flex-direction: column; gap: 4px; }
+    .baseline-strip { grid-template-columns: 1fr; }
+  }
+
+  /* ---------- SCROLL REVEAL ---------- */
+  .reveal {
+    opacity: 0;
+    transform: translateY(18px);
+    transition: opacity 0.5s ease-out, transform 0.5s ease-out;
+  }
+  .reveal.visible {
+    opacity: 1;
+    transform: translateY(0);
+  }
+</style>
+</head>
+<body>
+
+<!-- NAV -->
+<nav class="nav-back">
+  <a href="./index.html">Index</a>
+  <span class="sep">/</span>
+  <a href="https://arxiv.org/abs/2605.17144">arXiv 2605.17144</a>
+  <span class="sep">/</span>
+  <a href="2605.17144.html">.md</a>
+</nav>
+
+<div class="container">
+
+  <!-- ====== HERO ====== -->
+  <header class="hero">
+    <div class="hero-tag">arXiv 2605.17144 &middot; NeurIPS 2026 Submission</div>
+    <h1>COAST <span class="dim">-- Contrastive Conceptor Activation Steering for Vision-Language-Action Models</span></h1>
+    <p class="hero-sub">
+      A training-free, inference-time method that steers frozen robot policies by applying Boolean conceptor algebra to residual-stream activations. Extracts a contrastive success/failure subspace from as few as 15 rollouts and gates the action expert at inference -- no weight updates, no gradient computation.
+    </p>
+    <div class="hero-meta">
+      <span>Miao, Kim, Yang, Ungar</span>
+      <span>UPenn</span>
+      <span>2026-05-16</span>
+    </div>
+  </header>
+
+  <!-- ====== HEADLINE CLAIM ====== -->
+  <div class="claim-bar">
+    <div class="label">Headline Claim</div>
+    <p>Zero-weight-update policy repair at inference time -- deploy a frozen VLA model, then patch its failure subspace from a handful of rollouts for +20% simulation and +40% real-robot success rate improvement.</p>
+  </div>
+
+  <!-- ====== ASSET CARDS ====== -->
+  <div class="asset-grid">
+    <!-- KEY METRIC -->
+    <div class="asset-card card-metric">
+      <div class="card-label"><span class="dot"></span> Key Metric</div>
+      <div class="card-value">+0.37<span class="unit">SR</span></div>
+      <div class="card-desc">pi0.5 on LIBERO-10: 0.43 to 0.80 mean success rate (p&lt;.001). pick-place-wall recovers from 0.20 to 1.00.</div>
+    </div>
+    <!-- WHY THIS MATTERS -->
+    <div class="asset-card card-why">
+      <div class="card-label"><span class="dot"></span> Why This Matters</div>
+      <div class="card-value" style="font-size:1.4rem; line-height:1.3;">Closed-form policy repair at near-zero cost</div>
+      <div class="card-desc">15 rollouts, no retraining, no gradients. Applies to any VLA architecture with a residual stream. Practically usable for real robot deployment today.</div>
+    </div>
+    <!-- CRITICAL EDGE -->
+    <div class="asset-card card-edge">
+      <div class="card-label"><span class="dot"></span> Critical Edge</div>
+      <div class="card-value">+24%<span class="unit">latency</span></div>
+      <div class="card-desc">Requires both success and failure rollouts per task. Inference overhead from the forward hook is non-negligible for real-time control. Helps less on already well-trained policies.</div>
+    </div>
+    <!-- DATA POINT -->
+    <div class="asset-card card-data">
+      <div class="card-label"><span class="dot"></span> Cross-Task Transfer</div>
+      <div class="card-value">15<span class="unit">rollouts</span></div>
+      <div class="card-desc">Failure representations share geometry across tasks (r=0.30--0.49, p&lt;.005). Conceptors transfer zero-shot between tasks with similar failure modes -- sometimes exceeding self-steered gains.</div>
+    </div>
+  </div>
+
+  <!-- ====== METHOD ====== -->
+  <section class="method-section reveal">
+    <div class="section-header">
+      <h2>How It Works</h2>
+      <span class="section-tag">Two-Phase Pipeline</span>
+    </div>
+    <div class="method-flow">
+      <div class="method-step">
+        <div class="step-num">Phase 1 -- Offline Fitting</div>
+        <h3>Extract Contrastive Subspace</h3>
+        <p>Collect N rollout episodes from the frozen policy. Extract residual-stream activations from the action expert at a selected layer. Fit separate conceptors for success (<code>C+</code>) and failure (<code>C-</code>) activations, then compose via Boolean algebra.</p>
+        <div class="formula-block">
+          <span class="highlight">C_steer</span> = C+ AND NOT C- = (C+<sup>-1</sup> + (I - C-)<sup>-1</sup> - I)<sup>-1</sup>
+        </div>
+      </div>
+      <div class="method-arrow">
+        <svg viewBox="0 0 20 20" fill="none"><path d="M6 4l8 6-8 6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </div>
+      <div class="method-step">
+        <div class="step-num">Phase 2 -- Inference Steering</div>
+        <h3>Multiplicative Gate on Residual Stream</h3>
+        <p>At each denoising step, the residual activation <code>h</code> at layer <code>l</code> is replaced by <code>h' = h M<sup>T</sup></code>. Identity interpolation ensures soft projection, with <code>beta</code> controlling steering strength.</p>
+        <div class="formula-block">
+          M = (1-<span class="highlight">beta</span>) * I + <span class="highlight">beta</span> * C_steer &nbsp;&nbsp;|&nbsp;&nbsp; h' = h M<sup>T</sup>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ====== RESULTS ====== -->
+  <section class="results-section reveal">
+    <div class="section-header">
+      <h2>Simulation Results</h2>
+      <span class="section-tag">Success Rate Lift</span>
+    </div>
+    <div class="results-table-wrap">
+      <div style="padding: 12px 18px 0;">
+        <div class="chart-row" style="border-bottom: 1px solid var(--border); padding-top:4px; padding-bottom:4px;">
+          <div class="chart-label" style="font-family:var(--font-mono); font-size:0.68rem; text-transform:uppercase; letter-spacing:0.08em; color:var(--text-muted);">Model / Benchmark</div>
+          <div class="chart-bar-wrap" style="font-size:0.68rem; color:var(--text-muted);">Before &rarr; After</div>
+          <div class="chart-delta" style="font-size:0.68rem; color:var(--text-muted); text-transform:uppercase;">Gain</div>
+        </div>
+      </div>
+      <div id="chart-rows">
+        <!-- Filled by JS -->
+      </div>
+    </div>
+  </section>
+
+  <!-- ====== REAL WORLD CALLOUT ====== -->
+  <div class="realworld-callout reveal">
+    <div>
+      <h3>Real-Robot Validation (DROID Platform)</h3>
+      <p>pi0.5+COAST tested on Open Drawer, Close Microwave, and Put Duck in Cabinet. Close Microwave improved using only a <strong>single successful rollout</strong>. Average improvement across the three tasks: ~40%.</p>
+    </div>
+    <div class="realworld-stat">
+      <div class="big-num">~40%</div>
+      <div class="big-label">Real-world avg. gain</div>
+    </div>
+  </div>
+
+  <!-- ====== BASELINE COMPARISON ====== -->
+  <section class="reveal">
+    <div class="section-header">
+      <h2>Baseline Comparison</h2>
+      <span class="section-tag">vs. Alternatives</span>
+    </div>
+    <div class="baseline-strip">
+      <div class="baseline-item bl-coast">
+        <div class="bl-name">COAST</div>
+        <div class="bl-delta" style="color:var(--metric-positive);">+0.14&ndash;+0.37</div>
+        <div class="bl-note">Across all benchmarks</div>
+      </div>
+      <div class="baseline-item">
+        <div class="bl-name">CAA</div>
+        <div class="bl-delta" style="color:var(--text-muted);">+0.02&ndash;+0.04</div>
+        <div class="bl-note">Single-direction additive</div>
+      </div>
+      <div class="baseline-item">
+        <div class="bl-name">SAE Steering</div>
+        <div class="bl-delta" style="color:var(--text-muted);">+0.04&ndash;+0.17</div>
+        <div class="bl-note">Sparse autoencoder</div>
+      </div>
+      <div class="baseline-item">
+        <div class="bl-name">SFT + LoRA</div>
+        <div class="bl-delta" style="color:var(--metric-negative);">-0.16&ndash;+0.05</div>
+        <div class="bl-note">Overfits on 15 rollouts</div>
+      </div>
+      <div class="baseline-item">
+        <div class="bl-name">Random Conceptor</div>
+        <div class="bl-delta" style="color:var(--text-muted);">~0.00</div>
+        <div class="bl-note">No gain (rules out noise)</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ====== MECHANISTIC INSIGHTS ====== -->
+  <section class="reveal">
+    <div class="section-header">
+      <h2>Mechanistic Insights</h2>
+      <span class="section-tag">Why It Works</span>
+    </div>
+    <div class="insights-grid">
+      <div class="insight-card">
+        <h3><span class="icon icon-accent">&#x2B22;</span> Low-Rank but Multi-Dimensional</h3>
+        <p>Only ~1% of the hidden dimension is discriminative between success and failure, but that subspace is strictly multi-dimensional. Rank-one CAA captures only ~half the gain that the full conceptor achieves.</p>
+      </div>
+      <div class="insight-card">
+        <h3><span class="icon icon-teal">&#x21C4;</span> Shared Failure Geometry</h3>
+        <p>Failure representations share substantial cross-task geometry (r=0.30--0.49, p&lt;.005) while success representations are task-specific. This enables zero-shot conceptor transfer between tasks with similar failure modes.</p>
+      </div>
+      <div class="insight-card">
+        <h3><span class="icon icon-purple">&#x25C8;</span> Overlap Predicts Efficacy</h3>
+        <p>The success-failure subspace overlap strongly predicts per-task steering efficacy (rho=0.59). Tasks with nearly disjoint subspaces show small gains, as expected.</p>
+      </div>
+      <div class="insight-card">
+        <h3><span class="icon icon-green">&#x2699;</span> Efficient Hyperparameter Selection</h3>
+        <p>Geometric diagnostics (conceptor quota for layer selection, overlap for aperture selection) recover 93% of oracle performance while evaluating only 3--8% of the full configuration grid.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ====== CROSS-TASK TRANSFER ====== -->
+  <div class="transfer-block reveal">
+    <h3>Cross-Task Conceptor Transfer</h3>
+    <p>Failure subspace containment between source/target pairs correlates with transfer gain, while success containment shows no such relationship. Transferred conceptors sometimes exceed self-steered gains.</p>
+    <div class="transfer-evidence">
+      <div class="transfer-chip">TwoMokas <span class="tc-arrow">&rarr;</span> SoupCheese <span class="tc-gain">+0.67</span></div>
+      <div class="transfer-chip">Self-steered SoupCheese <span class="tc-gain">+0.20</span></div>
+      <div class="transfer-chip">Failure containment r=<span class="tc-gain">0.30--0.49</span></div>
+      <div class="transfer-chip">p&lt;<span class="tc-gain">0.005</span></div>
+    </div>
+  </div>
+
+  <!-- ====== STRENGTHS / LIMITATIONS ====== -->
+  <section class="reveal">
+    <div class="section-header">
+      <h2>Assessment</h2>
+      <span class="section-tag">Strengths &amp; Limitations</span>
+    </div>
+    <div class="tradeoff-grid">
+      <div class="tradeoff-col col-strengths">
+        <h3>Strengths</h3>
+        <ul>
+          <li>Comprehensive evaluation: 3 architectures, 3 sim benchmarks, real hardware (DROID)</li>
+          <li>Strong mechanistic analysis connecting subspace geometry to steering efficacy</li>
+          <li>Training-free, minimal data (15 rollouts), negligible per-step overhead</li>
+          <li>Clean ablation study isolating multiplicative gating vs. contrastive subspace vs. directions</li>
+          <li>Cross-task transfer finding is both surprising and practically valuable</li>
+          <li>Efficient hyperparameter selection via geometric diagnostics (93% oracle recovery)</li>
+        </ul>
+      </div>
+      <div class="tradeoff-col col-limits">
+        <h3>Limitations</h3>
+        <ul>
+          <li>Requires both success and failure rollouts; uniformly successful tasks cannot use full contrastive steering</li>
+          <li>Real-robot evaluation limited to 3 tasks with 15 trials each</li>
+          <li>Diffusion Policy benefits less than VLA models (VLM pretraining may be key)</li>
+          <li>~24% inference latency overhead from the forward hook (non-negligible for real-time control)</li>
+          <li>Early checkpoints chosen specifically for mixed success/failure rates; gains smaller on fully-trained policies</li>
+          <li>Hyperparameter selection heuristic not yet validated beyond tested architectures</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- ====== FOOTER ====== -->
+  <footer class="footer">
+    <div>
+      <a href="./index.html">Index</a> &middot;
+      <a href="2605.17144.html">Markdown source</a> &middot;
+      <a href="https://arxiv.org/abs/2605.17144">arXiv</a>
+    </div>
+    <div>UPenn &middot; Miao, Kim, Yang, Ungar &middot; 2026</div>
+  </footer>
+
+</div>
+
+<script>
+  // -- Chart data --
+  const results = [
+    { label: 'pi0.5 / MetaWorld ML45', before: 0.57, after: 0.82, delta: '+0.25', sig: 'p<.001' },
+    { label: 'pi0.5 / LIBERO-10', before: 0.43, after: 0.80, delta: '+0.37', sig: 'p<.001', highlight: true },
+    { label: 'pi0-FAST / LIBERO-10', before: 0.65, after: 0.84, delta: '+0.23', sig: 'p<.001' },
+    { label: 'GR00T N1.5 / RoboCasa', before: 0.59, after: 0.75, delta: '+0.16', sig: 'p=.006' },
+    { label: 'Diffusion Policy / RoboCasa', before: 0.32, after: 0.46, delta: '+0.14', sig: '' },
+  ];
+
+  const container = document.getElementById('chart-rows');
+  const maxSR = 1.0;
+
+  results.forEach((r, i) => {
+    const beforePct = (r.before / maxSR) * 100;
+    const afterPct = (r.after / maxSR) * 100;
+    const row = document.createElement('div');
+    row.className = 'chart-row';
+    if (r.highlight) row.style.background = 'rgba(232,69,14,0.03)';
+    row.innerHTML = `
+      <div class="chart-label">${r.label}</div>
+      <div class="chart-bar-wrap">
+        <div class="chart-bar-before" style="width:0%" data-target="${beforePct}"></div>
+        <div class="chart-bar-after" style="width:0%" data-target="${afterPct}"></div>
+      </div>
+      <div class="chart-delta positive">${r.delta}</div>
+    `;
+    container.appendChild(row);
+  });
+
+  // -- Scroll reveal --
+  const reveals = document.querySelectorAll('.reveal');
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+      if (entry.isIntersecting) {
+        entry.target.classList.add('visible');
+        // Animate bars inside this section
+        const bars = entry.target.querySelectorAll('.chart-bar-before, .chart-bar-after');
+        bars.forEach((bar, i) => {
+          setTimeout(() => {
+            bar.style.width = bar.dataset.target + '%';
+          }, i * 60);
+        });
+        observer.unobserve(entry.target);
+      }
+    });
+  }, { threshold: 0.15 });
+
+  reveals.forEach(el => observer.observe(el));
+</script>
+
+</body>
+</html>

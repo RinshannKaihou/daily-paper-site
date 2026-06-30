@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Robust and Fast Training via Per-Sample Clipping</title>
+<style>
+:root { --paper:#fafafa; --ink:#1a1a1a; --muted:#555; --accent:#1a5276; --line:#ddd; --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif; --serif:Georgia,"Noto Serif SC",serif; }
+body { font-family:var(--serif); background:var(--paper); color:var(--ink); line-height:1.6; margin:0; padding:0; }
+.container { max-width:min(95vw, 760px); margin:0 auto; padding:28px 20px 60px; }
+.topnav { position:fixed; top:12px; left:14px; z-index:50; font-family:var(--sans); font-size:.75rem; background:var(--paper); border:1px solid var(--line); padding:5px 10px; border-radius:999px; }
+.topnav a { color:var(--muted); text-decoration:none; font-weight:600; }
+.topnav a:hover { color:var(--accent); }
+h1 { font-size:1.6rem; margin:2.2rem 0 1rem; border-bottom:2px solid var(--accent); padding-bottom:.3rem; }
+h2 { font-size:1.3rem; margin:1.8rem 0 .8rem; color:var(--accent); }
+h3 { font-size:1.1rem; margin:1.4rem 0 .6rem; }
+p { margin:.8rem 0; }
+.authors { font-style:italic; color:var(--muted); margin-top:-.4rem; }
+.meta { font-family:var(--sans); font-size:.82rem; color:var(--muted); margin:.2rem 0; }
+a { color:var(--accent); text-decoration:none; }
+a:hover { text-decoration:underline; }
+blockquote { border-left:3px solid var(--accent); margin:1rem 0; padding:.2rem 0 .2rem 1rem; color:var(--muted); font-style:italic; }
+code { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; background:#f0f0f0; padding:2px 5px; border-radius:3px; font-size:.9em; }
+pre { background:#f5f5f5; padding:14px; overflow-x:auto; border-radius:4px; border:1px solid var(--line); }
+pre code { background:transparent; padding:0; }
+ul,ol { margin:.6rem 0; padding-left:1.5rem; }
+li { margin:.25rem 0; }
+table { border-collapse:collapse; width:100%; margin:1rem 0; font-family:var(--sans); font-size:.9rem; }
+th,td { border:1px solid var(--line); padding:6px 10px; text-align:left; }
+th { background:#f0f0f0; }
+hr { border:none; border-top:1px solid var(--line); margin:1.5rem 0; }
+.note { font-family:var(--sans); font-size:.78rem; color:var(--muted); border-top:1px solid var(--line); margin-top:2rem; padding-top:1rem; }
+@media (max-width: 600px) { .container { padding:22px 14px 40px; } h1 { font-size:1.35rem; } }
+</style>
+</head>
+<body>
+<div class="topnav"><a href="./index.html">← Today's digest</a></div>
+<div class="container">
+<h1>Robust and Fast Training via Per-Sample Clipping</h1>
+<p class="meta">arXiv: 2605.02701v1</p>
+<p class="meta">Date: 2026-05-04</p>
+<p class="meta"><a href="https://arxiv.org/abs/2605.02701">https://arxiv.org/abs/2605.02701</a></p>
+<blockquote><strong>一句话总结：</strong> 本文提出逐样本梯度裁剪（PS-Clip-SGD），在重尾梯度噪声下为非凸优化问题提供了最优的期望收敛率和高概率收敛保证，实验表明该方法在CIFAR-100上训练AlexNet显著优于标准SGD和Clip-SGD，并且在梯度累积场景下提出了无需额外开销的mini-batch裁剪策略。</blockquote>
+<blockquote><strong>TL;DR:</strong> Proposes per-sample gradient clipping (PS-Clip-SGD) that achieves optimal $\mathcal{O}(\epsilon^{-2})$ sample complexity for non-convex optimization under heavy-tailed gradient noise (finite $p$-th moment, $p \in (1,2]$), with both in-expectation and high-probability convergence guarantees. Empirically outperforms SGD+momentum and Clip-SGD on AlexNet/CIFAR-100 by ~6% validation accuracy even after accounting for 1.3× computational overhead. Also shows that clipping at each mini-batch during gradient accumulation (rather than only after all accumulation steps) improves GPT-2 training at virtually no extra cost.</blockquote>
+<h2>核心贡献</h2>
+<ul>
+<li>提出了逐样本梯度裁剪方法（PS-Clip-SGD），通过在样本级别而非批次级别裁剪梯度来构建鲁棒的梯度估计器。</li>
+<li>在重尾梯度噪声（仅假设有限 $p$-阶矩，$p \in (1,2]$）下，证明了该方法对非凸问题达到了<strong>最优</strong>的期望样本复杂度，改进了现有Clip-SGD和Normalized SGD的理论结果。</li>
+<li>建立了高概率收敛保证，与期望收敛率仅差一个 $\text{polylog}(T/\delta)$ 因子，且对 $\log(1/\delta)$ 的依赖优于已有方法。</li>
+<li>在AlexNet/CIFAR-100上实验表明PS-Clip-SGD验证精度达到64.84%，远超标准SGD（58.90%）和Clip-SGD（58.94%）。</li>
+<li>提出了在梯度累积中对每个mini-batch分别裁剪的策略（MB-Clip-SGD），在GPT-2训练中验证了其有效性且几乎不增加额外计算开销，挑战了"累积完成后再裁剪"的惯例做法。</li>
+</ul>
+<h2>Key Contributions</h2>
+<ul>
+<li>Proposes a robust gradient estimator based on per-sample gradient clipping, where each sample's gradient is individually clipped before averaging, as opposed to clipping the averaged mini-batch gradient.</li>
+<li>Proves <strong>optimal in-expectation sample complexity</strong> $\mathcal{O}(\Delta_1 L \epsilon^{-2} + \Delta_1 L (\sigma/\epsilon)^{2p/(p-1)})$ for non-convex problems under heavy-tailed noise, matching the known lower bound from Zhang et al. (2020).</li>
+<li>Establishes <strong>high-probability convergence</strong> matching the in-expectation rate up to polylogarithmic factors, with improved $\log(1/\delta)$ dependence compared to both Normalized SGD and Clip-SGD.</li>
+<li>Shows PS-Clip-SGD guarantees convergence measured by the <strong>sum of squared gradient norms</strong> (a strictly stronger criterion than sum of gradient norms via Jensen's inequality), which Normalized SGD cannot achieve.</li>
+<li>Demonstrates that <strong>mini-batch clipping during gradient accumulation</strong> improves GPT-2 training performance while introducing virtually no additional computational cost, contradicting common practice.</li>
+</ul>
+<h2>Methodology</h2>
+<p>The paper introduces <strong>PS-Clip-SGD</strong>, which modifies the standard SGD update as follows. Given a batch of $n$ samples, instead of averaging all raw stochastic gradients and then clipping, each sample's gradient is clipped individually:</p>
+<p>$$G(x_t, \alpha, \beta) = \frac{1}{n} \sum_{k=1}^{n} \gamma_t^{(k)} \nabla f(x_t, \xi_t^{(k)})$$</p>
+<p>where $\gamma_t^{(k)} = \min\{1, \alpha^{k\beta} / |\nabla f(x_t, \xi_t^{(k)})|\}$. The key insight is that per-sample clipping produces a robust estimator whose mean squared error scales as $\mathcal{O}(n^{-2(p-1)/p})$ even when individual gradients have only finite $p$-th moment (no bounded variance needed).</p>
+<p>The theoretical analysis proceeds in two stages: (1) establish a robustness bound for the clipped estimator $G$, and (2) use standard smoothness arguments plus telescoping sums to derive convergence. The high-probability result uses a Bubeck-style argument plus union bounds over $T$ steps.</p>
+<p>For the gradient accumulation variant (<strong>MB-Clip-SGD</strong>), rather than accumulating raw gradients over $k$ mini-batches and clipping once, each mini-batch gradient is clipped before accumulation. Since gradients are computed regardless of when clipping is applied, this adds negligible overhead.</p>
+<p>Experiments span three settings: (1) a quadratic function with synthetic Pareto noise ($d=10$, varying $p$), (2) AlexNet on CIFAR-100 (300 epochs, SGD+momentum), and (3) GPT-2 124M on OpenWebText (5000 steps, AdamW with gradient accumulation). Per-sample gradient norms were computed using Opacus' Ghost Clipping API.</p>
+<h2>Results & Highlights</h2>
+<ul>
+<li><strong>Quadratic + Pareto noise</strong>: PS-Clip-SGD outperforms Clip-SGD and Normalized SGD across all noise regimes ($p = 1.25, 1.5, 1.75$), with the gap widening as tails get heavier. Even without hyperparameter tuning, PS-Clip-SGD converges significantly faster.</li>
+<li><strong>High-probability behavior</strong>: Running $10^4$ trials, the $(1-\delta)$-quantile of average gradient norm shows sublinear dependence on $\log(1/\delta)$, consistent with theory and superior to baselines.</li>
+<li><strong>AlexNet/CIFAR-100</strong>: PS-Clip-SGD achieves 64.84% validation accuracy vs. 58.90% (SGD-mom) and 58.94% (Clip-SGD-mom). Even after normalizing for wall-clock time (PS-Clip-SGD takes 162 min vs. 119 min for SGD), PS-Clip-SGD reaches 64.40% in 119 equivalent minutes — still dominating. Training reaches 60% val accuracy in ~40 epochs (~22 min), while baselines never exceed 59%.</li>
+<li><strong>GPT-2/OpenWebText</strong>: MB-Clip-SGD outperforms standard Clip-SGD across all three learning rates tested ($6 \times 10^{-4}$, $8 \times 10^{-4}$, $10^{-3}$), with final validation losses of 3.3405/3.3059/3.2830 vs. 3.3495/3.3114/3.2922. The improvement is modest but consistent and comes at essentially zero extra cost.</li>
+</ul>
+<h2>Authors & Credibility</h2>
+<ul>
+<li><strong>Davide Nobile</strong>: PhD student, Department of Mathematics, University of Vienna.</li>
+<li><strong>Philipp Grohs</strong>: Professor of Mathematics, University of Vienna, and affiliated with RICAM (Austrian Academy of Sciences). A well-established researcher in mathematical foundations of machine learning and computational mathematics, with extensive publications in optimization theory and approximation theory.</li>
+<li>The paper is published in the math.OC (Optimization and Control) category with cross-listing to cs.LG and stat.ML, reflecting its rigorous theoretical orientation. The proofs are provided in appendices and the claims are precisely stated.</li>
+</ul>
+<h2>Critical Assessment</h2>
+<p><strong>Novelty</strong>: The idea of using per-sample clipping for robustness (rather than only for differential privacy) is novel and well-motivated. The insight that per-sample clipping acts as a robust estimator under heavy tails is clean and elegant. The MB-Clip-SGD observation for gradient accumulation is practically interesting, though the improvement on GPT-2 is small.</p>
+<p><strong>Rigor</strong>: Theoretical analysis is thorough and rigorous. Both in-expectation (Theorem 3.1) and high-probability (Theorem 3.3) results are established under clearly stated assumptions. The proofs are well-structured and the paper is transparent about what assumptions are needed (bounded $p$-th moment of the full gradient, not just centered moment).</p>
+<p><strong>Reproducibility</strong>: The experimental setup is described with sufficient detail (hyperparameters, architectures, datasets). Code is not linked in the paper, which is a limitation. The use of Opacus' Ghost Clipping API for efficient per-sample norm computation is a practical detail that aids reproducibility.</p>
+<p><strong>Significance</strong>: The theoretical contribution is significant — achieving optimal sample complexity for non-convex heavy-tailed optimization with a practical algorithm is meaningful. The practical significance is more nuanced: the AlexNet result is convincing, but AlexNet is an aging architecture. The GPT-2 experiment shows only marginal gains, and the authors themselves note that per-sample clipping was impractical for GPT-2 due to computational cost (only the mini-batch variant worked). Scaling to modern large-scale training remains an open question.</p>
+<p><strong>Red flags</strong>:</p>
+<ul>
+<li>The method requires knowledge of the noise parameter $\sigma$ (an upper bound on the $p$-th moment) and $p$ itself for optimal rates, which is rarely available in practice. The authors acknowledge this but the sensitivity analysis is limited.</li>
+<li>Per-sample gradient computation remains expensive; the Ghost Clipping approach helps but introduces framework/library dependencies (Opacus).</li>
+<li>The GPT-2 improvement (MB-Clip-SGD) is very small (~0.01 nats difference in validation loss), making it hard to distinguish from noise without error bars or multiple seeds.</li>
+<li>The bounded $p$-th moment assumption is on $|\nabla f(x, \xi)|$ (the uncentered gradient), which is stronger than assuming bounded centered moments. The authors note this limitation.</li>
+</ul>
+<h2>Strengths</h2>
+<ul>
+<li>Clean theoretical framework that unifies and improves upon prior work on Clip-SGD and Normalized SGD.</li>
+<li>Optimal sample complexity with matching lower bounds — a strong theoretical result.</li>
+<li>The high-probability guarantees have better $\log(1/\delta)$ dependence than prior art.</li>
+<li>The practical observation about mini-batch clipping during gradient accumulation is simple, counter-intuitive, and immediately applicable.</li>
+<li>Honest discussion of limitations, including computational overhead and the parameter-dependence issue.</li>
+<li>Strong empirical results on AlexNet showing clear and substantial improvements.</li>
+</ul>
+<h2>Limitations</h2>
+<ul>
+<li>Per-sample gradient clipping has non-trivial computational overhead (~1.3× slowdown on AlexNet), which scales poorly and was prohibitive for GPT-2.</li>
+<li>The method requires knowledge of $\sigma$ and $p$ for optimal convergence rates; sensitivity to misspecification of these parameters is not thoroughly evaluated.</li>
+<li>Experiments are limited to relatively small-scale settings (AlexNet, 124M parameter GPT-2). Whether the benefits transfer to billion-parameter models or modern architectures (Transformers at scale) is unclear.</li>
+<li>The GPT-2 improvement with MB-Clip-SGD is marginal and presented without confidence intervals or multiple random seeds.</li>
+<li>The bounded uncentered $p$-th moment assumption may be stronger than necessary; extending to centered moments remains open.</li>
+</ul>
+<h2>相关性</h2>
+<p>本文直接涉及ML训练稳定性与鲁棒性的数学基础。逐样本梯度裁剪作为一种控制梯度异常值的方法，与LLM训练中的梯度监控和异常检测密切相关；mini-batch裁剪策略在梯度累积场景下的实用性对大规模LLM训练有直接的工程参考价值。</p>
+<h2>Questions for Further Exploration</h2>
+<ul>
+<li>How does PS-Clip-SGD perform on modern large-scale Transformer training (e.g., LLaMA-scale models) where gradient noise characteristics may differ from the heavy-tailed regime studied here?</li>
+<li>Can the required knowledge of $\sigma$ and $p$ be estimated online during training, enabling a parameter-free variant that retains optimal convergence?</li>
+<li>What is the sensitivity of PS-Clip-SGD to misspecification of $\alpha$ and $\beta$? Is there a graceful degradation, or does performance collapse?</li>
+<li>Could MB-Clip-SGD be combined with adaptive optimizers like AdamW more systematically, and would the theoretical guarantees extend?</li>
+<li>Does the heavy-tailed gradient noise assumption actually hold in practice for modern LLM training, or is this primarily a theoretical consideration?</li>
+</ul>
+<p class="note">Generated from Markdown summary. Full paper: <a href="https://arxiv.org/abs/2605.02701v1">arXiv:2605.02701v1</a></p>
+</div>
+</body>
+</html>

@@ -1,0 +1,496 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CONF-KV — Confidence-Aware KV Cache Eviction</title>
+<style>
+  :root {
+    --accent: #D97706;
+    --accent-dim: #92400E;
+    --accent-glow: rgba(217,119,6,0.12);
+    --bg: #0C0A09;
+    --surface: #1C1917;
+    --surface-2: #292524;
+    --border: #44403C;
+    --text: #FAFAF9;
+    --text-2: #D6D3D1;
+    --text-3: #A8A29E;
+    --red: #EF4444;
+    --green: #22C55E;
+    --font: 'SF Pro Display', 'Helvetica Neue', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    --mono: 'SF Mono', 'Fira Code', 'Cascadia Code', 'JetBrains Mono', Menlo, monospace;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html { font-size: 16px; -webkit-font-smoothing: antialiased; }
+
+  body {
+    font-family: var(--font);
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.55;
+    min-height: 100vh;
+  }
+
+  .container {
+    width: min(95vw, 1100px);
+    margin: 0 auto;
+    padding: 0 1.5rem;
+  }
+
+  /* ——— NAV ——— */
+  nav {
+    border-bottom: 1px solid var(--border);
+    padding: 1rem 0;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    background: rgba(12,10,9,0.85);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+  }
+  nav .container {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  nav a {
+    color: var(--accent);
+    text-decoration: none;
+    font-size: 0.875rem;
+    font-weight: 500;
+    letter-spacing: 0.02em;
+    transition: color 0.15s;
+  }
+  nav a:hover { color: var(--text); }
+  .nav-tag {
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    color: var(--text-3);
+    background: var(--surface-2);
+    padding: 0.25em 0.6em;
+    border-radius: 4px;
+    letter-spacing: 0.04em;
+  }
+
+  /* ——— HERO ——— */
+  .hero {
+    padding: 4rem 0 2.5rem;
+    border-bottom: 1px solid var(--border);
+  }
+  .hero-meta {
+    display: flex;
+    gap: 1rem;
+    flex-wrap: wrap;
+    margin-bottom: 1.5rem;
+  }
+  .hero-meta span {
+    font-size: 0.75rem;
+    font-family: var(--mono);
+    color: var(--text-3);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+  .hero h1 {
+    font-size: clamp(1.75rem, 4vw, 2.75rem);
+    font-weight: 700;
+    line-height: 1.15;
+    letter-spacing: -0.03em;
+    max-width: 28ch;
+    margin-bottom: 1.25rem;
+  }
+  .hero h1 em {
+    font-style: normal;
+    color: var(--accent);
+  }
+  .hero-finding {
+    font-size: clamp(1rem, 2vw, 1.25rem);
+    color: var(--text-2);
+    max-width: 60ch;
+    line-height: 1.6;
+  }
+
+  /* ——— ASSET ROW ——— */
+  .asset-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 1px;
+    background: var(--border);
+    margin: 0 0 3rem;
+    border: 1px solid var(--border);
+  }
+  .asset-card {
+    background: var(--surface);
+    padding: 2rem 1.75rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+  .asset-label {
+    font-size: 0.65rem;
+    font-family: var(--mono);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--accent);
+  }
+  .asset-value {
+    font-size: clamp(2.2rem, 5vw, 3.5rem);
+    font-weight: 800;
+    line-height: 1;
+    letter-spacing: -0.04em;
+    color: var(--text);
+  }
+  .asset-value .unit {
+    font-size: 0.45em;
+    font-weight: 500;
+    color: var(--text-3);
+    letter-spacing: 0;
+  }
+  .asset-desc {
+    font-size: 0.85rem;
+    color: var(--text-3);
+    line-height: 1.55;
+  }
+  .asset-card.edge { background: var(--accent-glow); }
+  .asset-card.edge .asset-label { color: var(--red); }
+  .asset-card.edge .asset-desc { color: var(--text-2); }
+
+  /* ——— SECTION GRID ——— */
+  .sections {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 2rem 2.5rem;
+    padding-bottom: 3rem;
+  }
+  @media (max-width: 700px) {
+    .sections { grid-template-columns: 1fr; }
+  }
+
+  .section-block {
+    border-top: 2px solid var(--accent);
+    padding-top: 1.25rem;
+  }
+  .section-block h2 {
+    font-size: 0.7rem;
+    font-family: var(--mono);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--accent);
+    margin-bottom: 1.25rem;
+  }
+  .section-block.full-width {
+    grid-column: 1 / -1;
+  }
+
+  /* Methodology steps */
+  .method-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1px;
+    background: var(--border);
+    border: 1px solid var(--border);
+  }
+  @media (max-width: 700px) {
+    .method-grid { grid-template-columns: 1fr; }
+  }
+  .method-step {
+    background: var(--surface);
+    padding: 1.25rem;
+    position: relative;
+  }
+  .method-step .step-num {
+    font-family: var(--mono);
+    font-size: 0.6rem;
+    color: var(--accent);
+    letter-spacing: 0.08em;
+    display: block;
+    margin-bottom: 0.5rem;
+  }
+  .method-step strong {
+    display: block;
+    font-size: 0.85rem;
+    font-weight: 600;
+    margin-bottom: 0.35rem;
+  }
+  .method-step p {
+    font-size: 0.78rem;
+    color: var(--text-3);
+    line-height: 1.5;
+  }
+
+  /* Results stat rows */
+  .result-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    padding: 0.65rem 0;
+    border-bottom: 1px solid var(--surface-2);
+    gap: 1rem;
+  }
+  .result-item:last-child { border-bottom: none; }
+  .result-item .r-label {
+    font-size: 0.82rem;
+    color: var(--text-2);
+    flex-shrink: 1;
+  }
+  .result-item .r-value {
+    font-family: var(--mono);
+    font-size: 0.85rem;
+    font-weight: 700;
+    color: var(--accent);
+    white-space: nowrap;
+  }
+  .result-item .r-value .dim {
+    font-weight: 400;
+    color: var(--text-3);
+    font-size: 0.78em;
+  }
+
+  /* Strengths & Limitations */
+  .pro-con-list {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 0.65rem;
+  }
+  .pro-con-list li {
+    font-size: 0.82rem;
+    color: var(--text-2);
+    line-height: 1.5;
+    padding-left: 1.25rem;
+    position: relative;
+  }
+  .pro-con-list li::before {
+    position: absolute;
+    left: 0;
+    font-size: 0.7rem;
+    font-weight: 700;
+  }
+  .strengths li::before { content: '+'; color: var(--green); }
+  .limitations li::before { content: '!'; color: var(--red); }
+
+  /* Questions */
+  .question-list {
+    list-style: none;
+    counter-reset: q;
+    display: flex;
+    flex-direction: column;
+    gap: 0.85rem;
+  }
+  .question-list li {
+    font-size: 0.82rem;
+    color: var(--text-2);
+    line-height: 1.55;
+    padding-left: 2.25rem;
+    position: relative;
+    counter-increment: q;
+  }
+  .question-list li::before {
+    content: counter(q);
+    position: absolute;
+    left: 0;
+    top: 0;
+    font-family: var(--mono);
+    font-size: 0.65rem;
+    font-weight: 700;
+    color: var(--accent);
+    background: var(--accent-glow);
+    width: 1.5rem;
+    height: 1.5rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 3px;
+  }
+
+  /* ——— FOOTER ——— */
+  footer {
+    border-top: 1px solid var(--border);
+    padding: 1.5rem 0;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 1rem;
+  }
+  footer a {
+    color: var(--accent);
+    text-decoration: none;
+    font-size: 0.85rem;
+    font-weight: 500;
+  }
+  footer a:hover { text-decoration: underline; }
+  footer .credit {
+    font-size: 0.72rem;
+    color: var(--text-3);
+    font-family: var(--mono);
+  }
+
+  /* ——— ANIMATIONS ——— */
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(16px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  .hero { animation: fadeUp 0.5s ease-out; }
+  .asset-row { animation: fadeUp 0.5s ease-out 0.1s both; }
+  .section-block:nth-child(1) { animation: fadeUp 0.45s ease-out 0.2s both; }
+  .section-block:nth-child(2) { animation: fadeUp 0.45s ease-out 0.3s both; }
+  .section-block:nth-child(3) { animation: fadeUp 0.45s ease-out 0.35s both; }
+  .section-block:nth-child(4) { animation: fadeUp 0.45s ease-out 0.4s both; }
+  .section-block:nth-child(5) { animation: fadeUp 0.45s ease-out 0.45s both; }
+  footer { animation: fadeUp 0.4s ease-out 0.5s both; }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation: none !important; }
+  }
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="container">
+    <a href="./index.html">↩ Today's digest</a>
+    <span class="nav-tag">2605.24786 · 2026-05-24</span>
+  </div>
+</nav>
+
+<header class="hero">
+  <div class="container">
+    <div class="hero-meta">
+      <span>Yubo Li · Yidi Miao</span>
+      <span>CMU</span>
+      <span><a href="https://arxiv.org/abs/2605.24786" style="color:var(--text-3);text-decoration:none">arxiv.org/abs/2605.24786</a></span>
+    </div>
+    <h1>Confidence-Aware <em>KV Cache</em> Eviction for Long-Horizon LLM Inference</h1>
+    <p class="hero-finding">
+      CONF-KV reads the model's own next-token confidence to dynamically tighten or loosen the KV cache budget at each decoding step — pruning aggressively when certain, retaining context when uncertain — closing <strong style="color:var(--accent)">74% of the perplexity gap</strong> versus full KV at a fraction of the memory.
+    </p>
+  </div>
+</header>
+
+<div class="container">
+  <div class="asset-row">
+    <div class="asset-card">
+      <span class="asset-label">Key Metric</span>
+      <span class="asset-value">74<span class="unit">% gap closed</span></span>
+      <p class="asset-desc">Perplexity gap between full KV and sliding-512 on GPT-2, at 34.2 MB — less memory than every baseline.</p>
+    </div>
+    <div class="asset-card">
+      <span class="asset-label">Why This Matters</span>
+      <span class="asset-value" style="font-size:clamp(1rem,2.5vw,1.4rem);font-weight:600;line-height:1.35">Adaptive eviction slashes KV memory 6× while preserving quality — single-GPU long-context inference.</span>
+    </div>
+    <div class="asset-card edge">
+      <span class="asset-label">Critical Edge</span>
+      <span class="asset-value" style="font-size:clamp(1rem,2.5vw,1.4rem);font-weight:600;line-height:1.35;color:var(--text)">Confidence weights tuned only on GPT-2 124M; model can be confidently wrong before rare-entity lookups.</span>
+    </div>
+  </div>
+
+  <div class="sections">
+
+    <!-- METHODOLOGY -->
+    <div class="section-block full-width">
+      <h2>Methodology</h2>
+      <div class="method-grid">
+        <div class="method-step">
+          <span class="step-num">STEP 01</span>
+          <strong>Confidence Estimation</strong>
+          <p>Composite score from entropy, log-prob margin, and top-token mass. Weights (0.4, 0.3, 0.3) stable across models.</p>
+        </div>
+        <div class="method-step">
+          <span class="step-num">STEP 02</span>
+          <strong>Budget Selection</strong>
+          <p>Threshold τ=0.7 selects tight budget N<sub>high</sub> (confident) or loose N<sub>low</sub> (uncertain) per step.</p>
+        </div>
+        <div class="method-step">
+          <span class="step-num">STEP 03</span>
+          <strong>Token Ranking &amp; Eviction</strong>
+          <p>s<sub>i</sub> = α·attention_mass + (1−α)·recency. Lowest-ranked tokens evicted; recent P tokens always protected.</p>
+        </div>
+        <div class="method-step">
+          <span class="step-num">STEP 04</span>
+          <strong>Mixed-Precision Storage</strong>
+          <p>Most recent W tokens in FP16; older entries symmetrically quantized to INT8. Adds only 0.34 PPL over FP16.</p>
+        </div>
+        <div class="method-step">
+          <span class="step-num">STEP 05</span>
+          <strong>Pyramidal Layer Budgets</strong>
+          <p>Deeper layers get exponentially smaller budgets (β=0.5, N<sub>min</sub>=96), reflecting information concentration.</p>
+        </div>
+        <div class="method-step">
+          <span class="step-num">STEP 06</span>
+          <strong>Blockwise Online Softmax</strong>
+          <p>Compacted cache read in blocks with running max/normalizer — exact softmax, no indirection table needed.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- RESULTS -->
+    <div class="section-block">
+      <h2>Results &amp; Highlights</h2>
+      <div class="result-item">
+        <span class="r-label">PPL (GPT-2, 2K tokens)</span>
+        <span class="r-value">30.48 <span class="dim">vs 29.14 full / 34.37 sliding</span></span>
+      </div>
+      <div class="result-item">
+        <span class="r-label">NIAH retrieval (20B, ≤32K)</span>
+        <span class="r-value">91.4% <span class="dim">vs 53.8% sliding</span></span>
+      </div>
+      <div class="result-item">
+        <span class="r-label">VisualWebArena tasks</span>
+        <span class="r-value">95.3% <span class="dim">retention at 2.8× less memory</span></span>
+      </div>
+      <div class="result-item">
+        <span class="r-label">Throughput (GPT-2, b8)</span>
+        <span class="r-value">2.06× <span class="dim">full-KV speed</span></span>
+      </div>
+      <div class="result-item">
+        <span class="r-label">Qwen-32B peak KV mem</span>
+        <span class="r-value">2.6 GB <span class="dim">from 15.8 GB (−83.5%)</span></span>
+      </div>
+      <div class="result-item">
+        <span class="r-label">Mechanistic validation</span>
+        <span class="r-value">r = −0.77 <span class="dim">confidence ↔ KL shift</span></span>
+      </div>
+    </div>
+
+    <!-- STRENGTHS + LIMITATIONS -->
+    <div class="section-block">
+      <h2>Strengths &amp; Limitations</h2>
+      <ul class="pro-con-list strengths" style="margin-bottom:1.25rem">
+        <li>Training-free — drops into any autoregressive loop, no weight changes</li>
+        <li>Mechanistic proof via KL-ablation: confidence causally matters</li>
+        <li>Composable with paged attention, speculative decoding, head-wise allocation</li>
+        <li>Sensitivity sweeps expose direct quality–memory knobs</li>
+      </ul>
+      <ul class="pro-con-list limitations">
+        <li>No benefit when context never exceeds eviction threshold</li>
+        <li>Confidence signal degrades under high-temperature sampling</li>
+        <li>Fine-grained eviction creates partially dead blocks in PagedAttention</li>
+        <li>Over-confidence before rare-entity lookups causes premature eviction</li>
+      </ul>
+    </div>
+
+    <!-- QUESTIONS -->
+    <div class="section-block full-width">
+      <h2>Open Questions</h2>
+      <ol class="question-list">
+        <li>How does CONF-KV interact with multi-query or grouped-query attention where K/V heads are shared?</li>
+        <li>Can task-level hints (e.g. marking retrieval-heavy spans) enrich the confidence signal?</li>
+        <li>Do the 0.4/0.3/0.3 weights hold at 70B+ scale on domain-shifted data?</li>
+        <li>Behavior in multi-turn conversations where uncertainty is about dialogue state, not facts?</li>
+        <li>Could a learned confidence estimator outperform the hand-crafted composite?</li>
+      </ol>
+    </div>
+
+  </div>
+
+  <footer>
+    <a href="2605.24786.html">↗ Markdown source</a>
+    <span class="credit">CONF-KV · Li &amp; Miao · CMU · 2026</span>
+  </footer>
+</div>
+
+</body>
+</html>

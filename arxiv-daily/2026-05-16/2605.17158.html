@@ -1,0 +1,898 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SPARK: Near-Cache ILP Accelerator</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Source+Serif+4:ital,opsz,wght@0,8..60,300;0,8..60,600;0,8..60,900;1,8..60,400&family=Inter:wght@400;500;600&display=swap');
+
+:root {
+  --bg: #0a0c10;
+  --bg-raised: #12151c;
+  --bg-surface: #181c26;
+  --fg: #e8eaf0;
+  --fg-muted: #8b92a5;
+  --fg-dim: #5a6178;
+  --accent: #00e5a0;
+  --accent-dim: rgba(0,229,160,0.12);
+  --accent-glow: rgba(0,229,160,0.25);
+  --warn: #ff6b5a;
+  --warn-dim: rgba(255,107,90,0.12);
+  --amber: #ffc145;
+  --amber-dim: rgba(255,193,69,0.12);
+  --blue: #4ea8ff;
+  --blue-dim: rgba(78,168,255,0.12);
+  --border: rgba(255,255,255,0.06);
+  --border-accent: rgba(0,229,160,0.2);
+  --radius: 8px;
+  --font-display: 'Source Serif 4', Georgia, serif;
+  --font-body: 'Inter', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html { font-size: 15px; scroll-behavior: smooth; }
+
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-body);
+  line-height: 1.55;
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Noise overlay */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");
+  pointer-events: none;
+  z-index: 9999;
+}
+
+/* --- NAV --- */
+nav {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  background: rgba(10,12,16,0.85);
+  backdrop-filter: blur(16px);
+  border-bottom: 1px solid var(--border);
+  padding: 0 2rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 48px;
+  font-size: 0.82rem;
+}
+
+nav .brand {
+  font-family: var(--font-mono);
+  color: var(--accent);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-decoration: none;
+}
+
+nav .links { display: flex; gap: 1.2rem; }
+nav .links a {
+  color: var(--fg-muted);
+  text-decoration: none;
+  font-size: 0.78rem;
+  transition: color 0.2s;
+}
+nav .links a:hover { color: var(--fg); }
+
+/* --- HERO BAND --- */
+.hero {
+  position: relative;
+  padding: 3rem 2rem 2.5rem;
+  max-width: 1200px;
+  margin: 0 auto;
+  overflow: hidden;
+}
+
+.hero::before {
+  content: '';
+  position: absolute;
+  top: -80px;
+  right: -120px;
+  width: 500px;
+  height: 500px;
+  background: radial-gradient(circle, var(--accent-glow) 0%, transparent 70%);
+  opacity: 0.35;
+  pointer-events: none;
+}
+
+.hero-tag {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--accent);
+  background: var(--accent-dim);
+  border: 1px solid var(--border-accent);
+  padding: 0.25rem 0.7rem;
+  border-radius: 4px;
+  margin-bottom: 1rem;
+}
+
+.hero h1 {
+  font-family: var(--font-display);
+  font-weight: 900;
+  font-size: 2.6rem;
+  line-height: 1.12;
+  letter-spacing: -0.02em;
+  max-width: 740px;
+  margin-bottom: 0.6rem;
+}
+
+.hero .subtitle {
+  font-size: 0.92rem;
+  color: var(--fg-muted);
+  max-width: 640px;
+  line-height: 1.6;
+}
+
+.hero .meta-row {
+  margin-top: 1rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  color: var(--fg-dim);
+}
+
+.hero .meta-row span {
+  background: var(--bg-surface);
+  padding: 0.2rem 0.55rem;
+  border-radius: 3px;
+  border: 1px solid var(--border);
+}
+
+/* --- ASSET GRID (hero band) --- */
+.asset-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1rem;
+  max-width: 1200px;
+  margin: 0 auto 2rem;
+  padding: 0 2rem;
+}
+
+.asset-card {
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1.3rem 1.4rem;
+  position: relative;
+  overflow: hidden;
+  animation: fadeUp 0.5s ease both;
+}
+.asset-card:nth-child(2) { animation-delay: 0.07s; }
+.asset-card:nth-child(3) { animation-delay: 0.14s; }
+
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.asset-card .label {
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--fg-dim);
+  margin-bottom: 0.6rem;
+}
+
+.asset-card .big-number {
+  font-family: var(--font-mono);
+  font-size: 3.4rem;
+  font-weight: 700;
+  line-height: 1;
+  margin-bottom: 0.3rem;
+}
+
+.asset-card .big-number .unit {
+  font-size: 1.4rem;
+  font-weight: 400;
+  color: var(--fg-muted);
+  margin-left: 0.15rem;
+}
+
+.asset-card .desc {
+  font-size: 0.82rem;
+  color: var(--fg-muted);
+  line-height: 1.5;
+}
+
+/* Accent variants for asset cards */
+.asset-card.accent-green { border-color: var(--border-accent); }
+.asset-card.accent-green .big-number { color: var(--accent); }
+.asset-card.accent-green::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, var(--accent), transparent);
+}
+
+.asset-card.accent-warn { border-color: rgba(255,107,90,0.15); }
+.asset-card.accent-warn .big-number { color: var(--warn); }
+.asset-card.accent-warn::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, var(--warn), transparent);
+}
+
+.asset-card.accent-amber { border-color: rgba(255,193,69,0.15); }
+.asset-card.accent-amber .big-number { color: var(--amber); }
+.asset-card.accent-amber::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, var(--amber), transparent);
+}
+
+/* --- BODY GRID --- */
+.body-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+  max-width: 1200px;
+  margin: 0 auto 2rem;
+  padding: 0 2rem;
+}
+
+.body-grid .full-width {
+  grid-column: 1 / -1;
+}
+
+/* --- SECTION CARD --- */
+.section-card {
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1.5rem;
+  animation: fadeUp 0.5s ease both;
+}
+
+.section-card h2 {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 1.15rem;
+  margin-bottom: 1rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.section-card h2 .icon {
+  width: 22px;
+  height: 22px;
+  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.7rem;
+  font-family: var(--font-mono);
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.section-card h3 {
+  font-size: 0.88rem;
+  font-weight: 600;
+  margin-bottom: 0.4rem;
+  margin-top: 0.8rem;
+  color: var(--fg);
+}
+
+.section-card p, .section-card li {
+  font-size: 0.84rem;
+  color: var(--fg-muted);
+  line-height: 1.6;
+}
+
+.section-card ul {
+  list-style: none;
+  padding: 0;
+}
+.section-card ul li {
+  padding: 0.3rem 0 0.3rem 1rem;
+  position: relative;
+}
+.section-card ul li::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0.72rem;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--fg-dim);
+}
+
+/* --- ENGINE DIAGRAM --- */
+.engine-diagram {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.6rem;
+  margin-top: 0.8rem;
+}
+
+.engine-block {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.8rem 0.7rem;
+  text-align: center;
+  transition: border-color 0.2s, transform 0.2s;
+  cursor: default;
+}
+
+.engine-block:hover {
+  transform: translateY(-2px);
+}
+
+.engine-block .engine-name {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  font-weight: 700;
+  margin-bottom: 0.3rem;
+}
+
+.engine-block .engine-desc {
+  font-size: 0.7rem;
+  color: var(--fg-dim);
+  line-height: 1.45;
+}
+
+.engine-block:nth-child(1) { border-color: var(--border-accent); }
+.engine-block:nth-child(1) .engine-name { color: var(--accent); }
+.engine-block:nth-child(2) { border-color: rgba(78,168,255,0.2); }
+.engine-block:nth-child(2) .engine-name { color: var(--blue); }
+.engine-block:nth-child(3) { border-color: rgba(255,193,69,0.2); }
+.engine-block:nth-child(3) .engine-name { color: var(--amber); }
+.engine-block:nth-child(4) { border-color: rgba(255,107,90,0.15); }
+.engine-block:nth-child(4) .engine-name { color: var(--warn); }
+
+/* --- BENCHMARK TABLE --- */
+.bench-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.78rem;
+  font-family: var(--font-mono);
+  margin-top: 0.5rem;
+}
+
+.bench-table th {
+  text-align: left;
+  font-weight: 600;
+  color: var(--fg-dim);
+  padding: 0.5rem 0.6rem;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.68rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.bench-table td {
+  padding: 0.55rem 0.6rem;
+  border-bottom: 1px solid var(--border);
+  color: var(--fg-muted);
+}
+
+.bench-table tr:last-child td { border-bottom: none; }
+
+.bench-table .highlight { color: var(--accent); font-weight: 700; }
+.bench-table .warn-val { color: var(--warn); }
+
+/* --- CALLOUT --- */
+.callout {
+  border-radius: var(--radius);
+  padding: 1rem 1.2rem;
+  font-size: 0.82rem;
+  line-height: 1.55;
+  margin-top: 0.6rem;
+}
+
+.callout.critical {
+  background: var(--warn-dim);
+  border: 1px solid rgba(255,107,90,0.18);
+  color: var(--fg);
+}
+
+.callout.insight {
+  background: var(--accent-dim);
+  border: 1px solid var(--border-accent);
+  color: var(--fg);
+}
+
+.callout strong {
+  color: var(--fg);
+}
+
+/* --- BAR CHART (CSS) --- */
+.bar-chart {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  margin-top: 0.6rem;
+}
+
+.bar-row {
+  display: grid;
+  grid-template-columns: 90px 1fr 50px;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.bar-row .bar-label {
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  color: var(--fg-dim);
+  text-align: right;
+}
+
+.bar-row .bar-track {
+  height: 18px;
+  background: var(--bg-surface);
+  border-radius: 3px;
+  overflow: hidden;
+  position: relative;
+}
+
+.bar-row .bar-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 1s cubic-bezier(0.22, 1, 0.36, 1);
+  width: 0;
+}
+
+.bar-row .bar-fill.green { background: linear-gradient(90deg, var(--accent), #00c488); }
+.bar-row .bar-fill.amber { background: linear-gradient(90deg, var(--amber), #e5a830); }
+.bar-row .bar-fill.blue { background: linear-gradient(90deg, var(--blue), #3d8ce5); }
+.bar-row .bar-fill.red { background: linear-gradient(90deg, var(--warn), #e04a3a); }
+
+.bar-row .bar-value {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--fg-muted);
+}
+
+/* --- COMPARISON PANEL --- */
+.compare-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.6rem;
+  margin-top: 0.6rem;
+}
+
+.compare-item {
+  background: var(--bg-surface);
+  border-radius: 6px;
+  padding: 0.8rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.compare-item .compare-label {
+  font-size: 0.65rem;
+  font-family: var(--font-mono);
+  color: var(--fg-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.compare-item .compare-val {
+  font-family: var(--font-mono);
+  font-size: 1.15rem;
+  font-weight: 700;
+}
+
+.compare-item .compare-note {
+  font-size: 0.7rem;
+  color: var(--fg-dim);
+}
+
+/* --- TAGS --- */
+.tag-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-top: 0.5rem;
+}
+
+.tag {
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  padding: 0.15rem 0.5rem;
+  border-radius: 3px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  color: var(--fg-dim);
+}
+
+/* --- FOOTER --- */
+footer {
+  max-width: 1200px;
+  margin: 0 auto 2rem;
+  padding: 0 2rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.72rem;
+  color: var(--fg-dim);
+  border-top: 1px solid var(--border);
+  padding-top: 1rem;
+}
+
+footer a {
+  color: var(--fg-muted);
+  text-decoration: none;
+  transition: color 0.2s;
+}
+footer a:hover { color: var(--accent); }
+
+/* --- RESPONSIVE --- */
+@media (max-width: 900px) {
+  .asset-grid { grid-template-columns: 1fr; }
+  .body-grid { grid-template-columns: 1fr; }
+  .engine-diagram { grid-template-columns: repeat(2, 1fr); }
+  .compare-grid { grid-template-columns: 1fr; }
+  .hero h1 { font-size: 1.9rem; }
+}
+
+@media (max-width: 600px) {
+  html { font-size: 14px; }
+  .hero { padding: 2rem 1.2rem 1.5rem; }
+  .asset-grid, .body-grid { padding: 0 1.2rem; }
+  .hero h1 { font-size: 1.55rem; }
+  .engine-diagram { grid-template-columns: 1fr 1fr; }
+  footer { flex-direction: column; gap: 0.4rem; text-align: center; }
+}
+
+/* Animate bars on load */
+.bar-fill.animated { width: var(--w) !important; }
+</style>
+</head>
+<body>
+
+<nav>
+  <a href="./index.html" class="brand">ARXIV &middot; DAILY</a>
+  <div class="links">
+    <a href="https://arxiv.org/abs/2605.17158">arXiv</a>
+    <a href="2605.17158.html">Source .md</a>
+    <a href="./index.html">Index</a>
+  </div>
+</nav>
+
+<!-- ==================== HERO ==================== -->
+<section class="hero">
+  <div class="hero-tag">Hardware Accelerator &middot; Near-Memory Computing</div>
+  <h1>SPARK: A Near-Cache ILP Accelerator That Redefines the Bottleneck</h1>
+  <p class="subtitle">
+    By repurposing the CPU's own L1 SRAM cache into a compute substrate, SPARK proves that ILP's real enemy is data movement &mdash; not compute throughput. GPU generational upgrades barely move the needle.
+  </p>
+  <div class="meta-row">
+    <span>2605.17158</span>
+    <span>S. Raman, L.K. John, J.P. Kulkarni</span>
+    <span>UT Austin</span>
+    <span>2026-05-16</span>
+  </div>
+</section>
+
+<!-- ==================== ASSET GRID ==================== -->
+<section class="asset-grid">
+  <div class="asset-card accent-green">
+    <div class="label">Key Metric &mdash; Speedup</div>
+    <div class="big-number">12&ndash;20<span class="unit">x</span></div>
+    <div class="desc">
+      Sparse ILP speedup over AMD Zen3/Gurobi (12-15x) and NVIDIA V100/cuSparse (12-20x) on MIPLIB 2017.
+    </div>
+  </div>
+
+  <div class="asset-card accent-amber">
+    <div class="label">Key Metric &mdash; Energy</div>
+    <div class="big-number">740<span class="unit">x</span></div>
+    <div class="desc">
+      Peak energy reduction over V100 on sparse ILP. 117-152x over CPU. Area overhead: just 1.4%.
+    </div>
+  </div>
+
+  <div class="asset-card accent-warn">
+    <div class="label">Critical Edge</div>
+    <div class="big-number" style="font-size:1.8rem;line-height:1.2;">Not Apples-to-Apples</div>
+    <div class="desc">
+      SPARK's Jacobi+B&B vs. Gurobi's full solver (simplex + presolving + cutting planes). Speedup conflates hardware acceleration with algorithmic choice. Fairer test: same algorithm on both platforms.
+    </div>
+  </div>
+</section>
+
+<!-- ==================== BODY GRID ==================== -->
+<section class="body-grid">
+
+  <!-- FOUR-ENGINE ARCHITECTURE -->
+  <div class="section-card full-width">
+    <h2><span class="icon" style="background:var(--accent-dim);color:var(--accent);">4</span> Four-Engine Architecture</h2>
+    <p>SPARK augments a 16-bank 8T SRAM L1 cache (256x256 per bank) with four tightly-coupled near-memory engines, adding only 0.37mm&sup2; of logic.</p>
+    <div class="engine-diagram">
+      <div class="engine-block">
+        <div class="engine-name">FC</div>
+        <div class="engine-desc">Fetch &amp; Control. 32-bit counter detects sparsity. Classifies constraints, gates unused engines.</div>
+      </div>
+      <div class="engine-block">
+        <div class="engine-name">SA</div>
+        <div class="engine-desc">Sparsity-Aware. MAC + subtraction + division. Exploits geometric structure of sparse constraints.</div>
+      </div>
+      <div class="engine-block">
+        <div class="engine-name">SLE</div>
+        <div class="engine-desc">System of Linear Equations. In-memory dot-product via shift-and-add. Jacobi iterative solver.</div>
+      </div>
+      <div class="engine-block">
+        <div class="engine-name">B&amp;B</div>
+        <div class="engine-desc">Branch &amp; Bound. Reuses SLE hardware. Near-memory queues for sparse constraints. +30% energy efficiency.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- BENCHMARK RESULTS -->
+  <div class="section-card">
+    <h2><span class="icon" style="background:var(--blue-dim);color:var(--blue);">&#x2B;</span> Benchmark Results</h2>
+    <table class="bench-table">
+      <thead>
+        <tr>
+          <th>Workload</th>
+          <th>vs CPU</th>
+          <th>vs GPU</th>
+          <th>Energy (vs GPU)</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Sparse ILP</td>
+          <td class="highlight">12-15x</td>
+          <td class="highlight">12-20x</td>
+          <td class="highlight">400-740x</td>
+        </tr>
+        <tr>
+          <td>Sparse LP</td>
+          <td>7-20x</td>
+          <td>8-17x</td>
+          <td>96-250x</td>
+        </tr>
+        <tr>
+          <td>Dense ILP</td>
+          <td>6-8x</td>
+          <td>7-10x</td>
+          <td>180-210x</td>
+        </tr>
+        <tr>
+          <td>Dense LP</td>
+          <td>4-5x</td>
+          <td>4-5x</td>
+          <td>105-180x</td>
+        </tr>
+      </tbody>
+    </table>
+    <div class="callout insight" style="margin-top:0.8rem;">
+      <strong>A100 vs V100 for ILP:</strong> Negligible difference (e.g. NS: 105 vs 100 min; MS: 1.75 vs 1.7 hrs). A100 consumes more power, making it less energy-efficient. Data movement dominates regardless of GPU generation.
+    </div>
+  </div>
+
+  <!-- SPEEDUP BREAKDOWN -->
+  <div class="section-card">
+    <h2><span class="icon" style="background:var(--amber-dim);color:var(--amber);">&#x25B2;</span> Where Speedup Comes From</h2>
+    <div class="bar-chart" id="speedup-bars">
+      <div class="bar-row">
+        <span class="bar-label">PIM compute</span>
+        <div class="bar-track"><div class="bar-fill green" style="--w:70%;"></div></div>
+        <span class="bar-value">Major</span>
+      </div>
+      <div class="bar-row">
+        <span class="bar-label">Reduced data mvmt</span>
+        <div class="bar-track"><div class="bar-fill green" style="--w:85%;"></div></div>
+        <span class="bar-value">Major</span>
+      </div>
+      <div class="bar-row">
+        <span class="bar-label">Sparsity-aware skip</span>
+        <div class="bar-track"><div class="bar-fill amber" style="--w:55%;"></div></div>
+        <span class="bar-value">High sparsity</span>
+      </div>
+      <div class="bar-row">
+        <span class="bar-label">Prefetching</span>
+        <div class="bar-track"><div class="bar-fill blue" style="--w:35%;"></div></div>
+        <span class="bar-value">Mitigates ~40%</span>
+      </div>
+    </div>
+    <div style="margin-top:0.7rem;">
+      <h3>Cache Sensitivity</h3>
+      <p>Workloads fitting in L1 benefit most. Halving L1 hurts large instances (NS, ST, BL) but prefetching recovers ~40% of the loss. Doubling throughput yields 2.4x for non-fitting workloads. L3 shows no sensitivity.</p>
+    </div>
+  </div>
+
+  <!-- 3C CRITERION -->
+  <div class="section-card">
+    <h2><span class="icon" style="background:var(--accent-dim);color:var(--accent);">3C</span> The 3C Criterion for ILP</h2>
+    <p style="margin-bottom:0.6rem;">ILP acceleration requires <strong style="color:var(--fg);">simultaneously</strong> satisfying three characteristics. Prior accelerators hit at most two:</p>
+    <div class="compare-grid">
+      <div class="compare-item">
+        <span class="compare-label">C1 &mdash; Dot-product intensive</span>
+        <span class="compare-val" style="color:var(--accent);">SLE engine</span>
+        <span class="compare-note">In-memory shift-and-add at 16 cols/bank</span>
+      </div>
+      <div class="compare-item">
+        <span class="compare-label">C2 &mdash; Sparse constraints</span>
+        <span class="compare-val" style="color:var(--blue);">SA engine</span>
+        <span class="compare-note">Geometric interpretation of constraint planes</span>
+      </div>
+      <div class="compare-item">
+        <span class="compare-label">C3 &mdash; Control flow (L1 norm, B&B)</span>
+        <span class="compare-val" style="color:var(--amber);">FC + B&B</span>
+        <span class="compare-note">Hardware sparsity detect + reuse-aware B&B</span>
+      </div>
+      <div class="compare-item">
+        <span class="compare-label">Prior art coverage</span>
+        <span class="compare-val" style="color:var(--warn);">&le; 2 of 3</span>
+        <span class="compare-note">TPUs, Sparse-TPUs, Bison-e, CGRAs</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- KEY DESIGN CHOICES -->
+  <div class="section-card">
+    <h2><span class="icon" style="background:var(--blue-dim);color:var(--blue);">&#x2699;</span> Key Design Choices</h2>
+    <ul>
+      <li><strong style="color:var(--fg);">Regularizing-divider</strong> &mdash; subtraction approximates division at 0.5ns / 0.15pJ, 0.2% avg error with 64B LUT correction</li>
+      <li><strong style="color:var(--fg);">Reuse-aware B&B</strong> &mdash; shares SLE PIM compute, +30% energy efficiency, +20% compute density</li>
+      <li><strong style="color:var(--fg);">SPARSE_DETECT</strong> &mdash; hardware counter classifies cardinality vs. general constraints, auto-gates engines</li>
+      <li><strong style="color:var(--fg);">RISC-V ISA extensions</strong> &mdash; VMMAC, VSUB, VDIV, VSLC, VL1N, VBB custom vector instructions</li>
+      <li><strong style="color:var(--fg);">8T SRAM fill-path integration</strong> &mdash; near-memory logic on non-timing-critical fill datapath, 0.005mm&sup2;/core mux overhead</li>
+    </ul>
+  </div>
+
+  <!-- CRITICAL ASSESSMENT -->
+  <div class="section-card full-width">
+    <h2><span class="icon" style="background:var(--warn-dim);color:var(--warn);">&#x26A0;</span> Critical Assessment</h2>
+    <div class="compare-grid">
+      <div>
+        <h3 style="color:var(--accent);">Strengths</h3>
+        <ul>
+          <li>Full-stack design: algorithm &rarr; microarchitecture &rarr; ISA &rarr; evaluation</li>
+          <li>Elegant hardware reuse (B&B shares SLE, regularizing-divider)</li>
+          <li>Thorough evaluation: 4 workload types, breakdown, cache sensitivity, A100</li>
+          <li>Validates the data-movement-bottleneck thesis with GPU generational data</li>
+          <li>Gem5-validated baseline simulator (&plusmn;0.2%)</li>
+        </ul>
+      </div>
+      <div>
+        <h3 style="color:var(--warn);">Limitations</h3>
+        <ul>
+          <li>Algorithm-level confound: Jacobi+B&B vs. Gurobi's full solver stack</li>
+          <li>Only 7 MIPLIB instances; selection may favor SPARK</li>
+          <li>45nm synthesis vs. 7nm commercial chips (node-unfair energy comparison)</li>
+          <li>1.4% area excludes 8T SRAM upgrade cost from 6T</li>
+          <li>Simulation-only; no FPGA or silicon. PIM timing not externally validated</li>
+        </ul>
+      </div>
+    </div>
+    <div class="callout critical">
+      <strong>The core question this paper raises but does not answer:</strong> How much of the 12-20x speedup is from near-memory hardware vs. from choosing Jacobi iteration over simplex? Running the same Jacobi+B&B solver on CPU/GPU without SPARK would isolate the hardware contribution.
+    </div>
+  </div>
+
+  <!-- AREA & POWER -->
+  <div class="section-card">
+    <h2><span class="icon" style="background:var(--accent-dim);color:var(--accent);">&#x25A0;</span> Area &amp; Power Breakdown</h2>
+    <div class="compare-grid">
+      <div class="compare-item">
+        <span class="compare-label">Near-memory logic</span>
+        <span class="compare-val" style="color:var(--accent);">0.37 mm&sup2;</span>
+        <span class="compare-note">at 45nm, 1V, 2ns clock</span>
+      </div>
+      <div class="compare-item">
+        <span class="compare-label">Per-core peripheral</span>
+        <span class="compare-val" style="color:var(--accent);">0.005 mm&sup2;</span>
+        <span class="compare-note">RBL precharge 2:1 mux</span>
+      </div>
+      <div class="compare-item">
+        <span class="compare-label">CPU area overhead</span>
+        <span class="compare-val" style="color:var(--accent);">~1.4%</span>
+        <span class="compare-note">Memory array unchanged</span>
+      </div>
+      <div class="compare-item">
+        <span class="compare-label">SPARK power draw</span>
+        <span class="compare-val" style="color:var(--amber);">7-10 W</span>
+        <span class="compare-note">vs. V100 ~250W, Zen3 ~80-90W</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- SIMULATION SETUP -->
+  <div class="section-card">
+    <h2><span class="icon" style="background:var(--blue-dim);color:var(--blue);">&#x2328;</span> Simulation Setup</h2>
+    <ul>
+      <li>Custom C++ cycle-accurate simulator, &plusmn;0.2% vs Gem5 on 16 SPEC benchmarks</li>
+      <li>32KB L1/D, 64B cache line, 4MB shared L2, 2GB DRAM, 5-wide decode</li>
+      <li>Digital: Synopsys DC at 45nm FreePDK, 1V, 2ns clock</li>
+      <li>SRAM: 2ns latency, 1pJ/bit data movement</li>
+      <li>CPU baseline: AMD Zen3 + Gurobi (multi-threaded, AVX)</li>
+      <li>GPU: V100 + cuSparse; also A100 comparison</li>
+    </ul>
+    <div class="tag-row">
+      <span class="tag">MIPLIB 2017</span>
+      <span class="tag">MIPLIB 2010</span>
+      <span class="tag">SPEC (validation)</span>
+      <span class="tag">cycle-accurate</span>
+      <span class="tag">45nm FreePDK</span>
+    </div>
+  </div>
+
+  <!-- OPEN QUESTIONS -->
+  <div class="section-card full-width">
+    <h2><span class="icon" style="background:var(--amber-dim);color:var(--amber);">?</span> Questions for Further Exploration</h2>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.5rem 1.5rem;">
+      <ul>
+        <li>Performance with matched algorithm on CPU/GPU (isolating hardware contribution)?</li>
+        <li>Integration path to production ILP solvers &mdash; can SPARK accelerate Gurobi kernels?</li>
+        <li>Error accumulation of regularizing-divider across thousands of Jacobi iterations?</li>
+      </ul>
+      <ul>
+        <li>Extension to SAT, SMT, constraint programming solvers?</li>
+        <li>Interference with normal cache ops in an out-of-order CPU pipeline?</li>
+        <li>Performance at 5nm/3nm nodes where near-memory logic cost profile changes?</li>
+      </ul>
+    </div>
+  </div>
+
+</section>
+
+<!-- ==================== FOOTER ==================== -->
+<footer>
+  <span>arxiv-daily &middot; 2026-05-16</span>
+  <span>
+    <a href="./index.html">Index</a> &nbsp;&middot;&nbsp;
+    <a href="2605.17158.html">Source Markdown</a> &nbsp;&middot;&nbsp;
+    <a href="https://arxiv.org/abs/2605.17158">arXiv 2605.17158</a>
+  </span>
+</footer>
+
+<script>
+// Animate bar fills on scroll into view
+document.addEventListener('DOMContentLoaded', () => {
+  const bars = document.querySelectorAll('.bar-fill');
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+      if (entry.isIntersecting) {
+        entry.target.classList.add('animated');
+        observer.unobserve(entry.target);
+      }
+    });
+  }, { threshold: 0.3 });
+  bars.forEach(bar => observer.observe(bar));
+});
+</script>
+
+</body>
+</html>

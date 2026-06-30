@@ -1,0 +1,897 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Why Larger Models Learn More — Huang et al. 2026</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Source+Serif+4:ital,opsz,wght@0,8..60,300;0,8..60,600;0,8..60,900;1,8..60,400&family=Space+Grotesk:wght@400;600;700&display=swap');
+
+  :root {
+    --bg: #0c0c0f;
+    --bg-raised: #141418;
+    --bg-card: #1a1a21;
+    --fg: #e8e6e1;
+    --fg-muted: #8a8780;
+    --fg-dim: #5a5853;
+    --accent: #e8a838;
+    --accent-dim: rgba(232,168,56,0.12);
+    --accent-glow: rgba(232,168,56,0.25);
+    --edge: #d94f4f;
+    --edge-dim: rgba(217,79,79,0.12);
+    --success: #4fd97a;
+    --success-dim: rgba(79,217,122,0.12);
+    --border: #2a2a33;
+    --border-subtle: #222228;
+    --font-display: 'Space Grotesk', sans-serif;
+    --font-body: 'Source Serif 4', serif;
+    --font-mono: 'JetBrains Mono', monospace;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html { font-size: 16px; scroll-behavior: smooth; }
+
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: var(--font-body);
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* --- NOISE OVERLAY --- */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");
+    pointer-events: none;
+    z-index: 9999;
+  }
+
+  /* --- GRID PATTERN --- */
+  body::after {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image:
+      linear-gradient(var(--border-subtle) 1px, transparent 1px),
+      linear-gradient(90deg, var(--border-subtle) 1px, transparent 1px);
+    background-size: 60px 60px;
+    opacity: 0.25;
+    pointer-events: none;
+    z-index: -1;
+  }
+
+  a { color: var(--accent); text-decoration: none; transition: opacity 0.2s; }
+  a:hover { opacity: 0.8; }
+
+  /* --- LAYOUT --- */
+  .page { max-width: 1200px; margin: 0 auto; padding: 2rem 1.5rem 4rem; }
+
+  /* --- TOP NAV --- */
+  .top-nav {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.5rem 0 2rem;
+    font-family: var(--font-display);
+    font-size: 0.8rem;
+    letter-spacing: 0.04em;
+    color: var(--fg-muted);
+  }
+  .top-nav .back-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.35rem 0.75rem;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--fg-muted);
+    transition: all 0.2s;
+  }
+  .top-nav .back-link:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+    opacity: 1;
+  }
+  .top-nav .arxiv-tag {
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    color: var(--fg-dim);
+    background: var(--bg-raised);
+    padding: 0.3rem 0.6rem;
+    border-radius: 3px;
+    border: 1px solid var(--border);
+  }
+
+  /* --- HERO --- */
+  .hero {
+    position: relative;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 2.5rem;
+    margin-bottom: 2rem;
+  }
+  .hero-eyebrow {
+    font-family: var(--font-display);
+    font-size: 0.7rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 1rem;
+    opacity: 0;
+    animation: fadeUp 0.6s ease forwards 0.1s;
+  }
+  .hero h1 {
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: clamp(1.8rem, 4vw, 2.8rem);
+    line-height: 1.15;
+    color: var(--fg);
+    letter-spacing: -0.02em;
+    margin-bottom: 1.2rem;
+    opacity: 0;
+    animation: fadeUp 0.6s ease forwards 0.2s;
+  }
+  .hero-finding {
+    font-family: var(--font-body);
+    font-size: 1.1rem;
+    line-height: 1.65;
+    color: var(--fg);
+    max-width: 52rem;
+    opacity: 0;
+    animation: fadeUp 0.6s ease forwards 0.35s;
+  }
+  .hero-finding strong {
+    color: var(--accent);
+    font-weight: 600;
+  }
+  .hero-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-top: 1.2rem;
+    opacity: 0;
+    animation: fadeUp 0.6s ease forwards 0.45s;
+  }
+  .hero-meta .tag {
+    font-family: var(--font-mono);
+    font-size: 0.65rem;
+    letter-spacing: 0.04em;
+    padding: 0.25rem 0.55rem;
+    border-radius: 3px;
+    background: var(--accent-dim);
+    color: var(--accent);
+    border: 1px solid rgba(232,168,56,0.2);
+  }
+
+  /* --- ASSET CARDS --- */
+  .assets {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1.25rem;
+    margin-bottom: 3rem;
+  }
+  @media (max-width: 800px) {
+    .assets { grid-template-columns: 1fr; }
+  }
+  .asset-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1.5rem;
+    position: relative;
+    overflow: hidden;
+    opacity: 0;
+    transform: translateY(12px);
+    animation: cardIn 0.5s ease forwards;
+  }
+  .asset-card:nth-child(1) { animation-delay: 0.5s; }
+  .asset-card:nth-child(2) { animation-delay: 0.6s; }
+  .asset-card:nth-child(3) { animation-delay: 0.7s; }
+  .asset-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+  }
+  .asset-card.metric-card::before { background: var(--accent); }
+  .asset-card.why-card::before { background: var(--success); }
+  .asset-card.edge-card::before { background: var(--edge); }
+
+  .asset-label {
+    font-family: var(--font-display);
+    font-size: 0.65rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    margin-bottom: 1rem;
+  }
+  .metric-card .asset-label { color: var(--accent); }
+  .why-card .asset-label { color: var(--success); }
+  .edge-card .asset-label { color: var(--edge); }
+
+  .asset-card .big-number {
+    font-family: var(--font-mono);
+    font-weight: 700;
+    font-size: 2.2rem;
+    line-height: 1;
+    margin-bottom: 0.3rem;
+  }
+  .metric-card .big-number { color: var(--accent); }
+  .asset-card .number-context {
+    font-size: 0.82rem;
+    color: var(--fg-muted);
+    line-height: 1.5;
+    margin-top: 0.5rem;
+  }
+  .asset-card .number-context code {
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    background: rgba(255,255,255,0.05);
+    padding: 0.1rem 0.3rem;
+    border-radius: 2px;
+    color: var(--fg);
+  }
+  .asset-card .body-text {
+    font-size: 0.95rem;
+    line-height: 1.6;
+    color: var(--fg);
+  }
+  .asset-card .body-text strong { font-weight: 600; }
+  .why-card .body-text strong { color: var(--success); }
+  .edge-card .body-text strong { color: var(--edge); }
+
+  /* --- COMPARISON STRIP inside metric card --- */
+  .comparison {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-top: 1rem;
+    padding-top: 0.75rem;
+    border-top: 1px solid var(--border);
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+  }
+  .comparison .val { font-weight: 700; }
+  .comparison .val.small { color: var(--edge); }
+  .comparison .val.large { color: var(--success); }
+  .comparison .arrow { color: var(--fg-dim); }
+
+  /* --- BODY GRID --- */
+  .body-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1.25rem;
+    margin-bottom: 3rem;
+  }
+  @media (max-width: 800px) {
+    .body-grid { grid-template-columns: 1fr; }
+  }
+
+  .panel {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1.5rem;
+  }
+  .panel-title {
+    font-family: var(--font-display);
+    font-size: 0.85rem;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    color: var(--fg);
+    margin-bottom: 1rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  .panel-title .icon {
+    width: 20px;
+    height: 20px;
+    border-radius: 4px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.65rem;
+    flex-shrink: 0;
+  }
+  .panel-title .icon.theory { background: var(--accent-dim); color: var(--accent); }
+  .panel-title .icon.exp { background: var(--success-dim); color: var(--success); }
+  .panel-title .icon.chart { background: rgba(120,140,255,0.12); color: #8a9cf8; }
+  .panel-title .icon.warn { background: var(--edge-dim); color: var(--edge); }
+
+  .panel ul {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 0.65rem;
+  }
+  .panel li {
+    font-size: 0.85rem;
+    line-height: 1.55;
+    color: var(--fg);
+    padding-left: 1rem;
+    position: relative;
+  }
+  .panel li::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0.55rem;
+    width: 4px;
+    height: 4px;
+    border-radius: 50%;
+    background: var(--fg-dim);
+  }
+  .panel li strong { font-weight: 600; }
+  .panel li code {
+    font-family: var(--font-mono);
+    font-size: 0.78rem;
+    background: rgba(255,255,255,0.05);
+    padding: 0.1rem 0.3rem;
+    border-radius: 2px;
+  }
+
+  /* Methodology full-width */
+  .methodology-panel {
+    grid-column: 1 / -1;
+  }
+  .method-steps {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1rem;
+    margin-top: 0.5rem;
+  }
+  @media (max-width: 800px) {
+    .method-steps { grid-template-columns: 1fr; }
+  }
+  .method-step {
+    background: var(--bg-raised);
+    border: 1px solid var(--border-subtle);
+    border-radius: 4px;
+    padding: 1rem;
+  }
+  .method-step .step-num {
+    font-family: var(--font-mono);
+    font-size: 0.6rem;
+    letter-spacing: 0.1em;
+    color: var(--fg-dim);
+    margin-bottom: 0.4rem;
+  }
+  .method-step .step-title {
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 0.82rem;
+    color: var(--accent);
+    margin-bottom: 0.5rem;
+  }
+  .method-step .step-body {
+    font-size: 0.8rem;
+    line-height: 1.55;
+    color: var(--fg-muted);
+  }
+  .method-step .step-body code {
+    font-family: var(--font-mono);
+    font-size: 0.73rem;
+    background: rgba(255,255,255,0.05);
+    padding: 0.1rem 0.25rem;
+    border-radius: 2px;
+    color: var(--fg);
+  }
+
+  /* --- RESULTS STRIP --- */
+  .results-strip {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 1rem;
+    margin-bottom: 3rem;
+  }
+  .result-chip {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1.2rem;
+  }
+  .result-chip .chip-label {
+    font-family: var(--font-display);
+    font-size: 0.62rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--fg-dim);
+    margin-bottom: 0.5rem;
+  }
+  .result-chip .chip-value {
+    font-family: var(--font-mono);
+    font-size: 0.88rem;
+    line-height: 1.5;
+    color: var(--fg);
+  }
+  .result-chip .chip-value strong { color: var(--accent); }
+
+  /* --- STRENGTHS / LIMITATIONS --- */
+  .sl-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1.25rem;
+    margin-bottom: 3rem;
+  }
+  @media (max-width: 800px) {
+    .sl-grid { grid-template-columns: 1fr; }
+  }
+  .sl-panel {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1.5rem;
+  }
+  .sl-panel.strengths { border-top: 2px solid var(--success); }
+  .sl-panel.limitations { border-top: 2px solid var(--edge); }
+  .sl-panel h3 {
+    font-family: var(--font-display);
+    font-size: 0.85rem;
+    font-weight: 700;
+    margin-bottom: 1rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  .sl-panel.strengths h3 { color: var(--success); }
+  .sl-panel.limitations h3 { color: var(--edge); }
+  .sl-panel ul {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+  }
+  .sl-panel li {
+    font-size: 0.82rem;
+    line-height: 1.55;
+    color: var(--fg-muted);
+    padding-left: 1rem;
+    position: relative;
+  }
+  .sl-panel li::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0.5rem;
+    width: 4px;
+    height: 4px;
+    border-radius: 50%;
+  }
+  .sl-panel.strengths li::before { background: var(--success); }
+  .sl-panel.limitations li::before { background: var(--edge); }
+
+  /* --- QUESTIONS --- */
+  .questions {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1.5rem;
+    margin-bottom: 3rem;
+  }
+  .questions h3 {
+    font-family: var(--font-display);
+    font-size: 0.85rem;
+    font-weight: 700;
+    color: var(--fg);
+    margin-bottom: 1rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  .questions ol {
+    list-style: none;
+    counter-reset: q;
+    display: flex;
+    flex-direction: column;
+    gap: 0.7rem;
+  }
+  .questions li {
+    counter-increment: q;
+    font-size: 0.82rem;
+    line-height: 1.55;
+    color: var(--fg-muted);
+    padding-left: 2rem;
+    position: relative;
+  }
+  .questions li::before {
+    content: counter(q);
+    position: absolute;
+    left: 0;
+    top: 0.15rem;
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    font-weight: 700;
+    color: var(--fg-dim);
+    width: 1.4rem;
+    height: 1.4rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--border);
+    border-radius: 3px;
+  }
+
+  /* --- FOOTER --- */
+  .footer {
+    border-top: 1px solid var(--border);
+    padding-top: 1.5rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 1rem;
+  }
+  .footer .source-link {
+    font-family: var(--font-display);
+    font-size: 0.8rem;
+    color: var(--fg-muted);
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+  }
+  .footer .authors {
+    font-size: 0.75rem;
+    color: var(--fg-dim);
+    line-height: 1.5;
+    max-width: 40rem;
+  }
+
+  /* --- ANIMATIONS --- */
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(10px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes cardIn {
+    from { opacity: 0; transform: translateY(12px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  /* --- VISUAL DIAGRAM --- */
+  .mechanism-diagram {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1.5rem;
+    margin-bottom: 3rem;
+    grid-column: 1 / -1;
+  }
+  .mechanism-diagram .panel-title { margin-bottom: 1.2rem; }
+  .diagram-flow {
+    display: flex;
+    align-items: stretch;
+    gap: 0;
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    overflow-x: auto;
+  }
+  .diagram-node {
+    flex: 1;
+    min-width: 160px;
+    background: var(--bg-raised);
+    border: 1px solid var(--border-subtle);
+    border-radius: 4px;
+    padding: 0.8rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+  }
+  .diagram-node .dn-label {
+    font-size: 0.58rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--fg-dim);
+  }
+  .diagram-node .dn-body {
+    color: var(--fg);
+    line-height: 1.45;
+  }
+  .diagram-node .dn-body strong { color: var(--accent); }
+  .diagram-arrow {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 0.4rem;
+    color: var(--fg-dim);
+    font-size: 1rem;
+    flex-shrink: 0;
+  }
+  @media (max-width: 800px) {
+    .diagram-flow {
+      flex-direction: column;
+      align-items: stretch;
+    }
+    .diagram-arrow {
+      transform: rotate(90deg);
+      padding: 0.5rem 0;
+      justify-content: flex-start;
+      padding-left: calc(50% - 0.5rem);
+    }
+  }
+
+  /* --- SCROLL REVEAL --- */
+  .reveal {
+    opacity: 0;
+    transform: translateY(14px);
+    transition: opacity 0.5s ease, transform 0.5s ease;
+  }
+  .reveal.visible {
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+  /* --- THEOREM CALLOUTS --- */
+  .theorem-strip {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1rem;
+    margin-bottom: 2.5rem;
+  }
+  @media (max-width: 800px) {
+    .theorem-strip { grid-template-columns: 1fr; }
+  }
+  .theorem-chip {
+    background: var(--bg-raised);
+    border: 1px solid var(--border-subtle);
+    border-left: 3px solid var(--accent);
+    border-radius: 4px;
+    padding: 0.9rem 1rem;
+  }
+  .theorem-chip .th-name {
+    font-family: var(--font-mono);
+    font-size: 0.65rem;
+    letter-spacing: 0.06em;
+    color: var(--accent);
+    margin-bottom: 0.35rem;
+  }
+  .theorem-chip .th-body {
+    font-size: 0.78rem;
+    line-height: 1.5;
+    color: var(--fg-muted);
+  }
+
+  /* --- AUTHORS CHIP --- */
+  .authors-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    margin-top: 0.8rem;
+    opacity: 0;
+    animation: fadeUp 0.6s ease forwards 0.55s;
+  }
+  .author-chip {
+    font-family: var(--font-mono);
+    font-size: 0.6rem;
+    padding: 0.2rem 0.5rem;
+    border-radius: 3px;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid var(--border-subtle);
+    color: var(--fg-dim);
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <!-- TOP NAV -->
+  <nav class="top-nav">
+    <a href="./index.html" class="back-link">&#8617; Today's digest</a>
+    <span class="arxiv-tag">2605.29548</span>
+  </nav>
+
+  <!-- HERO -->
+  <header class="hero">
+    <div class="hero-eyebrow">Paper Dashboard</div>
+    <h1>Why Larger Models Learn More</h1>
+    <p class="hero-finding">
+      Smaller models fail on rare tasks because <strong>high-frequency tasks monopolize neurons via gradient interference</strong>, starving low-frequency and complex tasks. Larger models overcome this through a <strong>residual-controlled mechanism</strong>: once enough capacity is allocated to common tasks, their gradient signal weakens, allowing rare-task features to accumulate without being overwritten.
+    </p>
+    <div class="hero-meta">
+      <span class="tag">scaling-laws</span>
+      <span class="tag">multi-task-learning</span>
+      <span class="tag">gradient-interference</span>
+      <span class="tag">mechanistic-interpretability</span>
+    </div>
+    <div class="authors-row">
+      <span class="author-chip">Huang</span>
+      <span class="author-chip">Wurgaft</span>
+      <span class="author-chip">Bansal</span>
+      <span class="author-chip">Ruis</span>
+      <span class="author-chip">Saphra</span>
+      <span class="author-chip">Alvarez-Melis</span>
+      <span class="author-chip">Lampinen</span>
+      <span class="author-chip">Potts</span>
+      <span class="author-chip">Lubana</span>
+    </div>
+  </header>
+
+  <!-- 3 ASSET CARDS -->
+  <section class="assets">
+    <!-- KEY METRIC -->
+    <article class="asset-card metric-card">
+      <div class="asset-label">Key Metric</div>
+      <div class="big-number">7.58e-5</div>
+      <p class="number-context">
+        Gradient cosine similarity (task vs. non-task) in the <code>1B</code> model &mdash; near-orthogonal. At frequency <code>2.4e-8</code>, only models with <code>&ge;1B</code> parameters learn injected tasks.
+      </p>
+      <div class="comparison">
+        <span class="val small">20M: 0.10</span>
+        <span class="arrow">&rarr;</span>
+        <span class="val large">1B: 7.58e-5</span>
+      </div>
+    </article>
+
+    <!-- WHY THIS MATTERS -->
+    <article class="asset-card why-card">
+      <div class="asset-label">Why This Matters</div>
+      <p class="body-text">
+        Model scaling is not merely about fitting more data &mdash; it is an <strong>irreducible requirement</strong> for learning rare capabilities. When <code>&alpha; &gt; &gamma;</code>, no amount of additional data lets a small model match a large one. This reframes compute budgets: capacity determines <strong>which tasks are learnable at all</strong>, not just how fast they are learned.
+      </p>
+    </article>
+
+    <!-- CRITICAL EDGE -->
+    <article class="asset-card edge-card">
+      <div class="asset-label">Critical Edge</div>
+      <p class="body-text">
+        Only <strong>two algorithmic tasks</strong> (comparison, modular addition) were injected into OLMo pretraining. The 4B parameter ceiling is modest, and the theoretical framework assumes <strong>orthogonal task blocks</strong> &mdash; real tasks share features. Whether these dynamics hold at frontier scale (70B+) for complex natural language capabilities remains unverified.
+      </p>
+    </article>
+  </section>
+
+  <!-- MECHANISM DIAGRAM -->
+  <section class="mechanism-diagram reveal">
+    <div class="panel-title"><span class="icon theory">&#9881;</span> Mechanism at a Glance</div>
+    <div class="diagram-flow">
+      <div class="diagram-node">
+        <div class="dn-label">Power-law gap</div>
+        <div class="dn-body">Since <strong>&alpha; (0.46) &gt; &gamma; (0.34)</strong>, asymptotic loss decays faster than compute-optimal loss. A capacity gap exists that data scaling cannot close.</div>
+      </div>
+      <div class="diagram-arrow">&rarr;</div>
+      <div class="diagram-node">
+        <div class="dn-label">Utility ordering</div>
+        <div class="dn-body">Width-N encoder spans the top-N eigenspace. Features learned in order of <strong>utility = freq &times; eigenvalue</strong>. High-freq, low-complexity tasks win.</div>
+      </div>
+      <div class="diagram-arrow">&rarr;</div>
+      <div class="diagram-node">
+        <div class="dn-label">Interference bottleneck</div>
+        <div class="dn-body">Common-task gradient norm bounded by <strong>residual signal</strong>. Small model: residual stays large &rarr; rare features overwritten. Large model: residual &rarr; 0.</div>
+      </div>
+      <div class="diagram-arrow">&rarr;</div>
+      <div class="diagram-node">
+        <div class="dn-label">Rare-feature stability</div>
+        <div class="dn-body">Rare feature <strong>stable iff</strong> its utility exceeds the weakest occupied common-feature utility. Below critical width: update-and-forget dynamics.</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- THEOREM STRIP -->
+  <section class="theorem-strip reveal">
+    <div class="theorem-chip">
+      <div class="th-name">Theorem 3 &mdash; Utility-Ordered Learning</div>
+      <div class="th-body">Optimal encoder spans top-N eigenspace of weighted covariance. Features acquired in strict utility order.</div>
+    </div>
+    <div class="theorem-chip">
+      <div class="th-name">Theorem 4 &mdash; Residual-Controlled Interference</div>
+      <div class="th-body">Common-task gradient norm bounded by unresolved residual. Larger model &rarr; weaker residual &rarr; less interference.</div>
+    </div>
+    <div class="theorem-chip">
+      <div class="th-name">Proposition 6 &mdash; Critical Width</div>
+      <div class="th-body">Rare feature stable iff <code>pi_r &middot; lambda_r &gt; mu_N^F</code>. Derives the minimum width for rare-task learning.</div>
+    </div>
+  </section>
+
+  <!-- METHODOLOGY -->
+  <section class="body-grid reveal">
+    <div class="panel methodology-panel">
+      <div class="panel-title"><span class="icon exp">&#9733;</span> Methodology</div>
+      <div class="method-steps">
+        <div class="method-step">
+          <div class="step-num">01</div>
+          <div class="step-title">Phenomenological Argument</div>
+          <div class="step-body">From <code>L(N,D) = L_0 + A/N<sup>&alpha;</sup> + B/D<sup>&beta;</sup></code>, compute-optimal scaling gives <code>L<sub>C</sub> &prop; N<sup>-&gamma;</sup></code> while asymptotic gives <code>L<sub>&infin;</sub> &prop; N<sup>-&alpha;</sup></code>. Since <code>&alpha; &gt; &gamma;</code>, a genuine capacity gap exists.</div>
+        </div>
+        <div class="method-step">
+          <div class="step-num">02</div>
+          <div class="step-title">Synthetic Multi-Task Regression</div>
+          <div class="step-body">K=32 linear tasks with power-law frequencies and spectra. Shared width-N encoder with task-specific decoders. Closed-form analysis; trained with AdamW for 100K steps.</div>
+        </div>
+        <div class="method-step">
+          <div class="step-num">03</div>
+          <div class="step-title">OLMo Pretraining Validation</div>
+          <div class="step-body">4M to 4B params on Dolma v1.7 (210B tokens). Injected comparison (T_CMP) and modular addition (T_ADD) at controlled frequencies. Behavioral, representational (DAS, Fourier), and gradient-level analysis.</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- RESULTS HIGHLIGHTS -->
+  <section class="results-strip reveal">
+    <div class="result-chip">
+      <div class="chip-label">Feature Utility</div>
+      <div class="chip-value">Empirical phase diagram matches Theorem 3 predictions <strong>exactly</strong>.</div>
+    </div>
+    <div class="result-chip">
+      <div class="chip-label">Rare-Task Retention</div>
+      <div class="chip-value">Larger models <strong>accumulate</strong> signal across injections; smaller models show update-and-forget.</div>
+    </div>
+    <div class="result-chip">
+      <div class="chip-label">Grokking</div>
+      <div class="chip-value">Only larger models exhibit grokking on modular addition: memorization &rarr; generalization.</div>
+    </div>
+    <div class="result-chip">
+      <div class="chip-label">DAS Localization</div>
+      <div class="chip-value"><strong>96%</strong> interchange intervention success rate on a 1-D subspace for comparison task.</div>
+    </div>
+    <div class="result-chip">
+      <div class="chip-label">Compute Frontier</div>
+      <div class="chip-value">At lowest frequency, larger models achieve <strong>lower loss per unit compute</strong>.</div>
+    </div>
+  </section>
+
+  <!-- STRENGTHS / LIMITATIONS -->
+  <section class="sl-grid reveal">
+    <div class="sl-panel strengths">
+      <h3>&#10003; Strengths</h3>
+      <ul>
+        <li>Exceptionally well-structured: theory &rarr; synthetic &rarr; large-scale, each layer building on the previous.</li>
+        <li>Formal theorems with clean proofs yielding quantitative, testable predictions (critical widths, residual thresholds).</li>
+        <li>Multi-level OLMo evidence: behavioral, representational (DAS, Fourier), and gradient-level.</li>
+        <li>Matched-frequency injection protocol isolates retention from frequency confounds &mdash; clever experimental design.</li>
+        <li>Extensive appendices with sweeps over complexity, frequency, and training horizons up to 1M steps.</li>
+        <li>Open-source models and clear descriptions enhance reproducibility.</li>
+      </ul>
+    </div>
+    <div class="sl-panel limitations">
+      <h3>&#10007; Limitations</h3>
+      <ul>
+        <li>Only two algorithmic injected tasks; generality to diverse natural language capabilities is unverified.</li>
+        <li>4B parameter ceiling limits conclusions about frontier-scale dynamics (70B+).</li>
+        <li>Linear regression model assumes orthogonal task blocks; real networks have shared, nonlinear representations.</li>
+        <li>No exploration of interventions: data reweighting, curriculum learning, MoE architectures.</li>
+        <li>Task complexity operationalized only in synthetic setting (spectral decay rate).</li>
+        <li>Injected tasks are artificial and may not reflect statistical properties of natural rare tasks.</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- QUESTIONS -->
+  <section class="questions reveal">
+    <h3><span class="icon warn">?</span> Open Questions</h3>
+    <ol>
+      <li>Can data reweighting or curriculum learning fully substitute for model scaling, or is there an irreducible capacity requirement for rare tasks?</li>
+      <li>Do gradient interference dynamics and critical-width thresholds hold at 70B+ scales where emergent capabilities appear?</li>
+      <li>Does shared task structure in real data mitigate or exacerbate interference vs. the orthogonal assumption?</li>
+      <li>Could MoE architectures naturally allocate separate experts to rare vs. common tasks, bypassing the interference bottleneck?</li>
+      <li>What is the crossover point where frequent tasks transition from memorization to generalization, and does scaling affect this transition?</li>
+      <li>How do these findings relate to continual learning and catastrophic forgetting? Are the same mitigation strategies applicable?</li>
+      <li>For natural language tasks with Zipf-distributed frequencies, what model sizes does Proposition 6 predict for specific capabilities?</li>
+    </ol>
+  </section>
+
+  <!-- FOOTER -->
+  <footer class="footer">
+    <a href="2605.29548.html" class="source-link">&#8599; Markdown source</a>
+    <div class="authors">
+      Huang, Wurgaft, Bansal, Ruis, Saphra, Alvarez-Melis, Lampinen, Potts, Lubana &mdash; Goodfire, Stanford, Anthropic, Kempner Institute (Harvard), MIT &mdash; 2026-05-29
+    </div>
+  </footer>
+
+</div>
+
+<script>
+  // Scroll reveal
+  const reveals = document.querySelectorAll('.reveal');
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+      if (entry.isIntersecting) {
+        entry.target.classList.add('visible');
+        observer.unobserve(entry.target);
+      }
+    });
+  }, { threshold: 0.1, rootMargin: '0px 0px -40px 0px' });
+  reveals.forEach(el => observer.observe(el));
+</script>
+</body>
+</html>

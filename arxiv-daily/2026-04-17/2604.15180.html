@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AdaSplash-2: Faster Differentiable Sparse Attention</title>
+<style>
+:root { --paper:#fafafa; --ink:#1a1a1a; --muted:#555; --accent:#1a5276; --line:#ddd; --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif; --serif:Georgia,"Noto Serif SC",serif; }
+body { font-family:var(--serif); background:var(--paper); color:var(--ink); line-height:1.6; margin:0; padding:0; }
+.container { max-width:min(95vw, 760px); margin:0 auto; padding:28px 20px 60px; }
+.topnav { position:fixed; top:12px; left:14px; z-index:50; font-family:var(--sans); font-size:.75rem; background:var(--paper); border:1px solid var(--line); padding:5px 10px; border-radius:999px; }
+.topnav a { color:var(--muted); text-decoration:none; font-weight:600; }
+.topnav a:hover { color:var(--accent); }
+h1 { font-size:1.6rem; margin:2.2rem 0 1rem; border-bottom:2px solid var(--accent); padding-bottom:.3rem; }
+h2 { font-size:1.3rem; margin:1.8rem 0 .8rem; color:var(--accent); }
+h3 { font-size:1.1rem; margin:1.4rem 0 .6rem; }
+p { margin:.8rem 0; }
+.authors { font-style:italic; color:var(--muted); margin-top:-.4rem; }
+.meta { font-family:var(--sans); font-size:.82rem; color:var(--muted); margin:.2rem 0; }
+a { color:var(--accent); text-decoration:none; }
+a:hover { text-decoration:underline; }
+blockquote { border-left:3px solid var(--accent); margin:1rem 0; padding:.2rem 0 .2rem 1rem; color:var(--muted); font-style:italic; }
+code { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; background:#f0f0f0; padding:2px 5px; border-radius:3px; font-size:.9em; }
+pre { background:#f5f5f5; padding:14px; overflow-x:auto; border-radius:4px; border:1px solid var(--line); }
+pre code { background:transparent; padding:0; }
+ul,ol { margin:.6rem 0; padding-left:1.5rem; }
+li { margin:.25rem 0; }
+table { border-collapse:collapse; width:100%; margin:1rem 0; font-family:var(--sans); font-size:.9rem; }
+th,td { border:1px solid var(--line); padding:6px 10px; text-align:left; }
+th { background:#f0f0f0; }
+hr { border:none; border-top:1px solid var(--line); margin:1.5rem 0; }
+.note { font-family:var(--sans); font-size:.78rem; color:var(--muted); border-top:1px solid var(--line); margin-top:2rem; padding-top:1rem; }
+@media (max-width: 600px) { .container { padding:22px 14px 40px; } h1 { font-size:1.35rem; } }
+</style>
+</head>
+<body>
+<div class="topnav"><a href="./index.html">← Today's digest</a></div>
+<div class="container">
+<h1>AdaSplash-2: Faster Differentiable Sparse Attention</h1>
+<p class="meta">arXiv: 2604.15180</p>
+<p class="meta">Date: 2026-04-16</p>
+<p class="meta"><a href="https://arxiv.org/abs/2604.15180">https://arxiv.org/abs/2604.15180</a></p>
+<blockquote><strong>一句话总结：</strong> AdaSplash-2 通过在片上 SRAM 中构建注意力分数的紧凑直方图来为 alpha-entmax 归一化阈值提供高质量初始化，将迭代求解收敛到仅 1-2 步，在中等至高稀疏度下训练速度匹配或超越 FlashAttention-2，且长上下文任务性能显著提升。</blockquote>
+<blockquote><strong>TL;DR:</strong> AdaSplash-2 accelerates alpha-entmax sparse attention by computing a compact on-chip histogram of attention scores to initialize the normalization threshold, reducing root-finding iterations to 1-2, and achieves training speed parity or improvement over FlashAttention-2 at moderate-to-high block sparsity (>60%), with substantial long-context downstream gains.</blockquote>
+<h2>核心贡献</h2>
+<ul>
+<li>提出<strong>基于直方图的归一化阈值初始化方法</strong>：在片上 SRAM 中动态构建注意力分数的 B-bin 直方图，将 alpha-entmax 归一化常数 tau 的计算从多次迭代缩减至 1-2 次，理论上证明了直方图估计是真实阈值的下界（误差 < 1/B）</li>
+<li>设计了<strong>保护性混合求解器</strong>：根据 alpha 值自适应选择 Halley/Newton/割线法，结合二分法回退机制，保证数值稳定性</li>
+<li>实现了<strong>高效的 GPU Triton 内核</strong>：采用细粒度分块和轻量级位压缩编码（bitpacking）跳过零块，前向和反向传播均利用 GPU 原生指令（fns, popc）实现 O(|M|) 遍历复杂度</li>
+<li>在长上下文场景下实现了<strong>训练效率与模型质量的双重提升</strong>：在 RULER 基准上，alpha-entmax + NAPE 在所有序列长度上取得最佳平均性能；在 HELMET ICL 基准上大幅领先 softmax 基线</li>
+</ul>
+<h2>Key Contributions</h2>
+<ul>
+<li><strong>Histogram-based normalization initialization</strong>: Constructs a compact B-bin histogram of attention scores entirely in on-chip SRAM, reducing alpha-entmax normalization iterations from many to typically 1-2, with a proven lower-bound guarantee on the threshold estimate (error < 1/B)</li>
+<li><strong>Safeguarded hybrid solver</strong>: Adaptively selects Halley (alpha <= 1.5), Newton (1.5 < alpha <= 2), or secant (alpha > 2) steps with bisection fallback, ensuring numerical stability across all alpha regimes</li>
+<li><strong>Efficient sparsity-aware GPU kernel in Triton</strong>: Uses fine-grained tiling and lightweight bitpacked block masks to skip zero blocks with negligible overhead, achieving O(|M|) traversal via GPU-native instructions (fns, popc)</li>
+<li><strong>Dual gains in efficiency and quality</strong>: Matches FlashAttention-2 training time at >60% block sparsity; alpha-entmax + NAPE achieves best average performance on RULER and strong improvements on HELMET ICL benchmarks</li>
+</ul>
+<h2>Methodology</h2>
+<p>AdaSplash-2 targets the core computational bottleneck of alpha-entmax attention: computing the normalization threshold tau that ensures the output is a valid probability distribution. Unlike softmax, alpha-entmax produces exact zeros in an input-dependent manner, making it inherently sparse but requiring iterative root-finding.</p>
+<p>The method proceeds in four GPU-aware phases for each query block:</p>
+<ol>
+<li><strong>Maximum phase</strong>: Stream key blocks to compute row-wise maximum mi, used for centering scores into [0, 1].</li>
+<li><strong>Histogram phase</strong>: While streaming key blocks, build a per-row B-bin histogram entirely in SRAM. Each score is mapped to a bin, and counts are accumulated using bitpacked local accumulators (b = w/B bits per bin) to avoid atomic operations. The histogram reduces the problem of finding tau from n scores to B bins, enabling exact solvers for alpha = 1.5 and alpha = 2 without sorting.</li>
+<li><strong>Refinement phase</strong>: Starting from the histogram estimate tau_h (proven to be a lower bound on the true tau), apply 1-2 iterations of the safeguarded hybrid solver. Simultaneously construct a binary block mask M using bitpacking (32 column blocks per int32).</li>
+<li><strong>Output phase</strong>: Traverse only nonzero blocks using GPU-native find-next-set (fns) instructions to compute the final attention output.</li>
+</ol>
+<p>The backward pass reuses the forward block mask, computing gradients only on the alpha-entmax support (nonzero entries), which naturally becomes sparser at longer context lengths.</p>
+<p>A key design choice is <strong>left-edge binning</strong>: scoring each entry by the left endpoint of its bin ensures the histogram-based threshold never overestimates the true threshold, so the induced support contains the true support (Proposition 1). The capacity of the histogram is managed via periodic flushing to handle sequences beyond the natural capacity limit (16K tokens with default configuration).</p>
+<h2>Results & Highlights</h2>
+<ul>
+<li><strong>Solver convergence</strong>: Histogram initialization with B=16 bins places the solver orders of magnitude closer to the true root after 1 iteration compared to the hybrid solver without histogram (alpha = 1.5). The mean absolute error drops to near-zero after just 1 iteration.</li>
+<li><strong>Speed vs. sparsity</strong>: AdaSplash-2 consistently outperforms AdaSplash and surpasses both Triton and CUDA FlashAttention-2 at >60% block sparsity, achieving >2x speedup at extreme sparsity. At short contexts (4K), the forward pass remains slower than FlashAttention-2, but the backward pass is already faster due to sparsity.</li>
+<li><strong>Context length scaling</strong>: Using sparsity ratios from trained 1B models, AdaSplash-2 matches FlashAttention-2 total runtime at ~16K context and becomes progressively faster at longer contexts (32K-128K), driven by backward pass gains.</li>
+<li><strong>RULER benchmark (1B model, up to 32K)</strong>: Alpha-entmax + NAPE achieves the best average score across all sequence lengths. Notable gains on Variable Tracking (VT) and word extraction tasks (CWE, FWE). At 32K, Entmax+NAPE achieves 36.8 average vs. 17.4 (Softmax+RoPE) and 26.5 (Softmax+NAPE).</li>
+<li><strong>HELMET ICL benchmark</strong>: Alpha-entmax + NAPE achieves highest average score at every tested context length (8K-32K), with particularly large gains suggesting sparsity helps models leverage relevant in-context examples.</li>
+<li><strong>Short-context performance</strong>: On the OLMES core 9-task suite at 4K context, alpha-entmax models match or outperform softmax baselines across both 350M and 1B parameter scales, with notably lower perplexity on LAMBADA.</li>
+</ul>
+<h2>Authors & Credibility</h2>
+<ul>
+<li><strong>Nuno Gonçalves</strong> and <strong>Hugo Pitorro</strong> (equal contribution): Instituto Superior Tecnico, Universidade de Lisboa / Instituto de Telecomunicacoes -- first authors of the original AdaSplash paper.</li>
+<li><strong>Vlad Niculae</strong>: Language Technology Lab, University of Amsterdam -- co-creator of alpha-entmax and sparse attention research; NWO Veni grant recipient.</li>
+<li><strong>Edoardo Ponti</strong>: University of Edinburgh -- ERC Starting Grant holder (AToM-FM).</li>
+<li><strong>Lei Li</strong>: Carnegie Mellon University -- established researcher in efficient ML.</li>
+<li><strong>Andre Martins</strong>: Instituto Superior Tecnico / TransPerfect / ELLIS Unit Lisbon -- prolific researcher on sparse distributions and attention; ERC CoG holder (DECOLLAGE).</li>
+<li><strong>Marcos Treviso</strong>: Instituto Superior Tecnico / ELLIS Unit Lisbon -- corresponding author.</li>
+<li>Code available at: github.com/deep-spin/adasplash</li>
+<li>Funded by ERC, Portuguese Recovery Plan, and FCT/MECI.</li>
+</ul>
+<h2>Critical Assessment</h2>
+<ul>
+<li><strong>Novelty</strong>: High. The histogram-based initialization for alpha-entmax normalization is a clever and principled approach that exploits GPU memory hierarchies. The theoretical guarantees (Propositions 1 and 2) add rigor. The bitpacked block mask is a practical engineering improvement over AdaSplash.</li>
+<li><strong>Rigor</strong>: Strong. Formal propositions with proofs in appendices. The continuity analysis (Proposition 2) justifying solver choice per alpha regime is thoughtful. Empirical evaluation is comprehensive with synthetic benchmarks, RULER, HELMET, and OLMES.</li>
+<li><strong>Reproducibility</strong>: Good. Code is publicly available. Training details are provided (DCLM-Edu dataset, 50B tokens, LLaMA-3 architecture). The Triton implementation should be reasonably reproducible given the open-source code.</li>
+<li><strong>Significance</strong>: Significant for long-context transformer training. Making alpha-entmax competitive with FlashAttention-2 in training speed removes a major practical barrier. The finding that alpha-entmax + NAPE substantially outperforms softmax on long-context tasks is practically valuable.</li>
+<li><strong>Red flags</strong>: (1) Benchmarked only on NVIDIA A6000 (Ampere), not on Hopper/B200 -- the comparison with FlashAttention-2 rather than FlashAttention-3 is explicitly justified but limits immediate practical impact on latest hardware. (2) The inference case is explicitly deferred to future work, so the current contribution is training-only. (3) The short-context forward pass remains slower than FlashAttention-2, which could matter for workloads mixing short and long sequences. (4) The NAPE positional encoding is critical to the best results -- the interaction between entmax and positional encoding deserves more investigation. (5) Scale limited to 1B parameters; unclear if trends hold at larger scales.</li>
+</ul>
+<h2>Strengths</h2>
+<ul>
+<li>Elegant and principled histogram-based approach with theoretical guarantees</li>
+<li>Significant speedup over prior alpha-entmax implementations (AdaSplash)</li>
+<li>Competitive with or faster than FlashAttention-2 at moderate-to-high sparsity</li>
+<li>Comprehensive evaluation across synthetic benchmarks, long-context (RULER, HELMET), and short-context (OLMES) tasks</li>
+<li>Careful analysis of which solver is appropriate for each alpha regime</li>
+<li>The bitpacked block mask design is a clean engineering contribution</li>
+<li>Alpha-entmax + NAPE synergy is a notable finding for long-context modeling</li>
+</ul>
+<h2>Limitations</h2>
+<ul>
+<li>Forward pass overhead at short contexts and low sparsity remains a bottleneck</li>
+<li>Inference optimization is deferred to future work</li>
+<li>Only evaluated on NVIDIA Ampere GPUs (A6000); FlashAttention-3 optimizations not incorporated</li>
+<li>Limited to 1B parameter scale; scaling behavior unclear</li>
+<li>The approach requires multiple passes over key blocks in the forward pass (histogram + refinement + output), inherent to the alpha-entmax formulation</li>
+<li>Default histogram capacity (16K tokens) requires overflow handling for longer sequences</li>
+<li>The NAPE positional encoding is necessary for the best results, adding complexity</li>
+</ul>
+<h2>Relevance</h2>
+<p>本文与 LLM 训练稳定性/可靠性高度相关：AdaSplash-2 通过 alpha-entmax 提供了可解释的、输入依赖的稀疏注意力模式，使得模型可以动态决定哪些 token 应该被关注、哪些应该被忽略，这为理解 transformer 的注意力行为提供了结构化的可解释性。同时，其训练效率的提升使得长上下文场景下的训练更加稳定可靠。</p>
+<h2>Questions for Further Exploration</h2>
+<ul>
+<li>How does AdaSplash-2 scale to 7B+ parameter models? Does the sparsity-speed tradeoff improve or degrade at larger scales?</li>
+<li>Can the histogram-based initialization idea be adapted to other sparse attention mechanisms (e.g., top-k, moe-style routing)?</li>
+<li>What is the inference-time performance gap compared to FlashAttention-2/3, and can the multi-pass forward design be optimized for autoregressive generation?</li>
+<li>How does the learned sparsity pattern evolve during training? Are there interpretable attention structures that emerge consistently?</li>
+<li>Would combining AdaSplash-2 with FlashAttention-3's hardware-specific optimizations (TMA, WGMMA) yield further gains on Hopper GPUs?</li>
+<li>Can the histogram approximation be made adaptive (variable bin widths) to handle distributions with heavy tails more efficiently?</li>
+</ul>
+<p class="note">Generated from Markdown summary. Full paper: <a href="https://arxiv.org/abs/2604.15180">arXiv:2604.15180</a></p>
+</div>
+</body>
+</html>

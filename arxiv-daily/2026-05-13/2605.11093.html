@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Enabling Performant and Flexible Model-Internal Observability for LLM Inference</title>
+<style>
+:root { --paper:#fafafa; --ink:#1a1a1a; --muted:#555; --accent:#1a5276; --line:#ddd; --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif; --serif:Georgia,"Noto Serif SC",serif; }
+body { font-family:var(--serif); background:var(--paper); color:var(--ink); line-height:1.6; margin:0; padding:0; }
+.container { max-width:min(95vw, 760px); margin:0 auto; padding:28px 20px 60px; }
+.topnav { position:fixed; top:12px; left:14px; z-index:50; font-family:var(--sans); font-size:.75rem; background:var(--paper); border:1px solid var(--line); padding:5px 10px; border-radius:999px; }
+.topnav a { color:var(--muted); text-decoration:none; font-weight:600; }
+.topnav a:hover { color:var(--accent); }
+h1 { font-size:1.6rem; margin:2.2rem 0 1rem; border-bottom:2px solid var(--accent); padding-bottom:.3rem; }
+h2 { font-size:1.3rem; margin:1.8rem 0 .8rem; color:var(--accent); }
+h3 { font-size:1.1rem; margin:1.4rem 0 .6rem; }
+p { margin:.8rem 0; }
+.authors { font-style:italic; color:var(--muted); margin-top:-.4rem; }
+.meta { font-family:var(--sans); font-size:.82rem; color:var(--muted); margin:.2rem 0; }
+a { color:var(--accent); text-decoration:none; }
+a:hover { text-decoration:underline; }
+blockquote { border-left:3px solid var(--accent); margin:1rem 0; padding:.2rem 0 .2rem 1rem; color:var(--muted); font-style:italic; }
+code { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; background:#f0f0f0; padding:2px 5px; border-radius:3px; font-size:.9em; }
+pre { background:#f5f5f5; padding:14px; overflow-x:auto; border-radius:4px; border:1px solid var(--line); }
+pre code { background:transparent; padding:0; }
+ul,ol { margin:.6rem 0; padding-left:1.5rem; }
+li { margin:.25rem 0; }
+table { border-collapse:collapse; width:100%; margin:1rem 0; font-family:var(--sans); font-size:.9rem; }
+th,td { border:1px solid var(--line); padding:6px 10px; text-align:left; }
+th { background:#f0f0f0; }
+hr { border:none; border-top:1px solid var(--line); margin:1.5rem 0; }
+.note { font-family:var(--sans); font-size:.78rem; color:var(--muted); border-top:1px solid var(--line); margin-top:2rem; padding-top:1rem; }
+@media (max-width: 600px) { .container { padding:22px 14px 40px; } h1 { font-size:1.35rem; } }
+</style>
+</head>
+<body>
+<div class="topnav"><a href="./index.html">← Today's digest</a></div>
+<div class="container">
+<h1>Enabling Performant and Flexible Model-Internal Observability for LLM Inference</h1>
+<p class="authors">Nengneng Yu, Sixian Xiong, Yibo Zhao, Wei Wang, Zaoxing Liu</p>
+<p class="meta">arXiv: 2605.11093</p>
+<p class="meta">Date: 2026-05-13</p>
+<p class="meta">Tags: [llm-inference, observability, gpu-systems, hidden-states, systems-design]</p>
+<p class="meta"><a href="https://arxiv.org/abs/2605.11093">https://arxiv.org/abs/2605.11093</a></p>
+<blockquote><strong>一句话总结：</strong> DMI-Lib 通过异步 GPU-CPU 双环形缓冲区（Ring²）和可编程 HookPoint 原语，将 LLM 内部状态观测从推理热路径解耦，在离线和在线推理中仅引入 0.4%–6.8% 开销，比现有基线降低 2×–15× 延迟代价。</blockquote>
+<blockquote><strong>TL;DR:</strong> DMI-Lib is a systems-level observability library for LLM inference that decouples internal state extraction from the compute hot path via a GPU-CPU co-designed ring buffer (Ring²) and lightweight HookPoint primitives. It supports arbitrary observation points across HuggingFace and vLLM backends with 0.4–6.8% offline overhead and ~6% online serving overhead, a 2–15× improvement over PyTorch hooks, NNsight, and engine-specific APIs. The system includes runtime policies (completeness vs. best-effort) for graceful degradation under PCIe bandwidth saturation, and demonstrates end-to-end use cases in mechanistic interpretability and knowledge distillation.</blockquote>
+<h2>核心贡献</h2>
+<ul>
+<li>提出 DMI-Lib，将 LLM 内部状态观测视为一等系统原语，与推理计算路径完全解耦</li>
+<li>设计 HookPoint 原语：轻量级、CUDA Graph 兼容的采集原语，可插入模型任意位置捕获中间张量，无需修改推理引擎</li>
+<li>设计 Ring² GPU-CPU 双环形缓冲区：在 GPU 端暂存张量数据，通过独立的异步管线传输到 CPU，不干扰推理热路径</li>
+<li>提供运行时策略管理器（completeness/best-effort），在 PCIe 带宽饱和时实现优雅降级</li>
+<li>集成 HuggingFace 和 vLLM 两个主流推理后端，覆盖多种开源模型（Qwen3、Llama 系列）</li>
+</ul>
+<h2>Key Contributions</h2>
+<ul>
+<li><strong>DMI-Lib as a first-class observability primitive</strong>: Positions model-internal observability as an independent systems concern rather than an ad-hoc debugging feature, decoupling data capture/transport from the inference hot path.</li>
+<li><strong>HookPoint instrumentation</strong>: A lightweight, two-layer (Python <code>nn.Module</code> + custom CUDA operator) primitive that captures arbitrary internal tensors (residual streams, Q/K/V, MLP activations, logits) without modifying the inference engine backbone. Most placements produce bitwise-identical output to the unhooked model.</li>
+<li><strong>Ring² GPU-CPU staging abstraction</strong>: A split ring buffer with a GPU-side payload ring (device memory, D2D writes) and a CPU-preferred meta ring (managed memory, host polling), enabling fully asynchronous tensor export that overlaps with GPU computation.</li>
+<li><strong>Hierarchical overload control</strong>: Hook filtering at graph-topology level + runtime policy manager with completeness (stall-for-correctness) and best-effort (drop-recent / keep-by-pattern) strategies for managing PCIe bandwidth constraints.</li>
+<li><strong>Distributed inference support</strong>: Each GPU runs an independent DMI-Lib instance; downstream consumers reconstruct full tensors by joining records across ranks using parallelism coordinates.</li>
+</ul>
+<h2>Methodology</h2>
+<p>DMI-Lib's architecture has three pipeline stages:</p>
+<ol>
+<li><strong>HookPoint capture</strong>: Inserted into the model's forward graph as a standard <code>nn.Module</code>. Its <code>forward()</code> dispatches a custom PyTorch operator that launches a D2D CUDA kernel to copy the target tensor into Ring² and returns immediately — no host-side synchronization, preserving CUDA Graph replay and compiler-driven optimizations.</li>
+</ol>
+<ol>
+<li><strong>Ring² staging</strong>: Two cooperating ring buffers — a payload ring in device memory for raw tensor bytes, and a meta ring in CPU-preferred managed memory for compact descriptors (offset, length, ready flag). A host-side <code>TensorMetaFIFO</code> holds per-capture runtime metadata (request IDs, token ranges, shapes, dtypes) prepared before execution. The D2D kernel writes payload + descriptor; a dedicated drain thread polls the meta ring and issues batched <code>cudaMemcpyAsync</code> for D2H transfer.</li>
+</ol>
+<ol>
+<li><strong>Data Exporter</strong>: A multi-stage asynchronous host pipeline (DMA transfer → pinned-to-paged copy → tensor reconstruction/slicing → persistence to ClickHouse). Each stage operates via async threads and queues to maximize throughput overlap.</li>
+</ol>
+<p>The policy manager runs before each forward step: under <em>completeness</em> policy, it triggers a ring flush when buffer pressure builds; under <em>best-effort</em>, it writes a keep/drop index vector to managed memory, and the D2D kernel performs gather-compact copy for retained requests only.</p>
+<p>Implementation: ~6,600 lines CUDA/C++ + ~3,900 lines Python. Integrated with vLLM (subclassing <code>Worker</code>) and HuggingFace (wrapping <code>prepare_inputs_for_generation</code>).</p>
+<h2>Results & Highlights</h2>
+<ul>
+<li><strong>Offline batch inference (HuggingFace)</strong>: 0.4–6.8% overhead across Qwen3-4B/14B and Llama3.1-8B with up to 252 custom hooks, vs. 34–71% for PyTorch hooks and NNsight.</li>
+<li><strong>Online serving (vLLM)</strong>: <10% TPOT overhead up to 16 req/s across all models; TTFT near baseline. vLLM Hook is unusable even at 1 req/s (10–15× TTFT inflation). TRT-LLM Debug API has ~2× TPOT overhead at low rates.</li>
+<li><strong>Overload management</strong>: Under extreme PCIe saturation (325 hooks, prefill-only), best-effort policy reduces overhead from 692% to 55.8% (12.4× reduction) via request-level dropping.</li>
+<li><strong>Memory efficiency</strong>: DMI-Lib preserves 93–98% of baseline maximum batch size on H100 80GB with only 3.5–3.7% latency overhead.</li>
+<li><strong>Multi-GPU scaling</strong>: Near-identical throughput scaling (TP2: 1.50×, TP4: 2.22× vs. baseline's 1.50×/2.25×).</li>
+<li><strong>Microbenchmark ablation</strong>: Without Ring², overhead jumps from 1.36%/5.05% (prefill/decode) to 21.63%/63.67%, confirming the GPU-side abstraction's critical role.</li>
+<li><strong>Use case — Mechanistic interpretability</strong>: Reproduces Duplicate Token and attention-sink patterns from a single DMI-Lib capture on Qwen3-0.6B.</li>
+<li><strong>Use case — Knowledge distillation</strong>: Hidden-state matching consistently improves distillation by 2–3% over logits-only on HellaSwag across student sizes.</li>
+</ul>
+<h2>Authors & Credibility</h2>
+<p>All authors are from the Department of Computer Science at the University of Maryland, College Park. Zaoxing Liu (senior/corresponding author) has published on reliable collective communication for LLM training (referenced in the paper as [43]). The system is open-sourced at <code>https://github.com/ProjectDMX/DMI</code>. The work is submitted to a systems venue (the paper structure and evaluation depth suggest OSDI/SOSP/NSDI targeting). The evaluation is thorough — covering offline, online, distributed, microbenchmarks, ablations, and real use cases.</p>
+<h2>Critical Assessment</h2>
+<p><strong>Novelty</strong>: High for the systems/ML intersection. While individual components (ring buffers, async transfer) are well-known, the specific combination of HookPoint-as-custom-op (preserving CUDA Graph), split GPU-CPU ring staging, and policy-driven overload control for model observability is novel and well-motivated.</p>
+<p><strong>Rigor</strong>: Strong. The paper evaluates against a comprehensive set of baselines (PyTorch hooks, NNsight, HF built-in/stepwise, vLLM Hook, TRT-LLM debug API) across multiple models, datasets, batch sizes, and request rates. The ablation removing Ring² is particularly convincing. The bitwise-identical output analysis (Table 1) is a nice touch for correctness.</p>
+<p><strong>Reproducibility</strong>: Good. The code is open-sourced. Experimental setup (hardware, models, datasets, versions) is clearly specified. The 11K-line codebase is substantial but the paper describes architecture at sufficient detail.</p>
+<p><strong>Significance</strong>: This fills a real gap. Current practice for accessing LLM internals (ad-hoc hooks, engine-specific APIs) is genuinely painful and slow. DMI-Lib could become a standard tool if adopted by the community.</p>
+<p><strong>Red flags / concerns</strong>:</p>
+<ul>
+<li>The ClickHouse dependency for persistence adds operational complexity; the paper notes only 1.3–4.9% overhead from it, but this is on an H100 with tmpfs — production deployments with real disk I/O may differ.</li>
+<li>FlashAttention-based Q/K access requires kernel modifications (marked ✗ in Table 1), which limits coverage for attention pattern extraction on the most common production kernels.</li>
+<li>The online serving evaluation only goes up to 64 req/s; production deployments often handle higher rates. The paper notes vLLM Hook becomes unusable even at 1 req/s, but the upper bound of DMI-Lib's scalability envelope is not fully characterized.</li>
+<li>The use-case demonstrations (interpretability, distillation) are relatively simple proofs-of-concept rather than large-scale deployments.</li>
+<li>No comparison with a custom-engineered baseline (e.g., hand-optimized D2H pipeline within vLLM itself), though the authors argue such solutions are inherently non-portable.</li>
+</ul>
+<h2>Strengths</h2>
+<ul>
+<li>Principled systems design: treating observability as a first-class concern with its own resource model, rather than bolting it onto existing frameworks.</li>
+<li>Clean separation of concerns: HookPoint (capture), Ring² (staging), Data Exporter (transport), Policy Manager (overload control).</li>
+<li>Comprehensive evaluation across offline/online/distributed/microbenchmark settings with genuine baselines.</li>
+<li>The completeness vs. best-effort policy abstraction is elegant and practically useful.</li>
+<li>CUDA Graph compatibility is a critical feature that most hook-based approaches miss.</li>
+</ul>
+<h2>Limitations</h2>
+<ul>
+<li>Does not support fused attention kernels (FlashAttention/FlashInfer) for Q/K/V extraction without additional kernel modifications.</li>
+<li>Memory overhead of Ring² is additive to GPU memory budget (e.g., 2GB ring on top of model + KV cache).</li>
+<li>Current implementation only supports HuggingFace and vLLM; TensorRT-LLM, SGLang, and llama.cpp integration are future work.</li>
+<li>The best-effort policy's drop-recent strategy may introduce bias in downstream analysis (systematically dropping later requests in a batch).</li>
+<li>No evaluation on models larger than 14B parameters (modern frontier models are 70B+).</li>
+</ul>
+<h2>相关性</h2>
+<p>这篇论文与"LLM Inference Evaluation"和"LLM Hidden States & Interpretability"两个研究方向高度相关。DMI-Lib 提供了一个高性能的系统级工具，可以无侵入地提取 LLM 推理过程中的隐藏状态、注意力模式和中间激活，为可解释性研究、推理质量监控和训练稳定性观测提供了基础设施层面的支持。</p>
+<h2>Questions for Further Exploration</h2>
+<ul>
+<li>How would DMI-Lib perform with 70B+ parameter models on multi-node setups with NVLink interconnect? Would the per-rank independent design still be optimal?</li>
+<li>Can the best-effort policy be extended with learned or adaptive dropping strategies that prioritize "interesting" requests based on real-time anomaly signals?</li>
+<li>What is the interaction between DMI-Lib's Ring² and speculative decoding frameworks that already heavily utilize PCIe bandwidth for draft model communication?</li>
+<li>Could the HookPoint abstraction be extended to support in-place tensor modification (not just capture), enabling activation steering directly through DMI-Lib?</li>
+<li>How does the system behave under training workloads (not just inference), where gradient tensors are also candidates for observability?</li>
+</ul>
+<p class="note">Generated from Markdown summary. Full paper: <a href="https://arxiv.org/abs/2605.11093">arXiv:2605.11093</a></p>
+</div>
+</body>
+</html>

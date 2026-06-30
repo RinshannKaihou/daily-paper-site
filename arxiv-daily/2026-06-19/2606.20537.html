@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Execution-State Capsules: Graph-Bound Execution-State Checkpoint and Restore for Low-Latency, Small-Batch, On-Device Physical-AI Serving</title>
+<style>
+:root { --paper:#fafafa; --ink:#1a1a1a; --muted:#555; --accent:#1a5276; --line:#ddd; --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif; --serif:Georgia,"Noto Serif SC",serif; }
+body { font-family:var(--serif); background:var(--paper); color:var(--ink); line-height:1.6; margin:0; padding:0; }
+.container { max-width:min(95vw, 760px); margin:0 auto; padding:28px 20px 60px; }
+.topnav { position:fixed; top:12px; left:14px; z-index:50; font-family:var(--sans); font-size:.75rem; background:var(--paper); border:1px solid var(--line); padding:5px 10px; border-radius:999px; }
+.topnav a { color:var(--muted); text-decoration:none; font-weight:600; }
+.topnav a:hover { color:var(--accent); }
+h1 { font-size:1.6rem; margin:2.2rem 0 1rem; border-bottom:2px solid var(--accent); padding-bottom:.3rem; }
+h2 { font-size:1.3rem; margin:1.8rem 0 .8rem; color:var(--accent); }
+h3 { font-size:1.1rem; margin:1.4rem 0 .6rem; }
+p { margin:.8rem 0; }
+.authors { font-style:italic; color:var(--muted); margin-top:-.4rem; }
+.meta { font-family:var(--sans); font-size:.82rem; color:var(--muted); margin:.2rem 0; }
+a { color:var(--accent); text-decoration:none; }
+a:hover { text-decoration:underline; }
+blockquote { border-left:3px solid var(--accent); margin:1rem 0; padding:.2rem 0 .2rem 1rem; color:var(--muted); font-style:italic; }
+code { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; background:#f0f0f0; padding:2px 5px; border-radius:3px; font-size:.9em; }
+pre { background:#f5f5f5; padding:14px; overflow-x:auto; border-radius:4px; border:1px solid var(--line); }
+pre code { background:transparent; padding:0; }
+ul,ol { margin:.6rem 0; padding-left:1.5rem; }
+li { margin:.25rem 0; }
+table { border-collapse:collapse; width:100%; margin:1rem 0; font-family:var(--sans); font-size:.9rem; }
+th,td { border:1px solid var(--line); padding:6px 10px; text-align:left; }
+th { background:#f0f0f0; }
+hr { border:none; border-top:1px solid var(--line); margin:1.5rem 0; }
+.note { font-family:var(--sans); font-size:.78rem; color:var(--muted); border-top:1px solid var(--line); margin-top:2rem; padding-top:1rem; }
+@media (max-width: 600px) { .container { padding:22px 14px 40px; } h1 { font-size:1.35rem; } }
+</style>
+</head>
+<body>
+<div class="topnav"><a href="./index.html">← Today's digest</a></div>
+<div class="container">
+<h1>Execution-State Capsules: Graph-Bound Execution-State Checkpoint and Restore for Low-Latency, Small-Batch, On-Device Physical-AI Serving</h1>
+<p class="meta">arXiv: 2606.20537</p>
+<p class="meta">Date: 2026-06-19</p>
+<p class="meta"><a href="https://arxiv.org/abs/2606.20537">https://arxiv.org/abs/2606.20537</a></p>
+<blockquote><strong>一句话总结：</strong> 提出"执行状态胶囊"(execution-state capsule)——基于计算图边界的完整可恢复状态(KV + 线性注意力循环态 + 卷积态 + MTP态 + 元数据)的检查点/恢复机制，配合白盒kernel运行时 FlashRT，在RTX 5090上实现亚毫秒级GPU驻留快照/恢复，将冷prefill的TTFT从2k token的3.9倍加速提升到16k token的27倍，且KV-only恢复会发散——证明循环状态是"承重的"。</blockquote>
+<blockquote><strong>TL;DR:</strong> Execution-state capsules are a graph-bound checkpoint/restore mechanism that snapshots the <em>complete</em> restorable execution state (KV + linear-attention recurrent/conv + MTP + metadata) at committed token boundaries. Built on the white-box FlashRT kernel runtime (static contiguous buffers, no block-table indirection), they deliver byte-exact state restore, sub-millisecond GPU-resident snapshot/restore, and up to 27x TTFT speedup over cold prefill at 16k tokens on RTX 5090 — a complementary latency-first serving point for branching/resetting on-device physical-AI agents.</blockquote>
+<h2>核心贡献</h2>
+<ul>
+<li>提出<strong>第三类托管对象</strong>(third managed object)：把"执行状态"(graph-bound execution state)与 vLLM 的 KV 内存页、SGLang 的 radix 前缀子树并列，作为服务系统的受管对象。复用单位从"token寻址的KV片段"迁移到"图绑定的执行状态边界"。</li>
+<li>提出 <strong>FlashRT</strong>：白盒、面向后端的kernel运行时(CUDA后端)，热路径是对连续静态缓冲区运行的捕获图计划，无 block-table 间接寻址；同一hybrid模型/GPU上冷TTFT比vLLM低2.6–2.8倍，建立单流低延迟执行下限。</li>
+<li><strong>一个设计选择带来两个结果</strong>：静态连续缓冲区+图重放(无间接寻址)同时使kernel更快(无gather、byte-identical重放、无per-step launch开销)，也使前向可被整体捕获，从而任意边界状态成为一个固定的、可冻结的缓冲区集合——延迟优先执行与胶囊状态管理是同一选择的两个推论，而非两个独立机制。</li>
+<li><strong>正确性信封</strong>：三层验证(byte恢复、状态完整性、token等价)。胶囊恢复在存储态层级 byte-exact，贪婪解码 token-identical；VLA扩散策略动作重放 byte-identical(余弦1.0)。明确指出chunk对齐条件(chucked线性注意力循环扫描精确重用所需)。</li>
+<li><strong>KV-only消融</strong>：在4096-token边界上，仅恢复位置KV而丢弃/陈化循环+卷积折叠，会在第1/第3个token发散(97.9%/93.8% mismatch)，证明循环状态是"承重的"——仅基于位置KV的复用是错误的，不只是慢。</li>
+<li><strong>跨域统一契约</strong>：一个最小执行契约(三种handle类型、一个不透明shape key、严格的mechanism-not-policy边界)同时覆盖 LLM coding agent 热启动、机器人RL rollout的episode reset、planner-actor零拷贝缓冲区交接。</li>
+</ul>
+<h2>Key Contributions</h2>
+<ul>
+<li>Introduces a <strong>third managed object</strong> for serving — the <em>graph-bound execution state</em> — alongside vLLM's KV memory pages and SGLang's radix prefix subtree. The unit of reuse moves from token-addressed KV fragments to graph-bound execution-state boundaries.</li>
+<li>Presents <strong>FlashRT</strong>, a white-box backend-facing kernel runtime (NVIDIA CUDA backend evaluated) whose hot path is a captured graph plan over contiguous static buffers with no block-table indirection; on the identical hybrid model/GPU its cold TTFT is 2.6–2.8x lower than vLLM's, establishing a single-stream low-latency execution floor.</li>
+<li><strong>One design choice, two consequences</strong>: static contiguous buffers + graph replay (no indirection) is simultaneously what makes kernels fast (no gather, byte-identical replay, no per-step launch/Python overhead) and what makes the forward capturable whole so any boundary state is a fixed, freezable buffer set. Latency-first execution and capsule state management are two consequences of one design choice, not independent mechanisms.</li>
+<li><strong>Correctness envelope</strong>: three layers (byte restore, state completeness, token equivalence). Capsule restore is byte-exact at the stored-state level, token-identical under greedy decode for the LLM, and byte-identical action replay (cosine 1.0) for a VLA diffusion policy — including the chunk-alignment condition required for exact reuse of a chunked linear-attention recurrent scan.</li>
+<li><strong>KV-only ablation</strong>: at a 4096-token boundary, restoring only positional KV while dropping/staling the recurrent+conv fold diverges at the first/third token (97.9%/93.8% mismatch), empirically showing recurrent state is load-bearing — positional-KV-only reuse is wrong here, not merely slow.</li>
+<li><strong>Cross-domain unified contract</strong>: one minimal execution contract (three handle types, one opaque shape key, a strict mechanism-not-policy boundary) covers an LLM coding agent's warm start, a robot RL rollout's episode reset, and a planner–actor zero-copy buffer hand-off.</li>
+</ul>
+<h2>Methodology</h2>
+<p><strong>Regime & framing.</strong> The paper explicitly targets the <em>opposite</em> of high-throughput serving: single- or few-stream, latency-first, on-device/edge physical-AI loops (coding agents, TTS front-ends, robot/VLA policies) on one GPU at concurrency 1. The authors take vLLM/SGLang as given and do not compete on throughput; every comparison is single-stream latency.</p>
+<p><strong>Layer 1 — FlashRT runtime substrate.</strong> A white-box, backend-facing kernel runtime (not a compiler/graph-rewriter) with a thin per-model pipeline. Memory-bound ops (norm, activations, fused residual/norm/quant, QKV split with rotary embedding) are hand-written CUDA kernels over contiguous buffers; GEMMs are thin wrappers over cuBLASLt/CUTLASS FP8/NVFP4. Setup (weight load, calibration, autotuning, full-forward graph capture) runs once in a Python frontend; the hot path is a single <code>cudaGraphLaunch</code> (byte-identical to the un-captured baseline). The defining choice — static contiguous buffers, no block-table indirection — is what makes the forward a self-contained freezable state (unlike vLLM/SGLang, whose attention reads KV through mutable indices into an external paged pool, so the captured graph is replayable but not self-contained).</p>
+<p><strong>Layer 2 — Execution-state capsule.</strong> A capsule freezes a committed boundary at position P into a fixed set of named device buffers: a small fixed-size part (linear-attention recurrent state, convolution state, MTP tail + compact cache + valid range, last hidden as MTP seed, boundary metadata like <code>cur_pos</code> and a token-prefix digest) plus the KV region (full-attention KV over [0,P), and the long-context FP8 dequant valid end). Capsules are taken only at meaningful boundaries (pinned shared prefix, episode start, turn boundary). Four verbs: snapshot, restore, fork, rollback. <strong>Cost model</strong>: a cold turn pays <code>T_prefill(L+s)</code> (compute-bound); a capsule turn pays <code>T_restore(L) + T_append(s)</code> (bandwidth-bound copy) — turning prefix reuse from a compute-bound recompute into a bandwidth-bound copy-and-rebuild; the gap widens with L.</p>
+<p><strong>Chunk-alignment condition.</strong> For hybrid models, the chunked linear-attention recurrent fold requires snapshotting at an aligned boundary <code>P' = floor(P/C)·C</code> (C = chunk size) for exact reuse.</p>
+<p><strong>Evaluation.</strong> Primary hardware: RTX 5090. Cross-platform correctness/structure on Jetson AGX Thor (sm_110) and DGX Spark (GB10, sm_121). Flagship LLM: a hybrid linear-attention/full-attention model in NVFP4 with MTP speculative decode. Baseline: vLLM 0.22.0 (torch 2.11/CUDA 13) at best low-latency config (NVFP4, full CUDA-graph mode, APC on, max_num_seqs=1). SGLang appears structurally (as the radix managed-object representative) rather than as a latency baseline. TTFT measured to first base-logit token with decode-side MTP tail excluded for fairness.</p>
+<h2>Results & Highlights</h2>
+<ul>
+<li><strong>Runtime floor</strong>: FlashRT cold TTFT is 2.6–2.8x lower than vLLM on the identical hybrid model/GPU (e.g., 2048-token prefix: 200 ms vs 519 ms).</li>
+<li><strong>Capsule speedup over cold prefill widens with prefix length</strong>: 3.9x @ 2k → 6.9x @ 4k → 13.3x @ 8k → 26.9x @ 16k (Table 7). Capsule TTFT stays flat at 51–57 ms while cold grows 200 → 1541 ms.</li>
+<li><strong>Sub-millisecond snapshot/restore</strong>: 0.3–1.2 ms for 160–608 MB capsules (bandwidth-bound copy), scaling with size; suffix append flat at ~25–28 ms.</li>
+<li><strong>vs vLLM-APC (warm hit)</strong>: capsule warm reuse is 1.4–2.8x lower TTFT (51/53/54 ms vs 143/76/120 ms), because APC still re-runs attention over cached blocks + re-prefills non-cached remainder, whereas capsule restores the whole boundary as a ms-scale buffer copy + flat ~25 ms append.</li>
+<li><strong>KV-only ablation (sharp test)</strong>: at a 4096-token boundary, full-state restore is token-exact; KV-only with recurrent fold zeroed diverges at token 1 (97.9% mismatch); KV-only with stale recurrent fold diverges at token 3 (93.8%). The recurrent state is load-bearing.</li>
+<li><strong>Embodied working-set test</strong>: cycling N distinct 2048-token contexts, vLLM-APC's cached tokens collapse to zero at ~16k-token working set (below half its own 34.6k KV capacity — the limit is the hybrid/recurrent prefix-cache retention path, marked experimental by vLLM) and TTFT reverts to cold (519 ms); capsule stays flat at ~50 ms across all 20 contexts (3.4 GB of capsules within 27.5 GB peak).</li>
+<li><strong>Cross-device</strong>: on Jetson AGX Thor (whose cold prefill costs seconds), cold→capsule speedup widens to <strong>9–76x</strong>; same correctness/structure hold on DGX Spark.</li>
+<li><strong>Cross-domain (LLM+TTS barge-in)</strong>: composed barge-in TTFA after capsule persona-restore is 147 ms vs 297 ms naive (2.02x); on Higgs Audio v3 TTS (4B) vs sglang-omni, FlashRT TTFA 139 ms bf16 (2.6x) / 94 ms fp8 (3.8x lower than ~358 ms), streaming output cosine 1.0 vs one-shot.</li>
+<li><strong>Robot hand-off</strong>: byte-exact cross-branch token-identical action replay (cosine 1.0) for VLA diffusion policy, validated on Thor.</li>
+</ul>
+<h2>Authors & Credibility</h2>
+<p>Single author: Liang Su (contact email in PDF: 7thuniversels@gmail.com; no institutional affiliation printed). A companion code repo is referenced: <code>https://github.com/flashrt-project/FlashRT</code>. The paper is unusually rigorous in scoping and honesty: it explicitly disclaims throughput/distributed/dynamic-batching/cross-node-KV claims, restricts every comparison to single-stream latency, states baselines precisely (vLLM 0.22.0, exact config and engine logs "released with the code"), reports absolute numbers rather than only ratios, and flags an implementation-level limit in vLLM's hybrid prefix caching as "experimental" rather than a universal APC failure. A footnote clarifies this FlashRT is unrelated to a same-year arXiv "FlashRT" on red-teaming — indicating awareness of naming collisions. Credibility is above average for a single-author systems paper, contingent on the referenced artifact release.</p>
+<h2>Critical Assessment</h2>
+<ul>
+<li><strong>Novelty</strong>: Reframing the <em>managed object</em> of serving from token-addressed KV fragments to graph-bound whole-execution-state boundaries is a clean conceptual contribution. It is more a re-scoping/synthesis than a new algorithmic primitive — the components (CUDA Graphs, static buffers, state checkpointing) are known; the novelty is the <em>combination</em> as a coherent serving design point and the argument that one design choice (no block-table indirection) buys both speed and freezability. The "third managed object" framing (Table 1) is a genuinely useful conceptual lens.</li>
+<li><strong>Rigor</strong>: High for its scope. Three-layer correctness envelope (byte/state/token), a sharp KV-only ablation isolating the recurrent-state contribution, absolute TTFT numbers with defined measurement points (first base-logit token, MTP tail excluded for fairness), and explicit baseline configuration. The chunk-alignment condition is identified and handled. Variance/error bars are a weak point in the reported tables (point numbers without explicit CIs).</li>
+<li><strong>Reproducibility</strong>: Moderate-to-good <em>if</em> the GitHub repo is released as claimed (engine logs + exact commands promised). Single-author bus-factor risk is real. Reproduction requires the same hybrid model, NVFP4 quantization path, and specific hardware (RTX 5090/Thor/Spark) — non-trivial for third parties. The white-box, per-model pipeline means each new model needs a thin frontend adapter.</li>
+<li><strong>Significance</strong>: Practically significant for the on-device/embodied serving niche (coding agents, robotics, TTS) — exactly where branching/reset/re-entry dominates. Deliberately low significance for datacenter high-concurrency serving (explicitly disclaimed).</li>
+<li><strong>Red flags / caveats</strong>: (1) Single author, no printed affiliation — needs corroboration from the PDF's full header. (2) The 27x headline depends on TTFT being measured to the <em>first base-logit token</em> with MTP tail excluded — a defensible but favorable measurement choice; the paper is transparent about this. (3) The vLLM comparison stops at 8k under its tested max_model_len=12288; the 16k point is FlashRT-only cold-vs-capsule scaling, not a head-to-head. (4) vLLM's hybrid prefix-cache collapse at ~16k is acknowledged as an <em>implementation-level</em> limit marked experimental — so the working-set advantage partly reflects vLLM's incomplete hybrid support rather than a fundamental mechanism gap (the authors state this honestly). (5) The 2606.* arXiv id prefix is unusual for June 2026; the v1 stamp says "18 Jun 2026," consistent with the stated date. (6) No throughput, no multi-stream, no distributed — by design, but readers from the throughput world may find the scope narrow.</li>
+</ul>
+<h2>Strengths</h2>
+<ul>
+<li>Crisp, well-scoped thesis: a complementary <em>latency-first</em> design point, not a throughput competitor; every comparison held to single-stream.</li>
+<li>"One design choice, two consequences" is an elegant and load-bearing argument tying runtime speed to state freezability.</li>
+<li>Strong correctness story (byte-exact + token-identical + cosine-1.0 action replay) with a falsifiable KV-only ablation showing recurrent state is load-bearing.</li>
+<li>Honest, precise baseline reporting (absolute TTFT, exact vLLM config, logs to be released) and transparent caveats (measurement point, accounting-semantic differences in memory, implementation-vs-fundamental limits).</li>
+<li>Cross-domain unification (LLM warm start = RL episode reset = planner-actor hand-off under one contract) is conceptually appealing and partially validated (robot hand-off, TTS barge-in).</li>
+</ul>
+<h2>Limitations</h2>
+<ul>
+<li>Single author; reproducibility hinges entirely on the referenced artifact release.</li>
+<li>Scope is narrow by construction: no high-concurrency throughput, no dynamic arbitrary-shape batching, no distributed/cluster serving, no cross-node KV reuse — so irrelevant to most datacenter deployments.</li>
+<li>The 27x speedup is TTFT-to-first-base-logit-token with MTP excluded; full end-to-end latency including decode/MTP is not the headline metric.</li>
+<li>The embodied working-set advantage partly rides on vLLM's incomplete (experimental) hybrid prefix-cache support, which the authors flag honestly but which weakens the "fundamental mechanism" framing.</li>
+<li>Static contiguous buffers + shape buckets imply constraints on dynamic shapes/variable batching that need fuller treatment for production use.</li>
+<li>Steady-state decode throughput and speculative decoding are explicitly out of scope, so total-session latency (not just TTFT) is uncharacterized.</li>
+</ul>
+<h2>Relevance</h2>
+<p>与"LLM 推理评估"(推理服务系统的延迟/可恢复性)及"ML 可靠性与数学基础"(状态正确性、byte-exact 恢复、发散分析)有一定相关性——它本质上是推理服务系统的可靠性/正确性工程，并以消融实验定量证明循环状态的"承重"性。但其核心是端侧serving优化而非推理质量评测或数值精度本身，与用户主要兴趣方向相关性中等偏低。</p>
+<h2>Questions for Further Exploration</h2>
+<ul>
+<li>Is the <code>flashrt-project/FlashRT</code> repo actually released with engine logs and exact commands, and what is the per-model frontend integration cost for a third-party hybrid model?</li>
+<li>How do snapshot/restore latency and GPU memory scale when many capsules (long branching history, many pinned contexts) are retained simultaneously?</li>
+<li>Does token-identical correctness hold under sampling (temperature/top-k/top-p), under concurrent fork of multiple branches from one capsule, and across process restarts (host/disk-tier promotion back to GPU)?</li>
+<li>What is the full end-to-end session latency (including decode and MTP) gap vs vLLM, not just first-base-logit TTFT?</li>
+<li>How brittle is the chunk-alignment condition — what happens with arbitrary chunk sizes, with models whose recurrent fold is not cleanly chunk-aligned, or under partial/aligned-boundary mismatches?</li>
+<li>Could the capsule abstraction be retrofitted into vLLM/SGLang as an additional state-snapshot object (the authors concede this is possible in principle) — and would that erode the paper's differentiation?</li>
+<li>The paper flags vLLM's hybrid prefix-cache collapse as implementation-level/experimental; if vLLM/SGLang fix hybrid recurrent reuse, how much of the working-set advantage remains as a <em>mechanism</em> gap rather than a baseline-incompleteness gap?</li>
+</ul>
+<p class="note">Generated from Markdown summary. Full paper: <a href="https://arxiv.org/abs/2606.20537">arXiv:2606.20537</a></p>
+</div>
+</body>
+</html>
