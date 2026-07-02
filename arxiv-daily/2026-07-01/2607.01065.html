@@ -1,0 +1,398 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>GSRQ — Gain–Shape Residual Quantization for Sub-1-bit KV Cache</title>
+<style>
+  :root{
+    --accent:#E8742A;           /* warm amber — residual quantization */
+    --accent-soft:#FBE3CB;
+    --accent-ink:#3A1F08;
+    --ink:#161616;
+    --ink-2:#3D3D3D;
+    --ink-3:#6E6E6E;
+    --rule:#E4E0DA;
+    --paper:#FAF7F2;
+    --paper-2:#F1ECE3;
+    --tile:#FFFFFF;
+    --shadow:0 1px 0 rgba(20,20,20,.04), 0 12px 28px -22px rgba(20,20,20,.18);
+    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",Helvetica,Arial,sans-serif;
+  }
+
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;background:var(--paper);color:var(--ink);font-family:var(--sans);-webkit-font-smoothing:antialiased;line-height:1.55}
+  body{padding-bottom:96px}
+
+  a{color:inherit;text-decoration:none}
+  a:hover{text-decoration:underline;text-decoration-color:var(--accent);text-decoration-thickness:2px;text-underline-offset:3px}
+
+  /* Top-left fixed digest link */
+  .digest-pill{
+    position:fixed;top:14px;left:14px;z-index:50;
+    background:var(--ink);color:var(--paper);
+    padding:7px 12px 7px 11px;border-radius:999px;
+    font:600 12px/1 var(--sans);letter-spacing:.02em;
+    box-shadow:var(--shadow);
+    display:inline-flex;align-items:center;gap:6px;
+  }
+  .digest-pill:hover{background:var(--accent);text-decoration:none;color:#fff}
+
+  .wrap{max-width:min(95vw,1100px);margin:0 auto;padding:54px 22px 40px}
+
+  /* ===== HERO ===== */
+  .hero{
+    display:grid;grid-template-columns:1.35fr .9fr;gap:28px;
+    padding:26px 28px 28px;border:1px solid var(--rule);background:var(--tile);
+    border-radius:14px;box-shadow:var(--shadow);
+    position:relative;overflow:hidden;
+  }
+  .hero::before{
+    content:"";position:absolute;inset:auto -40px -90px auto;width:280px;height:280px;
+    background:radial-gradient(closest-side,var(--accent-soft),transparent 70%);
+    pointer-events:none;
+  }
+  .kicker{
+    font:600 11px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;
+    color:var(--accent);margin-bottom:14px;display:flex;align-items:center;gap:10px;
+  }
+  .kicker .dot{width:7px;height:7px;background:var(--accent);border-radius:50%}
+  h1.title{
+    font:700 clamp(26px,3.4vw,40px)/1.12 var(--sans);
+    letter-spacing:-.018em;margin:0 0 10px;color:var(--ink);
+  }
+  h1.title a{color:var(--ink)}
+  .meta{font-size:13.5px;color:var(--ink-2);margin-bottom:14px}
+  .meta b{color:var(--ink);font-weight:600}
+  .chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+  .chip{
+    font:500 11.5px/1 var(--sans);
+    background:var(--paper-2);color:var(--ink-2);
+    padding:6px 10px;border-radius:999px;border:1px solid var(--rule);
+  }
+  .chip.primary{background:var(--accent);color:#fff;border-color:var(--accent)}
+
+  .finding{
+    background:var(--accent-ink);color:#FBF1E5;
+    border-radius:10px;padding:20px 20px 18px;align-self:end;
+    border-left:5px solid var(--accent);
+  }
+  .finding .lbl{
+    font:600 10.5px/1 var(--mono);letter-spacing:.18em;text-transform:uppercase;
+    color:var(--accent);margin-bottom:12px;
+  }
+  .finding p{margin:0;font:600 17px/1.4 var(--sans);letter-spacing:-.005em}
+
+  /* ===== ASSET ROW (the visual centerpiece) ===== */
+  .assets{
+    margin-top:26px;
+    display:grid;grid-template-columns:1.55fr 1fr 1fr;gap:18px;
+  }
+  .card{
+    background:var(--tile);border:1px solid var(--rule);border-radius:14px;
+    padding:22px 22px 20px;box-shadow:var(--shadow);
+    position:relative;overflow:hidden;
+  }
+  .card .lbl{
+    font:600 10.5px/1 var(--mono);letter-spacing:.18em;text-transform:uppercase;
+    color:var(--accent);margin-bottom:12px;display:flex;align-items:center;gap:8px;
+  }
+  .card .lbl::before{content:"";display:inline-block;width:18px;height:2px;background:var(--accent)}
+
+  /* KEY METRIC — oversized typography */
+  .metric .big{
+    font:800 clamp(58px,8.6vw,108px)/.92 var(--sans);
+    letter-spacing:-.045em;color:var(--accent);
+    margin:6px 0 2px;display:flex;align-items:flex-start;gap:6px;
+  }
+  .metric .unit{font:700 22px/1 var(--sans);color:var(--accent-ink);margin-top:14px}
+  .metric .what{font:600 15px/1.35 var(--sans);color:var(--ink);margin-top:10px}
+  .metric .vs{font:500 12.5px/1.4 var(--sans);color:var(--ink-3);margin-top:8px}
+  .metric .vs b{color:var(--ink-2);font-weight:600}
+
+  .why p,.crit p{margin:0;font:600 16px/1.42 var(--sans);color:var(--ink);letter-spacing:-.005em}
+  .why .sub,.crit .sub{margin-top:10px;font:400 12.5px/1.45 var(--sans);color:var(--ink-3)}
+  .crit{border-left:4px solid var(--accent)}
+  .crit .lbl{color:#B73C12}
+  .crit .lbl::before{background:#B73C12}
+
+  /* ===== BODY GRID ===== */
+  .body{
+    margin-top:26px;
+    display:grid;grid-template-columns:1.15fr 1fr;gap:18px;
+  }
+  .panel{
+    background:var(--tile);border:1px solid var(--rule);border-radius:14px;
+    padding:22px 22px 20px;box-shadow:var(--shadow);
+  }
+  .panel h2{
+    margin:0 0 12px;font:700 16.5px/1.2 var(--sans);letter-spacing:-.01em;color:var(--ink);
+    display:flex;align-items:center;gap:10px;
+  }
+  .panel h2 .num{
+    display:inline-flex;align-items:center;justify-content:center;
+    width:24px;height:24px;border-radius:6px;background:var(--accent);color:#fff;
+    font:700 12px/1 var(--mono);
+  }
+  .panel p{margin:0 0 10px;font-size:14px;color:var(--ink-2);line-height:1.55}
+  .panel ul{margin:6px 0 4px;padding-left:18px}
+  .panel li{margin-bottom:7px;font-size:13.5px;color:var(--ink-2);line-height:1.5}
+  .panel li b{color:var(--ink);font-weight:600}
+  .panel .formula{
+    display:block;background:var(--paper-2);border-left:3px solid var(--accent);
+    padding:8px 12px;margin:8px 0;font:500 13px/1.45 var(--mono);color:var(--ink);
+    border-radius:0 6px 6px 0;overflow-x:auto;white-space:nowrap;
+  }
+
+  /* Tables */
+  table.data{
+    width:100%;border-collapse:collapse;margin:10px 0 4px;font-size:13px;
+  }
+  table.data th,table.data td{
+    text-align:left;padding:8px 10px;border-bottom:1px solid var(--rule);
+  }
+  table.data th{
+    font:600 11px/1 var(--mono);letter-spacing:.12em;text-transform:uppercase;
+    color:var(--ink-3);background:var(--paper-2);
+  }
+  table.data td b{color:var(--ink)}
+  table.data tr:last-child td{border-bottom:none}
+  table.data .win{color:var(--accent);font-weight:700}
+  table.data .bar{display:inline-block;height:6px;border-radius:3px;background:var(--accent);vertical-align:middle;margin-left:6px}
+
+  /* Strengths vs Limitations — side by side inside one panel */
+  .sl{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+  .sl h3{
+    margin:0 0 8px;font:700 13.5px/1 var(--sans);color:var(--ink);
+    display:flex;align-items:center;gap:8px;
+  }
+  .sl h3 .tag{
+    font:600 10px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;
+    padding:4px 7px;border-radius:4px;
+  }
+  .sl .pros h3 .tag{background:var(--accent);color:#fff}
+  .sl .cons h3 .tag{background:#3A1F08;color:var(--accent-soft)}
+
+  .qlist{margin:6px 0 0;padding:0;list-style:none;counter-reset:q}
+  .qlist li{
+    counter-increment:q;padding:10px 0 10px 38px;border-bottom:1px dashed var(--rule);
+    position:relative;font-size:13.5px;color:var(--ink-2);line-height:1.5;
+  }
+  .qlist li::before{
+    content:counter(q,decimal-leading-zero);position:absolute;left:0;top:11px;
+    font:700 12px/1 var(--mono);color:var(--accent);background:var(--accent-soft);
+    padding:3px 6px;border-radius:4px;letter-spacing:.05em;
+  }
+  .qlist li:last-child{border-bottom:none}
+
+  /* Bottom markdown link */
+  .md-foot{
+    margin-top:26px;display:flex;justify-content:flex-end;
+  }
+  .md-foot a{
+    display:inline-flex;align-items:center;gap:6px;
+    font:500 12.5px/1 var(--mono);letter-spacing:.04em;
+    color:var(--ink-2);padding:8px 12px;border:1px solid var(--rule);border-radius:8px;
+    background:var(--tile);
+  }
+  .md-foot a:hover{color:var(--accent);border-color:var(--accent);text-decoration:none}
+
+  /* Responsive */
+  @media (max-width:920px){
+    .hero{grid-template-columns:1fr}
+    .assets{grid-template-columns:1fr 1fr}
+    .metric{grid-column:1/-1}
+    .body{grid-template-columns:1fr}
+    .sl{grid-template-columns:1fr}
+  }
+  @media (max-width:720px){
+    .wrap{padding:48px 14px 30px}
+    .hero{padding:20px}
+    .assets{grid-template-columns:1fr}
+    .panel{padding:18px}
+    .digest-pill{font-size:11px;padding:6px 10px}
+  }
+</style>
+</head>
+<body>
+
+<a class="digest-pill" href="./index.html" title="Back to today's digest">↩ Today's digest</a>
+
+<main class="wrap">
+
+  <!-- ============ HERO ============ -->
+  <section class="hero">
+    <div>
+      <div class="kicker"><span class="dot"></span>ICML 2026 · arXiv 2607.01065 · 2026-07-01</div>
+      <h1 class="title"><a href="https://arxiv.org/abs/2607.01065" target="_blank" rel="noopener">GSRQ: Gain–Shape Residual Quantization for Sub-1-bit KV Cache</a></h1>
+      <div class="meta"><b>Soosung Kim</b>, <b>Minjae Park</b> (equal), Eui-Young Chung, Jaeyong Chung &nbsp;·&nbsp; Yonsei University · Correspondence: <b>Jaeyong Chung</b></div>
+      <div class="chips">
+        <span class="chip primary">Sub-1-bit KV Cache</span>
+        <span class="chip">Vector Quantization</span>
+        <span class="chip">Residual Quantization</span>
+        <span class="chip">LLM Inference</span>
+        <span class="chip">Centroid Geometry</span>
+      </div>
+    </div>
+    <aside class="finding">
+      <div class="lbl">⌁ Key finding</div>
+      <p>Replacing ℓ2 K-means with <b>Gain–Shape K-means</b> inside residual VQ fixes <i>centroid shrinkage</i> and lifts 1-bit LongBench from 11.34 → 33.54.</p>
+    </aside>
+  </section>
+
+  <!-- ============ ASSET ROW ============ -->
+  <section class="assets">
+    <!-- KEY METRIC (largest, oversized) -->
+    <div class="card metric">
+      <div class="lbl">Key metric · 1-bit LongBench avg.</div>
+      <div class="big">+22.20<span class="unit">pp</span></div>
+      <div class="what">LLaMA-3-8B · 1-bit KV cache</div>
+      <div class="vs"><b>GSRQ 33.54</b> &nbsp;vs&nbsp; <b>VQLLM 11.34</b> &nbsp;·&nbsp; KIVI-1 5.97</div>
+    </div>
+
+    <!-- WHY THIS MATTERS -->
+    <div class="card why">
+      <div class="lbl">Why this matters</div>
+      <p>Sub-1-bit KV cache was the wall blocking long-context LLM serving. GSRQ rewrites the geometry so it stays usable — without retraining.</p>
+      <div class="sub">0.75-bit decoding reaches <b>3.40×</b> speedup at 64K context (A100), and FP16 OOMs at 128K where GSRQ still runs.</div>
+    </div>
+
+    <!-- CRITICAL EDGE -->
+    <div class="card crit">
+      <div class="lbl">Critical edge</div>
+      <p>GSKM has <b>no monotonic-decrease guarantee</b> — it's not a block-coordinate descent, so don't assume K-means-style convergence theory.</p>
+      <div class="sub">Head-to-head against newer saliency-aware / rotated methods (ZipCache, KVQuant, RotateKV) is missing.</div>
+    </div>
+  </section>
+
+  <!-- ============ BODY GRID ============ -->
+  <section class="body">
+
+    <!-- Methodology -->
+    <div class="panel">
+      <h2><span class="num">01</span>Methodology</h2>
+      <p>Diagnose why ℓ2 K-means collapses in the under-capacity regime, then decouple gain and shape to recover angular fidelity.</p>
+
+      <span class="formula">‖x − μ‖² = ‖x‖² + ‖μ‖² − 2‖x‖‖μ‖ cos θ</span>
+
+      <p><b>The shrinkage trap.</b> Under Lloyd averaging in high-D subspaces, samples assigned to a centroid are nearly orthogonal → mean cancellation shrinks ‖μ*‖₂, which weakens the angular term's sensitivity to cos θ → worse direction estimates next round. Values shrink more than keys; residuals shrink more than originals.</p>
+
+      <p><b>GSKM parameterization.</b></p>
+      <ul>
+        <li>μ<sub>k</sub> = g<sub>k</sub> s<sub>k</sub>, with g<sub>k</sub> ≥ 0 and ‖s<sub>k</sub>‖ = 1.</li>
+        <li><b>Assignment:</b> arg max<sub>k</sub> ( 2g<sub>k</sub> x<sub>i</sub><sup>⊤</sup> s<sub>k</sub> − g<sub>k</sub>² )</li>
+        <li><b>Shape update:</b> s<sub>k</sub> ← normalize( Σ y<sub>i</sub> ), where y<sub>i</sub> = x<sub>i</sub> / ‖x<sub>i</sub>‖ — closed-form max of Σ y<sub>i</sub><sup>⊤</sup> s.</li>
+        <li><b>Gain update:</b> g<sub>k</sub> ← max(0, mean<sub>i∈Iₖ</sub> x<sub>i</sub><sup>⊤</sup> s<sub>k</sub>).</li>
+      </ul>
+
+      <p><b>Log-smoothed gradient weighting.</b> Raw ‖∇<sub>xᵢ</sub>L‖₂ is heavy-tailed (max/median &gt; 400×). GSRQ applies w<sub>i</sub> = log(1 + λ ‖∇<sub>xᵢ</sub>L‖₂) with λ chosen so median = τ = 1.0 — compressing max/median to &lt; 10× and trimming another 0.28 PPL.</p>
+
+      <p><b>Pipeline.</b> PQ splits each head-concatenated KV vector into M subspaces (dim D); RQ runs R residual stages with K = 256. Bit rate b = R log₂K / D. Custom Triton kernel fuses bit-pack + unpack + dequant + RoPE + attention — no FP16 materialization. Calibrated on 128 × 2048 SlimPajama sequences.</p>
+    </div>
+
+    <!-- Results -->
+    <div class="panel">
+      <h2><span class="num">02</span>Results</h2>
+
+      <p><b>Perplexity (LLaMA-3-8B, WikiText-2)</b> — lowest wins at matched bits.</p>
+      <table class="data">
+        <thead><tr><th>Bit</th><th>GSRQ</th><th>CQ</th><th>AnTKV</th><th>KIVI</th></tr></thead>
+        <tbody>
+          <tr><td>2-bit</td><td><b>5.91</b></td><td>6.09</td><td>6.10</td><td>—</td></tr>
+          <tr><td>1-bit</td><td><b>7.20</b></td><td>9.56</td><td>9.62</td><td>—</td></tr>
+          <tr><td>0.75-bit</td><td><b>8.46</b></td><td>11.18</td><td>10.41</td><td>—</td></tr>
+          <tr><td>0.375-bit</td><td><b>12.77</b></td><td>22.80</td><td>17.70</td><td>—</td></tr>
+        </tbody>
+      </table>
+
+      <p><b>1-bit LongBench (LLaMA-3-8B-Instruct, avg.)</b></p>
+      <table class="data">
+        <thead><tr><th>Method</th><th>1-bit avg.</th><th>Δ vs GSRQ</th></tr></thead>
+        <tbody>
+          <tr><td><b>GSRQ</b></td><td class="win">33.54</td><td>—</td></tr>
+          <tr><td>VQLLM</td><td>11.34</td><td>−22.20</td></tr>
+          <tr><td>KIVI-1</td><td>5.97</td><td>−27.57</td></tr>
+        </tbody>
+      </table>
+
+      <p><b>End-to-end decoding speedup (A100, batch 1)</b></p>
+      <table class="data">
+        <thead><tr><th>Context</th><th>FP16 (ms)</th><th>GSRQ 0.75-bit (ms)</th><th>Speedup</th></tr></thead>
+        <tbody>
+          <tr><td>8K</td><td>70.68</td><td>44.48</td><td><b>1.59×</b></td></tr>
+          <tr><td>16K</td><td>—</td><td>—</td><td><b>2.25×</b></td></tr>
+          <tr><td>32K</td><td>—</td><td>—</td><td><b>3.02×</b></td></tr>
+          <tr><td>64K</td><td>486.73</td><td>143.29</td><td class="win"><b>3.40×</b></td></tr>
+          <tr><td>128K</td><td class="win">OOM</td><td>262.12</td><td><b>∞</b></td></tr>
+        </tbody>
+      </table>
+
+      <p><b>Ablation at 0.375-bit (LLaMA-3-8B, WikiText-2 PPL)</b></p>
+      <table class="data">
+        <thead><tr><th>Variant</th><th>PPL</th></tr></thead>
+        <tbody>
+          <tr><td>Standard K-means</td><td>19.50</td></tr>
+          <tr><td>Unweighted GSKM</td><td>12.77</td></tr>
+          <tr><td>Raw-weighted GSKM</td><td>13.57</td></tr>
+          <tr><td><b>Log-weighted GSKM</b></td><td class="win">12.49</td></tr>
+        </tbody>
+      </table>
+
+      <p style="font-size:12.5px;color:var(--ink-3);margin-top:8px"><b>Cross-model:</b> GSRQ also wins on LLaMA-2-7B, Mistral-7B, Qwen3-8B; preserves 2-bit AIME24/25 reasoning (Qwen3-8B 20.0/16.7 vs VQLLM 13.3/13.3).</p>
+    </div>
+
+    <!-- Strengths vs Limitations -->
+    <div class="panel" style="grid-column:1/-1">
+      <h2><span class="num">03</span>Strengths <span style="color:var(--ink-3);font-weight:500">vs</span> Limitations</h2>
+      <div class="sl">
+        <div class="pros">
+          <h3><span class="tag">+</span>Strengths</h3>
+          <ul>
+            <li><b>Mechanistic diagnosis,</b> not a benchmark chase — a concrete geometric cause of a known failure mode.</li>
+            <li><b>Algorithmic simplicity.</b> Same complexity as K-means, no new hyperparameters, drop-in replacement.</li>
+            <li><b>Robust weighting.</b> Log-smoothed gradient scheme is well-motivated (max/median 400× → &lt; 10×) and ablated.</li>
+            <li><b>Comprehensive eval.</b> 4 models × 4 bit rates × long-context + reasoning + PPL.</li>
+            <li><b>Real systems wins.</b> Custom Triton kernels; FP16 OOMs at 128K, GSRQ still serves.</li>
+          </ul>
+        </div>
+        <div class="cons">
+          <h3><span class="tag">−</span>Limitations</h3>
+          <ul>
+            <li><b>Single-vector quantization only</b> — KV cache, not weights or activations.</li>
+            <li><b>Headline regime is sub-1-bit.</b> At 2-bit, gains over VQLLM shrink and CQ/AnTKV remain competitive.</li>
+            <li><b>Codebook overhead unisolated.</b> "BPA" is payload only; tables/scales/indices cost not quantified.</li>
+            <li><b>Narrow comparison set</b> — excludes ZipCache, KVQuant, RotateKV at sub-1-bit.</li>
+            <li><b>No convergence guarantee,</b> no formal rate-distortion analysis, only dense decoders tested.</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <!-- Questions for Further Exploration -->
+    <div class="panel" style="grid-column:1/-1">
+      <h2><span class="num">04</span>Questions for Further Exploration</h2>
+      <ol class="qlist">
+        <li>Does GSRQ compose with KV eviction / sparsification (H2O, Scissorhands, StreamingLLM) and saliency-aware scalar quantizers — can GSKM codebooks be applied only to the non-salient subset?</li>
+        <li>Does the GSKM advantage persist on MoE / hybrid / SSM backbones (Mixtral, DeepSeek-MoE, Mamba-2, Jamba) where KV geometry differs?</li>
+        <li>What's the metadata cost per token (codebooks + scales + indices), and at what bit rate does GSRQ lose its storage advantage vs 2-bit scalar KV quantization?</li>
+        <li>How sensitive is GSRQ to the calibration distribution (code, math, multilingual), and is online / continual re-calibration feasible at serving time?</li>
+        <li>Can the gain/shape decomposition transfer to weight quantization (channel-scale outliers) and activation quantization (GeLU/attention outliers) — does the same shrinkage mechanism explain failures there?</li>
+        <li>Is there a formal convergence or fixed-point analysis for GSKM — e.g. as an EM step on a spherical mixture with a separate gain posterior?</li>
+        <li>How does GSRQ interact with GQA / MQA / sliding-window attention, where KV tensors are partitioned by group?</li>
+        <li>Can log-smoothed weighting be replaced by Huberized gradient norms or clipped reweighted medians without losing the 0.28 PPL gap?</li>
+        <li>What are throughput-per-watt numbers when GSRQ pairs with INT4 / FP8 weights, to fully exploit the memory headroom?</li>
+        <li>Is the GSKM fixed-point closer to spherical K-means or standard K-means in the high-capacity regime — and is there a smooth α-blended interpolation that recovers both?</li>
+      </ol>
+    </div>
+
+  </section>
+
+  <div class="md-foot">
+    <a href="2607.01065.html">↗ Markdown source</a>
+  </div>
+
+</main>
+
+</body>
+</html>

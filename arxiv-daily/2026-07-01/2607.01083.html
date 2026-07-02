@@ -1,0 +1,714 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Staleness–LR Scaling Laws · Async RLHF · 2607.01083</title>
+<style>
+  :root {
+    --accent: #d97706;        /* amber-600 — stability threshold / calibration gauge */
+    --accent-deep: #92400e;   /* amber-800 */
+    --accent-tint: #fef3c7;   /* amber-100 */
+    --accent-ink: #451a03;    /* amber-950 */
+    --bg: #f7f7f5;
+    --ink: #1c1917;
+    --muted: #57534e;
+    --faint: #a8a29e;
+    --rule: #e7e5e4;
+    --card: #ffffff;
+    --warn-bg: #fffbeb;
+    --bar: #292524;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { background: var(--bg); }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui,
+      "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei",
+      "Helvetica Neue", Arial, sans-serif;
+    color: var(--ink);
+    line-height: 1.6;
+    font-feature-settings: "ss01", "cv11";
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegigibility;
+  }
+  a { color: inherit; }
+
+  /* ── top-left fixed nav ─────────────────── */
+  .back-link {
+    position: fixed;
+    top: 14px;
+    left: 14px;
+    z-index: 100;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    text-decoration: none;
+    color: var(--ink);
+    background: var(--card);
+    border: 1px solid var(--ink);
+    padding: 6px 11px;
+    transition: background 0.15s, color 0.15s;
+  }
+  .back-link:hover { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+  /* ── container ──────────────────────────── */
+  .wrap {
+    max-width: min(95vw, 1100px);
+    margin: 0 auto;
+    padding: 64px 28px 96px;
+  }
+
+  /* ── HERO ──────────────────────────────── */
+  .hero { margin-bottom: 36px; }
+  .hero-meta {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 24px;
+    flex-wrap: wrap;
+  }
+  .date-tag {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .date-tag::before {
+    content: "●";
+    color: var(--accent);
+    margin-right: 6px;
+    font-size: 9px;
+  }
+  .chips { display: flex; gap: 6px; flex-wrap: wrap; }
+  .chip {
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    padding: 3px 9px;
+    border: 1px solid var(--ink);
+    color: var(--ink);
+    background: transparent;
+    border-radius: 999px;
+  }
+  .chip.accent {
+    background: var(--accent-tint);
+    border-color: var(--accent);
+    color: var(--accent-ink);
+  }
+
+  .finding {
+    font-size: clamp(1.6rem, 3.4vw, 2.6rem);
+    line-height: 1.18;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    margin: 18px 0 22px;
+    max-width: 36ch;
+  }
+  .finding .accent { color: var(--accent); }
+  .finding .hit {
+    background: linear-gradient(transparent 62%, var(--accent-tint) 62%);
+    padding: 0 4px;
+  }
+  .finding-label {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--accent-deep);
+    margin-bottom: 8px;
+  }
+
+  .paper-title {
+    display: inline-block;
+    font-size: clamp(1.05rem, 1.7vw, 1.2rem);
+    font-weight: 600;
+    text-decoration: none;
+    border-bottom: 1px solid transparent;
+    transition: border-color 0.15s, color 0.15s;
+    color: var(--ink);
+    margin-bottom: 8px;
+  }
+  .paper-title:hover { color: var(--accent-deep); border-color: var(--accent); }
+  .paper-title .arrow { font-weight: 400; margin-left: 4px; color: var(--accent); }
+  .authors {
+    font-size: 0.85rem;
+    color: var(--muted);
+    line-height: 1.5;
+  }
+
+  /* ── ASSET ROW (largest) ──────────────── */
+  .assets {
+    display: grid;
+    grid-template-columns: 1.1fr 1fr 1fr;
+    gap: 14px;
+    margin: 32px 0 36px;
+  }
+  .asset {
+    background: var(--card);
+    border: 1px solid var(--rule);
+    padding: 22px 20px 20px;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+  }
+  .asset::before {
+    content: "";
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 3px;
+    background: var(--accent);
+  }
+  .asset-label {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 14px;
+  }
+  .asset-metric .asset-label { color: var(--accent-deep); }
+
+  .metric-value {
+    font-family: "SF Mono", "JetBrains Mono", ui-monospace, "Menlo", monospace;
+    font-size: clamp(2.4rem, 5.4vw, 4.4rem);
+    font-weight: 800;
+    letter-spacing: -0.03em;
+    line-height: 0.95;
+    color: var(--accent-ink);
+    margin: 4px 0 10px;
+    word-break: break-word;
+  }
+  .metric-value .x { color: var(--accent); }
+  .metric-sub {
+    font-size: 0.82rem;
+    color: var(--muted);
+    line-height: 1.5;
+  }
+  .metric-sub strong { color: var(--ink); font-weight: 600; }
+
+  .asset-body {
+    font-size: 0.92rem;
+    line-height: 1.55;
+    color: var(--ink);
+  }
+  .asset-body .marker {
+    color: var(--accent);
+    font-weight: 700;
+    margin-right: 4px;
+  }
+  .asset-edge {
+    background: var(--warn-bg);
+    border-color: var(--accent-tint);
+  }
+  .asset-edge .asset-label { color: var(--accent-deep); }
+  .asset-edge .asset-body::before {
+    content: "⚠";
+    color: var(--accent);
+    margin-right: 6px;
+    font-weight: 700;
+  }
+
+  /* ── BODY GRID ────────────────────────── */
+  .body {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 14px;
+  }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--rule);
+    padding: 26px 26px 28px;
+  }
+  .card-h {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    margin-bottom: 14px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--rule);
+  }
+  .card-h .num {
+    font-family: ui-monospace, "SF Mono", monospace;
+    font-size: 11px;
+    color: var(--accent);
+    font-weight: 700;
+  }
+  .card-h h2 {
+    font-size: 1.05rem;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+  }
+  .card-h .zh {
+    font-size: 0.82rem;
+    color: var(--muted);
+    margin-left: auto;
+  }
+  .card p, .card li {
+    font-size: 0.92rem;
+    line-height: 1.62;
+  }
+  .card ul { padding-left: 1.2em; }
+  .card li { margin-bottom: 0.45em; }
+  .card code {
+    font-family: "SF Mono", "JetBrains Mono", ui-monospace, "Menlo", monospace;
+    font-size: 0.85em;
+    background: var(--bg);
+    border: 1px solid var(--rule);
+    padding: 1px 5px;
+    color: var(--accent-ink);
+  }
+
+  /* ── Split (Strengths / Limitations) ── */
+  .split {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+  }
+  .split .card { padding: 22px 22px 24px; }
+  .card-plus .card-h .num { color: #15803d; }
+  .card-minus .card-h .num { color: var(--accent-deep); }
+  .card-plus { border-top: 3px solid #15803d; }
+  .card-minus { border-top: 3px solid var(--accent); }
+
+  /* ── TABLES ──────────────────────────── */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.86rem;
+    margin: 6px 0 4px;
+  }
+  thead th {
+    text-align: left;
+    font-weight: 600;
+    font-size: 0.7rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--muted);
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--ink);
+  }
+  tbody td {
+    padding: 9px 10px;
+    border-bottom: 1px solid var(--rule);
+    vertical-align: top;
+  }
+  tbody tr:last-child td { border-bottom: none; }
+  tbody td.k {
+    font-family: ui-monospace, "SF Mono", monospace;
+    font-weight: 600;
+    color: var(--accent-ink);
+    white-space: nowrap;
+  }
+  .tag {
+    display: inline-block;
+    font-size: 0.66rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    padding: 1px 6px;
+    border-radius: 2px;
+    background: var(--accent-tint);
+    color: var(--accent-ink);
+  }
+  .tag.bind { background: var(--accent); color: #fff; }
+  .tag.skip { background: var(--rule); color: var(--muted); }
+  .eq {
+    font-family: "SF Mono", "JetBrains Mono", ui-monospace, "Menlo", monospace;
+    background: var(--bg);
+    border: 1px solid var(--rule);
+    border-left: 3px solid var(--accent);
+    padding: 10px 12px;
+    font-size: 0.88rem;
+    color: var(--accent-ink);
+    margin: 8px 0 4px;
+  }
+
+  /* ── Questions block ─────────────────── */
+  .q-list { list-style: none; counter-reset: q; padding: 0; }
+  .q-list li {
+    counter-increment: q;
+    position: relative;
+    padding: 10px 0 10px 36px;
+    border-bottom: 1px dashed var(--rule);
+  }
+  .q-list li:last-child { border-bottom: none; }
+  .q-list li::before {
+    content: "Q" counter(q, decimal-leading-zero);
+    position: absolute;
+    left: 0;
+    top: 12px;
+    font-family: ui-monospace, "SF Mono", monospace;
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: var(--accent);
+    letter-spacing: 0.05em;
+  }
+
+  /* ── Footer link ─────────────────────── */
+  .src-link {
+    display: inline-block;
+    margin-top: 28px;
+    font-size: 0.78rem;
+    color: var(--muted);
+    text-decoration: none;
+    border-bottom: 1px dashed var(--rule);
+    padding-bottom: 2px;
+    transition: color 0.15s, border-color 0.15s;
+  }
+  .src-link:hover { color: var(--accent-deep); border-color: var(--accent); }
+
+  /* ── Responsive ─────────────────────── */
+  @media (max-width: 880px) {
+    .assets { grid-template-columns: 1fr; }
+    .asset-metric { order: -1; }
+  }
+  @media (max-width: 720px) {
+    .wrap { padding: 56px 18px 80px; }
+    .split { grid-template-columns: 1fr; }
+    .finding { font-size: 1.5rem; }
+    .metric-value { font-size: 2.6rem; }
+  }
+</style>
+</head>
+<body>
+
+<a class="back-link" href="./index.html">↩ Today's digest</a>
+
+<div class="wrap">
+
+  <!-- ─── HERO ─────────────────────────── -->
+  <header class="hero">
+    <div class="hero-meta">
+      <span class="date-tag">2026-07-01 · arXiv:2607.01083</span>
+      <div class="chips">
+        <span class="chip accent">Scaling Laws</span>
+        <span class="chip">RLHF</span>
+        <span class="chip">Async Training</span>
+        <span class="chip">GRPO</span>
+        <span class="chip">Training Stability</span>
+      </div>
+    </div>
+
+    <div class="finding-label">Key finding</div>
+    <h1 class="finding">
+      Async GRPO staleness injects a
+      <span class="hit">per-step bias of order <span class="accent">O(S·η)</span></span>;
+      one of two constraints always binds, and which one decides whether η_max falls as 1/S or stays S-independent.
+    </h1>
+
+    <a class="paper-title" href="https://arxiv.org/abs/2607.01083" target="_blank" rel="noopener">
+      Staleness-Learning Rate Scaling Laws for Asynchronous RLHF <span class="arrow">↗</span>
+    </a>
+    <p class="authors">
+      Jingwei Song, Haofeng Xu, Jie Xiao, Chengke Bao, Jingwei Shi, Pengbin Feng,
+      Weixun Wang, Yuhang Han, Chuan Wu, Linfeng Zhang, Bill Shi
+      <span style="color: var(--faint);">— HKU · SJTU · Gradient · USC · PolyU</span>
+    </p>
+  </header>
+
+  <!-- ─── ASSETS (largest band) ────────── -->
+  <section class="assets">
+    <div class="asset asset-metric">
+      <div class="asset-label">▌ Key metric</div>
+      <div class="metric-value">S <span class="x">·</span> η<sub>max</sub><br><span style="font-size:0.55em; font-weight:700; letter-spacing:0;">≈ 1.6 × 10⁻⁶</span></div>
+      <p class="metric-sub">
+        <strong>Invariant</strong> across S = 8, 16, 32 on Llama-3.2-1B &amp; 3B. The local
+        stale-rollout constraint sets the stability boundary — confirming
+        η<sub>max</sub> ∝ 1/S rather than S-independent.
+      </p>
+    </div>
+
+    <div class="asset asset-why">
+      <div class="asset-label">▌ Why this matters</div>
+      <p class="asset-body">
+        <span class="marker">→</span>
+        Gives async RLHF infra a <strong>closed-form stability budget</strong>
+        (η ≪ min{R<sub>batch</sub>/(S·G<sub>upd</sub>), R<sub>crit</sub>/(T·G<sub>upd</sub>)})
+        and a cheap runtime probe — gradient cosine similarity — to know which of two
+        failure modes is binding.
+      </p>
+    </div>
+
+    <div class="asset asset-edge">
+      <div class="asset-label">▌ Critical edge</div>
+      <p class="asset-body">
+        The local-smoothness theory breaks down once KL(π<sub>θ</sub> ‖ π<sub>ϕ</sub>) grows large —
+        a real concern after long off-policy cycles, leaving production regimes largely
+        unanalyzed.
+      </p>
+    </div>
+  </section>
+
+  <!-- ─── BODY GRID ────────────────────── -->
+  <section class="body">
+
+    <!-- Methodology -->
+    <article class="card">
+      <div class="card-h">
+        <span class="num">01</span>
+        <h2>Methodology</h2>
+        <span class="zh">方法</span>
+      </div>
+      <ul>
+        <li>
+          <strong>Two-object separation.</strong> Distinguish the
+          <em>surrogate-gradient mapping</em> H(θ, ϕ) = E[∇<sub>θ</sub>ℓ<sub>GRPO</sub>(z;θ,ϕ)]
+          (what the learner actually takes) from the <em>total derivative</em> of
+          E<sub>z∼p(·;θ)</sub>[ℓ(z;θ)] (which the learner does <strong>not</strong> have).
+          Reserve H<sub>on</sub>(θ) = H(θ, θ) as on-policy reference.
+        </li>
+        <li>
+          <strong>Async update.</strong> θ<sub>t+1</sub> = θ<sub>t</sub> + η·g(θ<sub>t</sub>; B<sub>ϕ<sub>t</sub></sub>),
+          with batch B collected under snapshot θ<sub>t−k<sub>t</sub></sub>,
+          max lag S = sup<sub>t</sub> k<sub>t</sub>. A rollout is consumed for
+          S consecutive learner steps before refresh, so t ≈ M·S.
+        </li>
+        <li>
+          <strong>Three local assumptions.</strong> (1) bounded surrogate &amp; update
+          ‖∇ℓ‖ ≤ G<sub>grad</sub>, ‖g‖ ≤ G<sub>upd</sub>; (2) distributional smoothness
+          KL(p(·;ϕ) ‖ p(·;ϕ′)) ≤ C<sub>π</sub>‖ϕ−ϕ′‖²; (3) behavior-policy smoothness
+          of the surrogate ‖E[∇ℓ(θ,ϕ) − ∇ℓ(θ,ϕ′)]‖ ≤ L<sub>ρ</sub>‖ϕ−ϕ′‖.
+        </li>
+        <li>
+          <strong>Bias decomposition.</strong> Expected stochastic gradient =
+          H<sub>on</sub>(θ<sub>t</sub>) + δ<sub>t</sub> + ξ<sub>t</sub>, where
+          δ<sub>t</sub> = H(θ<sub>t</sub>, ϕ<sub>t</sub>) − H(θ<sub>t</sub>, θ<sub>t</sub>)
+          is the staleness bias, ξ<sub>t</sub> is zero-mean sampling noise.
+        </li>
+        <li>
+          <strong>Lemma 1 (per-step bias).</strong> ‖δ<sub>t</sub>‖ ≤ C<sub>stale</sub>‖θ<sub>t</sub>−ϕ<sub>t</sub>‖,
+          C<sub>stale</sub> ≜ L<sub>ρ</sub> + 2·G<sub>grad</sub>·√(C<sub>π</sub>/2).
+        </li>
+        <li>
+          <strong>Theorem 1 (single-step scaling).</strong> Combined with
+          ‖θ<sub>t</sub>−θ<sub>t−k<sub>t</sub></sub>‖ ≤ S·η·G<sub>upd</sub>:
+          ‖δ<sub>t</sub>‖ ≤ C<sub>stale</sub>·S·η·G<sub>upd</sub> — the O(Sη) per-step bias.
+        </li>
+        <li>
+          <strong>Theorem 2 (collapse time).</strong> Define R<sub>batch</sub>(ε) as
+          the local radius under which the clipped-ratio signal stays non-degenerate,
+          and R<sub>crit</sub> as the surrogate-validity radius. Whichever bound
+          fires first dictates whether t<sub>collapse</sub>·η is S-independent
+          (horizon-limited) or carries explicit 1/S (stale-limited).
+        </li>
+        <li>
+          <strong>Runtime probe.</strong> Cosine similarity between consecutive
+          applied updates reads out the regime: high cosine → δ<sub>t</sub>
+          coherent drift (ballistic, ~t·η); near-zero cosine → ξ<sub>t</sub>
+          diffusive drift (~√(t·η)).
+        </li>
+      </ul>
+
+      <div class="eq">η ≪ min { R<sub>batch</sub>(ε) / (S·G<sub>upd</sub>) , &nbsp; R<sub>crit</sub> / (T·G<sub>upd</sub>) } &nbsp;&nbsp;<small style="color:var(--muted);">(Eq. 37)</small></div>
+    </article>
+
+    <!-- Results & Highlights -->
+    <article class="card">
+      <div class="card-h">
+        <span class="num">02</span>
+        <h2>Results &amp; Highlights</h2>
+        <span class="zh">结果</span>
+      </div>
+      <p style="margin-bottom: 12px;">
+        <strong>Setup.</strong> Math-reasoning task with binary, rule-based, verifiable reward.
+        Two instruction-tuned policies: <strong>Llama-3.2-1B-Instruct</strong> and
+        <strong>Llama-3.2-3B-Instruct</strong>, GRPO under fixed KL to the SFT reference.
+        Sweep S ∈ {8, 16, 32} × η ∈ {1e-6, 5e-7, 2e-7, 1e-7}; group size, batch size,
+        clip ε, KL β held constant. Three metrics: Training Reward, Grad CosSim, Validation Reward.
+      </p>
+
+      <h3 style="font-size:0.78rem; letter-spacing:0.1em; text-transform:uppercase; color:var(--muted); margin: 10px 0 6px;">
+        Result 1 — Stability envelope (η<sub>max</sub> ∝ 1/S)
+      </h3>
+      <table>
+        <thead>
+          <tr>
+            <th>S</th>
+            <th>Stable up to η</th>
+            <th>η<sub>max</sub></th>
+            <th>S · η<sub>max</sub></th>
+            <th>Stale-constraint binding?</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="k">8</td>
+            <td>2 × 10⁻⁷</td>
+            <td class="k">2.0e-7</td>
+            <td class="k">1.6e-6</td>
+            <td><span class="tag bind">YES</span></td>
+          </tr>
+          <tr>
+            <td class="k">16</td>
+            <td>1 × 10⁻⁷</td>
+            <td class="k">1.0e-7</td>
+            <td class="k">1.6e-6</td>
+            <td><span class="tag bind">YES</span></td>
+          </tr>
+          <tr>
+            <td class="k">32</td>
+            <td>collapses at 1e-7</td>
+            <td class="k">≤ 5.0e-8</td>
+            <td class="k">1.6e-6</td>
+            <td><span class="tag bind">YES</span></td>
+          </tr>
+        </tbody>
+      </table>
+      <p style="font-size:0.85rem; color:var(--muted); margin: 4px 0 14px;">
+        The product S·η<sub>max</sub> ≈ 1.6e-6 is invariant — local stale constraint
+        R<sub>batch</sub>/(S·G<sub>upd</sub>) sets the boundary.
+      </p>
+
+      <h3 style="font-size:0.78rem; letter-spacing:0.1em; text-transform:uppercase; color:var(--muted); margin: 10px 0 6px;">
+        Result 2 — Escape-time scaling (t<sub>collapse</sub>·η ≈ const)
+      </h3>
+      <table>
+        <thead>
+          <tr>
+            <th>η</th>
+            <th>t<sub>collapse</sub> (learner steps)</th>
+            <th>M<sub>collapse</sub>·S</th>
+            <th>t<sub>collapse</sub>·η</th>
+            <th>Regime</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="k">1.0e-6</td>
+            <td>32</td>
+            <td class="k">4 · 8 / 2 · 16 / 1 · 32</td>
+            <td class="k">3.2e-5</td>
+            <td><span class="tag">ballistic</span></td>
+          </tr>
+          <tr>
+            <td class="k">5.0e-7</td>
+            <td>64</td>
+            <td class="k">8 · 8 / 4 · 16 / 2 · 32</td>
+            <td class="k">3.2e-5</td>
+            <td><span class="tag">ballistic</span></td>
+          </tr>
+          <tr>
+            <td class="k">2.0e-7</td>
+            <td>160</td>
+            <td class="k">20 · 8 / 10 · 16 / 5 · 32</td>
+            <td class="k">3.2e-5</td>
+            <td><span class="tag">ballistic</span></td>
+          </tr>
+          <tr>
+            <td class="k">1.0e-7</td>
+            <td>320</td>
+            <td class="k">40 · 8 / 20 · 16 / 10 · 32</td>
+            <td class="k">3.2e-5</td>
+            <td><span class="tag">ballistic</span></td>
+          </tr>
+          <tr>
+            <td class="k">≤ 5.0e-8</td>
+            <td>no collapse (1.4 × 10³ steps on 3B)</td>
+            <td class="k">—</td>
+            <td class="k">—</td>
+            <td><span class="tag skip">diffusive</span></td>
+          </tr>
+        </tbody>
+      </table>
+      <p style="font-size:0.85rem; color:var(--muted); margin: 4px 0 14px;">
+        A larger S packs more learner steps per rollout, so the <em>batch counter</em>
+        shows collapse "faster" while the underlying learner-step horizon is unchanged.
+      </p>
+
+      <h3 style="font-size:0.78rem; letter-spacing:0.1em; text-transform:uppercase; color:var(--muted); margin: 10px 0 6px;">
+        Result 3 — Ballistic vs. diffusive drift
+      </h3>
+      <table>
+        <thead>
+          <tr>
+            <th>Regime</th>
+            <th>Grad CosSim behavior</th>
+            <th>Dominant term</th>
+            <th>Drift scaling</th>
+            <th>Outcome</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><span class="tag">ballistic</span></td>
+            <td>persistently high (often ≈ 1) up to collapse</td>
+            <td>δ<sub>t</sub> coherent</td>
+            <td class="k">~ t · η</td>
+            <td>abrupt zero-reward escape</td>
+          </tr>
+          <tr>
+            <td><span class="tag skip">diffusive</span></td>
+            <td>rises during reward climb, then decays to ≈ 0</td>
+            <td>ξ<sub>t</sub> noise</td>
+            <td class="k">~ √(t · η)</td>
+            <td>stable on extended horizon</td>
+          </tr>
+        </tbody>
+      </table>
+      <p style="font-size:0.85rem; color:var(--muted); margin: 6px 0 0;">
+        <strong>Reconciliation.</strong> S=8, η=2e-7 survives not because its horizon budget
+        is unspent, but because its small S·η keeps it on the diffusive side of the
+        first constraint where the escape-time argument does not apply.
+      </p>
+    </article>
+
+    <!-- Strengths vs Limitations -->
+    <div class="split">
+      <div class="card card-plus">
+        <div class="card-h">
+          <span class="num">03</span>
+          <h2>Strengths</h2>
+        </div>
+        <ul>
+          <li>Cleanly separates the surrogate-gradient (what the learner takes) from the total derivative (what naive policy-gradient theorems would give) — a distinction most async-RLHF engineering intuitions conflate.</li>
+          <li>Two-regime framing (within-cycle stale-clip vs. horizon-level drift) maps directly onto how production RLHF failures are actually diagnosed.</li>
+          <li>All three core predictions — η<sub>max</sub> ∝ 1/S, M<sub>collapse</sub>·S·η ≈ const, ballistic/diffusive drift — are tested in a single sweep with constant-level numerical agreement across two model scales and nine collapsing cells.</li>
+          <li>Uses cheap, measurable runtime signals (gradient cosine similarity, weight-sync counter) as diagnostics rather than requiring extra instrumentation.</li>
+          <li>Conservative assumption set (no strong convexity, no global smoothness) and an explicit relaxation to second-moment boundedness (Appendix A).</li>
+          <li>Operationally actionable: tells infra teams which of two knobs (reduce η vs. reduce S) is the bottleneck, given the current (training-reward, grad-cosine) signature.</li>
+        </ul>
+      </div>
+      <div class="card card-minus">
+        <div class="card-h">
+          <span class="num">04</span>
+          <h2>Limitations</h2>
+        </div>
+        <ul>
+          <li>Theory is local; the analysis breaks down once KL(π<sub>θ</sub> ‖ π<sub>ϕ</sub>) grows large enough to violate Assumptions 2–3 (a real concern after long off-policy cycles).</li>
+          <li>The two-constraint rule is implicitly coupled through G<sub>upd</sub>, which itself depends on the operating point — naïve worst-case use may over- or under-shoot the safe η.</li>
+          <li>Experimental scope is narrow: two model scales (1B, 3B), one task family (verifiable math reasoning), deterministic reward; behavior on larger models, longer context, or preference-model reward is untested.</li>
+          <li>The "diffusive ⇒ stable" conclusion rests on an extended-horizon run (~1.4 × 10³ steps at very small η); whether √(t·η) drift truly never reaches R<sub>crit</sub> at 10⁴–10⁵ steps is not proven.</li>
+          <li>No comparison to off-policy corrections (V-trace, Retrace, ABQ, etc.); the paper assumes the standard GRPO surrogate and does not benchmark against modified surrogates.</li>
+          <li>Grad CosSim is a <em>consequence</em> of the bias decomposition, not a direct measure of δ<sub>t</sub> magnitude — its interpretive force depends on H<sub>on</sub>(θ<sub>t</sub>) being relatively stable across steps, an assumption not formally justified.</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- Questions -->
+    <article class="card">
+      <div class="card-h">
+        <span class="num">05</span>
+        <h2>Questions for Further Exploration</h2>
+      </div>
+      <ol class="q-list">
+        <li>Do η<sub>max</sub> ∝ 1/S and M<sub>collapse</sub>·S·η ≈ const transfer to larger models (≥ 7B), longer context windows, and code or multi-turn tasks where the rollout distribution shift is qualitatively different from binary math reward?</li>
+        <li>How robust is the local-smoothness regime to larger KL(π<sub>θ</sub> ‖ π<sub>ϕ</sub>)? Does the O(S·η) bound degrade gracefully or break once the KL exceeds a threshold tied to R<sub>batch</sub>(ε)?</li>
+        <li>Can G<sub>upd</sub> be cheaply estimated online (e.g., exponential moving average of ‖g‖) to make η ≪ min{R<sub>batch</sub>/(S·G<sub>upd</sub>), R<sub>crit</sub>/(T·G<sub>upd</sub>)} a <em>runtime</em> guardrail — pausing or rolling back when the projected drift exceeds R<sub>crit</sub>?</li>
+        <li>Does the analysis extend to other async RLHF methods (PPO with replay, DPO, RLOO, async REINFORCE) or does it rely on GRPO-specific structure (group-relative advantages, clipped importance ratios)?</li>
+        <li>How does the bound interact with production GRPO features — sequence-level clipping, dual-clip, advantage normalization, dynamic clip ε, or KL controller schedules — that change R<sub>batch</sub>(ε) and G<sub>upd</sub> during training?</li>
+        <li>Could the Grad CosSim signal be used as a real-time trigger to dynamically lower η or trigger a rollout refresh, turning the two-constraint rule into an adaptive scheduler?</li>
+        <li>Is there a sweet spot for S (relative to T and the rollout-reuse factor) such that raising S buys throughput without paying a stability penalty in the within-clipping regime — and can it be predicted from a short calibration run?</li>
+        <li>How does the analysis change when rollout workers use a <em>lagged</em> version of the optimizer state (e.g., Adam moments) rather than just the policy weights, which is common in industrial stacks?</li>
+      </ol>
+    </article>
+
+    <a class="src-link" href="2607.01083.html">↗ Markdown source</a>
+  </section>
+
+</div>
+</body>
+</html>

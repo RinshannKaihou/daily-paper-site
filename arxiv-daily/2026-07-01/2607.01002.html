@@ -1,0 +1,545 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>LOCOS — Logit-Contribution Scoring for Retrieval Heads</title>
+<style>
+  /* ---------- Reset & base ---------- */
+  *, *::before, *::after { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue",
+                 "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei",
+                 "Noto Sans CJK SC", Roboto, Arial, sans-serif;
+    background: #f6f5f1;
+    color: #1a1a1a;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: inherit; text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  /* ---------- Accent (single, semantic) ---------- */
+  :root {
+    --accent: #2e3a8c;          /* deep indigo — mechanistic interpretability */
+    --accent-soft: #e8eaf6;
+    --warn: #c2410c;            /* contrasting cautionary color for Critical Edge */
+    --warn-soft: #fdf3ec;
+    --ink: #1a1a1a;
+    --ink-2: #4a4a4a;
+    --ink-3: #6e6e6e;
+    --rule: #e4e1d8;
+    --bg-card: #ffffff;
+    --bg-page: #f6f5f1;
+  }
+
+  /* ---------- Top-left nav ---------- */
+  .topnav {
+    position: fixed;
+    top: 14px;
+    left: 14px;
+    z-index: 50;
+    font-size: 13px;
+    background: rgba(255,255,255,0.86);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+    border: 1px solid var(--rule);
+    border-radius: 999px;
+    padding: 6px 12px;
+    color: var(--ink-2);
+  }
+  .topnav:hover { color: var(--accent); text-decoration: none; }
+
+  /* ---------- Page shell ---------- */
+  .page {
+    max-width: min(95vw, 1100px);
+    margin: 0 auto;
+    padding: 56px 24px 72px;
+  }
+
+  /* ---------- Hero ---------- */
+  .hero {
+    margin-bottom: 28px;
+    border-bottom: 1px solid var(--rule);
+    padding-bottom: 28px;
+  }
+  .hero .kicker {
+    font-size: 12px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--accent);
+    font-weight: 600;
+    margin-bottom: 14px;
+  }
+  .hero .finding {
+    font-size: clamp(28px, 4.4vw, 46px);
+    line-height: 1.18;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    color: var(--ink);
+    margin: 0 0 18px;
+  }
+  .hero .finding em {
+    font-style: normal;
+    color: var(--accent);
+    background: linear-gradient(transparent 70%, var(--accent-soft) 70%);
+    padding: 0 4px;
+  }
+  .hero .meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 8px 14px;
+    font-size: 14px;
+    color: var(--ink-2);
+  }
+  .hero .meta .title {
+    font-weight: 600;
+    color: var(--ink);
+  }
+  .hero .meta a.title:hover { color: var(--accent); }
+  .hero .chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 12px;
+  }
+  .chip {
+    font-size: 12px;
+    border: 1px solid var(--rule);
+    border-radius: 4px;
+    padding: 3px 8px;
+    color: var(--ink-3);
+    background: #fff;
+  }
+
+  /* ---------- Asset row (above the fold) ---------- */
+  .assets {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+    margin-bottom: 36px;
+  }
+  .asset {
+    background: var(--bg-card);
+    border: 1px solid var(--rule);
+    border-radius: 8px;
+    padding: 20px 20px 18px;
+    display: flex;
+    flex-direction: column;
+    min-height: 170px;
+  }
+  .asset .label {
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    margin-bottom: 12px;
+    font-weight: 600;
+  }
+  .asset.metric .figure {
+    font-size: clamp(40px, 5.2vw, 58px);
+    font-weight: 700;
+    line-height: 1;
+    letter-spacing: -0.02em;
+    color: var(--accent);
+    margin: 4px 0 10px;
+    font-variant-numeric: tabular-nums;
+  }
+  .asset.metric .figure small {
+    font-size: 14px;
+    color: var(--ink-3);
+    font-weight: 500;
+    letter-spacing: 0;
+    display: block;
+    margin-top: 6px;
+  }
+  .asset.metric .ctx { font-size: 13px; color: var(--ink-2); }
+  .asset.relevance p { margin: 0; font-size: 15px; color: var(--ink); line-height: 1.5; }
+  .asset.edge {
+    background: var(--warn-soft);
+    border-color: #f0d4bf;
+  }
+  .asset.edge .label { color: var(--warn); }
+  .asset.edge p {
+    margin: 0;
+    font-size: 14px;
+    color: var(--ink);
+    line-height: 1.5;
+    border-left: 3px solid var(--warn);
+    padding-left: 12px;
+  }
+
+  /* ---------- Section header (shared) ---------- */
+  .section-h {
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    font-weight: 600;
+    margin: 0 0 10px;
+  }
+  .card {
+    background: var(--bg-card);
+    border: 1px solid var(--rule);
+    border-radius: 8px;
+    padding: 22px 22px 20px;
+  }
+  .card h2 {
+    margin: 0 0 14px;
+    font-size: 18px;
+    color: var(--ink);
+    letter-spacing: -0.005em;
+  }
+
+  /* ---------- Body grid ---------- */
+  .body {
+    display: grid;
+    gap: 16px;
+    grid-template-columns: 1fr 1fr;
+  }
+  .card.methodology { grid-column: 1 / -1; }
+  .card.results { grid-column: 1 / -1; }
+  .card.strengths, .card.limitations { grid-column: span 1; }
+  .card.questions { grid-column: 1 / -1; }
+
+  .method-body p { margin: 0 0 12px; font-size: 14.5px; color: var(--ink); }
+  .method-body ul { margin: 0; padding-left: 18px; font-size: 14.5px; color: var(--ink); }
+  .method-body li { margin-bottom: 6px; }
+  .method-body li b { color: var(--ink); }
+  .formula {
+    font-family: "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+    background: var(--accent-soft);
+    color: var(--ink);
+    padding: 8px 12px;
+    border-radius: 6px;
+    font-size: 13px;
+    margin: 6px 0 12px;
+    overflow-x: auto;
+    white-space: nowrap;
+  }
+  .flow {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+    margin-top: 8px;
+  }
+  .flow .step {
+    border: 1px solid var(--rule);
+    border-radius: 6px;
+    padding: 10px 12px;
+    background: #fafaf7;
+  }
+  .flow .step .n {
+    font-size: 10px;
+    color: var(--accent);
+    font-weight: 700;
+    letter-spacing: 0.1em;
+  }
+  .flow .step .t {
+    font-size: 13.5px;
+    font-weight: 600;
+    color: var(--ink);
+    margin: 4px 0 2px;
+  }
+  .flow .step .d {
+    font-size: 12.5px;
+    color: var(--ink-2);
+    line-height: 1.4;
+  }
+
+  /* ---------- Results table ---------- */
+  table.results-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13.5px;
+    margin-top: 4px;
+  }
+  table.results-table th, table.results-table td {
+    text-align: left;
+    padding: 9px 10px;
+    border-bottom: 1px solid var(--rule);
+    vertical-align: top;
+  }
+  table.results-table th {
+    font-weight: 600;
+    color: var(--ink-2);
+    background: #fafaf7;
+    font-size: 12px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+  table.results-table td.num {
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+  table.results-table .tag-locos { color: var(--accent); font-weight: 600; }
+  table.results-table .tag-base { color: var(--ink-3); }
+
+  .results-grid {
+    display: grid;
+    grid-template-columns: 1.4fr 1fr;
+    gap: 18px;
+    align-items: start;
+  }
+  .results-side ul { padding-left: 18px; margin: 0; font-size: 14px; }
+  .results-side li { margin-bottom: 8px; color: var(--ink); }
+  .results-side li b { color: var(--ink); }
+
+  /* ---------- Strengths / Limitations side-by-side ---------- */
+  .sl-card h2 { display: flex; align-items: center; gap: 8px; }
+  .sl-card .dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    display: inline-block;
+  }
+  .sl-card.strengths .dot { background: var(--accent); }
+  .sl-card.limitations .dot { background: var(--warn); }
+  .sl-card ul { padding-left: 18px; margin: 0; font-size: 14px; color: var(--ink); }
+  .sl-card li { margin-bottom: 8px; line-height: 1.5; }
+
+  /* ---------- Questions panel ---------- */
+  .questions .q-list {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px 18px;
+    margin-top: 4px;
+  }
+  .questions .q {
+    font-size: 13.5px;
+    color: var(--ink);
+    padding-left: 14px;
+    border-left: 2px solid var(--accent-soft);
+    line-height: 1.45;
+  }
+
+  /* ---------- Footer link ---------- */
+  .footlink {
+    margin-top: 28px;
+    text-align: right;
+    font-size: 13px;
+    color: var(--ink-3);
+  }
+  .footlink a:hover { color: var(--accent); }
+
+  /* ---------- Mobile ---------- */
+  @media (max-width: 720px) {
+    .page { padding: 50px 16px 56px; }
+    .assets { grid-template-columns: 1fr; }
+    .body { grid-template-columns: 1fr; }
+    .card.strengths, .card.limitations, .card.methodology,
+    .card.results, .card.questions { grid-column: 1 / -1; }
+    .results-grid { grid-template-columns: 1fr; }
+    .flow { grid-template-columns: 1fr; }
+    .questions .q-list { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<a class="topnav" href="./index.html">↩ Today's digest</a>
+
+<main class="page">
+
+  <!-- ============== HERO ============== -->
+  <section class="hero">
+    <div class="kicker">Mechanistic Interpretability · 2607.01002</div>
+    <h1 class="finding">
+      Ablating just <em>50 heads</em> collapses NoLiMa retrieval ROUGE-L from
+      <em>0.401 → 0.000</em> — where attention-based detectors still retain <em>0.292</em>.
+    </h1>
+    <div class="meta">
+      <a class="title" href="https://arxiv.org/abs/2607.01002">Logit-Contribution Scoring Identifies Non-Literal Retrieval Heads</a>
+      <span>·</span>
+      <span>Aryo Pradipta Gema, Beatrice Alex, Pasquale Minervini et al.</span>
+      <span>·</span>
+      <span>2026-07-01</span>
+    </div>
+    <div class="chips">
+      <span class="chip">mechanistic interpretability</span>
+      <span class="chip">retrieval heads</span>
+      <span class="chip">attention circuits</span>
+      <span class="chip">OV-circuit analysis</span>
+      <span class="chip">long-context LLMs</span>
+      <span class="chip">non-literal retrieval</span>
+    </div>
+  </section>
+
+  <!-- ============== ASSETS (above the fold) ============== -->
+  <section class="assets">
+
+    <div class="asset metric">
+      <div class="label">Key Metric</div>
+      <div class="figure">0.000<small>NoLiMa ROUGE-L · Qwen3-8B · top-50 heads ablated</small></div>
+      <div class="ctx">From baseline 0.401 → 0.000; best attention-based baseline retains 0.292.</div>
+    </div>
+
+    <div class="asset relevance">
+      <div class="label">Why This Matters</div>
+      <p>
+        Reframes retrieval heads as an OV-<em>write</em> problem instead of an
+        attention-<em>read</em> problem — unlocking write-aware KV-cache eviction
+        for long-context LLMs.
+      </p>
+    </div>
+
+    <div class="asset edge">
+      <div class="label">Critical Edge</div>
+      <p>
+        Ranking is model-dependent — on Gemma-3-27B the attention-only control
+        actually beats LOCOS at large k; a practitioner has no a-priori guarantee
+        the rank transfers to an unseen model.
+      </p>
+    </div>
+
+  </section>
+
+  <!-- ============== BODY GRID ============== -->
+  <section class="body">
+
+    <!-- ----- Methodology ----- -->
+    <article class="card methodology">
+      <p class="section-h">Methodology</p>
+      <h2>Per-head OV logit projection, contrasted spatially</h2>
+      <div class="method-body results-grid">
+        <div>
+          <p>
+            Existing attention-based retrieval-head detectors reward heads whose
+            attended token <em>literally matches</em> the answer — a QK-circuit (read)
+            criterion that misses non-literal retrieval, where the answer must be
+            synthesized through the head's OV circuit (write).
+          </p>
+          <p>
+            LOCOS scores each head by projecting its OV write onto the answer
+            token's unembedding direction, then takes a needle-vs-off-needle spatial
+            contrast within one answer step. Negative scores are kept: a strongly
+            negative score is itself a dissociation signal.
+          </p>
+        </div>
+        <div>
+          <div class="flow">
+            <div class="step">
+              <div class="n">STEP 1</div>
+              <div class="t">Per-position φ</div>
+              <div class="d">φ = u<sub>y</sub><sup>T</sup> · (α · W<sub>O</sub> v<sub>j</sub>) — projection of head write onto answer direction.</div>
+            </div>
+            <div class="step">
+              <div class="n">STEP 2</div>
+              <div class="t">Spatial contrast</div>
+              <div class="d">Φ<sup>(+)</sup> − Φ<sup>(−)</sup> within one answer step; needle vs. off-needle, length-normalized.</div>
+            </div>
+            <div class="step">
+              <div class="n">STEP 3</div>
+              <div class="t">Aggregate & ablate</div>
+              <div class="d">Mean across passing trials → S<sup>(l,h)</sup>; validate via mean-ablation (Nanda et al., 2023).</div>
+            </div>
+          </div>
+          <div class="formula">S^(l,h) = (1/|A_τ|) · Σ_τ Σ_t [Φ_t^(+) − Φ_t^(−)]</div>
+        </div>
+      </div>
+    </article>
+
+    <!-- ----- Results ----- -->
+    <article class="card results">
+      <p class="section-h">Results &amp; Highlights</p>
+      <h2>Ablation is far more damaging — and retrieval-specific</h2>
+      <div class="results-grid">
+        <div>
+          <table class="results-table">
+            <thead>
+              <tr>
+                <th>Setting (Qwen3-8B, top-50 ablation)</th>
+                <th>NoLiMa ROUGE-L</th>
+                <th>Δ vs. baseline</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><span class="tag-locos">LOCOS (write-aware)</span></td>
+                <td class="num">0.000</td>
+                <td class="num">−0.401</td>
+              </tr>
+              <tr>
+                <td><span class="tag-base">Wu / NoLiMa (baseline)</span></td>
+                <td class="num">0.337</td>
+                <td class="num">−0.064</td>
+              </tr>
+              <tr>
+                <td><span class="tag-base">Wu / NIAH (baseline)</span></td>
+                <td class="num">0.292</td>
+                <td class="num">−0.109</td>
+              </tr>
+              <tr>
+                <td><span class="tag-base">Random heads (control)</span></td>
+                <td class="num">≈0.40</td>
+                <td class="num">≈ 0.00</td>
+              </tr>
+            </tbody>
+          </table>
+          <p style="font-size:12.5px;color:var(--ink-3);margin:8px 0 0;">
+            NoLiMa baseline = 0.401. Random-head ablation stays within 0.358–0.402 across all 6 models.
+          </p>
+        </div>
+        <div class="results-side">
+          <ul>
+            <li><b>Cross-family sweep.</b> 6 models / 3 families (Qwen3 8B/14B/32B, Gemma-3 12B/27B, OLMo-3.1 32B). LOCOS hits ≈0 ROUGE-L by k=50 in 5 of 6.</li>
+            <li><b>Bottom-k control</b> (large φ but off-needle) tracks the random curve — rules out the "scoring function is circular" objection.</li>
+            <li><b>Retrieval specificity.</b> Dissociation Score peaks higher for LOCOS than every baseline across all six configs; parametric recall + arithmetic stay at baseline.</li>
+            <li><b>Downstream transfer.</b> Same top-50 on Qwen3-8B: MuSiQue 0.55 → 0.08; BABILong qa2+qa3 0.62 → 0.20.</li>
+            <li><b>Known outlier:</b> Gemma-3-27B inverts at depth (LOCOS 0.369 vs. attention 0.118 at k=20) — flagged honestly by authors.</li>
+          </ul>
+        </div>
+      </div>
+    </article>
+
+    <!-- ----- Strengths ----- -->
+    <article class="card sl-card strengths">
+      <p class="section-h">Strengths</p>
+      <h2><span class="dot"></span> What holds up</h2>
+      <ul>
+        <li>Isolates one precise failure mode (literal-copy detectors) and proposes a clean, per-head OV fix.</li>
+        <li>Five-plus independent controls in one paper — including the rare <b>bottom-k</b> control that falsifies circularity.</li>
+        <li>Six model configurations across three families; not a typical "two models, one benchmark" study.</li>
+        <li>Clean separation between <b>observable</b> (φ vs. α) and <b>aggregation</b> (spatial vs. temporal) enables a clean ablated comparison.</li>
+        <li>Direct line into <b>KV-cache eviction</b> and long-context inference engineering (DuoAttention, PyramidKV, SnapKV).</li>
+      </ul>
+    </article>
+
+    <!-- ----- Limitations ----- -->
+    <article class="card sl-card limitations">
+      <p class="section-h">Limitations</p>
+      <h2><span class="dot"></span> Where to be careful</h2>
+      <ul>
+        <li>Head ranking is <b>benchmark- and model-dependent</b> — Gemma-3-27B inverts at depth; Wu/NIAH sometimes wins on Gemma-3 &amp; OLMo-3.1.</li>
+        <li>NoLiMa is the <b>sole probing benchmark</b>; whether LOCOS scores transfer to non-QA probing distributions is untested.</li>
+        <li>Off-needle baseline is a length-normalized region — heads doing <b>diffuse contextual integration</b> may be systematically missed.</li>
+        <li>No MoE, encoder-decoder, or state-space coverage; effect-size magnitudes explicitly disclaimed for those architectures.</li>
+        <li>ROUGE-L masks qualitative failures (hallucination, partial answers, refusal) that score non-zero on degraded output.</li>
+        <li>"Single forward pass" really means <b>one forward per probing trial</b>, not one forward total — aggregation still needs the full probe distribution.</li>
+      </ul>
+    </article>
+
+    <!-- ----- Questions for Further Exploration ----- -->
+    <article class="card questions">
+      <p class="section-h">Questions for Further Exploration</p>
+      <h2>Open threads worth chasing</h2>
+      <div class="q-list">
+        <div class="q">Does LOCOS ranking transfer to non-QA probing distributions (reading comprehension, multi-doc summarization)?</div>
+        <div class="q">For KV-cache eviction, would per-head φ-weighted retention beat top-k binary retention at long context?</div>
+        <div class="q">Why does LOCOS lose to Wu/NIAH on Gemma-3-27B at large k — direct-path bias or genuine OV/FFN coupling?</div>
+        <div class="q">Can LOCOS be combined with FFN attribution (RedeEP-style) for a unified head-and-expert write-aware score?</div>
+        <div class="q">Relationship to copy-suppression heads (McDougall et al. 2023) — same circuit on different inputs, or distinct?</div>
+        <div class="q">At what context length does the LOCOS ranking stabilize? 1k–5k tokens is tested; 100k+ is unverified.</div>
+      </div>
+    </article>
+
+  </section>
+
+  <div class="footlink">
+    <a href="2607.01002.html">↗ Markdown source</a>
+  </div>
+
+</main>
+
+</body>
+</html>
