@@ -40,71 +40,85 @@ hr { border:none; border-top:1px solid var(--line); margin:1.5rem 0; }
 <p class="meta">arXiv: 2605.14938</p>
 <p class="meta">Date: 2026-05-14</p>
 <p class="meta"><a href="https://arxiv.org/abs/2605.14938">https://arxiv.org/abs/2605.14938</a></p>
-<blockquote>⚠️ Abstract-only summary — PDF was not readable by the model.</blockquote>
-<blockquote><strong>一句话总结：</strong> Octopus提出了一种无需历史数据的梯度正交化两阶段持续学习框架（HiFGO），在多模态大模型的连续任务学习中有效缓解灾难性遗忘，在UCIT基准上超越了先前SOTA。</blockquote>
-<blockquote><strong>TL;DR:</strong> Octopus introduces a history-free gradient orthogonalization (HiFGO) framework with a two-stage finetuning strategy for continual learning in MLLMs, achieving SOTA on the UCIT benchmark by balancing plasticity and stability without storing historical data.</blockquote>
+<blockquote><strong>一句话总结：</strong> 本文提出 Octopus——一种基于无历史梯度正交化（HiFGO）的两阶段持续学习框架，通过"前任务参数在当前数据上的梯度（GPWC）"在不存储历史任务数据的前提下施加梯度级正交约束，并在 UCIT 基准上把 Avg/Last 较前 SOTA（HiDe-LLaVA）分别提升 2.14% / 6.82%。</blockquote>
+<blockquote><strong>TL;DR:</strong> The authors propose Octopus, a two-stage continual-learning framework for MLLMs built on History-Free Gradient Orthogonalization (HiFGO). The orthogonality constraint uses Gradients of Previous-task parameters Within Current data (GPWC), so no historical task data must be stored. On the UCIT benchmark (6 tasks: ImageNet-R, ArXivQA, VizWiz, IconQA, CLEVR-Math, Flickr30k) with LLaVA-v1.5-7B + LoRA on all linear layers, Octopus reaches Last 71.01 / Avg 71.08, beating prior SOTA HiDe-LLaVA (Last 64.54, Avg 68.94) by +6.82 / +2.14 points, and beats OLoRA by +12.65 Last / +6.54 Avg.</blockquote>
 <h2>核心贡献</h2>
 <ul>
-<li>提出了Octopus框架，基于无历史梯度正交化（HiFGO），在不存储历史任务数据的前提下实现梯度级正交性约束。</li>
-<li>设计了两阶段微调策略，将任务适应与正则化解耦，在可塑性与稳定性之间取得原则性平衡。</li>
-<li>在UCIT基准上达到SOTA，Avg和Last指标分别超越先前最佳方法2.14%和6.82%。</li>
-<li>避免了架构方法中的额外计算开销、重放方法中的隐私和存储问题。</li>
+<li><strong>理论分析</strong>：通过围绕 θ₁′ = W₀ + θ₁ 的 Taylor 展开，证明"无损条件" L_{D₁}(θ₁′) = L_{D₁}(θ₁′ + θ₂) 在 ‖θ₂‖² 高阶项可忽略时退化为 ⟨∂L_{D₁}(θ₁′)/∂θ₁′, θ₂⟩ = 0，即新任务参数应与前任务梯度正交——这解释了为什么纯参数正交（OLoRA）不足以防止干扰。</li>
+<li><strong>HiFGO（无历史梯度正交化）</strong>：提出 GPWC（Gradients of Previous parameters Within Current data distribution）作为前任务敏感子空间的代理，正交损失 L_orth(θᵢ) = Σ_{j<i} (∂L_{Dᵢ}(θⱼ′)/∂θⱼ′)ᵀ θᵢ；进一步用"最近任务参数作为全部历史的代理"将每步计算复杂度从 O(t) 降到 O(1)。</li>
+<li><strong>两阶段微调策略</strong>：Stage-1 不加正则自由适应当前任务（仅 CE loss），Stage-2 在最优点附近同时启用 CE + HiFGO + L2 范数正则（λ₁、λ₂），缓解正则与任务目标的相互压制。</li>
+<li><strong>UCIT 基准上的 SOTA</strong>：超越 HiDe-LLaVA 等架构类方法和 OLoRA/EWC/LwF 等正则类方法，甚至超过显式回放的 Vanilla Rehearsal。</li>
 </ul>
 <h2>Key Contributions</h2>
 <ul>
-<li>Proposes <strong>HiFGO (History-Free Gradient Orthogonalization)</strong>, enforcing gradient-level orthogonality constraints without needing historical task data.</li>
-<li>Introduces a <strong>two-stage finetuning strategy</strong> that decouples task adaptation from regularization, achieving principled plasticity-stability trade-off.</li>
-<li>Achieves <strong>new SOTA on UCIT benchmark</strong>, surpassing prior best by 2.14% (Avg) and 6.82% (Last).</li>
-<li>Eliminates privacy and storage concerns associated with rehearsal-based methods and computational overhead of architecture-based approaches.</li>
+<li>A <strong>theoretical argument</strong> (Taylor expansion around θ₁′ = W₀ + θ₁) showing that lossless continual learning reduces to ⟨∂L_{D₁}(θ₁′)/∂θ₁′, θ₂⟩ = 0, so the new-task LoRA parameters must be orthogonal to the <em>gradient</em> of the old-task loss — not just to the old-task <em>parameters</em> (which is what OLoRA enforces and is insufficient per the model-merging literature).</li>
+<li><strong>HiFGO</strong> (History-Free Gradient Orthogonalization): the orthogonality signal is the GPWC = ∂L_{Dᵢ}(θⱼ′)/∂θⱼ′, i.e., the gradient of the merged previous-task parameters θⱼ′ evaluated on the <em>current</em> task's data — so no historical data is stored. A "most-recent-task proxy" approximation (Eq. 8) reduces the per-step cost from O(t) to O(1).</li>
+<li><strong>Two-stage finetuning</strong>: Stage-1 fits the current task with only CE loss (free exploration); Stage-2 fine-tunes a small subset D_{i,2} with CE + λ₁ L_orth + λ₂ L_norm (constrained refinement around the local optimum), avoiding the local-minimum trap that joint optimisation falls into.</li>
+<li><strong>Empirical SOTA on UCIT</strong> (ImageNet-R, ArXivQA, VizWiz, IconQA, CLEVR-Math, Flickr30k) with LLaVA-v1.5-7B + LoRA on all LM linear layers, beating both architecture-based (HiDe-LLaVA, MoELoRA) and regularization-based (OLoRA, EWC, LwF) prior work, and even beating the Vanilla Rehearsal baseline that stores prior data.</li>
 </ul>
 <h2>Methodology</h2>
-<p>Octopus is a two-stage continual learning framework for MLLMs:</p>
-<ol>
-<li><strong>Stage 1 — Task Adaptation:</strong> The model is finetuned on the new task data to acquire new knowledge, focusing on plasticity.</li>
-<li><strong>Stage 2 — Regularization via Gradient Orthogonalization:</strong> Without using any historical task data, HiFGO enforces gradient-level orthogonality constraints to project updates into directions orthogonal to previously learned task subspaces, thereby preserving stability.</li>
-</ol>
-<p>The key insight is decoupling these two objectives: first learn freely, then regularize in a principled way. The gradient orthogonalization operates at the parameter level without requiring replay buffers or architectural modifications.</p>
+<p><strong>Setup.</strong> Continual learning over a sequence of tasks T₁,…,T_N on a frozen pretrained MLLM (LLaVA-v1.5-7B); only LoRA factors A, B in every linear layer of the language model are updated. The merged LoRA weight after task i is θᵢ′ = W₀ + Σ_{m≤i} θ_m.</p>
+<p><strong>Taylor-expansion argument.</strong> For two sequential tasks, define the lossless condition L_{D₁}(θ₁′) = L_{D₁}(θ₁′ + θ₂). Taylor expand: L_{D₁}(θ₁′ + θ₂) ≈ L_{D₁}(θ₁′) + ⟨∂L_{D₁}(θ₁′)/∂θ₁′, θ₂⟩ + O(‖θ₂‖²). Because LoRA magnitudes are small, the higher-order term is dropped and losslessness reduces to ⟨∂L_{D₁}(θ₁′)/∂θ₁′, θ₂⟩ = 0. This shows orthogonality must be enforced against the <em>gradient</em>, not the previous parameters.</p>
+<p><strong>GPWC + HiFGO.</strong> The history-free orthogonality loss (Eq. 7):</p>
+<p>L_orth(θᵢ) = Σ_{j=1}^{i-1} (∂L_{Dᵢ}(θⱼ′)/∂θⱼ′)ᵀ θᵢ.</p>
+<p>The O(1) proxy approximation (Eq. 8) uses only the most recent merged parameters:</p>
+<p>L_orth′(θᵢ) = (∂L_{Dᵢ}(θ_{i-1}′)/∂θ_{i-1}′)ᵀ θᵢ.</p>
+<p><strong>Two-stage finetuning (Algorithm 1).</strong></p>
+<ul>
+<li>Stage 1: θ_{i,1} initialised from θ_{i-1,1} (or scratch for i=1); minimise L₁ = (1/|D_{i,1}|) Σ L_ce(f_{θ_{i,1}′}(x_k), y_k). Use the full current dataset D_{i,1} = D_i.</li>
+<li>Stage 2: θ_{i,2} initialised from θ_{i,1}; minimise L₂ = (1/|D_{i,2}|) Σ [L_ce + λ₁ L_orth(θ_{i,2}) + λ₂ L_norm(θ_{i,2})] on a small subset D_{i,2}.</li>
+<li>Final merged weights: W₀ + Σ_{i=1..N} θ_{i,2}.</li>
+</ul>
+<p><strong>Hyperparameters.</strong> 1 epoch per task, batch size 16, 4× H20/P800 GPUs (with Kunlunxin support on P800). Norm-regularization λ₂ = 1e-2 selected from a sweep {2e-3, 5e-3, 1e-2, 3e-2}.</p>
+<p><strong>Benchmark & metrics.</strong> UCIT (6 sequential multimodal instruction-tuning datasets: ImageNet-R, ArXivQA, VizWiz, IconQA, CLEVR-Math, Flickr30k). Metrics: Last (avg accuracy after the full sequence), Avg (mean accuracy across all tasks throughout training), Imd. (immediate post-finetune accuracy), BWT (backward transfer). VQA: accuracy; captioning: avg of BLEU1-4, METEOR, ROUGE-L, CIDEr.</p>
 <h2>Results & Highlights</h2>
 <ul>
-<li>Evaluated on the <strong>UCIT benchmark</strong> for continual learning in MLLMs.</li>
-<li>Surpasses prior SOTA by <strong>+2.14% Avg</strong> and <strong>+6.82% Last</strong> metrics.</li>
-<li>Demonstrates effective mitigation of catastrophic forgetting without storing historical data.</li>
-<li>Outperforms architecture-based, rehearsal-based, and conventional regularization-based baselines.</li>
+<li><strong>Main result (Table 1, Avg / Last).</strong> Octopus: 71.08 / 71.01 — vs HiDe-LLaVA (prior SOTA) 68.94 / 64.54 (+2.14 / +6.82), vs OLoRA 64.54 / 58.36 (+6.54 / +12.65), vs MoELoRA 56.35 / 53.52, vs L2P 58.34 / 55.15, vs Vanilla Rehearsal 69.90 / 67.13 (Octopus beats even this). Multi-task upper bound: 72.53 / 72.53.</li>
+<li><strong>HiFGO vs alternatives (Table 2, Avg / Last / BWT).</strong> Orth-to-prev-param: 70.59 / 71.04 / -2.51. GPWC (HiFGO, ours): 70.60 / 71.01 / +0.41. Both constraints jointly: 70.60 / 71.01 / +0.41 (no gain). History-based gradient orth (gradients of prev params on prev data): 62.25 / -8.95 BWT — substantially worse.</li>
+<li><strong>Two-stage finetuning ablation (Table 3).</strong> w/o two-stage: Avg 62.47 / Last 61.18 / BWT -1.29; w/ two-stage: Avg 70.60 / Last 71.01 / BWT +0.41 — a +9.83 Last improvement from the staged schedule alone.</li>
+<li><strong>Norm-regularization sweep (Table 4).</strong> λ=2e-3: Avg 73.36 / BWT -8.59; λ=5e-3: Avg 72.01 / BWT -3.36; λ=1e-2 (chosen): Avg 70.60 / Last 71.01 / BWT +0.41; λ=3e-2: Avg 67.03 (over-regularised, plasticity collapse).</li>
+<li><strong>Task-order robustness (Table 5).</strong> R-A-V-I-C-F: Avg 71.08 / Last 71.01; A-I-R-F-C-V: 70.04 / 69.04; I-F-R-C-A-V: 70.00 / 69.16 — within ~2 points across orderings.</li>
+<li><strong>Per-dataset Last (Table 1, Octopus row).</strong> ImageNet-R 88.20, ArXivQA 93.03 (exceeds Multi-task's 89.53 — positive forward transfer), VizWiz 58.46, IconQA 60.50, CLEVR-Math 69.00, Flickr30k 56.87.</li>
 </ul>
 <h2>Authors & Credibility</h2>
-<p>The authors are affiliated with institutions working on multimodal learning and computer vision. The paper targets a well-defined problem (continual learning for MLLMs) with a specific benchmark (UCIT), suggesting rigorous experimental design. Published on arXiv under cs.LG and cs.CV.</p>
+<ul>
+<li><strong>MoE Key Lab of Artificial Intelligence, AI Institute, Shanghai Jiao Tong University</strong> (Yuehao Liu, Weijia Zhang, Xuanming Shang, Chao Ma, corresponding) and <strong>vivo Mobile Communication Co., Ltd.</strong> (Shanyan Guan, Yanhao Ge, Wei Li). Project page: https://fxmangd26.github.io/Octopus/.</li>
+<li>Funded by NSFC (62322113, 62376156), Shanghai Municipal Science and Technology Major Project (2025SHZDZX025G15, 2021SHZDZX0102), and the Fundamental Research Funds for the Central Universities. Kunlunxin acknowledged for P800 training/eval support.</li>
+<li>arXiv:2605.14938v1 [cs.LG], 14 May 2026. No peer-reviewed venue stated. Project page linked but no explicit statement of code release in the PDF body.</li>
+</ul>
 <h2>Critical Assessment</h2>
 <ul>
-<li><strong>Novelty:</strong> The idea of gradient orthogonalization for continual learning is not entirely new (related to OGD, GPM, O-LoRA), but adapting it to a history-free, two-stage formulation for MLLMs is a meaningful contribution. The novelty lies in the specific decoupling of adaptation and regularization stages.</li>
-<li><strong>Rigor:</strong> The abstract claims SOTA on UCIT with specific margin improvements, which is promising. However, without full paper access, it is unclear how comprehensive the baselines are, whether ablations justify each component, and how results generalize beyond UCIT.</li>
-<li><strong>Reproducibility:</strong> The method appears conceptually straightforward (gradient orthogonalization + two-stage finetuning). Reproducibility depends on implementation details not assessable from the abstract alone.</li>
-<li><strong>Significance:</strong> Addressing catastrophic forgetting in MLLMs without historical data is practically important. The reported gains are meaningful but modest (+2–7%).</li>
-<li><strong>Red flags:</strong> The abstract does not discuss computational cost of the orthogonalization step, potential scaling issues with many tasks, or comparison with simpler baselines like sequential LoRA.</li>
+<li><strong>Single benchmark, single base model.</strong> All results come from UCIT on LLaVA-v1.5-7B; the paper does not report numbers on COIN (also cited [8]), on larger base models (LLaVA-1.6, Qwen2.5-VL), or on longer task sequences. The authors themselves defer "upper bound on the number of tasks" to the Supplementary Material, signalling known scope limits.</li>
+<li><strong>The HiFGO theory relies on dropping O(‖θ₂‖²).</strong> The Taylor-expansion argument (Eq. 5) is only valid when LoRA weights are small relative to pretrained weights; the paper justifies this with "LoRA weights are typically much smaller" but provides no quantitative bound. As LoRA rank or task count grows, the neglected second-order term accumulates, and the headline "lossless condition" is no longer guaranteed — yet no scaling ablation on r or N is given.</li>
+<li><strong>The O(1) proxy approximation (Eq. 8) is unvalidated independently.</strong> The full O(t) form (Eq. 7) and the O(1) recent-task proxy (Eq. 8) are both reported as "Octopus" in different tables; it is unclear from the main text which setting produced the headline 71.01 Last number (the † marker in Table 1 suggests the proxy was used for at least one row), so the practical recipe is ambiguous.</li>
+<li><strong>The Multi-task upper bound is only ~1.5 pts above Octopus.</strong> Avg 72.53 (Multi-task) vs 71.08 (Octopus) — the authors frame this positively ("approach even exceed the performance of multi-task training"), but the narrow gap also raises the question of whether UCIT's tasks are differentiated enough to stress-test forgetting.</li>
+<li><strong>Comparison scope excludes rehearsal-based SOTA.</strong> Only "Vanilla Rehearsal" is included; stronger replay methods (DER, DER++, iCaRL, GEM) are mentioned in Related Work but not benchmarked, so the "beats rehearsal" claim is limited.</li>
 </ul>
 <h2>Strengths</h2>
 <ul>
-<li>No historical data required — addresses privacy and storage concerns.</li>
-<li>Principled decoupling of plasticity and stability objectives.</li>
-<li>Strong empirical results on UCIT benchmark.</li>
-<li>Applicable to existing MLLM architectures without structural modifications.</li>
+<li>The Taylor-expansion derivation cleanly distinguishes gradient-orthogonality (necessary) from parameter-orthogonality (insufficient), giving OLoRA-style methods a clear theoretical diagnosis.</li>
+<li>The GPWC trick — evaluating the previous-task parameter's gradient on the <em>current</em> task data — is an elegant way to obtain a sensitive orthogonality signal without storing historical data, sidestepping the privacy/storage cost of replay and the data-access requirement of OGD.</li>
+<li>Two-stage finetuning is a simple, well-motivated fix (annealing-inspired) that delivers a +9.83 Last improvement in isolation.</li>
+<li>Strong empirical wins over both architecture-based (HiDe-LLaVA) and regularization-based (OLoRA) prior SOTA, plus positive backward transfer (+0.41 BWT) — a rare property in continual learning.</li>
 </ul>
 <h2>Limitations</h2>
 <ul>
-<li>Performance evaluation limited to UCIT benchmark; generalization to other benchmarks/datasets is unclear.</li>
-<li>Computational overhead of gradient orthogonalization at scale not discussed in abstract.</li>
-<li>Scalability with large number of sequential tasks remains an open question.</li>
-<li>Without full paper, robustness of the two-stage strategy across diverse task sequences is uncertain.</li>
+<li>Single-benchmark / single-model evaluation; generalisation to other MLLM backbones and longer task sequences is unproven.</li>
+<li>The lossless-condition derivation silently drops the O(‖θ₂‖²) term with no quantitative justification.</li>
+<li>Ambiguity between full O(t) Eq. 7 and proxy O(1) Eq. 8 in main-table reporting.</li>
+<li>Inference-time and training-time cost of computing GPWC (an extra gradient pass per batch) is not reported, despite the paper claiming "inference-efficient."</li>
+<li>No comparison against modern replay-based SOTA (DER++, iCaRL).</li>
 </ul>
 <h2>Relevance</h2>
-<p>该论文研究多模态大模型中的持续学习问题，提出的无历史数据梯度正交化方法与LLM的高效微调及灾难性遗忘缓解方向高度相关，对实际部署中需要连续适应新任务的场景具有重要参考价值。</p>
+<p>直接对应"LLM Training Stability & Observability"——通过梯度级正交化与两阶段退火式微调，把持续学习中的灾难性遗忘作为可观测、可量化的训练稳定性问题来处理（BWT、Avg、Last 三项可观测指标）。次要关联"Self-Evolving Agents & Automated Research"：MLLM 的序列任务无回放持续学习能力是自演化智能体增量吸收新领域知识的基础组件。</p>
 <h2>Questions for Further Exploration</h2>
-<ul>
-<li>How does the computational cost of HiFGO scale with model size and number of sequential tasks?</li>
-<li>Can the two-stage strategy be combined with parameter-efficient methods like LoRA for further efficiency?</li>
-<li>How sensitive is the method to the ordering and similarity of sequential tasks?</li>
-<li>Does the orthogonalization constraint limit the model's ability to learn fundamentally different task types?</li>
-<li>How does Octopus compare to simple baselines like sequential full finetuning with learning rate scheduling?</li>
-</ul>
+<ol>
+<li>How does HiFGO scale with LoRA rank r and sequence length N — does the neglected O(‖θ₂‖²) term become dominant past some r or N threshold?</li>
+<li>Can the GPWC signal be reused as a training-time <em>observability</em> probe (e.g., to predict forgetting before it happens) rather than only as a regularizer?</li>
+<li>Does HiFGO compose with modern replay methods (DER++) — i.e., is the gain additive, or do they target the same failure mode?</li>
+<li>What is the wall-clock overhead of the Stage-2 GPWC gradient pass relative to Stage-1 vanilla LoRA training?</li>
+<li>Does the framework transfer to decoder-only LLMs (not MLLMs) on pure-text continual instruction tuning, where the "current data distribution" signal may be noisier?</li>
+</ol>
 <p class="note">Generated from Markdown summary. Full paper: <a href="https://arxiv.org/abs/2605.14938">arXiv:2605.14938</a></p>
 </div>
 </body>

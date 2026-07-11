@@ -40,55 +40,79 @@ hr { border:none; border-top:1px solid var(--line); margin:1.5rem 0; }
 <p class="authors">[&quot;Jiaheng Chen&quot;]</p>
 <p class="meta">arXiv: 2606.09028</p>
 <p class="meta">Date: 2026-06-08</p>
-<p class="meta">Tags: [&quot;Robotics&quot;, &quot;AI&quot;, &quot;CV&quot;]</p>
+<p class="meta">Tags: [&quot;World Models&quot;, &quot;Model-Based RL&quot;, &quot;Planning&quot;, &quot;Diagnostics&quot;, &quot;RL&quot;]</p>
 <p class="meta"><a href="https://arxiv.org/abs/2606.09028">https://arxiv.org/abs/2606.09028</a></p>
-<p>⚠️ Abstract-only summary</p>
-<blockquote><strong>一句话总结：</strong> [待生成 — 基于摘要的自动模板]</blockquote>
-<blockquote><strong>TL;DR:</strong> [待生成 — 基于摘要的自动模板]</blockquote>
+<blockquote><strong>一句话总结：</strong> 本文提出 ATM——一个无需仿真器 rollout 的潜世界模型诊断工具，通过在"真实编码转移"与"模型预测转移"两个域上训练轻量逆探针构成 2×2 转移矩阵，度量动作可识别性与域间一致性，并把矩阵折叠成筛查分数（在 OGBench-Cube 上 5% 间距时成对排序准确率达 98.8%）；同时提出 AITS 训练监督，把 LeWM 在 OGBench-Cube 上的成功率从 74% 提升到 84%，将分钟到小时的 CEM 评估压缩到 3–5 秒。</blockquote>
+<blockquote><strong>TL;DR:</strong> The author introduces ATM, a model-agnostic post-hoc diagnostic that builds a 2×2 Action-Consistency Transfer Matrix by training lightweight inverse probes on real-encoded vs model-predicted latent transitions, plus AITS, an inverse-dynamics auxiliary training loss. On OGBench-Cube, LeWM+AITS raises success rate from 74% to 84% (+10 pp) over the LeWM baseline under the same CEM planner, and from 65% to 86% for DINO-WM; the ATM screening score S_ATM achieves 98.81% pairwise ranking accuracy at a >5% success margin and 100% at >10%, while reducing per-checkpoint evaluation from ~3 min (LeWM) / ~1.4 h (DINO-WM) CEM rollouts to 3–5 s (>100× speedup).</blockquote>
 <h2>核心贡献</h2>
 <ul>
-<li>[基于摘要待生成]</li>
+<li>提出"动作可识别性（action-identifiability）"作为潜世界模型中与规划相关的转移级属性——即一个潜转移是否足以恢复产生它的动作——并指出端到端成功率无法揭示这一内部失效模式。</li>
+<li>设计 ATM（Action-Consistency Transfer Matrix）：冻结编码器与动力学预测器，构造真实转移域与预测转移域，各训练一个轻量逆探针，得到 2×2 转移矩阵，三层诊断分别对应 D_{T,T}、真-预测不一致 |G_{T→P}|、矩阵级对称损失 L_{ATM-sym}。</li>
+<li>把 ATM 矩阵折叠成线性筛查分数 S_ATM = −D_{T,T} − λ₁|G_{T→P}|（可选加 λ₂L_{ATM-sym}），用于同任务内跨 checkpoint/变体/世界模型的低成本排序，无需仿真器 rollout。</li>
+<li>提出 AITS（Action-Identifiable Transition Supervision），在真实转移上加逆动力学监督 L_AITS 作为训练信号，不改规划器即可提升下游规划成功率。</li>
+<li>通过消融揭示 AITS-P（在预测转移上监督）会产生预测域特定的"捷径式"动作编码（D_{P,P} 很低但不回迁到真实域），矩阵级失衡 L_{ATM-sym} 很大，从而用 ATM 解释为何 AITS 更稳定。</li>
 </ul>
 <h2>Key Contributions</h2>
 <ul>
-<li>Based on abstract analysis (full paper not yet summarized)</li>
+<li>Identifies <strong>action-identifiability</strong> as a planning-relevant transition-level property of latent world models — whether the action causing a latent transition is recoverable from the transition — that endpoint success-rate evaluation cannot explain.</li>
+<li>Proposes <strong>ATM</strong>, a model-agnostic post-hoc 2×2 transfer matrix: two transition domains (true encoded ξ^T = [z_t, z_{t+1}, z_{t+1}−z_t] vs predicted ξ^P = [z_t, ŝ_{t+1}, ŝ_{t+1}−z_t]) each get a lightweight two-layer-MLP inverse probe (h_T, h_P), and the matrix entries D_{i,j} = E‖h_i(ξ^j) − a_t‖²₂ expose action decodability, cross-domain transfer, and asymmetry.</li>
+<li>Collapses the matrix into a <strong>screening score</strong> S_ATM for within-task model selection, validated against simulator-based CEM success on TwoRoom/PushT/OGBench-Cube.</li>
+<li>Introduces <strong>AITS</strong>, a training-time inverse-dynamics auxiliary loss L = L_WM + α·L_AITS on true transitions that improves downstream planning without changing the planner.</li>
+<li>Uses ATM for <strong>failure-mode analysis</strong>: shows AITS-P (supervising predicted transitions) creates predicted-domain-specific shortcut codes (low D_{P,P} but high off-diagonal imbalance) that harm harder tasks, explaining AITS's stability advantage.</li>
 </ul>
 <h2>Methodology</h2>
-<p>Latent world models are increasingly used for control and goal-conditioned planning, yet assessing whether their learned representations are useful for planning usually requires slow, planner-coupled simulator evaluation with CEM or similar planners. Such evaluation is black-box and model-complexity-dependent: under the same protocol, different world models may require minutes to hours per checkpoint. In this work, we propose ATM, an Action-Consistency Transfer Matrix for diagnosing whether latent transitions preserve action semantics relevant to planning. ATM compares action information in real encoded transitions and model-predicted transitions through lightweight post-hoc probes, producing an interpretable matrix that reveals representation quality, transition-domain inconsistency, and failure modes without simulator rollout. It can also be collapsed into a simple screening score for within-task ranking across checkpoints, variants, and world models. When the true success gap is non-trivial, ATM achieves highly reliable pairwise ranking, while reducing minutes-to-hours CEM evaluation to seconds-level transition analysis, yielding more than 100x speedup in our setup. We further introduce AITS, showing that action-identifiability is not only diagnostic but also a useful training signal for improving downstream planning without changing the planner.</p>
-<p><em>Note: This section is derived from the abstract only. Full methodology details require reading the paper.</em></p>
+<p><strong>Latent planning setting.</strong> Encoder E_θ maps observation o_t → latent z_t; dynamics predictor F_θ rolls forward ŝ_{t+1} = F_θ(z_t, a_t), recursively for H steps. At test time CEM searches action sequences minimizing latent goal distance d(ŝ_{t+H}, z_g) to a goal latent z_g = E_θ(o_g). Thus planning depends on action-induced latent transitions, motivating action-identifiability as the diagnostic target.</p>
+<p><strong>Two transition domains.</strong> From offline tuples (o_t, a_t, o_{t+1}): the <em>true</em> domain ξ^T_t = [z_t, z_{t+1}, z_{t+1}−z_t] (consecutive encoded observations) and the <em>predicted</em> domain ξ^P_t = [z_t, ŝ_{t+1}, ŝ_{t+1}−z_t] (z_{t+1} replaced by the predictor's output). For token/patch latents, mean-pool over tokens first.</p>
+<p><strong>Inverse probes.</strong> Each probe is a two-layer MLP with LayerNorm + GELU, h(ξ) = W₂σ(LN(W₁ξ+b₁))+b₂. h_T trained to predict a_t from ξ^T, h_P from ξ^P. The 2×2 ATM matrix A_ATM = [[D_{T,T}, D_{T,P}],[D_{P,T}, D_{P,P}]] evaluates each trained probe on each domain; encoder and predictor frozen, probes trained fresh per model so ATM measures information in the frozen transition representation, not a co-trained head.</p>
+<p><strong>Tiered diagnostics.</strong> Tier 1: D_{T,T} (true-domain action-identifiability). Tier 2: relative true→predicted gap G_{T→P} = (D_{T,P}−D_{T,T})/(D_{T,T}+ε), used by magnitude. Tier 3: symmetry loss L_ATM-sym = I_diag + |G_{T→P} − G_{P→T}|, where I_diag = |D_{T,T}−D_{P,P}|/(½(D_{T,T}+D_{P,P})+ε). Screening score S_ATM = −D_{T,T} − λ₁|G_{T→P}| (λ₂ term optional); λ₁ fitted within-task on held-out candidates.</p>
+<p><strong>AITS training.</strong> Adds L_AITS = E‖h_ψ(ξ^T_t) − a_t‖²₂ with a training-time inverse head h_ψ; total loss L = L_WM + α·L_AITS. Training head discarded at ATM eval. Ablation AITS-P supervises ξ^P instead.</p>
+<p><strong>Tasks/models.</strong> Three goal-conditioned tasks: TwoRoom (2D navigation), PushT (2D manipulation), OGBench-Cube (3D manipulation, Park et al. 2025). Models: LeWM-style (Maes et al. 2026) baseline + AITS + AITS-P, plus DINO-WM (Zhou et al. 2025) checkpoints as an external family. Same CEM protocol for within-task comparisons; wall-clock timing reported separately for LeWM-style vs DINO-WM.</p>
 <h2>Results & Highlights</h2>
 <ul>
-<li>Key results to be extracted from full paper</li>
+<li><strong>AITS improves LeWM across all three tasks under the same planner (Table 1).</strong> Success-rate gains over the LeWM baseline: TwoRoom <strong>87% → 92% (+5 pp)</strong>, PushT <strong>96% → 100% (+4 pp)</strong>, OGBench-Cube <strong>74% → 84% (+10 pp)</strong>; the largest gain is on the least-saturated task. (For context on OGBench-Cube: PLDM 65%, DINO-WM 86%, LeWM 74%, LeWM+AITS 84%.)</li>
+<li><strong>ATM score correlates with success better than prediction loss (Table 2, OGBench-Cube).</strong> Spearman ρ: prediction loss −L_pred <strong>0.4983</strong>, −D_{T,T} <strong>0.8130</strong>, two-level S_ATM <strong>0.8239</strong>, three-level S_ATM <strong>0.8088</strong>; Pearson r: 0.3927 / 0.7015 / 0.7006 / 0.7361. D_{T,T} alone already gives the strongest rank signal.</li>
+<li><strong>ATM pairwise ranking is highly reliable when the gap is meaningful (Table 3, LeWM-style on OGBench-Cube).</strong> Ranking accuracy: all 1865 pairs <strong>82.84%</strong>, >2% margin (1338 pairs) <strong>91.48%</strong>, >5% margin (841 pairs) <strong>98.81%</strong>, >10% margin (123 pairs) <strong>100.00%</strong> (weighted: 92.61% / 95.14% / 99.09% / 100%).</li>
+<li><strong>Cross-family ranking needs refit but works (Table 4, OGBench-Cube).</strong> With λ₁ transferred from LeWM-only (0.036): DINO-only 70.00%, LeWM–DINO 68.54%, all-pooled 78.24%. After refitting λ₁=0.005 on the mixed pool: LeWM–DINO rises to <strong>89.90%</strong>, all-pooled <strong>83.10%</strong>; DINO-only drops to 32.50% (only 40 pairs, narrow range, treated as a stress case).</li>
+<li><strong>ATM is >100× cheaper than CEM rollouts (Table 5).</strong> Per-checkpoint: LeWM CEM ~3 min (50 episodes) / ~7 min (100 episodes); DINO-WM CEM ~1.4 h / ~2.8 h; ATM diagnostics <strong>3–5 s</strong> (no simulator, latent transitions cached).</li>
+<li><strong>ATM explains the AITS vs AITS-P failure mode (Table 6, OGBench-Cube).</strong> AITS cuts D_{T,T} from <strong>36.65 → 15.87</strong> and lifts success <strong>74% → 84%</strong>; AITS-P gives D_{T,T} 33.77 with success only 78% and a much larger true→predicted mismatch/imbalance, because predicted-domain supervision yields low D_{P,P} but poor back-transfer — a shortcut code the planner can't rely on.</li>
 </ul>
 <h2>Authors & Credibility</h2>
 <ul>
-<li>Jiaheng Chen</li>
+<li>Single author: Jiaheng Chen, School of Software, Northeastern University (affiliation and email stated in the PDF). arXiv:2606.09028v1 [cs.CV], 8 Jun 2026.</li>
+<li>Code stated for release at https://github.com/11isnotavailable/ATM (URL printed in the introduction). No explicit venue stated (preprint).</li>
+<li>The experimental baselines are taken from named recent world-model works the paper cites: LeWM (Maes et al. 2026), DINO-WM (Zhou et al. 2025), PLDM (Sobal et al. 2025), and the OGBench benchmark (Park et al. 2025).</li>
 </ul>
 <h2>Critical Assessment</h2>
 <ul>
-<li><strong>Novelty:</strong> To be assessed from full paper</li>
-<li><strong>Rigor:</strong> To be assessed from full paper</li>
-<li><strong>Reproducibility:</strong> To be assessed from full paper</li>
-<li><strong>Significance:</strong> To be assessed from full paper</li>
-<li><strong>Red flags:</strong> None identified from abstract</li>
+<li><strong>Only one external world-model family (DINO-WM) is added, and cross-family ranking needs refit.</strong> Table 4 shows that with λ₁ transferred from LeWM-only, LeWM–DINO pairwise accuracy is just 68.54%, and the all-pooled accuracy is 78.24% — so the "model-agnostic" claim holds mainly <em>within</em> a family; cross-family use requires refitting λ₁ on a mixed pool (rising to 89.90%), which weakens the zero-shot model-selection selling point.</li>
+<li><strong>The headline 98.8% ranking accuracy is conditional on a >5% success margin.</strong> On all 1865 LeWM-style pairs the accuracy is 82.84%, and for pairs with a <2% gap it is necessarily worse — so ATM is reliable precisely when the difference is large enough that a practitioner might already guess the winner, and least reliable in the close-call regime that most needs a cheap tiebreaker.</li>
+<li><strong>DINO-WM evaluation is an under-powered stress case, not real evidence.</strong> The authors flag that DINO-only has only 40 pairs with a narrow success range, and the refit there actually drops to 32.50% — so the "cross-model comparability" claim leans almost entirely on the LeWM–DINO pair type, with no third family to triangulate.</li>
+<li><strong>AITS gains are shown only against the LeWM baseline under one planner.</strong> Table 1 reports DINO-WM at 86% on OGBench-Cube (above LeWM+AITS's 84%) without an AITS-augmented DINO-WM row, so it is unclear whether AITS transfers to the stronger DINO-WM family or whether DINO-WM already has action-identifiable transitions; the cross-family training benefit is not demonstrated.</li>
+<li><strong>The screening score is explicitly "a linear form … rather than a calibrated model of success rate."</strong> The authors note the diagnostic-to-success relationship can be nonlinear when |G_{T→P}| is large, so S_ATM is for ranking, not prediction — a limitation for anyone wanting an absolute quality estimate.</li>
 </ul>
 <h2>Strengths</h2>
 <ul>
-<li>To be assessed from full paper</li>
+<li>Conceptually clean: reframes "is this representation good for planning?" as "can the action be recovered from the transition, and does that recoverability transfer between real and predicted domains?" — a question endpoint success cannot answer.</li>
+<li>The 2×2 matrix design is genuinely diagnostic: separating D_{T,T} (identifiability), |G_{T→P}| (consistency), and L_ATM-sym (symmetry) lets it explain <em>why</em> AITS-P fails (predicted-domain shortcut codes) rather than just ranking models.</li>
+<li>Strong practical payoff: >100× wall-clock speedup and 98.8% ranking accuracy at >5% margin on the hardest task make it usable as a cheap model-selection gate before expensive CEM evaluation.</li>
+<li>AITS is a minimal, planner-agnostic intervention (one auxiliary inverse head) that yields consistent gains, including a +10 pp lift on OGBench-Cube.</li>
 </ul>
 <h2>Limitations</h2>
 <ul>
-<li>To be assessed from full paper</li>
+<li>ATM scores are within-task only; cross-task absolute comparison is invalid because action scales and success criteria differ.</li>
+<li>Cross-family ranking needs lightweight refit; direct coefficient transfer across world-model families is unreliable (68.54% LeWM–DINO before refit).</li>
+<li>Evaluation covers three tasks and two world-model families (LeWM-style, DINO-WM); generalization to other families (Dreamer/TD-MPC-style) is untested.</li>
+<li>The linear screening score is uncalibrated and can be nonlinear far from the fit regime; only the two-level score is used for main ranking.</li>
+<li>AITS is only shown improving the LeWM baseline; whether it helps the already-stronger DINO-WM is not reported.</li>
 </ul>
 <h2>Relevance</h2>
-<ul>
-<li>相关性评分：5/5（基于关键词匹配）</li>
-<li>待进一步分析</li>
-</ul>
+<p>这主要映射到用户的「LLM Inference Evaluation」兴趣区——ATM 本质上是一个针对潜世界模型的"推理时表征质量评测"工具，把昂贵的、与规划器耦合的端点评测替换为低成本的、解耦的转移级诊断与排序。其"用一个轻量探针度量内部表征是否保留了某语义信息"的思路也与「LLM Hidden States & Interpretability」相关：逆探针（probe）正是 hidden-state 可解释性研究的标准工具，这里被迁移到潜转移的动作语义上。</p>
 <h2>Questions for Further Exploration</h2>
 <ul>
-<li>What are the specific technical contributions beyond the abstract?</li>
-<li>How does this compare to concurrent work in the same area?</li>
+<li>DINO-WM already reaches 86% on OGBench-Cube (above LeWM+AITS's 84%) — does adding AITS to DINO-WM push it further, or does DINO-WM's pretrained-feature encoder already saturate action-identifiability (low D_{T,T})? The paper does not run this row.</li>
+<li>The paper cites concurrent repair/verifier work — Li et al. 2026 (horizon-matched reachability metrics to replace CEM terminal cost), Liu et al. 2026 (World Action Verifier, forward-inverse asymmetry), and Ruan et al. 2026 (dynamic-consistency diagnosis in world action models) — how does ATM's transfer matrix compare to or combine with these planner-cost-repair signals, since ATM is simulator-free diagnosis while they target the planner?</li>
+<li>Pairwise ranking accuracy is 82.84% on all pairs but 98.81% at >5% margin — could a non-linear (e.g., spline, as in Figure 2's calibration) or margin-aware screening score improve close-call (<2% gap) ranking, where the linear S_ATM is weakest?</li>
+<li>AITS-P creates predicted-domain shortcut codes (low D_{P,P}, high L_ATM-sym) on harder tasks; could an explicit symmetry penalty (the λ₂·L_ATM-sym term currently dropped from the main score) added to AITS-P training prevent the shortcut while keeping predicted-domain supervision's benefits on simple tasks?</li>
 </ul>
 <p class="note">Generated from Markdown summary. Full paper: <a href="https://arxiv.org/abs/2606.09028">arXiv:2606.09028</a></p>
 </div>

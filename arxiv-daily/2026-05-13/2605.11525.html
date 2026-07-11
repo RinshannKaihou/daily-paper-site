@@ -40,67 +40,80 @@ hr { border:none; border-top:1px solid var(--line); margin:1.5rem 0; }
 <p class="authors">Amanda S Barnard</p>
 <p class="meta">arXiv: 2605.11525</p>
 <p class="meta">Date: 2026-05-13</p>
-<p class="meta">Tags: [imbalanced-learning, missing-data, oversampling, NaN-aware, class-imbalance]</p>
+<p class="meta">Tags: [imbalanced-learning, missing-data, oversampling, NaN-aware, class-imbalance, SMOTE, tabular-data]</p>
 <p class="meta"><a href="https://arxiv.org/abs/2605.11525">https://arxiv.org/abs/2605.11525</a></p>
-<p>⚠️ Abstract-only summary</p>
-<blockquote><strong>一句话总结：</strong> OverNaN 提出了一种感知缺失值的过采样框架，在不消除或插补缺失值的前提下直接对不完整特征向量进行合成采样，将缺失本身视为有信息量的特征保留在少数类样本生成过程中。</blockquote>
-<blockquote><strong>TL;DR:</strong> OverNaN is a lightweight oversampling framework that handles class imbalance by operating directly on incomplete feature vectors, preserving missingness structure as informative features rather than imputing or deleting them.</blockquote>
+<blockquote><strong>一句话总结：</strong> OverNaN 将 SMOTE/ADASYN/ROSE 扩展为 NaN 感知版本（SMOTENaN/ADASYNNaN/ROSENaN），在不插补缺失值的前提下直接对不完整特征向量做合成过采样，在 5 个 OpenML 数据集上 ROSENaN 将平均平衡准确率从 0.8836 提升至 0.8967（+1.31 个百分点）。</blockquote>
+<blockquote><strong>TL;DR:</strong> OverNaN is a lightweight NaN-aware oversampling framework that extends SMOTE, ADASYN, and ROSE to operate directly on incomplete feature vectors via three explicit missingness strategies (preserve_pattern, interpolate, random_pattern), avoiding imputation before resampling. On a 5-dataset OpenML benchmark with naturally occurring missing values, ROSENaN raises mean balanced accuracy to 0.8967 vs 0.8836 for the unmodified XGBoost baseline (+1.31 pts) and ROC AUC to 0.9533 vs 0.9432; on graphene-oxide carboxyl prediction SMOTENaN reaches 0.997 balanced accuracy vs 0.987 for median-Imputation+SMOTE while preserving 100% of structural NaNs rather than fabricating 39.8% of entries.</blockquote>
 <h2>核心贡献</h2>
 <ul>
-<li>提出了 OverNaN，一种 NaN 感知的过采样框架，可直接在不完整特征向量上生成合成样本</li>
-<li>将缺失值（NaN）视为特征空间的一部分，而非需要修复的缺陷</li>
-<li>支持缺失值的保留、传播或选择性插值等多种明确策略</li>
-<li>特别适用于小规模、不完整且类别不平衡的科学和工程数据集</li>
+<li>提出 OverNaN 框架，将 SMOTE、ADASYN、ROSE 三种经典过采样方法扩展为 NaN 感知版本（SMOTENaN、ADASYNNaN、ROSENaN），可直接在不完整特征向量上生成合成样本</li>
+<li>将缺失值从"待修复的缺陷"重新定义为"特征空间的组成部分"，距离仅在共享观测维度上计算，合成样本按特征逐维生成</li>
+<li>设计三种显式缺失处理策略：preserve_pattern（任一父样本缺失则合成样本缺失）、interpolate（至少一方观测则插值）、random_pattern（按类内经验缺失率采样）</li>
+<li>在 5 个 OpenML 真实数据集与石墨烯氧化物应用上验证，并开源代码（GitHub + pip install overnan）</li>
 </ul>
 <h2>Key Contributions</h2>
 <ul>
-<li>Introduces OverNaN, a lightweight NaN-aware oversampling framework that generates synthetic samples directly from incomplete feature vectors</li>
-<li>Reframes missingness as part of the feature space rather than a defect to be eliminated</li>
-<li>Provides configurable strategies for preserving, propagating, or selectively interpolating missing values during synthetic sample generation</li>
-<li>Demonstrates that meaningful missingness can be retained during oversampling without introducing artificial certainty</li>
+<li>Introduces OverNaN, a NaN-aware oversampling framework with three variants (SMOTENaN, ADASYNNaN, ROSENaN) that generate synthetic samples directly on incomplete feature vectors in (R ∪ {NaN})^d rather than R^d</li>
+<li>Reframes missingness as a structural element of the feature space: distances are computed only on shared observed dimensions Ω_ij, and synthetic samples are generated feature-wise so missing entries are preserved/propagated rather than imputed</li>
+<li>Provides three explicit, configurable missingness-handling strategies (preserve_pattern, interpolate, random_pattern) making the treatment of NaNs a deliberate modelling choice rather than an implicit preprocessing side-effect</li>
+<li>Validates on five OpenML datasets with naturally occurring missingness plus a graphene-oxide nanoflake application where missingness is chemically meaningful (absent bonds), and releases the implementation as open source</li>
 </ul>
 <h2>Methodology</h2>
-<p>OverNaN extends common synthetic oversampling methods (e.g., SMOTE-like approaches) to operate on incomplete feature vectors. Rather than preprocessing missing values through deletion or imputation, the framework allows missing values to be handled according to explicitly defined strategies: they can be preserved as-is in synthetic samples, propagated through the oversampling process, or selectively interpolated. The paper positions the method within the intersection of imbalanced learning, missing-data handling, and NaN-tolerant algorithms. Evaluation uses representative examples bundled with the software.</p>
+<p>OverNaN's core idea is to perform oversampling in the space (R ∪ {NaN})^d instead of R^d. For two samples x_i, x_j, the set of shared observed dimensions is Ω_ij = {k : x_ik ≠ NaN ∧ x_jk ≠ NaN}. Distances are computed only on Ω_ij, ensuring neighbour relationships are well-defined without imputation. Synthetic samples are generated feature-wise: for k ∈ Ω_ij the standard interpolation x_ik + λ(x_jk − x_ik) with λ ~ U(0,1) is used; for k ∉ Ω_ij the value is NaN or rule-based depending on the chosen strategy.</p>
+<p>Three missingness strategies are implemented: (1) preserve_pattern — a feature is NaN in the synthetic sample if it is NaN in either parent (conservative, Algorithm 1); (2) interpolate — interpolate whenever at least one parent observes the feature, NaN only when neither does (Algorithm 2); (3) random_pattern — missingness sampled per-feature according to empirical per-class missingness rates p_k^(c) via Bernoulli draws (Algorithm 3). The framework modifies none of the core geometric assumptions of SMOTE/ADASYN/ROSE; it only changes the admissible operations by refusing to substitute inferred values where observations are absent.</p>
+<p>The three oversamplers inherit their parent geometries: SMOTENaN uses pairwise linear interpolation; ADASYNNaN adds adaptive difficulty weighting (more samples where majority neighbours dominate); ROSENaN perturbs single seeds with Gaussian noise N(x_i, Σ) controlled by a shrinkage/bandwidth parameter. Implementation operates on NumPy arrays or pandas DataFrames, supports parallel batch generation, relies on IEEE 754 NaN propagation (no sentinel values), and is deterministic under fixed random seeds. Neighbour search is delegated to standard libraries; worst-case complexity is O(Nd) per query but reduced in practice by missingness. No GPU acceleration, no streaming/out-of-core execution — targeted at small-to-medium scientific tabular data.</p>
+<p>Downstream evaluation uses XGBoost (which natively handles NaNs via learned split directions) as the classifier, with 5-fold stratified cross-validation and fixed random seeds throughout. XGBoost hyperparameters for the graphene oxide application: n_estimators=100, max_depth=4, learning_rate=0.1.</p>
 <h2>Results & Highlights</h2>
 <ul>
-<li>Demonstrates on included examples that meaningful missingness can be retained during oversampling without introducing artificial certainty</li>
-<li>Shows that preserving NaN structure avoids distorting class boundaries and introducing bias that can arise from imputation</li>
-<li>Designed for small, incomplete, and imbalanced datasets common in scientific and engineering domains</li>
+<li>On the 5-dataset OpenML benchmark (labor, cylinder-bands, Titanic, soybean, car-evaluation), ROSENaN achieves the highest mean balanced accuracy 0.8967 vs 0.8836 for the unmodified XGBoost baseline (+1.31 pts), highest macro F1 0.8999 vs 0.8893 (+1.06 pts), and highest ROC AUC 0.9533 vs 0.9432 (+1.01 pts); ADASYNNaN actually underperforms baseline on average (Bal. Acc. 0.8811, −0.25 pts; F1 Macro 0.8830, −0.63 pts). (Tables 13–14)</li>
+<li>On the controlled synthetic dataset (2000 samples, 20 features, 11.9% NaN, ~4:1 imbalance, 5-fold CV with XGBoost), SMOTENaN achieves the highest ROC AUC 0.802 ± 0.024 vs 0.795 ± 0.028 for Imputation+SMOTE, 0.680 ± 0.017 for Drop-Instances+SMOTE, and 0.617 ± 0.041 for Drop-Features+SMOTE, while also showing the smallest cross-fold variance. (Table 6)</li>
+<li>On graphene-oxide carboxyl prediction (776 hexagonal nanoflakes, 232 features, 39.8% NaN, IR ~2.9:1), SMOTENaN reaches balanced accuracy 0.997 ± 0.005 and F1 0.999 ± 0.002 vs 0.987 ± 0.025 and 0.995 ± 0.008 for median-Imputation+SMOTE and 0.940 ± 0.027 and 0.974 ± 0.010 for Drop-Features+SMOTE, with markedly smaller cross-fold variance than both alternatives while retaining 100% of features and samples without fabricating values. (Table 17)</li>
+<li>On the XGBoost classifier-integration test (training {0:350, 1:35}, test {0:150, 1:15}), baseline minority-class recall is 0.800 and minority F1 0.889; SMOTENaN and ROSENaN both achieve 1.000 recall and 1.000 F1, while ADASYNNaN improves to 0.867 recall and 0.929 F1. (Table 5)</li>
+<li>Parallel execution benefit: ADASYNNaN wall-clock time drops from 1.424 s (sequential) to 0.331 s (parallel) on a 1000-sample, 10-feature resampling task, while SMOTENaN (0.272→2.627 s) and ROSENaN (0.050→0.065 s) suffer from parallel overhead at this problem size. (Table 1)</li>
+<li>On the OpenML anneal dataset (NaN rate 64.98%), OverNaN variants and impute-then-oversample variants produce statistically indistinguishable balanced accuracy (e.g. OverNaN-SMOTE 0.989 ± 0.008 vs Impute+SMOTE 0.991 ± 0.007), all within one standard deviation — showing imputation is not a precondition for competitive performance. (Table 15)</li>
 </ul>
 <h2>Authors & Credibility</h2>
 <ul>
-<li>Amanda S Barnard — single author. The paper introduces a software tool with bundled examples. Further credibility assessment would benefit from examining the broader publication record and institutional affiliation.</li>
+<li>Amanda S Barnard, School of Computing, Australian National University, Acton ACT 2601. Single-author preprint (May 13, 2026).</li>
+<li>The paper cites the author's own prior work: the Neutral Graphene Oxide Data Set [10] (Barnard et al., 2019) and representative-structure work in Nano Futures [11] (Motevalli, Parker, Sun, Barnard, 2019), establishing domain credibility for the graphene-oxide application.</li>
+<li>Code is open-source at https://github.com/amaxiom/OverNaN and installable via <code>pip install overnan</code>, with a structured test suite covering functionality, strategies, container compatibility, parallel execution, edge cases, and reproducibility.</li>
+<li>No venue or peer-review status stated; this is a preprint.</li>
 </ul>
 <h2>Critical Assessment</h2>
 <ul>
-<li><strong>Novelty:</strong> Moderate. The idea of treating missingness as informative during oversampling is underexplored, though NaN-tolerant algorithms exist in other contexts.</li>
-<li><strong>Rigor:</strong> Limited evaluation — relies on representative bundled examples rather than comprehensive benchmarking across standard imbalanced datasets. No comparison to state-of-the-art imputation + oversampling pipelines.</li>
-<li><strong>Reproducibility:</strong> High if the software is publicly available. The method is described as lightweight with explicit strategies.</li>
-<li><strong>Significance:</strong> Potentially useful for niche scientific domains with systematically missing features, but the empirical case is not yet strong enough to demonstrate broad impact.</li>
-<li><strong>Red flags:</strong> Single-author paper with evaluation limited to bundled examples. No standard benchmark comparisons, no baselines against imputation+SMOTE pipelines, and no statistical significance tests reported in the abstract.</li>
+<li><strong>Novelty:</strong> Moderate. The conceptual reframing of missingness as informative structure during oversampling is genuinely underexplored, but the paper itself admits OverNaN "does not introduce a new sampling geometry" — it alters admissible operations within existing SMOTE/ADASYN/ROSE geometries. The contribution is the engineering/philosophical stance, not a new algorithm.</li>
+<li><strong>Rigor:</strong> The headline "+1.31 pts balanced accuracy" for ROSENaN is an average that masks sharply mixed per-dataset behaviour. On labor (Table 8), SMOTENaN and ADASYNNaN actively degrade balanced accuracy (0.896, 0.868 vs 0.911 baseline) and minority F1 (0.871, 0.836 vs 0.893); on Titanic (Table 10) all three variants roughly match or slightly underperform baseline. The average gain is driven almost entirely by the car-evaluation and soybean datasets. ADASYNNaN is a net negative on average across three of four metrics (Table 14), yet is presented as a co-equal variant.</li>
+<li><strong>The central empirical claim is self-undermined:</strong> Table 15 (anneal, 64.98% NaN) shows OverNaN and impute-then-oversample are "statistically indistinguishable," which directly weakens the paper's argument that avoiding imputation yields a modelling advantage — at best it is neutral, not beneficial, on the one dataset designed to stress-test exactly this comparison.</li>
+<li><strong>Baselines are weak:</strong> Only mean/median imputation + vanilla SMOTE/ADASYN/ROSE are compared. No comparison against principled missing-data methods (MICE, kNN imputation, matrix factorization, or deep generative imputation), no comparison against NaN-native oversampling competitors, and no statistical significance testing (only mean ± std across 5 folds).</li>
+<li><strong>Reproducibility:</strong> High — open-source code, deterministic with seeds, bundled test suite. This is the strongest aspect.</li>
+<li><strong>Red flags:</strong> The OpenML benchmark datasets are tiny (labor: 57 samples; cylinder-bands: 540; the largest is Titanic at 1309) with low imbalance ratios (1.18–6.42), so the generalisability claims to "imbalanced learning" broadly are overstated. The "perfect" 1.000 recall/F1 in Table 5 is on a test set of only 15 minority samples, making the metric unreliable.</li>
 </ul>
 <h2>Strengths</h2>
 <ul>
-<li>Addresses a real and underappreciated problem: missingness as signal rather than noise</li>
-<li>Lightweight and configurable framework design</li>
-<li>Practical motivation from scientific/engineering domains with systematically missing data</li>
-<li>Clear positioning within the broader landscape of imbalanced learning and missing-data methods</li>
+<li>Addresses a real and underappreciated problem: missingness as signal rather than noise, with a clear motivating example (absent O-O bonds in graphene oxide are a structural property, not measurement failure)</li>
+<li>Clean, well-formalised framework — the Ω_ij shared-observed-dimension distance and feature-wise generation rule are mathematically tidy and the three strategies are clearly delineated with pseudocode (Algorithms 1–3)</li>
+<li>Honest about scope: explicitly states OverNaN is not a universal missing-data solution, does not model missingness mechanisms, and is intended for small-to-medium scientific datasets with NaN-tolerant downstream learners</li>
+<li>Strong reproducibility: open-source (GitHub + pip), deterministic, bundled test suite, all reported numbers traceable to included test scripts</li>
+<li>The data-retention framing (Table 16) cleanly quantifies information loss of alternatives — Drop Features loses 53% of columns, Imputation fabricates 39.8% of entries, SMOTENaN loses neither</li>
 </ul>
 <h2>Limitations</h2>
 <ul>
-<li>Evaluation limited to representative examples rather than systematic benchmarks</li>
-<li>No comparison against established imputation methods combined with standard oversampling</li>
-<li>Unclear how the method scales to large datasets or high-dimensional feature spaces</li>
-<li>Single-author contribution may limit breadth of perspective</li>
+<li>Evaluation is on very small datasets (57–1309 samples) with modest imbalance ratios (1.18–6.42); no large-scale or extreme-imbalance validation</li>
+<li>No comparison against principled imputation methods (MICE, kNN, matrix completion, generative imputation) — only mean/median imputation</li>
+<li>Per-dataset results are highly inconsistent: SMOTENaN/ADASYNNaN hurt performance on labor and roughly tie on Titanic; ADASYNNaN is a net negative on average across 3 of 4 metrics</li>
+<li>The one direct head-to-head against impute-then-oversample (anneal, Table 15) shows no statistically meaningful difference, undermining the core motivation</li>
+<li>No statistical significance testing — only mean ± std across 5 folds, no confidence intervals or hypothesis tests</li>
+<li>Single-author contribution; no GPU/streaming support limits applicability to high-throughput or real-time systems</li>
 </ul>
 <h2>Relevance</h2>
-<p>该论文提出了一种新颖的缺失值感知过采样方法，对处理不完整且类别不平衡数据集的研究具有参考价值。该方法将缺失本身视为信息量的来源，这一视角对于实际应用场景中的数据预处理和类别不平衡学习具有启发意义。</p>
+<p>该论文与用户配置的 <strong>ML Reliability & Mathematical Foundations</strong> 兴趣方向相关：它从统计与几何角度重新审视缺失数据在 ML 流水线中的处理，将缺失本身视为数据生成过程的一部分而非待消除的噪声，并给出了在不完整特征空间上定义距离与合成样本的数学形式化。其 IEEE 754 NaN 传播与数值稳定性的讨论也与 <strong>Computation Reliability & Precision Errors</strong> 有一定交集，但论文聚焦于表格数据的类别不平衡问题，与 LLM 训练/推理/可解释性等核心兴趣无直接关联。</p>
 <h2>Questions for Further Exploration</h2>
 <ul>
-<li>How does OverNaN compare against state-of-the-art imputation methods (e.g., MICE, deep generative imputation) combined with SMOTE or ADASYN on standard benchmarks?</li>
-<li>What are the theoretical guarantees on class boundary preservation when missingness is retained?</li>
-<li>How does the framework handle features with different missingness mechanisms (MCAR, MAR, MNAR)?</li>
-<li>Can the NaN-aware approach be extended to deep learning architectures for imbalanced classification?</li>
+<li>How does OverNaN compare against MICE or deep generative imputation (e.g., GAIN, MisGAN) followed by standard oversampling, rather than only mean/median imputation?</li>
+<li>What is the theoretical effect of the preserve_pattern strategy on class-boundary geometry when missingness is MNAR rather than MCAR/MAR — does propagating NaNs amplify systematic bias?</li>
+<li>Can the NaN-aware distance and feature-wise generation be extended to embedding spaces (e.g., for imbalanced LLM fine-tuning data where some annotation dimensions are missing)?</li>
+<li>Why does ADASYNNaN consistently underperform even SMOTENaN on average (Table 14) — is the adaptive difficulty weighting unstable under high missingness because difficulty scores are computed on reduced-dimensional distances?</li>
+<li>Would the null result on the anneal dataset (Table 15) hold under extreme imbalance or higher missingness rates, or is the neutrality of imputation specific to this regime?</li>
 </ul>
 <p class="note">Generated from Markdown summary. Full paper: <a href="https://arxiv.org/abs/2605.11525">arXiv:2605.11525</a></p>
 </div>

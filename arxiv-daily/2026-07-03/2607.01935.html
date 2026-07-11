@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>A-TMA: Decoupling State-Aware Memory Failures in Long-Term Agent Memory</title>
+<style>
+:root { --paper:#fafafa; --ink:#1a1a1a; --muted:#555; --accent:#1a5276; --line:#ddd; --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif; --serif:Georgia,"Noto Serif SC",serif; }
+body { font-family:var(--serif); background:var(--paper); color:var(--ink); line-height:1.6; margin:0; padding:0; }
+.container { max-width:min(95vw, 760px); margin:0 auto; padding:28px 20px 60px; }
+.topnav { position:fixed; top:12px; left:14px; z-index:50; font-family:var(--sans); font-size:.75rem; background:var(--paper); border:1px solid var(--line); padding:5px 10px; border-radius:999px; }
+.topnav a { color:var(--muted); text-decoration:none; font-weight:600; }
+.topnav a:hover { color:var(--accent); }
+h1 { font-size:1.6rem; margin:2.2rem 0 1rem; border-bottom:2px solid var(--accent); padding-bottom:.3rem; }
+h2 { font-size:1.3rem; margin:1.8rem 0 .8rem; color:var(--accent); }
+h3 { font-size:1.1rem; margin:1.4rem 0 .6rem; }
+p { margin:.8rem 0; }
+.authors { font-style:italic; color:var(--muted); margin-top:-.4rem; }
+.meta { font-family:var(--sans); font-size:.82rem; color:var(--muted); margin:.2rem 0; }
+a { color:var(--accent); text-decoration:none; }
+a:hover { text-decoration:underline; }
+blockquote { border-left:3px solid var(--accent); margin:1rem 0; padding:.2rem 0 .2rem 1rem; color:var(--muted); font-style:italic; }
+code { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; background:#f0f0f0; padding:2px 5px; border-radius:3px; font-size:.9em; }
+pre { background:#f5f5f5; padding:14px; overflow-x:auto; border-radius:4px; border:1px solid var(--line); }
+pre code { background:transparent; padding:0; }
+ul,ol { margin:.6rem 0; padding-left:1.5rem; }
+li { margin:.25rem 0; }
+table { border-collapse:collapse; width:100%; margin:1rem 0; font-family:var(--sans); font-size:.9rem; }
+th,td { border:1px solid var(--line); padding:6px 10px; text-align:left; }
+th { background:#f0f0f0; }
+hr { border:none; border-top:1px solid var(--line); margin:1.5rem 0; }
+.note { font-family:var(--sans); font-size:.78rem; color:var(--muted); border-top:1px solid var(--line); margin-top:2rem; padding-top:1rem; }
+@media (max-width: 600px) { .container { padding:22px 14px 40px; } h1 { font-size:1.35rem; } }
+</style>
+</head>
+<body>
+<div class="topnav"><a href="./index.html">← Today's digest</a></div>
+<div class="container">
+<h1>A-TMA: Decoupling State-Aware Memory Failures in Long-Term Agent Memory</h1>
+<p class="meta">arXiv: 2607.01935</p>
+<p class="meta">Date: 2026-07-03</p>
+<p class="meta"><a href="https://arxiv.org/abs/2607.01935">https://arxiv.org/abs/2607.01935</a></p>
+<blockquote><strong>一句话总结：</strong> 本文定义长期记忆中的"幽灵记忆（ghost memory）"失败——旧/当前/迁移事实在记忆库中共存、检索时混在一起、最终误导回答模型；提出 A-TMA 状态感知叠加层（保留历史但显式暴露 current/historical/transition 三类状态标签），并构建冲突密集基准 LTP；在 LTP 上 Graphiti/Zep+A-TMA 把冲突准确率从 0.480 提升到 0.720（+0.240 绝对），在 LoCoMo 上把 temporal F1 从 0.0295 提升到 0.1705。</blockquote>
+<blockquote><strong>TL;DR:</strong> The paper studies "ghost memory" — a state-coordination failure where old, current, and transition facts coexist in a long-term agent memory bank, remain mixed during retrieval, and mislead the answer model. It argues memory must be understood at three levels (bank maintenance, retrieval, answer-time resolution) and proposes <strong>A-TMA</strong>, a state-aware overlay that keeps superseded/transition records but builds evidence packets with explicit current/historical/transition labels exposed to QA. It also builds <strong>LTP (LoCoMo Temporal Plus)</strong>, a conflict-heavy benchmark (10 profiles, 800 probes) for ghost memory. On LTP, Graphiti/Zep + A-TMA improves conflict accuracy <strong>0.480 → 0.720 (+0.240 absolute)</strong>; on LTP profile000, A-Mem+A-TMA reaches 0.775 Acc vs AriadneMem 0.438; paired Graphiti/Zep raises conflict accuracy 0.425 → 0.725 (temporal-KG evidence support stays 0.812). On LoCoMo (10 samples, 1,986 QA pairs), Graphiti/Zep + A-TMA raises temporal F1 <strong>0.0295 → 0.1705</strong> and average F1 <strong>0.0809 → 0.1556</strong>. Gains are host-dependent but show explicit state roles reduce failures hidden by final QA accuracy.</blockquote>
+<h2>核心贡献</h2>
+<ol>
+<li><strong>定义"幽灵记忆"失败</strong>：把长期记忆中"旧/当前/迁移事实共存并在检索时混合、最终误导回答"定义为一个状态协调失败（不是单纯的旧记录存在，而是状态角色未显式化）。</li>
+<li><strong>三层解耦评估主张</strong>：记忆系统应在"库维护 / 检索 / 答题时解析"三层分别评估，因为单一 QA 准确率会掩盖幽灵记忆发生在哪一层。</li>
+<li><strong>A-TMA 状态感知叠加层</strong>：不替换宿主记忆基底，保留历史与迁移记录，但为查询构建带 current/historical/transition 标签的证据包并暴露给 QA。</li>
+<li><strong>LTP 冲突密集基准</strong>：基于 LoCoMo 构建的 10 profiles / 800 probes 基准，专门测试幽灵记忆；在 LTP 与 LoCoMo 上验证 A-TMA 的宿主相关增益。</li>
+</ol>
+<h2>Key Contributions</h2>
+<ul>
+<li><strong>Defines "ghost memory"</strong> as a state-coordination failure (old/current/transition facts coexist, mix during retrieval, mislead the answer model) — not mere presence of old records, but implicit state roles across bank/evidence/answer.</li>
+<li><strong>Three-level decoupled evaluation thesis</strong>: memory should be evaluated separately at bank maintenance, retrieval, and answer-time resolution, because final QA accuracy hides where ghost memory occurs.</li>
+<li><strong>A-TMA, a state-aware overlay</strong>: keeps superseded and transition records in the bank, builds evidence packets for the query's requested state view, and exposes current/historical/transition labels to QA. Host-agnostic — does not replace the memory substrate.</li>
+<li><strong>LTP (LoCoMo Temporal Plus) benchmark</strong>: conflict-heavy benchmark (10 profiles, 800 probes) for ghost memory; evaluated alongside LoCoMo (10 samples, 1,986 QA pairs) for long-conversation generalization.</li>
+</ul>
+<h2>Methodology</h2>
+<p><strong>Ghost memory framing.</strong> A user fact changes (address, job, plan). A memory that treats every stored fact as timeless is wrong even when each fact was true when written. The right response is <em>not deletion</em> — history must be preserved — but the <em>state</em> of each memory (current vs historical vs transition) must be made explicit at retrieval and answer time.</p>
+<p><strong>Three coupled levels.</strong> (1) <em>Bank maintenance</em> — does the bank preserve old and current states cleanly? (2) <em>Retrieval</em> — does it choose evidence for the requested state view? (3) <em>Answer-time resolution</em> — does the answer model see needed evidence and still collapse current/historical/transition into one response? A single QA score hides which level failed.</p>
+<p><strong>A-TMA overlay.</strong> A-TMA does not replace the host memory substrate (Graphiti/Zep, A-Mem, InsideOut, SeCom, AriadneMem). It adds: (a) keeps superseded and transition records in the bank; (b) builds evidence packets for the query's requested state view; (c) exposes current/historical/transition labels to QA so the answer model can pick the live value for "now" questions and the historical value for "before" questions.</p>
+<p><strong>Benchmark — LTP (LoCoMo Temporal Plus).</strong> Conflict-heavy benchmark built from LoCoMo: 10 profiles, 800 probes, each profile contains paired old/current/transition facts designed to trigger ghost memory. LoCoMo (10 samples, 1,986 QA pairs) is used for long-conversation generalization.</p>
+<p><strong>Evaluation metrics.</strong> Conflict accuracy (does the system pick the correct state under conflicting old/current facts?), target accuracy, evidence support (does retrieved evidence contain the needed state?), temporal F1, average F1, QA accuracy, evidence hit rate. Table 1 compares A-TMA with long-term memory evaluation/tracing work along what-is-measured axes.</p>
+<h2>Results & Highlights</h2>
+<ul>
+<li><strong>LTP headline (Graphiti/Zep + A-TMA):</strong> conflict accuracy <strong>0.480 → 0.720 (+0.240 absolute)</strong>.</li>
+<li><strong>LTP profile000 (acc across hosts):</strong> A-Mem+A-TMA <strong>0.775</strong>, InsideOut+A-TMA <strong>0.675</strong>, SeCom+A-TMA <strong>0.637</strong>, vs AriadneMem (timestamped graph facts + reasoning paths) <strong>0.438</strong> — showing explicit state roles beat timestamp/graph-label-only evidence.</li>
+<li><strong>Paired Graphiti/Zep isolation:</strong> temporal-KG evidence reaches <strong>0.812 evidence support</strong> but only <strong>0.425 conflict accuracy</strong>; +A-TMA raises conflict accuracy to <strong>0.725</strong> — i.e. the evidence <em>was</em> retrieved but the answer model collapsed states without explicit labels.</li>
+<li><strong>LoCoMo (long-conversation generalization, sample0):</strong> Graphiti/Zep + A-TMA raises temporal F1 <strong>0.0295 → 0.1705</strong> and average F1 <strong>0.0809 → 0.1556</strong>; also improves QA accuracy and evidence hit rate. AriadneMem remains stronger on raw F1 on sample0 (host-dependent).</li>
+<li><strong>Decoupled evaluation finding:</strong> a single QA score hides whether failure is bank-level (states not preserved), retrieval-level (wrong state-view evidence), or QA-level (evidence present but states collapsed) — A-TMA's contribution is isolating these.</li>
+</ul>
+<h2>Authors & Credibility</h2>
+<ul>
+<li>Authors at the <strong>National University of Singapore</strong> (Zitong Shi, Yixuan Tang, Anthony Kum Hoe Tung — stated in the PDF, NUS email addresses). Preprint, no venue stated.</li>
+<li>The work engages credibly with the existing long-term-memory landscape (Graphiti/Zep, AriadneMem, A-Mem, InsideOut, SeCom, LoCoMo) and is methodologically careful about <em>paired</em> comparisons (same host with/without A-TMA) and decoupled metrics (conflict accuracy vs evidence support vs temporal F1) rather than reporting only aggregate QA accuracy. No external code link is visible in the parsed text.</li>
+</ul>
+<h2>Critical Assessment</h2>
+<ul>
+<li><strong>The gains are explicitly "host-dependent"</strong> (the paper's own wording): A-TMA helps Graphiti/Zep substantially (+0.240 conflict acc) but on LoCoMo sample0 AriadneMem remains stronger on raw F1. The paper is honest about this, but it means A-TMA is not a universal win — its value depends on whether the host already exposes state roles (AriadneMem's timestamped graph partially does) vs treats facts as timeless (Graphiti/Zep's default).</li>
+<li><strong>The headline +0.240 conflict accuracy is on LTP, a benchmark the authors built themselves</strong> from LoCoMo — LTP is conflict-heavy by construction, so the gain is measured on the failure mode A-TMA targets. The LoCoMo gains (temporal F1 0.0295 → 0.1705) are smaller in absolute terms and the paper notes metric-dependence on sample0. This is a real but scoped win.</li>
+<li><strong>The three-level decoupled evaluation is the most novel methodological contribution</strong> but the paper reports it mostly through paired metric comparisons rather than a full per-level failure-attribution study (how often does ghost memory originate at bank vs retrieval vs QA?). The decoupling thesis is asserted more than fully quantified.</li>
+<li><strong>Scale is modest</strong>: LTP = 10 profiles / 800 probes; LoCoMo = 10 samples / 1,986 QA pairs. Whether the state-overlay helps on larger, messier real deployment logs (with 100s of evolving facts per user) is unverified.</li>
+<li><strong>A-TMA preserves history rather than deleting</strong> — this is the right call for "what was true before" queries, but it increases bank size and evidence-packet complexity; the storage/retrieval overhead of keeping all superseded+transition records is not quantified.</li>
+</ul>
+<h2>Strengths</h2>
+<ul>
+<li>Clean conceptual framing of "ghost memory" as a state-coordination failure (not a storage problem), correctly arguing against deletion-as-fix.</li>
+<li>Three-level decoupled evaluation thesis is the right diagnostic posture for a field that over-relied on aggregate QA accuracy.</li>
+<li>A-TMA is a host-agnostic overlay (works on Graphiti/Zep, A-Mem, InsideOut, SeCom), not a new siloed system — practical for adoption.</li>
+<li>Paired comparisons and multiple complementary metrics (conflict acc, evidence support, temporal F1) give a more honest picture than a single leaderboard number.</li>
+</ul>
+<h2>Limitations</h2>
+<ul>
+<li>Gains are host-dependent; not a universal win (AriadneMem already partially state-aware).</li>
+<li>Headline +0.240 is on LTP (self-built, conflict-heavy by design); LoCoMo gains smaller and metric-dependent.</li>
+<li>Three-level decoupling asserted more than fully quantified (per-level failure attribution not exhaustively reported).</li>
+<li>Modest scale (10 profiles / 800 probes on LTP); large messy deployment logs untested.</li>
+<li>Overhead of preserving all superseded+transition records not quantified.</li>
+</ul>
+<h2>Relevance</h2>
+<p>与 <strong>Self-Evolving Agents & Automated Research</strong>（长期记忆管理、状态演化追踪、agent 记忆可靠性）和 <strong>LLM Inference Evaluation</strong>（解耦评估、temporal/conflict 指标的可重复测量）两个方向直接相关；对关注 agent 长期记忆、时序知识图谱、以及"记忆可靠性 vs 最终 QA 准确率"差异的研究者与工程师具有一手参考价值。</p>
+<h2>Questions for Further Exploration</h2>
+<ol>
+<li>A-TMA 的增益是宿主相关的——能否预测哪些宿主（已部分状态感知 vs 视事实为 timeless）受益最大？给出一个"状态角色显式度"度量来排序宿主？</li>
+<li>三层解耦评估能否给出每层失败率的量化归因（库/检索/QA 各占多少幽灵记忆失败）？</li>
+<li>保留所有 superseded+transition 记录的存储与检索开销如何？能否用状态角色感知的剪枝/压缩控制 bank 增长？</li>
+<li>LTP（自建冲突密集基准）的 +0.240 增益在更小冲突密度的真实部署日志上如何退化？是否存在冲突密度阈值？</li>
+<li>把 current/historical/transition 标签从"暴露给 QA"改为"由检索层直接过滤到请求状态视图"，哪个层级介入最优？</li>
+<li>状态角色显式化能否与时序知识图谱（Graphiti/Zep）的时间戳机制统一，避免重复标注？</li>
+<li>在多用户、长期（月/年级）演化场景下，状态迁移链的长度是否会超出证据包的可处理规模？</li>
+</ol>
+<p class="note">Generated from Markdown summary. Full paper: <a href="https://arxiv.org/abs/2607.01935">arXiv:2607.01935</a></p>
+</div>
+</body>
+</html>

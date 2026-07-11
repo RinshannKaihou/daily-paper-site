@@ -40,55 +40,76 @@ hr { border:none; border-top:1px solid var(--line); margin:1.5rem 0; }
 <p class="authors">[&quot;Nicholas I-Hsien Kuo&quot;, &quot;Blanca Gallego&quot;, &quot;Louisa Jorm&quot;]</p>
 <p class="meta">arXiv: 2606.08945</p>
 <p class="meta">Date: 2026-06-08</p>
-<p class="meta">Tags: [&quot;ML&quot;]</p>
+<p class="meta">Tags: [&quot;LLM&quot;, &quot;Survival Analysis&quot;, &quot;Healthcare&quot;, &quot;Interpretability&quot;]</p>
 <p class="meta"><a href="https://arxiv.org/abs/2606.08945">https://arxiv.org/abs/2606.08945</a></p>
-<p>⚠️ Abstract-only summary</p>
-<blockquote><strong>一句话总结：</strong> [待生成 — 基于摘要的自动模板]</blockquote>
-<blockquote><strong>TL;DR:</strong> [待生成 — 基于摘要的自动模板]</blockquote>
+<blockquote><strong>一句话总结：</strong> 本文提出把 Cox 比例风险模型估计的 1 年生存风险作为监督目标，通过 LoRA 微调 Qwen2.5-1.5B-Instruct，让 LLM 以纯文本（"Risk: 0.2374"）方式自回归生成患者生存风险——在 WHAS500 上 C-index 达 0.7563（接近 Cox 教师模型的 0.7658），且 t-SNE 显示隐藏态呈现连续的风险梯度。</blockquote>
+<blockquote><strong>TL;DR:</strong> The authors distil a Cox proportional-hazards model's 1-year risk estimates into a Qwen2.5-1.5B-Instruct LLM by converting clinical covariates into text prompts and fine-tuning (LoRA, 4-bit QLoRA, 1.18% trainable params) to autoregressively generate a scalar risk string. On WHAS500 the LLM student reaches C-index 0.7563 ± 0.0121 vs the Cox teacher's 0.7658 ± 0.0099, with calibration error (D²₁) 0.0711 vs 0.0583 — competitive but slightly worse discrimination and calibration, while t-SNE of final-layer hidden states shows a smooth continuous risk gradient.</blockquote>
 <h2>核心贡献</h2>
 <ul>
-<li>[基于摘要待生成]</li>
+<li>提出一种"危险函数→语言空间"的蒸馏范式：用 Cox 模型产生 1 年生存风险数值作为文本监督目标，把生存预测重新表述为自回归条件生成 pθ(yᵢ|φ(xᵢ))，而非传统的生存分析损失（如 Cox partial likelihood）。</li>
+<li>在 Qwen2.5-1.5B-Instruct（4-bit 量化 + LoRA，仅 1.18% 参数可训练）上验证：纯文本形式的监督即可让 LLM 学到有临床意义的生存风险结构，且在 WHAS500、GBSG2、ACTG320 三个数据集上判别力与校准均具竞争力。</li>
+<li>通过 t-SNE 对最终层隐藏态分析，发现 LLM 把生存风险表示为<strong>连续的潜在结构</strong>而非离散风险类别，提示风险信息被真正内化进了表示空间。</li>
+<li>提出该方法在异质临床数据（不同 EHR 系统、不同特征约定、跨国风险方程如 PREDICT/QRISK3/PREVENT）上的潜在灵活性优势——以自然语言描述条件化而非刚性特征模式。</li>
 </ul>
 <h2>Key Contributions</h2>
 <ul>
-<li>Based on abstract analysis (full paper not yet summarized)</li>
+<li>A <em>Cox-supervised language-model</em> pipeline: a Cox model is fit first to produce patient-specific 1-year risk targets rᵢ = 1 − Sᵢ(τ), τ = 365.25 days, which then supervise an LLM that reads a text prompt of the patient's covariates and outputs a scalar risk string (e.g. "0.2374").</li>
+<li>Reformulates censored survival prediction as autoregressive text generation, removing the conventional survival-specific predictive head and loss.</li>
+<li>Demonstrates competitive held-out discrimination and calibration on three public survival benchmarks (WHAS500, GBSG2, ACTG320) despite the model being trained with only a generic SFT completion loss.</li>
+<li>Provides a hidden-state (representation) analysis showing a smooth risk gradient in latent space, evidencing that the risk structure is internalised rather than memorised as discrete buckets.</li>
 </ul>
 <h2>Methodology</h2>
-<p>We investigate whether information about time-to-event risk estimated by a Cox proportional hazards model can be transferred into a generative large language model. We propose a text-based survival modelling pipeline in which structured clinical covariates are converted into text prompts and a Qwen-based large language model is fine-tuned to generate patient-specific survival risk using Cox model predictions as a training target. Across GBSG2, ACTG320, and WHAS500, the model achieves competitive held-out discrimination and calibration despite being trained as a text-generation task rather than with a conventional survival-analysis loss. We further analyse the geometry of the model's hidden states, where t-SNE visualisations reveal smooth risk gradients in latent space, suggesting that the model represents survival risk as a continuous structure rather than isolated risk categories. Together, these findings suggest that large language models can internalise survival-risk structure while supporting calibrated prediction, providing a route towards time-to-event reasoning in language models.</p>
-<p><em>Note: This section is derived from the abstract only. Full methodology details require reading the paper.</em></p>
+<p><strong>Pipeline (Algorithm 1).</strong> For each of multiple runs with different random seeds: (1) split the dataset into stratified 50:50 train/test partitions using the event indicator; (2) fit a Cox proportional hazards model on the training subset using clinical covariates + duration + event; (3) compute Cox 1-year risk estimates for both train and test; (4) convert each training patient row into a structured prompt and pair it with the Cox risk as the completion target; (5) load the 4-bit Qwen base model and attach a LoRA adapter; (6) fine-tune the LoRA adapter on the prompt–completion pairs; (7) on the held-out test set, autoregressively generate a risk string, parse it with a regex to a scalar, and compare to Cox and to observed outcomes.</p>
+<p><strong>Cox-derived risk target (§C.1).</strong> Cox hazard hᵢ(t) = h₀(t)exp(ηᵢ), ηᵢ = Xᵢ⊤β; survival Sᵢ(t) = [S₀(t)]^exp(ηᵢ); risk r̂ᵢ(t) = 1 − Sᵢ(t) at horizon t = 365.25 days (1-year). Implemented via <code>lifelines</code> CoxPHFitter and <code>predict_survival_function</code>.</p>
+<p><strong>Prompt construction (§C.2).</strong> Each prompt = a fixed task instruction ("You are a survival model. Given the following preprocessed clinical covariates, output ONLY the estimated 1-year event risk as a number between 0 and 1.") + "Patient:" block listing each covariate as "- {name}: {value}" + a final "Risk:" cue. Completion = the Cox risk formatted to 4 decimal places (e.g. "0.2374"). Same template for train and test.</p>
+<p><strong>LoRA fine-tuning (§C.3).</strong> Qwen2.5-1.5B-Instruct loaded in 4-bit via Unsloth; LoRA adapters (r=16, alpha=16, dropout=0.05, no rsLoRA) attached to q/k/v/o projections and gate/up/down projections; completion-only SFT loss; gradient checkpointing "unsloth". Trainable params = 18,464,768 of 1,562,179,072 = <strong>1.18%</strong>. Deterministic PyTorch, fixed seeds across Python/NumPy/CUDA. Hardware: NVIDIA Tesla T4 (15.36 GB GPU, 12.67 GB system RAM), Python 3.12.13, PyTorch 2.10.0+cu128, transformers 5.5.0.</p>
+<p><strong>Inference (§C.4).</strong> Autoregressive generation from the held-out prompt, regex extraction of the numeric risk, with output clipping to [0,1] applied only at downstream evaluation.</p>
+<p><strong>Metrics (§C.5).</strong> Harrell's C-index (discrimination); D²₁ absolute calibration error from calibration slope; percentile-based net reclassification improvement (NRI) with NRIcases/NRIcontrols split; subgroup calibration error; parsing success rate.</p>
 <h2>Results & Highlights</h2>
 <ul>
-<li>Key results to be extracted from full paper</li>
+<li><strong>Discrimination near the Cox teacher.</strong> On WHAS500 the Qwen student reaches <strong>C-index 0.7563 ± 0.0121 vs Cox 0.7658 ± 0.0099</strong> (Table 2) — a ~0.01 C-index gap despite using only a generic SFT loss.</li>
+<li><strong>Calibration slightly worse.</strong> D²₁ calibration error is <strong>0.0711 ± 0.0238 (Qwen) vs 0.0583 ± 0.0368 (Cox)</strong> on WHAS500.</li>
+<li><strong>Ranking not fully preserved.</strong> Percentile-based NRItotal = <strong>−0.3032 ± 0.0951</strong>, with larger degradation for event cases (<strong>NRIcases = −0.2067 ± 0.0689</strong>) than controls (<strong>NRIcontrols = −0.0964 ± 0.0468</strong>), meaning the LLM did not reproduce Cox's risk ordering, especially for cases.</li>
+<li><strong>Subgroup calibration mixed.</strong> The LLM beats Cox on D²₁ for AF (<strong>0.191 vs 0.206</strong>) and MI type (<strong>0.156 vs 0.213</strong>) subgroups but is worse on CVD (<strong>0.103 vs 0.054</strong>) and MI order (<strong>0.147 vs 0.092</strong>).</li>
+<li><strong>Smooth continuous risk gradient in latent space.</strong> Figure 2's t-SNE of final-layer hidden states on held-out WHAS500 prompts, coloured by generated 1-year risk, shows a continuous gradient rather than discrete risk clusters — interpreted as the model representing risk as a continuous structure.</li>
+<li><strong>WHAS500 cohort context.</strong> 500 patients, mean age 69.84 ± 14.36, 38.8% female, 43.0% observed event rate, median follow-up 631.5 days; CHF shows the strongest adverse hazard in the fitted Cox model (HR 2.17, 95% CI 1.62–2.91).</li>
 </ul>
 <h2>Authors & Credibility</h2>
 <ul>
-<li>Nicholas I-Hsien Kuo, Blanca Gallego, Louisa Jorm</li>
+<li>All three authors are at the <strong>Centre for Big Data Research in Health, UNSW Sydney, Australia</strong> (stated on the title page). Corresponding author Nicholas I-Hsien Kuo.</li>
+<li>arXiv preprint, arXiv:2606.08945v1 [cs.LG], 8 Jun 2026; no explicit venue stated.</li>
+<li>Code: the paper states "The full codebase will be released upon formal publication" — reproducibility info, hyperparameters, and pipeline functions are provided in appendices, but no public code link is given at submission time.</li>
+<li>Datasets are public via <code>scikit-survival</code> and <code>lifelines</code> packages.</li>
 </ul>
 <h2>Critical Assessment</h2>
 <ul>
-<li><strong>Novelty:</strong> To be assessed from full paper</li>
-<li><strong>Rigor:</strong> To be assessed from full paper</li>
-<li><strong>Reproducibility:</strong> To be assessed from full paper</li>
-<li><strong>Significance:</strong> To be assessed from full paper</li>
-<li><strong>Red flags:</strong> None identified from abstract</li>
+<li><strong>The LLM cannot beat its teacher, by construction.</strong> Because Cox provides the supervision targets, the authors explicitly state Cox "defines the predictive ceiling of the LLM in this study" (§Discussion) — so the framework is, at best, a lossy distillation, and the headline "competitive" result actually means the LLM is slightly worse (lower C-index, higher calibration error, negative NRI).</li>
+<li><strong>No ablation against non-LLM baselines beyond Cox.</strong> The only comparator is the Cox teacher itself; there is no comparison to DeepSurv/DeepHit/transformer survival models (T-Risk) that the paper cites in Related Work, so it is unclear whether text-based generation adds anything over a standard tabular neural survival model.</li>
+<li><strong>Tiny datasets and a single small backbone.</strong> WHAS500 has only 500 patients with a 50:50 split (~250 train), and only Qwen2.5-1.5B-Instruct is tested; no scaling study across model sizes or larger survival cohorts (e.g. the >11,000-admission full WHAS programme) is provided, so generalisation is unproven.</li>
+<li><strong>Parsing/robustness unquantified in the main text.</strong> The pipeline depends on a regex to recover the numeric risk from generated text, and metrics include "parsing success rate," but the main results table does not report it, leaving open how often generation produced malformed output that had to be clipped or discarded.</li>
 </ul>
 <h2>Strengths</h2>
 <ul>
-<li>To be assessed from full paper</li>
+<li>Clean, well-documented, fully reproducible pipeline (deterministic PyTorch, fixed seeds, full hyperparameter table, code-level appendix with Algorithm 1–3 and concrete prompt/completion examples).</li>
+<li>Conceptually novel framing: survival risk as an autoregressive text-generation target rather than a regression head, opening a path toward time-to-event reasoning in LLMs.</li>
+<li>Honest reporting — the authors openly acknowledge the LLM did not outperform Cox and that NRI is negative, rather than overselling.</li>
+<li>Representation-level evidence (t-SNE risk gradient) goes beyond predictive metrics and supports the claim that risk structure is internalised.</li>
 </ul>
 <h2>Limitations</h2>
 <ul>
-<li>To be assessed from full paper</li>
+<li>Cox teacher imposes a hard performance ceiling; the method is fundamentally a distillation, not a new survival learner.</li>
+<li>Substantially higher compute cost than fitting a Cox model (LoRA fine-tuning a 1.5B LLM on a Tesla T4 vs seconds for CoxPHFitter), with no accuracy payoff.</li>
+<li>Multi-institution / heterogeneous-prompt robustness (the main practical motivation) is asserted but not empirically tested — the authors flag it as future work.</li>
+<li>Small public datasets and single model size limit external validity.</li>
 </ul>
 <h2>Relevance</h2>
-<ul>
-<li>相关性评分：5/5（基于关键词匹配）</li>
-<li>待进一步分析</li>
-</ul>
+<p>这篇工作映射到用户的「LLM Hidden States & Interpretability」兴趣区：其核心贡献之一正是分析 LLM 隐藏态几何（t-SNE 揭示连续风险梯度），考察生存风险如何在语言模型的表示空间中被结构化。它同时也触及「LLM Inference Evaluation」——把生存分析这种带删失的回归任务改造成文本生成任务来评测 LLM 的判别力与校准——以及「ML Reliability & Mathematical Foundations」（把统计生存模型的风险估计作为监督信号蒸馏进 LLM 的可靠性）。</p>
 <h2>Questions for Further Exploration</h2>
 <ul>
-<li>What are the specific technical contributions beyond the abstract?</li>
-<li>How does this compare to concurrent work in the same area?</li>
+<li>The negative NRI (−0.3032 total, −0.2067 for cases) shows the LLM systematically re-ranks patients vs Cox; is this driven by the 4-decimal-place tokenisation of the target, by LoRA under-fitting, or by the 50:50 tiny training split — and does a finer-grained (more decimals) or regression-head ablation close the gap?</li>
+<li>The paper cites DeepSurv, DeepHit and T-Risk as related deep survival models but never compares against them; would a tabular neural survival baseline (DeepHit on the same 50:50 WHAS500 split) beat the LLM student, undermining the value of the text-based formulation?</li>
+<li>The t-SNE risk gradient is qualitative — could a quantitative probe (linear probe R² on hidden states predicting the Cox risk) confirm that the continuous risk structure is linearly decodable, as the t-SNE figure suggests?</li>
+<li>Prompt-robustness is the stated practical motivation (heterogeneous EHR schemas, PREDICT vs QRISK3 vs PREVENT feature conventions); can the authors show the fine-tuned LLM actually transfers across differently-formatted prompts without retraining, which is the only setting where it could beat a rigid-schema Cox model?</li>
 </ul>
 <p class="note">Generated from Markdown summary. Full paper: <a href="https://arxiv.org/abs/2606.08945">arXiv:2606.08945</a></p>
 </div>

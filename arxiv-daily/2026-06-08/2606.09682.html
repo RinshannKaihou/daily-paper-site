@@ -40,78 +40,78 @@ hr { border:none; border-top:1px solid var(--line); margin:1.5rem 0; }
 <p class="authors">[&quot;Jaber Jaber&quot;, &quot;Osama Jaber&quot;]</p>
 <p class="meta">arXiv: 2606.09682</p>
 <p class="meta">Date: 2026-06-08</p>
-<p class="meta">Tags: [&quot;Systems&quot;, &quot;CUDA&quot;, &quot;Inference&quot;, &quot;LLM&quot;, &quot;Compilation&quot;]</p>
 <p class="meta"><a href="https://arxiv.org/abs/2606.09682">https://arxiv.org/abs/2606.09682</a></p>
-<p>⚠️ Abstract-only summary</p>
-<blockquote><strong>一句话总结：</strong> AutoMegaKernel 将 HuggingFace Llama 模型编译为单一 CUDA megakernel，通过静态图检查保证无死锁/无竞态，并在 int8 精度下于推理级 GPU 上超越 cuBLAS bf16。</blockquote>
-<blockquote><strong>TL;DR:</strong> Compiles entire LLM forward passes into single CUDA kernels with static safety validation; achieves 1.19-1.33x speedup over cuBLAS bf16 on inference-class GPUs (L4, L40S, RTX 5090) using W8A16 quantization.</blockquote>
+<blockquote><strong>一句话总结：</strong> AutoMegaKernel（AMK）将 HuggingFace Llama 系列模型整个前向过程编译为单一持久协作 CUDA megakernel（无手工 CUDA），其冻结的 schedule-IR 验证器在 7,160 个对抗调度（6,091 不安全）中零误判地拒绝所有不安全调度，并在 SmolLM2-135M 上逐 token 复现 HuggingFace greedy 解码、perplexity 误差 2.5×10⁻⁷；自动生成的 int8 权重量化 megakernel 在推理级 GPU（L4 最高 1.33×、L40S 1.25–1.27×、A10G 1.08×、RTX 5090 1.19–1.23×）上以 W8A16 对比 cuBLAS bf16 取得真实优势。</blockquote>
+<blockquote><strong>TL;DR:</strong> AMK compiles a HuggingFace Llama-family model into a single persistent cooperative CUDA kernel with no per-model hand-written CUDA, and makes correctness a static property: a frozen schedule-IR validator had zero false-accepts across 7,160 adversarial schedules (6,091 unsafe) while accepting all 360 real lowerings (24 bit-exact vs eager). On the real SmolLM2-135M checkpoint it reproduces HuggingFace greedy decode token-for-token and matches teacher-forced perplexity to 2.5×10⁻⁷. A search-found int8 weight-only (W8A16) megakernel beats CUDA-graphed cuBLAS bf16 at batch-1 on the NVIDIA L4 by up to 1.33×, L40S by 1.25–1.27×, A10G by up to 1.08×, and RTX 5090 by 1.19–1.23× (a precision-asymmetric win that holds on inference-class but not training-class A100/H100 silicon, disclosed honestly).</blockquote>
 <h2>核心贡献</h2>
 <ul>
-<li>首个将 Llama 系列模型编译为单一持久协作 CUDA megakernel 的系统，无需手工 CUDA 代码</li>
-<li>静态 IR 验证器通过图检查（非机械化证明）保证无死锁和无竞态：7160 个对抗调度中零误报，360 个真实 lowering 全部通过</li>
-<li>同一代码库自动适配 sm_80/sm_90/sm_120 三代 GPU 架构，自动生成 10/10 模型的正确 megakernel</li>
-<li>Agent 驱动的自改进循环可自动优化 megakernel（1.25-1.72x 加速）</li>
-<li>int8 (W8A16) megakernel 在推理级 GPU 上超越 CUDA-graphed cuBLAS bf16</li>
+<li><strong>静态安全门控的 megakernel 编译器</strong>：冻结的 <code>validate()</code>（schedule/ir.py, 1150 行）通过一组静态图检查（DAG 无环、wait 满足性 1≤t≤#producers、每 SM 队列序、shared-counter all-join、传递 happens-before 等）证明无死锁与无竞态；在 7,160 个对抗调度中零误判（接受全部 360 个真实 lowering）。</li>
+<li><strong>零手工 CUDA 的自动生成</strong>：对全部 10 个支持模型（含 SmolLM2-135M/360M、TinyLlama-1.1B 真实 checkpoint，IR 任务数最高 3,410）自动生成正确 megakernel，并在 SmolLM2-135M 上逐 token 匹配 HuggingFace greedy 解码、perplexity 误差 2.5×10⁻⁷。</li>
+<li><strong>自重定向多架构</strong>：同一份源码在 sm_80（A100）、sm_90（H100）、sm_120（RTX 5090）上生成正确 megakernel，gencode 由设备自动派生，fp32 误差 ≤4.2×10⁻⁷。</li>
+<li><strong>int8/int4 权重量化自动生成</strong>：int8（W8A16）greedy 无损且每 token 快 1.12×；int4 将权重流量下限降 2.42×（混合）但有精度代价。</li>
+<li><strong>无人值守 agent 自改进循环</strong>：propose→validate→correctness-gate→measure→keep/revert，带漂移鲁棒的 per-sample 交错测量与物理 roofline-floor 诚实守卫，自身基线上获得 1.25–1.72× 提升。</li>
 </ul>
 <h2>Key Contributions</h2>
 <ul>
-<li>First system to compile HuggingFace Llama-family models into single persistent cooperative CUDA kernels with no per-model hand-written CUDA</li>
-<li>Frozen schedule-IR validator certifies deadlock-freedom and race-freedom via static graph checks (zero false-accepts across 7,160 adversarial schedules)</li>
-<li>Single codebase retargets sm_80/sm_90/sm_120, auto-generates correct megakernels for all 10 supported models</li>
-<li>Agent-driven autoresearch loop self-improves megakernels (1.25-1.72x over baseline)</li>
-<li>W8A16 megakernel beats CUDA-graphed cuBLAS bf16 at batch-1 decode on inference-class GPUs</li>
+<li>A statically-checked schedule IR with a frozen validator that certifies deadlock-freedom and race-freedom before any launch via static graph checks (not a mechanized proof), stress-tested to zero false-accepts across 7,160 adversarial schedules (6,091 oracle-unsafe) while accepting all 360 real lowerings (24 re-run bit-for-bit vs eager).</li>
+<li>Automatic generation coverage: a correct megakernel is auto-generated for 10 of 10 supported models with zero hand-written CUDA, including three real HF checkpoints up to TinyLlama-1.1B (3,410 IR tasks), token-for-token vs eager; 3 of 4 unsupported variants are rejected loudly at import.</li>
+<li>Self-retargeting: the same source builds and runs correct megakernels on sm_120 (RTX 5090), sm_80 (A100), and sm_90 (H100), matching eager to ≤4.2×10⁻⁷ (fp32) on toy/synthetic and 3.8×10⁻⁵ on the real SmolLM2-135M checkpoint.</li>
+<li>int8/int4 weight-only quantized megakernel auto-generation: int8 (W8A16) is greedy-lossless and 1.12× faster per token; int4 cuts the weight-traffic floor 2.42× (blended) at a documented accuracy cost.</li>
+<li>An unattended agent-drivable autoresearch loop that autonomously improves the megakernel over its own baseline (1.25–1.72× measured) with drift-robust per-sample-interleaved measurement and a physical-roofline-floor honesty guard.</li>
 </ul>
 <h2>Methodology</h2>
-<p>AMK takes a HuggingFace Llama-family model and compiles the entire forward pass into a single CUDA kernel launch. A schedule-IR layer enables an agent to propose kernel schedules, which are then validated by a frozen static checker that performs graph-based analysis for deadlock and race conditions. The system supports multi-architecture targeting (sm_80/sm_90/sm_120) from one codebase. An unattended agent-driven autoresearch loop iteratively improves the generated megakernels. The int8 variant uses weight-only quantization (W8A16) for decode workloads.</p>
+<p><strong>System architecture (four layers + two loops).</strong> Layer 0 is the VM (vm/scheduler.cu, 132 lines; vm/loader.py, 857 lines): the persistent cooperative megakernel — one <code>cudaLaunchCooperativeKernel</code> co-resides one threadblock per SM; each block owns one SM-queue and walks it in global topological order executing wait→dispatch→signal. It is hand-written, exhaustively verified, and frozen per architecture. Layer 1 (instructions/) holds ABI-conformant micro-kernels (GEMV, attention, RMSNorm, RoPE), each correctness-checked against its reference op in isolation. Layer 2 (schedule/ir.py 1150 lines; schedule/graph.py 548 lines) imports an HF model, lowers it to a tiled task-DAG over an SM-level DAG synchronized by monotonic uint32 counters, and validates it. Layer 3 is a roadmap placeholder.</p>
+<p><strong>Synchronization model.</strong> Cross-task signalling is only through monotonic uint32 counters: each task on completion issues a device-scope release fence then <code>atomicAdd(+1)</code> on exactly one <code>out_counter</code>; before executing, a task waits on a set of (counter, threshold) pairs with statically known thresholds via an acquire-load spin with exponential backoff and a WDDM watchdog escape. No locks, no arbitrary signalling. One kernel launch = one forward pass = one decoded token; counters are host-memset to zero before each launch and the KV cache persists in HBM across launches.</p>
+<p><strong>Validator (<code>validate()</code>).</strong> Returns a <code>ValidationResult</code> and never raises; a rejected result prevents launch. Checks (Table 2): referential integrity/arity/params, ABI capacity caps (inputs>8, outputs>4, waits>8, rank>4), wait satisfiability (1≤t≤#producers), DAG acyclicity (Kahn's algorithm, safe at 5000+ nodes), per-SM queue order (linear extension of DAG), shared-counter all-join (rejects partial waits 1<t<#producers as first-k-of-N races), transitive happens-before (per-task bitmask of buffers written by predecessors), KV_CACHE ordering, output reachability.</p>
+<p><strong>The ScheduleConfig edit surface.</strong> The Layer-2 agent proposes a structured object, not kernel code: tiling, fusion_grouping, sm_assignment (round_robin/load_balance/explicit), pipelining_depth, page_allocation, threads_per_block, smem_bytes_per_block. The frozen VM lowers any point deterministically and <code>validate()</code> guarantees safety regardless of the point chosen.</p>
+<p><strong>Hardware.</strong> Seven GPUs: RTX 5090 Laptop (sm_120, 82 SMs, 896 GB/s spec / 731 GB/s measured), A100-SXM4-40GB (sm_80, 1555/1383 GB/s), H100-80GB-HBM3 (sm_90, 3350/3089 GB/s), plus inference-class L4 (sm_89, 300 GB/s), L40S (sm_89, 864 GB/s), A10G (sm_86, 600 GB/s), T4 (sm_75, 320 GB/s). torch 2.11.0+cu128; datacenter runs on Modal.</p>
+<p><strong>Measurement.</strong> CUDA-event timing, 25 warmup + 100 iterations, median with p10/p90; clocks unpinned in the main study (clock-pinned re-measurement within ±0.8 pp). Every latency is correctness-gated (eval/bench.py refuses to emit without a PASS vs eager oracle). int8-vs-cuBLAS ratios are kernel-only, per-sample paired-interleaved (AMK <code>vm.relaunch</code> whole forward vs cuBLAS <code>g.replay</code> of a captured graph), ratio = cuBLAS/AMK so drift cancels.</p>
 <h2>Results & Highlights</h2>
 <ul>
-<li><strong>Safety validation</strong>: 0 false-accepts out of 6,091 unsafe schedules; all 360 real lowerings accepted</li>
-<li><strong>Numerical correctness</strong>: Reproduces HuggingFace greedy decode token-for-token on SmolLM2-135M (perplexity match 2.5e-7)</li>
-<li><strong>Inference-class GPU speedup</strong> (W8A16 vs cuBLAS bf16):</li>
-<li>L4: up to 1.33x</li>
-<li>L40S: 1.25-1.27x</li>
-<li>A10G: up to 1.08x</li>
-<li>RTX 5090: 1.19-1.23x</li>
-<li><strong>Training-class GPU gap</strong>: Trails cuBLAS on A100/H100 (bandwidth-bound, cross-SM-sync bottleneck reported honestly)</li>
+<li><strong>Validator soundness (headline safety claim):</strong> across 6,091 oracle-confirmed-unsafe schedules, <code>validate()</code> produced zero false-accepts (rate 0.0000%), rejecting all 6,091 while accepting all 360 real lowerings; 24 of 24 re-lowered accepted schedules ran in the ReferenceVM and matched eager PyTorch bit-for-bit (Table 5). Validation runs at ~5,150 schedules/s on CPU.</li>
+<li><strong>Numerical correctness on real checkpoint:</strong> on SmolLM2-135M, AMK matches HuggingFace teacher-forced perplexity to 6 significant figures (14.948473 vs 14.948473, gap 2.45×10⁻⁷), 64-token greedy decode is byte-identical to <code>model.generate</code> (64/64 tokens); on A100/H100 the megakernel reproduces HF greedy decode token-for-token (divergence index 8 of 8) and matches eager to ≤3.2×10⁻⁷.</li>
+<li><strong>Inference-fleet int8 win (W8A16 vs CUDA-graphed cuBLAS bf16, batch-1):</strong> L4 1.18× (1.3B) → 1.33× (4B, peak, still climbing); L40S 1.25× (4B) → 1.27× (6.7B); A10G parity (2.7B) → 1.08× (4B); consumer RTX 5090 1.19× (4L/623MB) → 1.23× (8L/984MB) — all with p10 > 1 at every size (Table 10).</li>
+<li><strong>Quantization trade-offs (RTX 5090, 4-layer model):</strong> int8 1371.2 µs/token vs bf16 1537.4 (1.12× per-token, 1.18× kernel-only, greedy-lossless 32/32 tokens); int4 1450.6 µs/token (1.06×) but lossy (~22% token agreement) — naive round-to-nearest nibble-unpack is compute-bound (only 0.18× cuBLAS on L4).</li>
+<li><strong>Autoresearch self-improvement:</strong> cold campaign reaches 1.72× drift-free (default 2168→1261 µs at iteration 2); agent-in-the-loop drift-robust median 1.25× (2514→1991 µs, 12 experiments, 6 kept); a 10-minute campaign self-improves 1.47× over AMK's own start and reaches 0.88× of cuBLAS-graphed eager (within ~13%).</li>
+<li><strong>Honest boundary (loses):</strong> on training-class A100/H100 the int8 megakernel trails cuBLAS (A100 ~0.79× at 1.3B down to ~0.55× at 13B; H100 ~0.72× down to ~0.60×); the harness localizes the cause as per-tile cross-SM synchronization (both a cp.async staging ring and split-KV attention regressed). Whole-decode H100 SmolLM2-135M: AMK 14.30 ms/token vs vLLM cudagraph 8.65 ms (1.65× slower).</li>
+<li><strong>Kernel-quality gap (disclosed):</strong> optimized bf16 GEMV reaches ~460 GB/s (~51% spec / ~63% measured peak) vs cuBLAS ceiling ~661 GB/s (~90% measured peak); whole-decode loses to CUDA-graphed cuBLAS by 1.13× (~13%).</li>
 </ul>
 <h2>Authors & Credibility</h2>
 <ul>
-<li>Jaber Jaber and Osama Jaber — independent researchers at RightNow-AI</li>
-<li>Open-source code available at https://github.com/RightNow-AI/AutoMegaKernel</li>
-<li>Comprehensive evaluation across multiple GPU architectures and model sizes</li>
+<li>Authors: Jaber Jaber and Osama Jaber, both at RightNow AI (jaber@rightnowai.co, osama@rightnowai.co). Self-funded effort with no institutional or industry compute grant; all datacenter measurements were short, budgeted cloud rentals on Modal (~a few GPU-hours total).</li>
+<li>Code, data, and the agent harness are open-source at https://github.com/RightNow-AI/AutoMegaKernel (project page https://www.rightnowai.co/).</li>
+<li>The paper is an arXiv preprint ([cs.LG], v1, 8 Jun 2026); it explicitly extends the authors' prior AutoKernel work (cited as [13], "up to 5.29× over PyTorch eager via iterative agent-driven search").</li>
+<li>The honesty of reporting (disclosing the A100/H100 losses, the Qwen2 silent-accept blind spot, the int4 lossiness, and the kernel-quality gap to cuBLAS) is a notable credibility signal.</li>
 </ul>
 <h2>Critical Assessment</h2>
 <ul>
-<li><strong>Novelty</strong>: High — the combination of static safety checking + agent-driven kernel synthesis + single-kernel compilation is novel</li>
-<li><strong>Rigor</strong>: Strong — adversarial evaluation with 7,160 schedules, numerical verification via perplexity matching</li>
-<li><strong>Reproducibility</strong>: Good — open-source code, clear hardware specs, honest reporting of where the system trails</li>
-<li><strong>Significance</strong>: High for inference deployment — the inference vs training-class GPU distinction is an important insight</li>
-<li><strong>Red flags</strong>: Largest real checkpoint tested is TinyLlama-1.1B; unclear if the approach scales to 7B/70B models. The comparison is precision-asymmetric (W8A16 vs bf16) which is somewhat unfair</li>
+<li><strong>The headline cuBLAS win is precision-asymmetric (W8A16 vs bf16), not a faster kernel.</strong> The authors flag this honestly, but the abstract's framing ("beats cuBLAS bf16") could mislead: the equal-precision control (AMK bf16 vs cuBLAS bf16) trails cuBLAS at every depth (0.76–0.88×, Figure 6), so the win comes entirely from streaming ~0.61× the weight bytes via near-lossless int8, not from a better per-byte GEMV. A Marlin-class hand-built quantized GEMV would likely widen the margin further and is exactly the Layer-1 micro-kernel AMK does not yet have.</li>
+<li><strong>Largest real checkpoint is TinyLlama-1.1B; the fleet speed sweeps use random-initialized weights.</strong> The int8-fleet wins in Table 10 are on random-initialized, Llama-shaped models (justified because batch-1 latency is shape/byte-determined), but the near-lossless W8A16 quality is only established on the 135M SmolLM2 checkpoint — there is no real-weight quality validation at 4B/6.7B where the peak speedups are claimed.</li>
+<li><strong>Validator is empirical soundness over a trusted base, not formal verification.</strong> The authors state this plainly, but it means the "zero false-accepts" claim holds only over the 8 injected unsafe classes and the random-DAG generator; a ninth hazard class not in the test population is not covered. The Qwen2 silent-accept bug (hardcoded q/k/v biases pass the config-only check, logit error 2.47) is a concrete instance of the config-inspection blind spot.</li>
+<li><strong>vLLM comparison uses dtype=float32, not vLLM's bf16 default.</strong> The H100 row (AMK 14.30 ms vs vLLM cudagraph 8.65 ms, AMK 1.65× slower) is the only fair default-mode comparison and AMK loses; the A100 row is enforce_eager only (no CUDA-graph baseline collected). Combined with the self-funded compute constraint, the datacenter performance gap partly reflects optimization effort not afforded rather than a fundamental ceiling.</li>
 </ul>
 <h2>Strengths</h2>
 <ul>
-<li>Zero-trust safety model: unsafe agent proposals are caught before launch</li>
-<li>Honest about limitations on training-class GPUs (A100/H100)</li>
-<li>Practical focus on inference-class GPUs where deployment economics matter most</li>
-<li>Multi-architecture support from single codebase</li>
+<li>Genuinely novel static-safety gate: turning "an agent can edit the schedule" from a hazard into a safe operation, with the 7,160-schedule stress test providing empirical evidence (zero false-accepts) that MPK and hand-built megakernels do not provide.</li>
+<li>Exceptional honesty: the paper discloses every losing direction (A100/H100 deficit, vLLM loss, int4 lossiness, cuBLAS kernel-quality gap, Qwen2 blind spot) rather than cherry-picking, and reports both spec and measured roofline denominators.</li>
+<li>Correctness-by-construction architecture (typed schedule IR + counter-synced task-DAG + frozen VM) that decouples the agent's edit surface from the trusted base — a clean design for safe agent-driven systems.</li>
+<li>Real-checkpoint numerical validation (token-for-token HF greedy match, 6-sig-fig perplexity) is stronger than the typical systems-paper "looks close" check.</li>
 </ul>
 <h2>Limitations</h2>
 <ul>
-<li>Only tested up to TinyLlama-1.1B — scaling to larger models is unproven</li>
-<li>Precision-asymmetric comparison (W8A16 vs bf16) complicates interpretation</li>
-<li>Static checking is graph-based, not a formal mechanized proof</li>
-<li>Trails cuBLAS on high-bandwidth training GPUs</li>
+<li>Architecture coverage is the bias-free, full-rotary, SiLU-SwiGLU, RMSNorm, GQA Llama family only; MoE routing, sliding-window/fused-QKV attention, partial/scaled RoPE, and biased projections are rejected at import (one documented Qwen2 silent-accept exception).</li>
+<li>Only batch-1, position-0, empty-KV decode is measured; long-context per-token latency (where KV traffic becomes a second bandwidth term) is not measured.</li>
+<li>ncu/Nsight hardware counters were unavailable on the Modal account, so all utilization figures are wall-clock + analytic roofline, not measured DRAM-throughput counters.</li>
+<li>Self-funded compute bounded the experimental scope: no long sustained autotuning campaigns or iterative tensor-core/DP4A GEMV development, so the datacenter gap partly reflects effort, not a fundamental ceiling.</li>
 </ul>
 <h2>Relevance</h2>
-<ul>
-<li>相关性评分：5/5</li>
-<li>直接涉及 LLM 推理效率、量化精度和分布式计算的可靠性问题，与推理评估和计算可靠性高度相关</li>
-</ul>
+<p>本文与"<strong>Computation Reliability & Precision Errors</strong>"高度相关：它系统比较了 bf16/int8(W8A16)/int4 权重量化在不同 GPU 架构上的精度保真度（int8 greedy 无损、int4 约 22% token 不一致）与速度，并量化了精度非对称比较（W8A16 vs bf16）对结论的影响。同时其冻结的静态验证器（zero false-accepts 保证无死锁/无竞态）是"<strong>ML Reliability & Mathematical Foundations</strong>"中关于形式化/静态安全保证的典型案例；无人值守的 agent 自改进循环直接映射到"<strong>Self-Evolving Agents & Automated Research</strong>"。</p>
 <h2>Questions for Further Exploration</h2>
 <ul>
-<li>How does the approach scale to 7B/70B models? Is the single-kernel approach memory-feasible?</li>
-<li>What is the compilation time for larger models?</li>
-<li>Can the static checker be extended to verify numerical correctness properties?</li>
+<li>The fleet int8 speedups (Table 10) are on random-initialized Llama shapes; would the near-lossless W8A16 quality (argmax-exact, greedy-token-identical) hold at the 4B/6.7B sizes where the peak 1.33× is claimed, or does weight distribution shift with scale?</li>
+<li>The validator is empirical soundness over 8 injected unsafe classes — does adding a ninth hazard class (e.g., the Qwen2 hardcoded-bias config-inspection blind spot, which silently passed with logit error 2.47) reveal further gaps that a state-dict bias scan alone would not close?</li>
+<li>The diagnosed A100/H100 boundary is per-tile cross-SM synchronization (both cp.async staging and split-KV attention regressed) — would a coarser-sync scheduler (fewer grid-wide barriers per layer) extend the int8 win onto training-class silicon, as the paper hypothesizes?</li>
+<li>The paper cites Marlin [11] as the hand-built quantized GEMV that would close the kernel-quality gap; can the agent-driven loop autonomously discover and consume a Marlin-class Layer-1 micro-kernel, or does that step still require human kernel engineering?</li>
 </ul>
 <p class="note">Generated from Markdown summary. Full paper: <a href="https://arxiv.org/abs/2606.09682">arXiv:2606.09682</a></p>
 </div>

@@ -1,0 +1,582 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MemDefrag — Latent Memory Defragmentation for LLMs</title>
+<style>
+  :root{
+    --bg:#faf8f3;
+    --paper:#ffffff;
+    --ink:#16140f;
+    --ink-soft:#5c564a;
+    --rule:#e3ddcf;
+    --rule-strong:#2a271f;
+    --accent:#c2410c;          /* burnt orange — single accent */
+    --accent-soft:#fbe9df;
+    --warn:#7c2d12;
+    --serif: "Iowan Old Style", "Apple Garamond", Georgia, "Hoefler Text", serif;
+    --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+    --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Roboto Mono", Menlo, monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    background:var(--bg);
+    color:var(--ink);
+    font-family:var(--sans);
+    font-size:16px;
+    line-height:1.55;
+    -webkit-font-smoothing:antialiased;
+    text-rendering:optimizeLegibility;
+  }
+  ::selection{background:var(--accent);color:#fff}
+
+  /* ---------- fixed top-left nav ---------- */
+  .topnav{
+    position:fixed; top:14px; left:16px; z-index:50;
+    background:var(--ink); color:#f6efe1;
+    font-family:var(--mono); font-size:12px; letter-spacing:.02em;
+    padding:7px 12px; border-radius:2px;
+    text-decoration:none;
+    box-shadow:0 6px 18px -8px rgba(0,0,0,.5);
+    transition:background .15s ease;
+  }
+  .topnav:hover{background:var(--accent)}
+
+  .wrap{
+    width:min(95vw,1100px);
+    margin:0 auto;
+    padding:0 20px 80px;
+  }
+
+  /* ---------- hero band ---------- */
+  .hero{
+    padding:84px 0 26px;
+    border-bottom:1px solid var(--rule-strong);
+    position:relative;
+  }
+  .eyebrow{
+    font-family:var(--mono); font-size:11px; letter-spacing:.22em;
+    text-transform:uppercase; color:var(--accent);
+    display:flex; align-items:center; gap:10px; margin-bottom:18px;
+  }
+  .eyebrow .dot{width:7px;height:7px;background:var(--accent);border-radius:50%}
+
+  .title-line{
+    font-family:var(--mono); font-size:13px; color:var(--ink-soft);
+    margin-bottom:6px;
+  }
+  .title-line a{
+    color:var(--ink); text-decoration:none;
+    border-bottom:1.5px solid var(--accent);
+    font-weight:600;
+  }
+  .title-line a:hover{color:var(--accent)}
+
+  .finding{
+    font-family:var(--serif);
+    font-weight:600;
+    font-size:clamp(30px,5.4vw,58px);
+    line-height:1.04;
+    letter-spacing:-0.015em;
+    margin:10px 0 24px;
+    max-width:18ch;
+  }
+  .finding em{
+    font-style:italic;
+    color:var(--accent);
+    font-weight:600;
+  }
+  .finding .mark{
+    background:linear-gradient(transparent 62%, var(--accent-soft) 62%);
+    padding:0 .04em;
+  }
+
+  .meta{
+    display:flex; flex-wrap:wrap; gap:10px 22px; align-items:center;
+    font-size:13.5px; color:var(--ink-soft);
+    margin-bottom:16px;
+  }
+  .meta b{color:var(--ink); font-weight:600}
+  .meta .sep{color:var(--rule)}
+
+  .chips{display:flex; flex-wrap:wrap; gap:7px; margin-top:6px}
+  .chip{
+    font-family:var(--mono); font-size:11px;
+    padding:4px 9px; border:1px solid var(--rule-strong);
+    border-radius:999px; color:var(--ink);
+    background:var(--paper);
+  }
+  .chip.accent{background:var(--ink); color:#f6efe1; border-color:var(--ink)}
+
+  /* defrag motif */
+  .defrag{
+    display:flex; align-items:flex-end; gap:3px;
+    height:46px; margin-top:22px; max-width:520px;
+  }
+  .defrag i{
+    display:block; width:9px; background:var(--rule-strong);
+    border-radius:1px; transform-origin:bottom;
+    animation:reorder 1.4s cubic-bezier(.6,0,.2,1) both;
+  }
+  @keyframes reorder{
+    0%{height:12%;opacity:.3}
+    50%{height:100%}
+    100%{opacity:1}
+  }
+
+  /* ---------- asset row ---------- */
+  .assets{
+    display:grid;
+    grid-template-columns:1.15fr 1fr 1fr;
+    gap:0;
+    margin-top:0;
+    border-bottom:1px solid var(--rule-strong);
+  }
+  .asset{
+    padding:26px 24px 28px;
+    border-right:1px solid var(--rule);
+    position:relative;
+  }
+  .asset:last-child{border-right:none}
+  .asset .lbl{
+    font-family:var(--mono); font-size:10.5px; letter-spacing:.2em;
+    text-transform:uppercase; color:var(--ink-soft); margin-bottom:14px;
+    display:flex; align-items:center; gap:8px;
+  }
+  .asset .lbl .n{
+    width:18px;height:18px;display:inline-flex;align-items:center;justify-content:center;
+    background:var(--accent); color:#fff; border-radius:50%; font-size:10px; letter-spacing:0;
+  }
+
+  .asset.metric{background:var(--ink); color:#f6efe1}
+  .asset.metric .lbl{color:#c9bfa6}
+  .metric .big{
+    font-family:var(--serif); font-weight:600;
+    font-size:clamp(46px,7vw,76px); line-height:.95;
+    letter-spacing:-0.02em; color:#fff;
+  }
+  .metric .big sup{font-size:.34em; vertical-align:super; color:var(--accent); font-weight:700}
+  .metric .delta{
+    margin-top:8px; font-size:13.5px; color:#d8cdb2;
+  }
+  .metric .delta b{color:var(--accent); font-weight:700}
+  .metric .ctx{
+    margin-top:10px; font-size:12.5px; color:#b3a78c;
+    font-family:var(--mono);
+  }
+
+  .asset.matter .body, .asset.edge .body{
+    font-size:14.5px; color:var(--ink); line-height:1.5;
+  }
+  .asset.edge{background:var(--accent-soft)}
+  .asset.edge .lbl .n{background:var(--warn)}
+  .asset.edge .body{color:var(--warn)}
+
+  /* ---------- section primitives ---------- */
+  section{padding:42px 0 8px; border-bottom:1px solid var(--rule);}
+  .sec-head{
+    display:flex; align-items:baseline; gap:12px; margin-bottom:18px;
+  }
+  .sec-head h2{
+    font-family:var(--serif); font-weight:600;
+    font-size:26px; letter-spacing:-0.01em; margin:0;
+  }
+  .sec-head .tag{
+    font-family:var(--mono); font-size:11px; color:var(--ink-soft);
+    letter-spacing:.14em; text-transform:uppercase;
+  }
+
+  /* methodology */
+  .method-grid{
+    display:grid; grid-template-columns:1.4fr 1fr; gap:34px;
+  }
+  .method-grid p{margin:0 0 12px; font-size:15px; color:#2a271f}
+  .method-grid p .kw{color:var(--accent); font-weight:600}
+  .pipeline{
+    border:1px solid var(--rule-strong); background:var(--paper);
+    padding:18px 18px 16px; border-radius:3px;
+  }
+  .pipeline h4{
+    margin:0 0 12px; font-family:var(--mono); font-size:11px;
+    letter-spacing:.16em; text-transform:uppercase; color:var(--ink-soft);
+  }
+  .step{
+    display:flex; gap:12px; align-items:flex-start;
+    padding:9px 0; border-bottom:1px dashed var(--rule);
+  }
+  .step:last-child{border-bottom:none}
+  .step .s{
+    flex:0 0 22px; height:22px; border:1px solid var(--ink);
+    border-radius:50%; display:flex; align-items:center; justify-content:center;
+    font-family:var(--mono); font-size:11px; font-weight:700;
+  }
+  .step.active .s{background:var(--accent); color:#fff; border-color:var(--accent)}
+  .step .t{font-size:13.5px; line-height:1.4}
+  .step .t b{font-weight:600}
+  .step .t code{
+    font-family:var(--mono); font-size:12px; background:var(--accent-soft);
+    padding:1px 5px; border-radius:2px; color:var(--warn);
+  }
+
+  /* results / tabs */
+  .seg{
+    display:inline-flex; border:1px solid var(--rule-strong); border-radius:3px;
+    overflow:hidden; margin-bottom:18px;
+  }
+  .seg button{
+    font-family:var(--mono); font-size:12px; letter-spacing:.04em;
+    background:var(--paper); color:var(--ink); border:none;
+    padding:9px 14px; cursor:pointer; border-right:1px solid var(--rule);
+    transition:background .12s;
+  }
+  .seg button:last-child{border-right:none}
+  .seg button.on{background:var(--ink); color:#f6efe1}
+  .seg button:hover:not(.on){background:var(--accent-soft)}
+
+  .panel{display:none}
+  .panel.on{display:block; animation:fade .25s ease}
+  @keyframes fade{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+
+  table{
+    width:100%; border-collapse:collapse; font-size:13.5px;
+    background:var(--paper); border:1px solid var(--rule-strong);
+  }
+  caption{
+    text-align:left; font-family:var(--mono); font-size:11px;
+    letter-spacing:.12em; text-transform:uppercase; color:var(--ink-soft);
+    padding:6px 2px 10px;
+  }
+  th,td{padding:10px 12px; text-align:left; border-bottom:1px solid var(--rule)}
+  thead th{
+    font-family:var(--mono); font-size:11px; letter-spacing:.08em;
+    text-transform:uppercase; color:var(--ink-soft);
+    background:#f4efe2; border-bottom:1px solid var(--rule-strong);
+  }
+  tbody tr:last-child td{border-bottom:none}
+  td.num{font-family:var(--mono); text-align:right; white-space:nowrap}
+  td .best{font-weight:700; color:var(--accent)}
+  td .muted{color:var(--ink-soft)}
+  tr.win td{background:var(--accent-soft)}
+  .t-note{font-size:12px; color:var(--ink-soft); margin-top:10px; font-family:var(--mono)}
+
+  /* strengths / limitations */
+  .duo{
+    display:grid; grid-template-columns:1fr 1fr; gap:0;
+    border:1px solid var(--rule-strong); border-radius:3px; overflow:hidden;
+  }
+  .duo > div{padding:20px 22px}
+  .duo .pos{background:var(--paper); border-right:1px solid var(--rule)}
+  .duo .neg{background:#f4efe2}
+  .duo h3{
+    font-family:var(--mono); font-size:11px; letter-spacing:.18em;
+    text-transform:uppercase; margin:0 0 12px;
+  }
+  .duo .pos h3{color:var(--accent)}
+  .duo .neg h3{color:var(--warn)}
+  .duo ul{margin:0; padding-left:0; list-style:none}
+  .duo li{
+    font-size:13.5px; line-height:1.45; padding:8px 0 8px 20px;
+    position:relative; border-top:1px dashed var(--rule);
+  }
+  .duo li:first-child{border-top:none}
+  .duo .pos li::before{content:"+"; position:absolute; left:0; color:var(--accent); font-weight:700; font-family:var(--mono)}
+  .duo .neg li::before{content:"!"; position:absolute; left:0; color:var(--warn); font-weight:700; font-family:var(--mono)}
+
+  /* questions */
+  .q-list{list-style:none; padding:0; margin:0;
+    display:grid; grid-template-columns:1fr 1fr; gap:0}
+  .q-list li{
+    font-size:13.5px; line-height:1.45; padding:14px 18px;
+    border-left:3px solid var(--rule-strong);
+    border-bottom:1px solid var(--rule);
+  }
+  .q-list li:nth-child(odd){border-right:1px solid var(--rule)}
+  .q-list li:hover{border-left-color:var(--accent); background:var(--accent-soft)}
+  .q-list .q{
+    font-family:var(--mono); font-size:10.5px; letter-spacing:.12em;
+    text-transform:uppercase; color:var(--accent); display:block; margin-bottom:4px;
+  }
+
+  /* footer */
+  footer{
+    padding:34px 0 0; display:flex; justify-content:space-between;
+    align-items:center; flex-wrap:wrap; gap:12px;
+  }
+  footer .src{
+    font-family:var(--mono); font-size:12.5px;
+    color:var(--ink); text-decoration:none;
+    padding:8px 14px; border:1px solid var(--rule-strong); border-radius:2px;
+    background:var(--paper); transition:all .15s;
+  }
+  footer .src:hover{background:var(--accent); color:#fff; border-color:var(--accent)}
+  footer .stamp{
+    font-family:var(--mono); font-size:11px; color:var(--ink-soft);
+    letter-spacing:.06em;
+  }
+
+  /* responsive */
+  @media (max-width:720px){
+    .finding{font-size:34px; max-width:none}
+    .assets{grid-template-columns:1fr}
+    .asset{border-right:none; border-bottom:1px solid var(--rule)}
+    .method-grid{grid-template-columns:1fr; gap:24px}
+    .duo{grid-template-columns:1fr}
+    .duo .pos{border-right:none; border-bottom:1px solid var(--rule)}
+    .q-list{grid-template-columns:1fr}
+    .q-list li:nth-child(odd){border-right:none}
+    .wrap{padding:0 16px 60px}
+    .hero{padding:64px 0 22px}
+    table{font-size:12.5px}
+    th,td{padding:8px 9px}
+  }
+
+  /* staggered load reveal */
+  .reveal{opacity:0; transform:translateY(10px); animation:rv .6s ease forwards}
+  @keyframes rv{to{opacity:1; transform:none}}
+  .d1{animation-delay:.05s}.d2{animation-delay:.12s}.d3{animation-delay:.19s}
+  .d4{animation-delay:.26s}.d5{animation-delay:.33s}.d6{animation-delay:.4s}
+</style>
+</head>
+<body>
+
+<a class="topnav" href="./index.html">↩ Today's digest</a>
+
+<div class="wrap">
+
+  <!-- ============ HERO ============ -->
+  <header class="hero">
+    <div class="eyebrow reveal d1"><span class="dot"></span> Paper dashboard · arXiv 2607.05969</div>
+
+    <div class="title-line reveal d1">
+      <a href="https://arxiv.org/abs/2607.05969" target="_blank" rel="noopener">MemDefrag: Latent Memory Defragmentation for Large Language Models ↗</a>
+    </div>
+
+    <h1 class="finding reveal d2">
+      One <em>middle layer's</em> attention density is a near-perfect tracer — <span class="mark">reorder &amp; prune</span> latent memory, training-free.
+    </h1>
+
+    <div class="meta reveal d3">
+      <span><b>Ruiyi Yan</b> · <b>Zhuoyuan Mao</b> · <b>Yiwen Guo</b></span>
+      <span class="sep">|</span>
+      <span>Kyoto Univ. · LIGHTSPEED / Tencent</span>
+      <span class="sep">|</span>
+      <span>2026-07-07</span>
+    </div>
+
+    <div class="chips reveal d3">
+      <span class="chip accent">latent memory</span>
+      <span class="chip">long-term memory</span>
+      <span class="chip">training-free</span>
+      <span class="chip">attention density</span>
+      <span class="chip">LLM</span>
+    </div>
+
+    <div class="defrag reveal d4" aria-hidden="true">
+      <i style="height:42%;animation-delay:.0s"></i>
+      <i style="height:78%;animation-delay:.04s"></i>
+      <i style="height:30%;animation-delay:.08s"></i>
+      <i style="height:95%;animation-delay:.12s"></i>
+      <i style="height:55%;animation-delay:.16s"></i>
+      <i style="height:88%;animation-delay:.20s;background:var(--accent)"></i>
+      <i style="height:36%;animation-delay:.24s"></i>
+      <i style="height:68%;animation-delay:.28s"></i>
+      <i style="height:50%;animation-delay:.32s"></i>
+      <i style="height:92%;animation-delay:.36s;background:var(--accent)"></i>
+      <i style="height:24%;animation-delay:.40s"></i>
+      <i style="height:72%;animation-delay:.44s"></i>
+      <i style="height:60%;animation-delay:.48s"></i>
+      <i style="height:84%;animation-delay:.52s"></i>
+      <i style="height:40%;animation-delay:.56s"></i>
+      <i style="height:98%;animation-delay:.60s;background:var(--accent)"></i>
+    </div>
+  </header>
+
+  <!-- ============ ASSET ROW ============ -->
+  <div class="assets">
+    <div class="asset metric reveal d3">
+      <div class="lbl"><span class="n">1</span> Key metric · NaturalQA @ step 50</div>
+      <div class="big">43.0<sup>%</sup></div>
+      <div class="delta">vs. <b>17.4%</b> MemoryLLM &nbsp;·&nbsp; <b>17.6%</b> M+</div>
+      <div class="ctx">+~145% relative · same Llama-3.1-8B backbone</div>
+    </div>
+
+    <div class="asset matter reveal d4">
+      <div class="lbl"><span class="n">2</span> Why this matters</div>
+      <div class="body">Latent-memory LLMs degrade under repeated updates; MemDefrag is a cheap, model-agnostic, training-free fix — verified across four LLMs.</div>
+    </div>
+
+    <div class="asset edge reveal d5">
+      <div class="lbl"><span class="n">3</span> Critical edge</div>
+      <div class="body">Baselines are narrow (only MemoryLLM/M+), and the headline gap partly reflects MemDefrag keeping more raw memory (N<sub>max</sub>=12,800) than their fixed 2:1 compression.</div>
+    </div>
+  </div>
+
+  <!-- ============ METHODOLOGY ============ -->
+  <section>
+    <div class="sec-head reveal">
+      <h2>How it works</h2>
+      <span class="tag">method · training-free · 5-line pre-inference step</span>
+    </div>
+
+    <div class="method-grid">
+      <div class="reveal">
+        <p>Vanilla latent memory (MemoryLLM, M+, NextMem) stores per-layer hidden states and evolves by simple <span class="kw">concatenation</span>. The authors diagnose two failure modes: <span class="kw">positional-encoding misalignment</span> (old fragments get re-positioned away from where they were formed, distorting attention — accuracy collapses once total memory exceeds ~2000 tokens) and <span class="kw">absence of any tracing mechanism</span> (all fragments are a flat, undifferentiated prefix).</p>
+
+        <p>The fix starts from an empirical finding: a small set of <span class="kw">middle layers</span> (the [<em>L</em>/3, <em>L</em>/2] band) consistently concentrate the highest <span class="kw">attention density</span> ρ on the target fragment. On Llama-3.1-8B that is layer 13/32, with Top-1 tracing 85.6% and Top-3 95.7%. Pearson/Spearman correlation between ρ and QA accuracy exceeds <span class="kw">0.95</span> across layers 13–20 — a near-perfect monotone signal.</p>
+
+        <p>MemDefrag exploits this at inference: rank fragments by density, <span class="kw">reorder</span> memory so the most relevant sit closest to the prompt (using causal attention's recency bias), then <span class="kw">truncate</span> to Top-K. A complementary <span class="kw">informativeness-guided proportional forgetting</span> rule evicts the lowest-self-information hidden states coherently across layers when memory exceeds capacity.</p>
+      </div>
+
+      <div class="pipeline reveal">
+        <h4>The MemDefrag loop</h4>
+        <div class="step active"><div class="s">1</div><div class="t"><b>Form</b> — prefill each new fragment through the base model → per-layer hidden states <code>m_n</code></div></div>
+        <div class="step"><div class="s">2</div><div class="t"><b>Probe</b> — at tracer layer <code>l*</code>, compute attention density <code>ρ_i</code> per stored fragment</div></div>
+        <div class="step active"><div class="s">3</div><div class="t"><b>Reorder</b> — <code>π = argsort(ρ)</code>; place most-relevant fragments nearest the prompt</div></div>
+        <div class="step active"><div class="s">4</div><div class="t"><b>Filter</b> — truncate to <code>Top-K</code> (optimum ≈ Top-1/2 for nearly all model·dataset pairs)</div></div>
+        <div class="step"><div class="s">5</div><div class="t"><b>Forget</b> — if <code>N &gt; 12,800</code>, prune lowest-self-information tokens proportionally per fragment</div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ RESULTS ============ -->
+  <section>
+    <div class="sec-head reveal">
+      <h2>Results</h2>
+      <span class="tag">same Llama-3.1-8B backbone · official baselines</span>
+    </div>
+
+    <div class="seg reveal" role="tablist">
+      <button class="on" data-p="p1">Knowledge retention</button>
+      <button data-p="p2">Tracer generality</button>
+      <button data-p="p3">LongBench (long-context)</button>
+    </div>
+
+    <!-- panel 1 -->
+    <div class="panel on" id="p1">
+      <table>
+        <caption>Table 2 · NaturalQA &amp; SQuAD accuracy after memory updates</caption>
+        <thead>
+          <tr><th>Dataset</th><th>Step</th><th>MemDefrag</th><th>MemoryLLM</th><th>M+</th></tr>
+        </thead>
+        <tbody>
+          <tr class="win"><td>NaturalQA</td><td class="num">50</td><td class="num"><span class="best">43.0</span> <span class="muted">(Top-1)</span></td><td class="num">17.4</td><td class="num">17.6</td></tr>
+          <tr><td>NaturalQA</td><td class="num">20</td><td class="num"><span class="best">67.2</span> <span class="muted">(Top-2)</span></td><td class="num">18.2</td><td class="num">19.6</td></tr>
+          <tr class="win"><td>SQuAD</td><td class="num">50</td><td class="num"><span class="best">40.0</span> <span class="muted">(Top-2)</span></td><td class="num">15.4</td><td class="num">20.2</td></tr>
+          <tr><td>SQuAD</td><td class="num">20</td><td class="num"><span class="best">73.8</span> <span class="muted">(Top-3)</span></td><td class="num">—</td><td class="num">36.4</td></tr>
+        </tbody>
+      </table>
+      <div class="t-note">Ablation: informativeness forgetting sustains 37.8% vs. 20.8% for random proportional forgetting on NaturalQA Top-2 @ step 50 — an 81.7% relative gain.</div>
+    </div>
+
+    <!-- panel 2 -->
+    <div class="panel" id="p2">
+      <table>
+        <caption>Table 10 · Top-2 tracing accuracy from a single middle layer</caption>
+        <thead>
+          <tr><th>Backbone</th><th>Tracer band</th><th>Top-2 accuracy</th></tr>
+        </thead>
+        <tbody>
+          <tr class="win"><td>Llama-3.1-8B</td><td class="num">layer 13 / 32</td><td class="num"><span class="best">94.7%</span></td></tr>
+          <tr class="win"><td>Mistral-7B</td><td class="num">[L/3, L/2]</td><td class="num"><span class="best">93.4%</span></td></tr>
+          <tr class="win"><td>Qwen2.5-7B</td><td class="num">[L/3, L/2]</td><td class="num"><span class="best">90.3%</span></td></tr>
+          <tr class="win"><td>Gemma-2-9b <span class="muted">(SQuAD)</span></td><td class="num">[L/3, L/2]</td><td class="num"><span class="best">99.3%</span></td></tr>
+        </tbody>
+      </table>
+      <div class="t-note">The [L/3, L/2] tracer layer is a stable, deployable heuristic across architectures — not a single-model artifact. (Llama Top-1 = 85.6%, Top-3 = 95.7%.)</div>
+    </div>
+
+    <!-- panel 3 -->
+    <div class="panel" id="p3">
+      <table>
+        <caption>Table 3 · LongBench — best in 20 / 24 dataset-metric combinations (Top-2)</caption>
+        <thead>
+          <tr><th>Dataset · metric</th><th>MemDefrag</th><th>M+</th><th>MemoryLLM</th></tr>
+        </thead>
+        <tbody>
+          <tr class="win"><td>MuSiQue · string-match</td><td class="num"><span class="best">20.00</span></td><td class="num">19.50</td><td class="num">16.00</td></tr>
+          <tr class="win"><td>MultiFieldQA-en · F1</td><td class="num"><span class="best">15.74</span></td><td class="num">14.11</td><td class="num">14.76</td></tr>
+          <tr class="win"><td>NarrativeQA · F1</td><td class="num"><span class="best">7.81</span></td><td class="num">3.07</td><td class="num">—</td></tr>
+        </tbody>
+      </table>
+      <div class="t-note">Caveat: absolute LongBench scores are modest (MuSiQue ~20, HotpotQA ~39) and gains over M+ are frequently sub-1-point — practically incremental even if statistically consistent.</div>
+    </div>
+  </section>
+
+  <!-- ============ STRENGTHS / LIMITATIONS ============ -->
+  <section>
+    <div class="sec-head reveal">
+      <h2>Strengths &amp; limitations</h2>
+      <span class="tag">side-by-side verdict</span>
+    </div>
+    <div class="duo reveal">
+      <div class="pos">
+        <h3>Strengths</h3>
+        <ul>
+          <li>Falsifiable correlation study (Pearson/Spearman &gt; 0.95 in layers 13–20) backing a clean two-mode diagnosis.</li>
+          <li>Genuinely training-free &amp; model-agnostic — drops in as a 5-line pre-inference step, no auxiliary modules.</li>
+          <li>Honest about overhead (wall-clock in appendix) and the one model (Gemma-2-9b) where static K underperforms.</li>
+          <li>Cross-model evidence that the [L/3, L/2] tracer layer is a stable deployment recipe, not a fluke.</li>
+          <li>Composable add-on over MemoryLLM/M+ and with prompt compression down to 30%.</li>
+        </ul>
+      </div>
+      <div class="neg">
+        <h3>Limitations</h3>
+        <ul>
+          <li>K is static &amp; empirically chosen; adaptive K deferred despite Gemma-2-9b benefiting beyond step 20.</li>
+          <li>Narrow baselines: only MemoryLLM/M+ (same lineage). No RAG, Mem0/MemGPT, parametric memory, or NextMem.</li>
+          <li>Memory-length advantage (12,800 uncompressed vs. 2:1 compression) confounds the headline accuracy gap.</li>
+          <li>LongBench absolute scores are low; gains over M+ are often sub-1-point.</li>
+          <li>QA-only evaluation — no open-ended generation, reasoning, or agentic use despite that pitch.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ QUESTIONS ============ -->
+  <section>
+    <div class="sec-head reveal">
+      <h2>Open questions</h2>
+      <span class="tag">for further exploration</span>
+    </div>
+    <ul class="q-list reveal">
+      <li><span class="q">Baseline</span>How does it compare to a strong RAG baseline (dense retrieval over raw fragments) at matched memory budget?</li>
+      <li><span class="q">Domain shift</span>Does the middle-layer tracer survive code, multilingual, or math reasoning — not just QA?</li>
+      <li><span class="q">Adaptive K</span>Can a density-distribution-shaped K close the Gemma-2-9b gap without hurting simpler models?</li>
+      <li><span class="q">Composition</span>Does it compose with KV-cache compression (SnapKV, Quest) or redundantly target the same budget?</li>
+      <li><span class="q">Robustness</span>How does it behave under adversarial/noisy updates, where the tracer could be spoofed?</li>
+      <li><span class="q">Root cause</span>Can positional distortion itself be fixed (e.g. position re-encoding at update time) instead of only mitigated?</li>
+    </ul>
+  </section>
+
+  <footer>
+    <a class="src" href="2607.05969.html">↗ Markdown source</a>
+    <span class="stamp">arXiv:2607.05969 · MemDefrag · dashboard</span>
+  </footer>
+
+</div>
+
+<script>
+  // segmented control for results panels
+  var seg = document.querySelector('.seg');
+  seg.addEventListener('click', function(e){
+    var btn = e.target.closest('button'); if(!btn) return;
+    seg.querySelectorAll('button').forEach(function(b){ b.classList.remove('on'); });
+    btn.classList.add('on');
+    document.querySelectorAll('.panel').forEach(function(p){ p.classList.remove('on'); });
+    document.getElementById(btn.dataset.p).classList.add('on');
+  });
+
+  // defrag motif: subtle reorder on click of the hero finding
+  var bars = document.querySelectorAll('.defrag i');
+  document.querySelector('.finding').addEventListener('click', function(){
+    bars.forEach(function(b){
+      var h = 20 + Math.random()*80;
+      b.style.transition = 'height .5s cubic-bezier(.6,0,.2,1)';
+      b.style.height = h + '%';
+    });
+  });
+</script>
+</body>
+</html>

@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Towards Mechanistically Understanding Why Memorized Knowledge Fails to Generalize in Large Language Model Finetuning</title>
+<style>
+:root { --paper:#fafafa; --ink:#1a1a1a; --muted:#555; --accent:#1a5276; --line:#ddd; --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif; --serif:Georgia,"Noto Serif SC",serif; }
+body { font-family:var(--serif); background:var(--paper); color:var(--ink); line-height:1.6; margin:0; padding:0; }
+.container { max-width:min(95vw, 760px); margin:0 auto; padding:28px 20px 60px; }
+.topnav { position:fixed; top:12px; left:14px; z-index:50; font-family:var(--sans); font-size:.75rem; background:var(--paper); border:1px solid var(--line); padding:5px 10px; border-radius:999px; }
+.topnav a { color:var(--muted); text-decoration:none; font-weight:600; }
+.topnav a:hover { color:var(--accent); }
+h1 { font-size:1.6rem; margin:2.2rem 0 1rem; border-bottom:2px solid var(--accent); padding-bottom:.3rem; }
+h2 { font-size:1.3rem; margin:1.8rem 0 .8rem; color:var(--accent); }
+h3 { font-size:1.1rem; margin:1.4rem 0 .6rem; }
+p { margin:.8rem 0; }
+.authors { font-style:italic; color:var(--muted); margin-top:-.4rem; }
+.meta { font-family:var(--sans); font-size:.82rem; color:var(--muted); margin:.2rem 0; }
+a { color:var(--accent); text-decoration:none; }
+a:hover { text-decoration:underline; }
+blockquote { border-left:3px solid var(--accent); margin:1rem 0; padding:.2rem 0 .2rem 1rem; color:var(--muted); font-style:italic; }
+code { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; background:#f0f0f0; padding:2px 5px; border-radius:3px; font-size:.9em; }
+pre { background:#f5f5f5; padding:14px; overflow-x:auto; border-radius:4px; border:1px solid var(--line); }
+pre code { background:transparent; padding:0; }
+ul,ol { margin:.6rem 0; padding-left:1.5rem; }
+li { margin:.25rem 0; }
+table { border-collapse:collapse; width:100%; margin:1rem 0; font-family:var(--sans); font-size:.9rem; }
+th,td { border:1px solid var(--line); padding:6px 10px; text-align:left; }
+th { background:#f0f0f0; }
+hr { border:none; border-top:1px solid var(--line); margin:1.5rem 0; }
+.note { font-family:var(--sans); font-size:.78rem; color:var(--muted); border-top:1px solid var(--line); margin-top:2rem; padding-top:1rem; }
+@media (max-width: 600px) { .container { padding:22px 14px 40px; } h1 { font-size:1.35rem; } }
+</style>
+</head>
+<body>
+<div class="topnav"><a href="./index.html">← Today's digest</a></div>
+<div class="container">
+<h1>Towards Mechanistically Understanding Why Memorized Knowledge Fails to Generalize in Large Language Model Finetuning</h1>
+<p class="meta">arXiv: 2607.08393</p>
+<p class="meta">Date: 2026-07-10</p>
+<p class="meta"><a href="https://arxiv.org/abs/2607.08393">https://arxiv.org/abs/2607.08393</a></p>
+<blockquote><strong>一句话总结：</strong> 本文将微调中"记住但不会用"的现象形式化为 <strong>Knowing-Using Gap</strong>（准确率鸿沟+时序滞后），并提出基于因果干预的 <strong>self-patching</strong> 技术，揭示已记忆知识因"知识存储层"与"推理计算层"错位而无法被多跳推理复用；通过手工迁移隐藏层表征可恢复泛化，一个仅需两对固定层对的启发式策略即可挽回 58-75% 的 oracle 上限空间。</blockquote>
+<blockquote><strong>TL;DR:</strong> The paper formalizes the "remembering but not using" failure in LLM fine-tuning as the <strong>Knowing-Using Gap</strong>, and introduces <strong>self-patching</strong>, an activation-intervention method that shows memorized knowledge is encoded in storage layers but not routed to mid-layer reasoning circuits (knowledge-circuit misalignment). On the STaRK-Prime/STaRK-MAG multi-hop reasoning datasets across Qwen-2.5 and LLaMA-3.x models, memorization saturates near-perfectly (≈0.99) while chaining accuracy stays at 0.078-0.182; oracle self-patching lifts chaining by 1.5-6×, and a fixed two-pair heuristic recovers 58-75% of that oracle headroom without per-instance search.</blockquote>
+<h2>核心贡献</h2>
+<ul>
+<li><strong>形式化定义 Knowing-Using Gap</strong>：将"记住新事实但无法用于下游推理"的现象拆解为两个可量化维度——准确率鸿沟 ΔA（收敛后记忆准确率与泛化准确率之差）与时序滞后 ΔT（记忆饱和点 Tmem 与泛化饱和点 Tgen 之差），并构建了配套的 Memorization-to-Generalization 数据集。</li>
+<li><strong>提出 self-patching 因果干预方法</strong>：区别于需要"干净正确轨迹"的 causal tracing 和用于解释的 PatchScope，self-patching 把源 prompt 在某源层的 anchor 赏表征复制到目标 prompt 的目标层，扫描所有 (ls, lt) 层对，可在失败案例上定位"已有知识但未被使用"的位置，产出知识渗透的时空动态热图。</li>
+<li><strong>提出 knowledge-circuit misalignment 假设并给出因果证据</strong>：微调先把事实编码进易拟合的早层/晚层存储态，但这些表征未可靠地被路由到多跳推理所需的中间计算层；通过迁移表征可立即大幅提升泛化，证明问题是"路由"而非"容量"。</li>
+<li><strong>从诊断走向实用修复</strong>：发现有效补丁集中在 early→mid 与 late→mid 两个簇，据此设计仅需两对固定层对（源≈0.8L→目标≈0.5L、源≈0.1L→目标≈0.5L）的启发式，跨模型/跨域挽回 58-75% 的 oracle 上限空间。</li>
+<li><strong>广泛的稳健性验证</strong>：跨 Qwen-2.5(1.5B/3B/7B)、LLaMA-3.2(1B/3B)、LLaMA-3.1-8B 两大家族，以及生物医学(STaRK-Prime)与学术(STaRK-MAG)两个真实领域复现结论，并用 CoT、无关补丁扰动、跨上下文补丁、token 位置等消融排除捷径解释。</li>
+</ul>
+<h2>Key Contributions</h2>
+<ul>
+<li><strong>Formalizes the Knowing-Using Gap</strong> as two measurable dimensions — an accuracy gap ΔA and a temporal lag ΔT between memorization saturation and generalization saturation — and releases a specialized Memorization-to-Generalization dataset built from real-world knowledge bases.</li>
+<li><strong>Introduces self-patching</strong>, an activation-patching variant that works on failed generalization cases (unlike causal tracing) and measures task accuracy (unlike PatchScope), producing a time-evolving layer-pair permeation map of where injected knowledge becomes causally usable.</li>
+<li><strong>Proposes and causally supports the knowledge-circuit misalignment hypothesis</strong>: memorized representations exist in storage-oriented early/late layers but are not routed into the mid-layer computation required for multi-hop reasoning; manually relocating them yields immediate, large, and consistent gains, framing the failure as a routing problem rather than a capacity problem.</li>
+<li><strong>Turns diagnosis into a practical remedy</strong>: effective patches concentrate into early→mid and late→mid clusters, enabling a fixed two-pair heuristic (no per-instance search) that recovers 58-75% of the oracle headroom across all models and tasks.</li>
+<li><strong>Validates robustness</strong> across two model families, six scales, and two real-world domains, with ablations (CoT prompting, irrelevant-fact patching, cross-context patching, token-position controls) that rule out prompt-shortcut and perturbation-artifact explanations.</li>
+</ul>
+<h2>Methodology</h2>
+<p><strong>Problem setup.</strong> The atom of knowledge is a fact triplet f = (n1, e12, n2). For each fact a single-hop <em>memorization task</em> is generated for fine-tuning ("head entity + relation → tail entity"). Two <em>generalization tasks</em> (held out from training) test application: a <strong>Chaining task</strong> requiring sequential two-hop reasoning through a bridge entity, and an <strong>Intersection task</strong> requiring retrieval over multiple facts plus noise filtering. Datasets are built from STaRK (STaRK-Prime biomedical, STaRK-MAG academic); novelty is verified by ≤6% zero-shot accuracy before fine-tuning, and active data-leakage filtering removes instances the base model already answers.</p>
+<p><strong>Characterizing the gap.</strong> The authors track memorization accuracy Amem(t) and generalization accuracy Agen(t;T) over training, defining the accuracy gap ΔA = Amem(Tmax) − Agen(Tmax;T) and, using a saturation window of w consecutive perfect epochs, the temporal lag ΔT = Tgen − Tmem.</p>
+<p><strong>Self-patching.</strong> For an L-layer transformer, given a source prompt Ps (e.g., memorization prompt) and target prompt Pt (e.g., generalization prompt) sharing an anchor substring E (the head entity), self-patching copies the residual-stream representation at source layer ls and token span of E into the same anchor at target layer lt of the target run: h̃(Pt,E)_lt ← h(Ps,E)_ls, then resumes the forward pass and records the change in an indicator I (Exact Match / MRR) against the gold answer. Scanning all (ls, lt) yields a layer-pair "permeation map." Unlike causal tracing it needs no clean trajectory (so it applies to failures); unlike PatchScope it measures target-task accuracy rather than decoding source representations.</p>
+<p><strong>Knowledge-circuit misalignment hypothesis.</strong> Fine-tuning encodes facts in easy-to-fit storage states (early or very late layers) that support direct recall but are not routed into the mid-layer circuits causally required for multi-step reasoning. The hypothesis predicts (1) post-memorization there exist off-path representations already containing the knowledge, and (2) relocating them into effective (mid) layers should immediately raise downstream use. The permeation dynamics (Figure 4) show the red patch-effective region expanding toward the heatmap diagonal as training proceeds; success = region covers diagonal, failure = region halts before it (because once M(P)=y* the loss/gradient vanishes and no further internal change occurs).</p>
+<p><strong>Practical heuristic.</strong> Because the most-effective patches cluster into late→mid and early→mid, the authors fix two layer pairs per architecture (source ≈ ⌊0.82L⌉ → target ≈ ⌊0.45L⌉; source ≈ ⌊0.1L⌉ → target ≈ ⌊0.5L⌉) and patch with no per-instance search.</p>
+<h2>Results & Highlights</h2>
+<ul>
+<li><strong>The gap is large and ubiquitous.</strong> Across all six models, memorization accuracy saturates at 0.986-0.998 on STaRK-Prime, while chaining generalization without intervention is only <strong>0.078-0.182</strong> (Qwen-2.5-1.5B: 0.078; LLaMA-3.1-8B: 0.182). For STaRK-MAG, memorization reaches 0.998-1.000 but chaining is 0.046-0.082 — a knowing-using gap of roughly 0.8-0.95 absolute.</li>
+<li><strong>Oracle self-patching gives 1.5-6× chaining lifts.</strong> On STaRK-Prime chaining, Qwen-2.5-1.5B jumps from 0.078 → 0.440, Qwen-2.5-3B from 0.114 → 0.542, LLaMA-3.2-1B from 0.102 → 0.316; the intersection gap is nearly eliminated (e.g., LLaMA-3.2-3B 0.815 → 0.974), confirming the failure is recoverable rather than a missing-knowledge problem.</li>
+<li><strong>Fixed heuristic recovers 58-75% of oracle headroom.</strong> With only two predetermined layer pairs and no per-instance search, STaRK-Prime chaining averages No-Pat 0.121 → Fixed 0.357 → Oracle 0.444; on Qwen-2.5-1.5B intersection it reaches 0.942 vs. oracle 0.987, demonstrating the structural pattern generalizes across architectures and domains.</li>
+<li><strong>Self-patching far exceeds prompting and perturbation baselines.</strong> On STaRK-Prime chaining (Table 6), CoT reaches only 0.132/0.288/0.390 for Qwen-2.5-1.5B/3B/7B versus self-patching's 0.440/0.542/0.504; irrelevant-fact patching (generic activation perturbation) gives just 0.150/0.184/0.194, ruling out superficial decoding effects and showing the gains come from transferring knowledge-relevant information.</li>
+<li><strong>The phenomenon is a routing, not a scale, problem.</strong> Increasing model size does not eliminate the temporal lag ΔT (Figure 2), and injecting more facts widens the final accuracy gap even when direct recall stays strong. FFT memorizes faster than LoRA but does not consistently generalize better — for intersection, FFT reaches reliable use markedly <em>later</em> with larger lag and lower Agen.</li>
+<li><strong>Effective patches form a two-cluster spatial signature.</strong> Figure 5 shows source layers concentrate in early and late layers, both targeting a mid-layer cluster; relocating into late layers is useless (empty right region), consistent with the three-step theory that the reasoning stream moves to the last token in late layers.</li>
+</ul>
+<h2>Authors & Credibility</h2>
+<p>Authors are from HKUST(GZ) and HKUST — Lu Dai, Ziyang Rao, Yili Wang, Hanqing Wang (HKUST-GZ); Hao Liu and Hui Xiong (HKUST, with Hui Xiong a well-known professor with an extensive publication record on trustworthy ML and knowledge). The work is submitted as a Preprint (arXiv:2607.08393v1, cs.AI/cs.CL). The authors provide an anonymous code/data repository (anonymous.4open.science/r/Mem2Gen-71FF), report 95% Wilson score confidence intervals and McNemar's tests (Appendix F), and include a structured limitations appendix and a responsible-research checklist. The methodology is well-grounded in established mechanistic-interpretability literature (causal tracing, Patchscope, knowledge circuits, grokking dynamics).</p>
+<h2>Critical Assessment</h2>
+<ul>
+<li><strong>Novelty:</strong> The Knowing-Using Gap phenomenon itself is well-documented (MQuAKE, RippleEdits, "reversal curse", Ovadia et al. comparing fine-tuning vs. retrieval). The genuine novelty is the <em>mechanistic</em> explanation via self-patching and the knowledge-circuit misalignment framing — reframing the failure from "knowledge not learned" to "knowledge not routed" is a meaningful conceptual contribution, and the early→mid patch cluster (in addition to the intuitive late→mid) is a non-obvious finding.</li>
+<li><strong>Rigor:</strong> Strong on causal intervention design and controls. The authors proactively rule out the most likely confounds: CoT prompting, irrelevant-fact (generic perturbation) patching, cross-context (Pmem→Pgen) patching, and token-position ablations (head-entity position mean 0.6408 vs. random 0.1359, p<0.001). Statistical reporting (Wilson CIs, McNemar) is above average for this subfield. 1,000-sample evaluations reduce sampling noise.</li>
+<li><strong>Reproducibility:</strong> High. Anonymous repo with data, an adapted public benchmark (STaRK, MIT-licensed), open-weight models (Qwen-2.5, LLaMA-3.x), explicit layer-pair formulas for the heuristic, and full hyperparameter/optimizer/LoRA configs in Appendix B. Hardware specified (NVIDIA A800, 8 GPUs, 5h-1day per run).</li>
+<li><strong>Significance:</strong> Moderate-to-high for interpretability and knowledge-injection research. The "routing not capacity" message and the two-cluster spatial signature are actionable signals for alignment-aware fine-tuning. However, the practical deliverable (fixed heuristic) is still an inference-time intervention, not a training-time fix, so the impact on real fine-tuning pipelines is prospective.</li>
+<li><strong>Red flags / weak points:</strong></li>
+<li>The headline <strong>58-75% heuristic recovery is measured against an oracle that itself is a diagnostic upper bound</strong> obtained by per-instance best-pair search — so "58-75%" is a fraction of a post-hoc best-case, not an absolute task-accuracy claim; the absolute chaining accuracy of the fixed heuristic (avg 0.357) is still low in absolute terms.</li>
+<li><strong>Oracle self-patching requires the gold answer to select the best layer pair</strong> (it scans for max ΔI w.r.t. y*), which is unavailable at inference in real settings — the paper is honest about this (calling it a diagnostic), but readers may over-read the oracle numbers as a deployable method.</li>
+<li>The intervention is <strong>deliberately constrained to a single fixed anchor position</strong> (head entity); as the authors acknowledge, injected knowledge may distribute across multiple positions, so the recoverable headroom is likely understated — but this also means the absolute gap-recovery claims are sensitive to the anchor choice.</li>
+<li>The comparison baselines (Table 6) only cover <strong>three Qwen models and only CoT + irrelevant patching</strong>; LLaMA models and stronger baselines (e.g., RAG, knowledge-editing methods like ROME/MEMIT, self-consistency, ICL retrieval) are absent, leaving open whether simpler retrieval-based methods would close more of the gap in practice.</li>
+<li>The two-cluster effective-location finding (Figure 5) is reported qualitatively without a quantitative clustering metric or sensitivity analysis to the "most effective layer" definition.</li>
+</ul>
+<h2>Strengths</h2>
+<ul>
+<li>Clean, falsifiable hypothesis (knowledge-circuit misalignment) with predictions that are directly tested by the permeation dynamics.</li>
+<li>Self-patching is a genuinely useful methodological tool that extends activation patching to <em>failed</em> cases — a real gap left by causal tracing and PatchScope.</li>
+<li>Comprehensive robustness sweep: two model families, six model scales, two real-world domains, FFT vs. LoRA, and multiple data scales.</li>
+<li>Thorough sanity checks (token-position, CoT, irrelevant patching, cross-context consistency) that strengthen the causal interpretation.</li>
+<li>Honest framing of oracle results as diagnostic, and a genuine attempt to convert the structural finding into a no-search heuristic.</li>
+<li>Open code/data and detailed statistical reporting.</li>
+</ul>
+<h2>Limitations</h2>
+<ul>
+<li>Self-patching intervenes only at a single fixed anchor position; multi-position/redundant encoding is unmodeled, so recoverable headroom may be underestimated.</li>
+<li>Oracle best-pair results are a diagnostic upper bound, not a deployable method (they use the gold answer); the fixed heuristic, while practical, still leaves a large absolute gap and is itself only an inference-time patch.</li>
+<li>The mechanism is purely diagnostic/post-hoc — it does not provide an early-training signal predicting which facts will fail to generalize, which would be needed for proactive intervention.</li>
+<li>Mechanistic analysis is at the token-layer granularity; no localization to specific attention heads or MLP sublayers, which limits targeted-intervention design.</li>
+<li>Stronger baselines (RAG, ROME/MEMIT-style editing, retrieval ICL, self-consistency) are not compared against; the practical win over alternative knowledge-injection strategies is therefore unquantified.</li>
+<li>Domain coverage, while cross-disciplinary, is limited to structured KB-style QA derived from STaRK; behavior on free-form/procedural knowledge is unknown.</li>
+</ul>
+<h2>Relevance</h2>
+<p>对研究"LLM 知识注入与可解释性"方向高度相关：本文提供的 self-patching 干预工具与"知识-电路错位"假说，可作为分析微调/RAG/知识编辑等知识更新范式的内部机制的诊断框架，并为"对齐感知训练（alignment-aware training）"这一新方向提供因果证据与启发式起点。</p>
+<h2>Questions for Further Exploration</h2>
+<ul>
+<li>Can the knowledge-circuit misalignment be detected <em>during</em> early fine-tuning (e.g., via cheap layer-pair probes without the gold answer) to serve as a proactive prediction signal for which facts will fail to generalize?</li>
+<li>Would an alignment-aware training objective (e.g., a regularizer that explicitly encourages mid-layer routing of injected facts) prevent the gap from forming, rather than patching it post-hoc?</li>
+<li>How does self-patching interact with RAG and knowledge-editing methods (ROME/MEMIT) — does the same storage-vs-routing misalignment appear, and can the diagnostic distinguish cases where retrieval beats fine-tuning?</li>
+<li>Does the two-cluster (early→mid and late→mid) effective-location signature hold for free-form or procedural knowledge, or is it specific to structured KB-style facts?</li>
+<li>Can finer-grained localization (attention heads / MLP sublayers) explain <em>why</em> knowledge gets stranded before the diagonal and identify the specific circuit components responsible for the routing failure?</li>
+</ul>
+<p class="note">Generated from Markdown summary. Full paper: <a href="https://arxiv.org/abs/2607.08393">arXiv:2607.08393</a></p>
+</div>
+</body>
+</html>

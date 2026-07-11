@@ -1,0 +1,687 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CLAP — Closed-Loop Post-Training · arXiv 2607.01846</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,500;12..96,700;12..96,800&family=IBM+Plex+Sans:wght@300;400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ink:#0d0f14;
+    --panel:#151821;
+    --panel-2:#1b1f2a;
+    --line:#262b38;
+    --line-soft:#1f2330;
+    --text:#e7e3d6;
+    --text-dim:#9aa0ae;
+    --text-mute:#666c7a;
+    --amber:#f5a623;        /* signal / release / gate */
+    --amber-soft:#3a2c12;
+    --teal:#4fd1c5;          /* data / positive */
+    --teal-soft:#10302d;
+    --red:#ff6b6b;           /* regression / risk */
+    --red-soft:#3a1717;
+    --violet:#b794f4;
+    --grid-edge:#20242f;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    background:
+      radial-gradient(1200px 600px at 78% -8%, rgba(245,166,35,0.06), transparent 60%),
+      radial-gradient(900px 500px at 0% 110%, rgba(79,209,197,0.05), transparent 60%),
+      var(--ink);
+    color:var(--text);
+    font-family:"IBM Plex Sans",system-ui,sans-serif;
+    font-weight:300;
+    line-height:1.55;
+    -webkit-font-smoothing:antialiased;
+    overflow-x:hidden;
+  }
+  /* faint grid texture */
+  body::before{
+    content:"";
+    position:fixed;inset:0;
+    background-image:
+      linear-gradient(var(--grid-edge) 1px,transparent 1px),
+      linear-gradient(90deg,var(--grid-edge) 1px,transparent 1px);
+    background-size:64px 64px;
+    opacity:.22;
+    pointer-events:none;
+    z-index:0;
+    mask-image:radial-gradient(ellipse 80% 60% at 50% 30%, #000 30%, transparent 90%);
+  }
+  .mono{font-family:"IBM Plex Mono",ui-monospace,monospace}
+  .display{font-family:"Bricolage Grotesque",sans-serif}
+
+  .wrap{position:relative;z-index:1;max-width:1320px;margin:0 auto;padding:0 28px}
+
+  /* ---------- top utility bar ---------- */
+  .topbar{
+    border-bottom:1px solid var(--line);
+    background:rgba(13,15,20,.72);
+    backdrop-filter:blur(8px);
+    position:sticky;top:0;z-index:50;
+  }
+  .topbar .wrap{display:flex;align-items:center;gap:18px;padding-top:11px;padding-bottom:11px;flex-wrap:wrap}
+  .id-chip{
+    font-family:"IBM Plex Mono",monospace;font-size:11.5px;letter-spacing:.04em;
+    color:var(--amber);border:1px solid #3a2f15;background:#1a1608;
+    padding:4px 9px;border-radius:3px;font-weight:500;
+  }
+  .id-chip b{color:#fff;font-weight:600}
+  .top-meta{display:flex;gap:22px;font-size:12px;color:var(--text-dim);flex-wrap:wrap}
+  .top-meta span b{color:var(--text);font-weight:500}
+  .tags{display:flex;gap:6px;margin-left:auto;flex-wrap:wrap}
+  .tag{font-family:"IBM Plex Mono",monospace;font-size:10.5px;color:var(--text-mute);
+       border:1px solid var(--line);padding:3px 7px;border-radius:2px;letter-spacing:.02em}
+
+  /* ---------- hero band ---------- */
+  .hero{padding:64px 0 40px;border-bottom:1px solid var(--line)}
+  .kicker{display:flex;align-items:center;gap:12px;margin-bottom:22px}
+  .kicker .dot{width:8px;height:8px;background:var(--amber);border-radius:50%;
+    box-shadow:0 0 0 4px rgba(245,166,35,.18);animation:pulse 2.6s ease-in-out infinite}
+  @keyframes pulse{0%,100%{box-shadow:0 0 0 4px rgba(245,166,35,.18)}50%{box-shadow:0 0 0 9px rgba(245,166,35,.04)}}
+  .kicker .label{font-family:"IBM Plex Mono",monospace;font-size:11px;letter-spacing:.22em;
+    text-transform:uppercase;color:var(--text-dim)}
+  .hero h1{
+    font-family:"Bricolage Grotesque",sans-serif;
+    font-weight:500;
+    font-size:clamp(34px,5.4vw,70px);
+    line-height:1.02;
+    letter-spacing:-0.02em;
+    margin:0 0 14px;
+    max-width:16ch;
+  }
+  .hero h1 em{font-style:normal;color:var(--amber);font-weight:700}
+  .finding{
+    font-family:"Bricolage Grotesque",sans-serif;
+    font-weight:800;
+    font-size:clamp(40px,8.2vw,116px);
+    line-height:.93;
+    letter-spacing:-0.035em;
+    color:var(--text);
+    margin:30px 0 0;
+    max-width:14ch;
+    text-wrap:balance;
+  }
+  .finding .br{display:block}
+  .finding mark{background:transparent;color:var(--teal)}
+  .finding .u{
+    background-image:linear-gradient(var(--amber),var(--amber));
+    background-repeat:no-repeat;background-size:100% 14%;background-position:0 92%;
+    padding:0 .04em;color:var(--text);
+  }
+  .finding-sub{max-width:60ch;color:var(--text-dim);font-size:15px;margin-top:26px;line-height:1.6}
+  .finding-sub b{color:var(--text);font-weight:500}
+
+  .authorline{margin-top:34px;font-size:13px;color:var(--text-mute)}
+  .authorline b{color:var(--text-dim);font-weight:500}
+
+  /* ---------- asset row ---------- */
+  .assets{display:grid;grid-template-columns:1.05fr 1.35fr 1.25fr;gap:0;border-bottom:1px solid var(--line)}
+  .asset{padding:34px 30px;border-right:1px solid var(--line);position:relative}
+  .asset:last-child{border-right:none}
+  .asset .a-label{font-family:"IBM Plex Mono",monospace;font-size:10.5px;letter-spacing:.2em;
+    text-transform:uppercase;color:var(--text-mute);margin-bottom:18px;display:flex;align-items:center;gap:8px}
+  .asset .a-label::before{content:"";width:18px;height:1px;background:var(--text-mute)}
+
+  /* metric */
+  .metric .big{font-family:"Bricolage Grotesque",sans-serif;font-weight:800;
+    font-size:clamp(64px,8vw,104px);line-height:.9;letter-spacing:-0.03em;color:var(--teal)}
+  .metric .big small{font-size:.32em;color:var(--text-dim);font-weight:500;letter-spacing:0;margin-left:6px;vertical-align:.6em}
+  .metric .big sup{font-size:.4em;font-weight:600}
+  .metric .ctx{margin-top:14px;font-size:13.5px;color:var(--text-dim);line-height:1.55}
+  .metric .ctx b{color:var(--text);font-weight:500}
+  .micro-row{display:flex;gap:18px;margin-top:18px;flex-wrap:wrap}
+  .micro{font-family:"IBM Plex Mono",monospace;font-size:11.5px;color:var(--text-dim)}
+  .micro b{color:var(--text);font-weight:500}
+
+  /* contrast metric — GRPO failure */
+  .contrast{margin-top:20px;border-top:1px dashed var(--line);padding-top:16px}
+  .contrast .cl{font-family:"IBM Plex Mono",monospace;font-size:10.5px;letter-spacing:.18em;
+    text-transform:uppercase;color:var(--red);margin-bottom:8px}
+  .contrast .cv{font-family:"Bricolage Grotesque",sans-serif;font-weight:700;font-size:30px;color:var(--text);letter-spacing:-.02em}
+  .contrast .cv span{color:var(--red)}
+  .contrast .cd{font-size:12.5px;color:var(--text-dim);margin-top:6px}
+
+  /* why */
+  .why .body{font-size:15.5px;color:var(--text);line-height:1.55;font-weight:300}
+  .why .body b{color:var(--amber);font-weight:500}
+  .pillars{margin-top:22px;display:flex;flex-direction:column;gap:11px}
+  .pillar{display:flex;gap:11px;align-items:flex-start;font-size:13px;color:var(--text-dim);line-height:1.5}
+  .pillar .n{font-family:"IBM Plex Mono",monospace;color:var(--teal);font-size:11px;font-weight:600;min-width:22px;padding-top:2px}
+  .pillar b{color:var(--text);font-weight:500}
+
+  /* edge */
+  .edge .body{font-size:15px;color:var(--text);line-height:1.6;border-left:2px solid var(--red);padding-left:16px}
+  .edge .body b{color:var(--red);font-weight:500}
+  .edge .verdict{margin-top:20px;font-family:"IBM Plex Mono",monospace;font-size:12px;color:var(--text-mute);line-height:1.7}
+  .edge .verdict b{color:var(--text);font-weight:500}
+
+  /* ---------- section scaffold ---------- */
+  section.block{padding:64px 0;border-bottom:1px solid var(--line)}
+  .sec-head{display:flex;align-items:baseline;gap:16px;margin-bottom:36px}
+  .sec-num{font-family:"IBM Plex Mono",monospace;font-size:12px;color:var(--amber);letter-spacing:.1em}
+  .sec-title{font-family:"Bricolage Grotesque",sans-serif;font-weight:700;font-size:clamp(26px,3.2vw,38px);
+    letter-spacing:-.02em;line-height:1.05;margin:0}
+  .sec-kicker{margin-left:auto;font-family:"IBM Plex Mono",monospace;font-size:11px;color:var(--text-mute);
+    letter-spacing:.16em;text-transform:uppercase;max-width:36ch;text-align:right;line-height:1.5}
+
+  /* ---------- methodology / loop ---------- */
+  .loop-grid{display:grid;grid-template-columns:1.15fr .85fr;gap:48px;align-items:center}
+  .ring{width:100%;max-width:520px;aspect-ratio:1;margin:0 auto}
+  .loop-note h3{font-family:"Bricolage Grotesque",sans-serif;font-weight:700;font-size:22px;margin:0 0 14px;letter-spacing:-.01em}
+  .loop-note p{font-size:14px;color:var(--text-dim);line-height:1.65;margin:0 0 16px}
+  .loop-note code{font-family:"IBM Plex Mono",monospace;font-size:12.5px;color:var(--teal);background:var(--teal-soft);
+    padding:1px 6px;border-radius:3px}
+  .gates{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:20px}
+  .gate{border:1px solid var(--line);background:var(--panel);padding:14px 16px;border-radius:4px;position:relative}
+  .gate::before{content:"";position:absolute;left:0;top:14px;bottom:14px;width:2px;background:var(--amber)}
+  .gate h4{margin:0 0 6px;font-size:12.5px;font-weight:600;letter-spacing:.04em}
+  .gate p{margin:0;font-size:12px;color:var(--text-dim);line-height:1.5}
+  .promote-rule{margin-top:18px;border:1px dashed var(--amber);background:rgba(245,166,35,.05);padding:14px 16px;border-radius:4px;font-family:"IBM Plex Mono",monospace;font-size:12px;color:var(--text);line-height:1.6}
+  .promote-rule b{color:var(--amber)}
+
+  /* ---------- results ---------- */
+  .results-grid{display:grid;grid-template-columns:1fr 1fr;gap:24px}
+  .card{border:1px solid var(--line);background:var(--panel);border-radius:5px;overflow:hidden}
+  .card-head{display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid var(--line)}
+  .card-head h3{margin:0;font-family:"Bricolage Grotesque",sans-serif;font-weight:700;font-size:16px;letter-spacing:-.01em}
+  .card-head .sub{font-family:"IBM Plex Mono",monospace;font-size:10.5px;color:var(--text-mute);letter-spacing:.08em}
+  .card-body{padding:18px 20px}
+
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  table th,table td{text-align:right;padding:8px 10px;border-bottom:1px solid var(--line-soft)}
+  table th:first-child,table td:first-child{text-align:left;color:var(--text-dim)}
+  table th{font-family:"IBM Plex Mono",monospace;font-size:10.5px;font-weight:500;color:var(--text-mute);
+    letter-spacing:.06em;text-transform:uppercase;padding-bottom:10px}
+  td .d{font-family:"IBM Plex Mono",monospace;font-weight:600}
+  .pos{color:var(--teal)}
+  .neg{color:var(--red)}
+  .neu{color:var(--text-mute)}
+
+  /* per batch chart */
+  .batch-chart{display:flex;align-items:flex-end;gap:14px;height:170px;padding:6px 0 0;margin-top:6px;border-bottom:1px solid var(--line)}
+  .bar-col{flex:1;display:flex;flex-direction:column;align-items:center;height:100%;justify-content:center;position:relative}
+  .bar-wrap{width:100%;height:100%;position:relative;display:flex;flex-direction:column;justify-content:center}
+  .axis{position:absolute;left:0;right:0;top:50%;height:1px;background:var(--line)}
+  .bar{width:100%;position:absolute;left:0;right:0;border-radius:2px}
+  .bar.up{bottom:50%;background:linear-gradient(var(--teal),rgba(79,209,197,.35))}
+  .bar.down{top:50%;background:linear-gradient(rgba(255,107,107,.35),var(--red))}
+  .bar-val{font-family:"IBM Plex Mono",monospace;font-size:10.5px;font-weight:600;position:absolute;width:100%;text-align:center}
+  .bar-val.up{color:var(--teal);bottom:calc(50% + 6px)}
+  .bar-val.up.big{bottom:calc(50% + 30px)}
+  .bar-val.down{color:var(--red);top:calc(50% + 6px)}
+  .bar-lbl{font-family:"IBM Plex Mono",monospace;font-size:10px;color:var(--text-mute);margin-top:8px;letter-spacing:.04em}
+  .batch-note{font-size:12px;color:var(--text-dim);margin-top:12px;line-height:1.5}
+  .batch-note b{color:var(--red);font-weight:500}
+
+  /* GRPO viz */
+  .kl-rows{display:flex;flex-direction:column;gap:9px;margin-top:4px}
+  .kl-row{display:grid;grid-template-columns:64px 1fr 70px;align-items:center;gap:12px;font-size:12.5px}
+  .kl-row .name{font-family:"IBM Plex Mono",monospace;color:var(--text-dim)}
+  .kl-track{height:10px;background:var(--line-soft);border-radius:2px;position:relative;overflow:hidden}
+  .kl-fill{position:absolute;top:0;bottom:0;left:0;background:linear-gradient(90deg,#7a3b3b,var(--red));border-radius:2px}
+  .kl-val{font-family:"IBM Plex Mono",monospace;text-align:right;font-weight:600;color:var(--red)}
+  .kl-foot{margin-top:14px;font-size:12px;color:var(--text-dim);line-height:1.55;border-top:1px solid var(--line-soft);padding-top:12px}
+  .kl-foot b{color:var(--amber);font-weight:500}
+
+  /* ABCD table */
+  .abcd{width:100%}
+  .abcd .id-cell{font-family:"IBM Plex Mono",monospace;font-weight:600;color:var(--amber)}
+  .abcd .zero{color:var(--red);font-weight:600}
+  .abcd tfoot td{border-top:2px solid var(--line);color:var(--text-dim);font-size:11.5px;font-style:italic;padding-top:10px;text-align:left}
+  .rag-pill{font-family:"IBM Plex Mono",monospace;font-size:10px;padding:2px 6px;border-radius:2px;letter-spacing:.04em}
+  .rag-yes{background:var(--teal-soft);color:var(--teal)}
+  .rag-no{background:var(--red-soft);color:var(--red)}
+
+  /* ---------- strengths / limitations ---------- */
+  .sl-grid{display:grid;grid-template-columns:1fr 1fr;gap:0;border:1px solid var(--line);border-radius:5px;overflow:hidden}
+  .sl-col{padding:30px 30px}
+  .sl-col.s{background:var(--teal-soft);border-right:1px solid var(--line)}
+  .sl-col.l{background:var(--red-soft)}
+  .sl-col h3{font-family:"Bricolage Grotesque",sans-serif;font-weight:700;font-size:20px;margin:0 0 22px;
+    display:flex;align-items:center;gap:10px;letter-spacing:-.01em}
+  .sl-col.s h3{color:var(--teal)}
+  .sl-col.l h3{color:var(--red)}
+  .sl-col h3 .ic{font-family:"IBM Plex Mono",monospace;font-size:13px;border:1px solid currentColor;
+    width:24px;height:24px;display:inline-flex;align-items:center;justify-content:center;border-radius:50%}
+  .sl-col ul{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:16px}
+  .sl-col li{font-size:13.5px;color:var(--text);line-height:1.55;padding-left:20px;position:relative}
+  .sl-col li::before{content:"+";position:absolute;left:0;top:0;font-family:"IBM Plex Mono",monospace;font-weight:600}
+  .sl-col.l li::before{content:"–";color:var(--red)}
+  .sl-col.s li::before{color:var(--teal)}
+  .sl-col li b{font-weight:500}
+
+  /* ---------- questions ---------- */
+  .q-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:16px}
+  .q{border:1px solid var(--line);background:var(--panel);padding:22px 24px;border-radius:5px;position:relative;
+     transition:border-color .25s,transform .25s;cursor:default}
+  .q:hover{border-color:var(--amber);transform:translateY(-2px)}
+  .q .qn{font-family:"IBM Plex Mono",monospace;font-size:11px;color:var(--amber);letter-spacing:.1em;margin-bottom:10px;display:block}
+  .q p{margin:0;font-size:14px;color:var(--text);line-height:1.55}
+  .q p b{color:var(--text-dim);font-weight:500}
+
+  /* ---------- footer ---------- */
+  footer{padding:50px 0 70px;color:var(--text-mute);font-size:12px}
+  .foot-grid{display:flex;justify-content:space-between;gap:24px;flex-wrap:wrap;align-items:flex-end}
+  .foot-grid .l{max-width:50ch;line-height:1.6}
+  .foot-grid .l b{color:var(--text-dim);font-weight:500}
+  .ref{font-family:"IBM Plex Mono",monospace;color:var(--amber);text-decoration:none;border-bottom:1px solid transparent}
+  .ref:hover{border-color:var(--amber)}
+
+  /* reveal */
+  .reveal{opacity:0;transform:translateY(16px);animation:rv .8s cubic-bezier(.2,.7,.2,1) forwards}
+  @keyframes rv{to{opacity:1;transform:none}}
+  .d1{animation-delay:.05s}.d2{animation-delay:.15s}.d3{animation-delay:.25s}
+  .d4{animation-delay:.35s}.d5{animation-delay:.45s}.d6{animation-delay:.55s}
+  .d7{animation-delay:.65s}.d8{animation-delay:.75s}
+
+  /* responsive */
+  @media (max-width:980px){
+    .assets{grid-template-columns:1fr}
+    .asset{border-right:none;border-bottom:1px solid var(--line)}
+    .loop-grid{grid-template-columns:1fr;gap:30px}
+    .results-grid{grid-template-columns:1fr}
+    .sl-grid{grid-template-columns:1fr}
+    .sl-col.s{border-right:none;border-bottom:1px solid var(--line)}
+    .q-grid{grid-template-columns:1fr}
+    .sec-kicker{display:none}
+    .hero{padding:44px 0 30px}
+  }
+  @media (max-width:560px){
+    .wrap{padding:0 18px}
+    .tags{display:none}
+    .finding{font-size:46px}
+  }
+</style>
+</head>
+<body>
+
+<!-- ============ TOP UTILITY BAR ============ -->
+<div class="topbar">
+  <div class="wrap">
+    <span class="id-chip">arXiv:<b>2607.01846</b></span>
+    <div class="top-meta">
+      <span>📅 <b>2026-07-02</b></span>
+      <span>🏭 <b>MatrixOrigin</b> · industry lab</span>
+      <span>📄 6-page format · 18 refs</span>
+    </div>
+    <div class="tags">
+      <span class="tag">domain-agents</span>
+      <span class="tag">post-training</span>
+      <span class="tag">closed-loop-eval</span>
+      <span class="tag">release-gating</span>
+    </div>
+  </div>
+</div>
+
+<!-- ============ HERO ============ -->
+<header class="hero">
+  <div class="wrap">
+    <div class="kicker reveal d1">
+      <span class="dot"></span>
+      <span class="label">Post-Training Governance · Dossier</span>
+    </div>
+    <h1 class="reveal d2">CLAP — a <em>closed-loop</em> control method for domain-agent post-training.</h1>
+
+    <p class="finding reveal d3">
+      Treat post-training as a <span class="u">governed loop</span>,
+      <span class="br"></span>
+      not a <mark>single score</mark>.
+    </p>
+
+    <p class="finding-sub reveal d4">
+      CLAP converts noisy business data into SFT/GRPO datasets, holdout sets, risk diagnostics, and release-gate records. Promotion is <b>conditional</b>: <span class="mono" style="color:var(--amber)">quality(M′) ≥ quality(M) ∧ risk(M′) ≤ τ</span> — else the adapter is held, canaried, or rejected.
+    </p>
+
+    <p class="authorline reveal d5">
+      <b>Fangfei Li · Chenyang Zhao · Long Wang · Feng Tian · Zhiyue Zheng · Lv Guo</b> — MatrixOrigin (CN / US). Positioned as a system/governance method, <i>not</i> a new training algorithm.
+    </p>
+  </div>
+</header>
+
+<!-- ============ ASSET ROW ============ -->
+<section class="assets">
+  <!-- KEY METRIC -->
+  <div class="asset metric reveal d4">
+    <div class="a-label">Key Metric · SFT gain</div>
+    <div class="big">+0.0098<small>overall</small></div>
+    <p class="ctx">Mean base→QLoRA-LoRA-SFT <b>overall</b> gain across <b>5 manufacturing batches</b>. Modest — and <b>only 3 of 5</b> batches actually improve.</p>
+    <div class="micro-row">
+      <div class="micro">pass&nbsp;rate <b class="pos">+0.0240</b></div>
+      <div class="micro">evidence <b class="pos">+0.0280</b></div>
+      <div class="micro">halluc. <b class="pos">−0.0080</b></div>
+    </div>
+
+    <div class="contrast">
+      <div class="cl">↯ Contrast · GRPO KL peak</div>
+      <div class="cv">~<span>6,712</span></div>
+      <div class="cd">All 5 GRPO runs hit extreme KL peaks despite <b>passing static admission</b> → diagnosed <i>unstable → hold</i>.</div>
+    </div>
+  </div>
+
+  <!-- WHY THIS MATTERS -->
+  <div class="asset why reveal d5">
+    <div class="a-label">Why this matters</div>
+    <p class="body">Three honest empirical findings that <b>directly inform</b> RAG+SFT productionization, release gating, and reliability work:</p>
+    <div class="pillars">
+      <div class="pillar"><span class="n">01</span><span><b>Averages mask per-batch regressions.</b> Two batches quietly went backwards under a positive headline number.</span></div>
+      <div class="pillar"><span class="n">02</span><span><b>Static admission ≠ runtime safety.</b> GRPO reward distributions looked fine; training still detonated on KL.</span></div>
+      <div class="pillar"><span class="n">03</span><span><b>Offline gains ≠ application-chain readiness.</b> The 100-case ABCD replay, not the holdout, decides ship.</span></div>
+    </div>
+  </div>
+
+  <!-- CRITICAL EDGE -->
+  <div class="asset edge reveal d6">
+    <div class="a-label">Critical edge</div>
+    <p class="body">The headline <b>+0.0098 hides two regressing batches</b>, and <b>GRPO contributes no positive result</b> — it fails in all five (KL peaks 168–6,712), framed only as "failure-boundary evidence."</p>
+    <div class="verdict">
+      <b>Verdict.</b> The real deliverable is the <i>process</i> (gating, normalization, app-chain replay) — not the numbers, which are small, scenario-bound (one anonymized manufacturer), and rest on an unnamed "3B backbone" with unreleased data.
+    </div>
+  </div>
+</section>
+
+<!-- ============ METHODOLOGY ============ -->
+<section class="block">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="sec-num">01 / METHODOLOGY</span>
+      <h2 class="sec-title">The loop, not the model.</h2>
+      <span class="sec-kicker">assetize → materialize → admit → train → evaluate → gate → app-validate → release/fallback</span>
+    </div>
+
+    <div class="loop-grid">
+      <!-- SVG closed loop -->
+      <svg class="ring" viewBox="0 0 400 400" role="img" aria-label="CLAP closed-loop stages">
+        <defs>
+          <radialGradient id="rg" cx="50%" cy="50%" r="50%">
+            <stop offset="0%" stop-color="#1b1f2a"/><stop offset="100%" stop-color="#151821"/>
+          </radialGradient>
+        </defs>
+        <circle cx="200" cy="200" r="150" fill="url(#rg)" stroke="#262b38" stroke-width="1"/>
+        <!-- dashed orbit -->
+        <circle cx="200" cy="200" r="150" fill="none" stroke="#f5a623" stroke-width="1" stroke-dasharray="3 7" opacity=".5"/>
+        <!-- center label -->
+        <text x="200" y="192" text-anchor="middle" fill="#9aa0ae" font-family="IBM Plex Mono,monospace" font-size="11" letter-spacing="2">RELEASE</text>
+        <text x="200" y="212" text-anchor="middle" fill="#f5a623" font-family="Bricolage Grotesque,sans-serif" font-weight="700" font-size="22">conditional</text>
+        <text x="200" y="230" text-anchor="middle" fill="#666c7a" font-family="IBM Plex Mono,monospace" font-size="9">quality∧risk≤τ</text>
+        <!-- arrows around ring -->
+        <g id="nodes"></g>
+      </svg>
+
+      <div class="loop-note">
+        <h3>Control-oriented, not capability-oriented.</h3>
+        <p>Business data <code>D</code> becomes an asset set <code>A = {D_sft, D_grpo, D_eval, C, G, R}</code> — datasets, holdout, config, gate rules, and records — wrapped into a <b style="color:var(--text)">traceable "evidence bundle"</b> (dataset version + config + adapter + eval record + regressed samples).</p>
+
+        <div class="gates">
+          <div class="gate">
+            <h4>PRE-TRAINING GATE</h4>
+            <p>train/eval overlap · target/evidence verifiability · GRPO reward variance · chosen/rejected ordering</p>
+          </div>
+          <div class="gate">
+            <h4>POST-TRAINING GATE</h4>
+            <p>quality · risk · latency · critical regressions vs baseline</p>
+          </div>
+        </div>
+
+        <div class="promote-rule">
+          promote(M′) ⇐ <b>quality(M′) ≥ quality(M)</b> ∧ <b>risk(M′) ≤ τ</b><br>
+          <span style="color:var(--text-mute)">otherwise → hold · canary · reject · rollback</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ RESULTS ============ -->
+<section class="block">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="sec-num">02 / RESULTS</span>
+      <h2 class="sec-title">Honest numbers, small effect.</h2>
+      <span class="sec-kicker">5 manufacturing batches · 100 holdout each · 359–360 train samples/batch · 4-bit LoRA r=16 α=32</span>
+    </div>
+
+    <div class="results-grid">
+      <!-- TABLE 3 -->
+      <div class="card">
+        <div class="card-head"><h3>Base vs LoRA-SFT</h3><span class="sub">Table 3 · avg / 5 batches</span></div>
+        <div class="card-body">
+          <table>
+            <thead><tr><th>Metric</th><th>Base</th><th>SFT</th><th>Δ</th></tr></thead>
+            <tbody>
+              <tr><td>Overall ↑</td><td>0.8371</td><td>0.8469</td><td><span class="d pos">+0.0098</span></td></tr>
+              <tr><td>Pass rate ↑</td><td>0.5620</td><td>0.5860</td><td><span class="d pos">+0.0240</span></td></tr>
+              <tr><td>Field acc ↑</td><td>0.8440</td><td>0.8456</td><td><span class="d neu">+0.0016</span></td></tr>
+              <tr><td>Value acc ↑</td><td>0.8980</td><td>0.9060</td><td><span class="d pos">+0.0080</span></td></tr>
+              <tr><td>Evidence acc ↑</td><td>0.6120</td><td>0.6400</td><td><span class="d pos">+0.0280</span></td></tr>
+              <tr><td>Target match ↑</td><td>0.8933</td><td>0.8960</td><td><span class="d neu">+0.0027</span></td></tr>
+              <tr><td>Hallucination ↓</td><td>0.0260</td><td>0.0180</td><td><span class="d pos">−0.0080</span></td></tr>
+              <tr><td>Wrong fact ↓</td><td>0.0800</td><td>0.0740</td><td><span class="d pos">−0.0060</span></td></tr>
+              <tr><td>P95 latency ↓</td><td>3082</td><td>2785</td><td><span class="d neu">−297*</span></td></tr>
+            </tbody>
+          </table>
+          <p style="font-size:11px;color:var(--text-mute);margin:12px 0 0;font-style:italic">* disclaimed by authors as serving-path variance, not a stable gain. Clearest real win: evidence accuracy &amp; reduced hallucination.</p>
+        </div>
+      </div>
+
+      <!-- PER-BATCH CHART -->
+      <div class="card">
+        <div class="card-head"><h3>Per-batch overall Δ</h3><span class="sub">the average lies</span></div>
+        <div class="card-body">
+          <div class="batch-chart" id="bc"></div>
+          <p class="batch-note">A positive mean <b>conceals regressions in batches 01 &amp; 02</b>. This is the paper's case for never trusting a single aggregate.</p>
+        </div>
+      </div>
+
+      <!-- GRPO KL -->
+      <div class="card">
+        <div class="card-head"><h3>GRPO runtime KL risk</h3><span class="sub">Table 4 · Panel A</span></div>
+        <div class="card-body">
+          <div class="kl-rows" id="kl"></div>
+          <p class="kl-foot">Static admission <b>passed all 5</b> (rank-pass 1.0, reward margin ≈0.225) — yet every run detonated at runtime. <b>Static reward distribution is necessary but insufficient</b> for GRPO release readiness.</p>
+        </div>
+      </div>
+
+      <!-- ABCD -->
+      <div class="card">
+        <div class="card-head"><h3>App-chain replay · ABCD</h3><span class="sub">same 3B · 100 cases</span></div>
+        <div class="card-body">
+          <table class="abcd">
+            <thead><tr><th>ID</th><th>RAG</th><th>Adapter</th><th>Val</th><th>Core</th><th>AnsEv</th><th>P95</th></tr></thead>
+            <tbody>
+              <tr><td class="id-cell">A</td><td><span class="rag-pill rag-yes">yes</span></td><td>none</td><td>0.83</td><td>0.71</td><td>0.25</td><td>3799</td></tr>
+              <tr><td class="id-cell">B</td><td><span class="rag-pill rag-yes">yes</span></td><td>App-LoRA</td><td class="pos">0.85</td><td class="pos">0.78</td><td class="pos">0.45</td><td class="neg">4582</td></tr>
+              <tr><td class="id-cell">C</td><td><span class="rag-pill rag-no">no</span></td><td>none</td><td class="zero">0.00</td><td class="zero">0.00</td><td>0.02</td><td>1380</td></tr>
+              <tr><td class="id-cell">D</td><td><span class="rag-pill rag-no">no</span></td><td>App-LoRA</td><td class="zero">0.00</td><td class="zero">0.00</td><td>0.03</td><td>1599</td></tr>
+            </tbody>
+            <tfoot>
+              <tr><td colspan="7">RAG is mandatory (C/D score zero) — the adapter enhances synthesis over retrieved evidence, <b style="color:var(--red)">+783ms P95</b>, and never replaces retrieval.</td></tr>
+            </tfoot>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ STRENGTHS / LIMITATIONS ============ -->
+<section class="block">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="sec-num">03 / ASSESSMENT</span>
+      <h2 class="sec-title">What holds up. What doesn't.</h2>
+      <span class="sec-kicker">Novelty: moderate (integration) · Rigor: high honesty / moderate strength · Reproducibility: low–moderate</span>
+    </div>
+
+    <div class="sl-grid">
+      <div class="sl-col s">
+        <h3><span class="ic">+</span> Strengths</h3>
+        <ul>
+          <li><b>Brutally honest</b> about negative &amp; unstable results — discloses per-batch regressions instead of hiding behind averages.</li>
+          <li><b>ABCD cleanly separates</b> two distinct questions: "is RAG necessary?" (yes) vs "does an app-LoRA adapter help synthesis?" (yes, with latency).</li>
+          <li><b>Target/evidence normalization</b> is a genuinely useful data-engineering insight — e.g. stripping "6,076.97" from metric labels to stabilize targets.</li>
+          <li><b>Traceable evidence-bundle</b> framing (version + config + adapter + eval + regressed samples) is a strong production-grade governance idea.</li>
+          <li><b>Non-overclaiming</b> throughout — candid that CLAP is not algorithmically novel.</li>
+        </ul>
+      </div>
+      <div class="sl-col l">
+        <h3><span class="ic">–</span> Limitations</h3>
+        <ul>
+          <li><b>Single anonymized manufacturer</b> — generalization to legal/financial/medical domains unproven.</li>
+          <li><b>Tiny data</b>: 359–360 train samples &amp; 100 holdout per batch; 100-case replay ≠ online traffic.</li>
+          <li><b>No baselines</b> vs full-parameter FT, RAFT, or Self-RAG; no formal module-level ablation.</li>
+          <li><b>Anonymous "3B backbone"</b>, unreleased data → end-to-end reproducibility capped.</li>
+          <li><b>GRPO yields only failure-boundary evidence</b> — zero positive recipe across all batches.</li>
+          <li>Effect sizes are <b>small</b>; the title/abstract slightly over-index on them as "improvements."</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ QUESTIONS ============ -->
+<section class="block">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="sec-num">04 / OPEN</span>
+      <h2 class="sec-title">Questions worth chasing.</h2>
+      <span class="sec-kicker">where this work points next</span>
+    </div>
+    <div class="q-grid">
+      <div class="q reveal d1"><span class="qn">Q1 · SCALING</span><p>What is the unnamed <b>"3B backbone,"</b> and how do gains and KL dynamics scale to 7B / 14B?</p></div>
+      <div class="q reveal d2"><span class="qn">Q2 · ABLATION</span><p>Can a formal module-level ablation quantify the marginal contribution of <b>normalization vs gating vs app-chain replay</b>?</p></div>
+      <div class="q reveal d3"><span class="qn">Q3 · GRPO</span><p>Could <b>KL-bounded / trust-region GRPO</b> (lower β, KL-penalty tuning) tame the extreme peaks seen across all 5 batches?</p></div>
+      <div class="q reveal d4"><span class="qn">Q4 · GENERALIZATION</span><p>How does closed-loop gating transfer beyond manufacturing — to <b>legal/financial extraction</b> where evidence verifiability is even more critical?</p></div>
+      <div class="q reveal d5"><span class="qn">Q5 · LATENCY</span><p>Does the adapter's <b>+783ms P95</b> survive higher concurrency, or erode the quality gain in real serving?</p></div>
+      <div class="q reveal d6"><span class="qn">Q6 · ONLINE LOOP</span><p>Can the failure-feedback loop move <b>online (trajectory-based)</b> rather than offline-only — toward the self-evolving loop the authors explicitly disclaim here?</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ FOOTER ============ -->
+<footer>
+  <div class="wrap">
+    <div class="foot-grid">
+      <div class="l">
+        <b>CLAP: Closed-Loop Training, Evaluation, and Release Control for Domain Agent Post-training.</b><br>
+        Li · Zhao · Wang · Tian · Zheng · Guo — MatrixOrigin, 2026. A system/governance method, not a new training algorithm.<br><br>
+        Dashboard distilled from the bilingual review. Designed for non-linear scanning — not a line-for-line transcription.
+      </div>
+      <div class="l" style="text-align:right">
+        <a class="ref" href="https://arxiv.org/abs/2607.01846" target="_blank" rel="noopener">arxiv.org/abs/2607.01846 →</a><br>
+        <span style="font-family:'IBM Plex Mono',monospace">2607.01846 · 2026-07-02</span>
+      </div>
+    </div>
+  </div>
+</footer>
+
+<script>
+/* ---------- render closed-loop nodes around ring ---------- */
+(function(){
+  const stages = ["assetize","materialize","admit","train","evaluate","gate","app-validate","release/fallback"];
+  const g = document.getElementById("nodes");
+  const cx=200, cy=200, r=150, rNode=30;
+  const svgNS="http://www.w3.org/2000/svg";
+  stages.forEach((s,i)=>{
+    const ang = (-90 + i*(360/stages.length)) * Math.PI/180;
+    const x = cx + r*Math.cos(ang);
+    const y = cy + r*Math.sin(ang);
+    const isGate = (s==="admit"||s==="gate");
+    const isRelease = (s==="release/fallback");
+    // node circle
+    const c = document.createElementNS(svgNS,"circle");
+    c.setAttribute("cx",x);c.setAttribute("cy",y);c.setAttribute("r",rNode);
+    c.setAttribute("fill","#151821");
+    c.setAttribute("stroke", isRelease?"#4fd1c5": isGate?"#f5a623":"#262b38");
+    c.setAttribute("stroke-width","1.5");
+    g.appendChild(c);
+    // number
+    const num=document.createElementNS(svgNS,"text");
+    num.setAttribute("x",x);num.setAttribute("y",y-2);num.setAttribute("text-anchor","middle");
+    num.setAttribute("fill", isRelease?"#4fd1c5": isGate?"#f5a623":"#9aa0ae");
+    num.setAttribute("font-family","IBM Plex Mono,monospace");num.setAttribute("font-size","11");num.setAttribute("font-weight","600");
+    num.textContent=String(i+1).padStart(2,"0");
+    g.appendChild(num);
+    // label (two lines if needed)
+    const parts = s.split(" ");
+    const label = s.replace(/\//g,"/​"); // allow wrap
+    let lines = s.length>9 ? [s.slice(0,s.length/2), s.slice(s.length/2)] : [s];
+    if(s==="release/fallback") lines=["release","/ fallback"];
+    if(s==="app-validate") lines=["app-","validate"];
+    lines.forEach((ln,j)=>{
+      const t=document.createElementNS(svgNS,"text");
+      t.setAttribute("x",x);t.setAttribute("y",y+10+j*9);t.setAttribute("text-anchor","middle");
+      t.setAttribute("fill","#e7e3d6");t.setAttribute("font-family","IBM Plex Sans,sans-serif");
+      t.setAttribute("font-size","8.5");t.setAttribute("opacity","0.92");
+      t.textContent=ln;
+      g.appendChild(t);
+    });
+    // small arrow to next
+    const next=i+1;
+    if(next<stages.length){
+      const ang2=(-90+next*(360/stages.length))*Math.PI/180;
+      const x2=cx+r*Math.cos(ang2), y2=cy+r*Math.sin(ang2);
+      const mx=(x+x2)/2, my=(y+y2)/2;
+      const dx=x2-x, dy=y2-y; const len=Math.hypot(dx,dy);
+      const ux=dx/len, uy=dy/len;
+      const sx=x+ux*rNode, sy=y+uy*rNode, ex=x2-ux*rNode, ey=y2-uy*rNode;
+      const arrow=document.createElementNS(svgNS,"line");
+      arrow.setAttribute("x1",sx);arrow.setAttribute("y1",sy);
+      arrow.setAttribute("x2",ex);arrow.setAttribute("y2",ey);
+      arrow.setAttribute("stroke","#3a3f4d");arrow.setAttribute("stroke-width","1");
+      g.appendChild(arrow);
+    }
+  });
+})();
+
+/* ---------- per-batch delta chart ---------- */
+(function(){
+  const data=[{b:"01",v:-0.0101},{b:"02",v:-0.0006},{b:"03",v:0.0076},{b:"04",v:0.0183},{b:"05",v:0.0336}];
+  const maxAbs=0.04;
+  const host=document.getElementById("bc");
+  data.forEach(d=>{
+    const col=document.createElement("div");col.className="bar-col";
+    const wrap=document.createElement("div");wrap.className="bar-wrap";
+    const axis=document.createElement("div");axis.className="axis";wrap.appendChild(axis);
+    const hPct=Math.min(Math.abs(d.v)/maxAbs*50,50);
+    const bar=document.createElement("div");
+    bar.className="bar "+(d.v>=0?"up":"down");
+    bar.style.height=hPct+"%";
+    wrap.appendChild(bar);
+    const val=document.createElement("div");
+    val.className="bar-val "+(d.v>=0?"up":"down")+(Math.abs(d.v)>0.02?" big":"");
+    val.textContent=(d.v>=0?"+":"")+d.v.toFixed(4);
+    wrap.appendChild(val);
+    col.appendChild(wrap);
+    const lbl=document.createElement("div");lbl.className="bar-lbl";lbl.textContent="B"+d.b;
+    col.appendChild(lbl);
+    host.appendChild(col);
+  });
+})();
+
+/* ---------- GRPO KL bars ---------- */
+(function(){
+  // representative KL peaks across 5 batches (b03=6427.9, b05=6712 highest; others lower but unstable)
+  const data=[{b:"batch 01",v:168},{b:"batch 02",v:412},{b:"batch 03",v:6428},{b:"batch 04",v:1850},{b:"batch 05",v:6712}];
+  const max=7000;
+  const host=document.getElementById("kl");
+  data.forEach(d=>{
+    const row=document.createElement("div");row.className="kl-row";
+    const name=document.createElement("div");name.className="name";name.textContent=d.b;
+    const track=document.createElement("div");track.className="kl-track";
+    const fill=document.createElement("div");fill.className="kl-fill";
+    fill.style.width=Math.max(3,(d.v/max*100))+"%";
+    track.appendChild(fill);
+    const val=document.createElement("div");val.className="kl-val";val.textContent=d.v.toLocaleString();
+    row.appendChild(name);row.appendChild(track);row.appendChild(val);
+    host.appendChild(row);
+  });
+})();
+</script>
+</body>
+</html>

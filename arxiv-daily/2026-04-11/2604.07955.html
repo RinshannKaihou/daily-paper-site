@@ -37,46 +37,75 @@ hr { border:none; border-top:1px solid var(--line); margin:1.5rem 0; }
 <div class="topnav"><a href="./index.html">← Today's digest</a></div>
 <div class="container">
 <h1>Rethinking Residual Errors in Compensation-based LLM Quantization</h1>
-<p class="authors">Li, S, Deng, J, Xu, K, Deng, R, Gu, H, Jiang, M, Shen, H, Huang, K</p>
+<p class="authors">Shuaiting Li, Juncan Deng, Kedong Xu, Rongtao Deng, Hong Gu, Minghan Jiang, Haibin Shen, Kejie Huang</p>
 <p class="meta">arXiv: 2604.07955</p>
 <p class="meta">Date: 2026-04-11</p>
 <p class="meta"><a href="https://arxiv.org/abs/2604.07955">https://arxiv.org/abs/2604.07955</a></p>
 <h1>Rethinking Residual Errors in Compensation-based LLM Quantization</h1>
-<blockquote><strong>一句话总结：</strong> 基于摘要分析：Methods based on weight compensation, which iteratively apply quantization and weight compensation to minimize the output error, have recently demonstrated remarkable success in quantizing Large Langu...</blockquote>
-<blockquote><strong>TL;DR:</strong> Methods based on weight compensation, which iteratively apply quantization and weight compensation to minimize the output error, have recently demonstrated remarkable success in quantizing Large Language Models (LLMs). The representative work, GPTQ, introduces several key techniques that make such i</blockquote>
+<blockquote><strong>一句话总结：</strong> 本文指出 GPTQ/GPTAQ 在逐列量化时把"补偿后的权重输出"当作校准目标，偏离了原始全精度输出；由此重新定义残差为"层间传播误差 + 层内补偿感知误差（compensation-aware error）"，并用神经元分解高效地融入权重更新，在 Llama2-7B 3-bit W2A16 上将 GPTQ 的 C4 PPL 从 13.60 降到 8.34。</blockquote>
+<blockquote><strong>TL;DR:</strong> This ICLR 2026 paper reformulates the residual error in compensation-based PTQ (GPTQ/GPTAQ) by aligning the quantized output strictly to the original full-precision output rather than to the compensated-weight output, and decomposes the new residual into the inter-layer propagated error r1 plus a novel intra-layer "compensation-aware error" r2. Integrated into GPTAQ via neuron decomposition, on Llama2-7B 3-bit weight-only it reduces C4 PPL from 13.60 (GPTQ) to 8.34 and improves average zero-shot accuracy from 64.9% to 66.5%; on Llama3.1-8B-Instruct W2A16 it raises average accuracy from 70.3% (GPTAQ) to 72.3%.</blockquote>
 <h2>核心贡献</h2>
 <ul>
-<li>Directly studies quantization residual errors, compensation-aware errors in weight quantization, and output alignment between quantized and full-precision models.</li>
+<li>重新审视 GPTQ/GPTAQ 的逐列校准目标：指出其在 q≥1 步用"补偿后权重 w^(q) 的输出"而非"原始全精度权重 w^(0) 的输出"作为对齐目标，导致残差定义不精确。</li>
+<li>推导出新的残差 r′ = r1 + r2：r1 是 GPTAQ 已有的层间输入误差，r2 是本文新定义的"补偿感知误差"——同一层内补偿权重与原始权重差异所引入的误差。</li>
+<li>利用 GPTAQ 的神经元分解技术将 r2 高效融入权重更新，仅需预计算矩阵 P2 = (XX̃ᵀL) ⊙ MU Lᵀ，与现有 GPTQ/GPTAQ 流水线无缝集成，量化时间开销仅约 5%。</li>
+<li>在 Llama2/3（1B–70B）、Qwen3、DeiT 视觉 Transformer 上广泛验证：3-bit/2-bit 权重量化及 W2A4KV4 权重激活量化均带来一致提升。</li>
 </ul>
 <h2>Key Contributions</h2>
 <ul>
-<li>Directly studies quantization residual errors, compensation-aware errors in weight quantization, and output alignment between quantized and full-precision models.</li>
+<li>Identifies a sub-optimal calibration objective in GPTQ/GPTAQ: during intra-layer iteration the column-level objective aligns to the output of compensated weights w^(q)X̃ rather than the true full-precision output w^(0)X̃, so the residual becomes inaccurate for q ≥ 1.</li>
+<li>Reformulates the residual as r′ = r1 + r2, where r1 = w^(q)(X̃ − X) is the inter-layer propagated input error (already in GPTAQ) and r2 = (w^(0) − w^(q))X̃ is a new "compensation-aware error" capturing the intra-layer discrepancy between original and compensated weights.</li>
+<li>Develops an efficient closed-form update using neuron decomposition (inherited from GPTAQ) that folds r2 into a single precomputed matrix P2 = (XX̃ᵀL) ⊙ MU Lᵀ, adding only ~5% quantization-time overhead and zero inference-time overhead.</li>
+<li>Demonstrates consistent gains by plugging the term into both GPTQ and GPTAQ across Llama2/3 (1B–70B), Qwen3 (4B/8B/14B), and DeiT vision transformers, under 3-bit and 2-bit weight-only as well as W2A4KV4 weight-activation settings.</li>
 </ul>
 <h2>Methodology</h2>
-<p>Methods based on weight compensation, which iteratively apply quantization and weight compensation to minimize the output error, have recently demonstrated remarkable success in quantizing Large Language Models (LLMs). The representative work, GPTQ, introduces several key techniques that make such iterative methods practical for LLMs with billions of parameters. GPTAQ extends this approach by introducing an asymmetric calibration process that aligns the output of each quantized layer with its fu</p>
+<p>The paper works within the compensation-based PTQ framework where a linear layer y = wX is quantized column by column, updating the remaining full-precision weights to compensate for each column's quantization error.</p>
+<p><strong>Baseline recap.</strong> GPTQ minimizes ‖ŵX − wX‖²_F using the Quant-flow input X throughout (Eqn. 2–4), with the inverse Hessian H⁻¹ = (XXᵀ)⁻¹ solved via Lagrange multipliers and made efficient by Cholesky reformulation and lazy batch updates. GPTAQ observes that using only the Quant-flow X causes inter-layer error accumulation, so it introduces an asymmetric calibration aligning the quantized output to the FP-flow output wX̃ (Eqn. 5–7), defining a residual r = w^(q):X̃_q: − w^(q)X_q: that adds a correction term rXᵀH⁻¹ to the standard update (Eqn. 8).</p>
+<p><strong>The rethink.</strong> The authors note GPTAQ's column-level objective (Eqn. 9) uses w^(q)X̃ as the target, which only equals the true full-precision output w^(0)X̃ at q = 0. For q ≥ 1 the compensated weights have drifted, so the proper objective is Eqn. 10: minimize ‖(w^(q) + Δw)X − w^(0)X̃‖²_F. Expanding yields the new residual r′ = (w^(0)X̃ − w^(q)X) = w^(q)(X̃ − X) + (w^(0) − w^(q))X̃ = r1 + r2. r2 is the compensation-aware error.</p>
+<p><strong>Efficient solution.</strong> Directly recomputing R1 = W^(q)(X̃ − X) and R2 = (W^(0) − W^(q))X̃ each step is costly. Following GPTAQ's neuron decomposition of R1 (R1 = Σ_q W_:,q ΔX_q:), they decompose R2 = Σ_q (W_:,q^(0) − W_:,q^(q)) X̃_q:. This lets the per-column update (Eqn. 21) reuse two precomputed matrices: P1 = (ΔXXᵀL) ⊙ MU Lᵀ (from GPTAQ) and a new P2 = (XX̃ᵀL) ⊙ MU Lᵀ, noting XX̃ᵀ = XXᵀ + ΔXXᵀ so no extra X̃ storage is needed. The full algorithm (Algorithm 1) marks the additions in orange.</p>
+<p><strong>Setup.</strong> Per-group symmetric weight quantization (g128) with per-token asymmetric activation quantization; input activation clipping ratio 0.9; weight clipping range searched by MSE. Calibration: 128 samples × 2048 tokens from WikiText2 or C4. Hardware: Llama3-70B on a single NVIDIA H20 (96GB); all other models on a single NVIDIA A6000 (48GB). Baselines: AWQ, GPTQ, GPTAQ, plus QuaRot and SpinQuant rotations for W2A4KV4. Benchmarks: WikiText-2, C4 perplexity, and six zero-shot tasks (PiQA, ARC-Easy, ARC-Challenge, HellaSwag, Winogrande, BoolQ).</p>
 <h2>Results & Highlights</h2>
 <ul>
-<li>Relevance score: 5/5</li>
-<li>Directly studies quantization residual errors, compensation-aware errors in weight quantization, and output alignment between quantized and full-precision models.</li>
+<li>On Llama2-7B 3-bit weight-only, GPTQ+Ours reduces <strong>C4 PPL from 13.60 (GPTQ) to 8.34</strong> and raises average zero-shot accuracy from 64.9% to 66.5%; GPTAQ+Ours further reaches WikiText2 PPL 6.25 vs GPTAQ's 6.53.</li>
+<li>On Llama3.1-8B-Instruct 3-bit weight-only, GPTAQ+Ours raises <strong>average zero-shot accuracy from 70.3% to 72.3%</strong> and lowers WikiText2 PPL from 8.90 to 8.67; C4 from 13.85 to 13.79.</li>
+<li>On Llama2-13B 2-bit weight-only + QuaRot (Table 2), GPTAQ+Ours reduces <strong>WikiText2 PPL from 7.50 to 7.32</strong> and improves average accuracy from 55.8% to 58.2% over QuaRot+GPTAQ.</li>
+<li>On Llama2-13B W2A4KV4 + SpinQuant (Table 3), GPTAQ+Ours reduces <strong>WikiText2 PPL from 9.55 to 8.60</strong> and improves average accuracy from 50.2% to 52.2% over SpinQuant+GPTAQ; on Llama2-7B it reduces PPL from 11.6 to 11.1 and raises accuracy from 48.1% to 49.2%.</li>
+<li>On Qwen3-4B 2-bit weight-only (Table 9), GPTAQ+Ours cuts <strong>C4 PPL from 57.1 to 39.9</strong> and raises average accuracy from 45.6% to 52.2% — a large gain showing generalization beyond Llama.</li>
+<li>On DeiT-Base W2A4 (Table 7), Ours reaches <strong>62.1% ImageNet accuracy</strong> vs GPTAQ's 61.3% and GPTQ's 51.8%.</li>
+<li>Ablation (Table 4) isolates the new P2 term: adding it to GPTQ on Llama2-7B improves average accuracy from 44.9% to 47.5% and WikiText2 PPL from 19.0 to 17.9; adding it to GPTAQ improves Llama2-13B WikiText2 PPL from 7.5 to 7.3.</li>
+<li>Efficiency (Table 5/6): GPTAQ+Ours peak calibration memory on Llama3-70B down_proj is 6.95GB vs GPTAQ's 4.48GB (with fp-activation cache moved to CPU: 41.5GB vs 35.8GB peak); end-to-end 3-bit quantization time on Llama3-70B is 6344s vs GPTAQ's 5883s (~5% overhead), with zero inference-time overhead.</li>
 </ul>
 <h2>Authors & Credibility</h2>
-<p>Authors listed: Li, S, Deng, J, Xu, K, Deng, R, Gu, H, Jiang, M, Shen, H, Huang, K. Requires further verification of institutional affiliations and track record.</p>
+<p>Published as a conference paper at ICLR 2026 (stated on every page). Authors are from Zhejiang University and vivo Mobile Communication Co., Ltd; the first two authors contributed equally and the work was done during an internship at vivo. Acknowledged funding: National Science and Technology Major Project (2026ZD1305800), Ningbo Key R&D Program (2025Z082), Zhejiang Province Leading Talent Project (2023R5204), and the Zhejiang University–Vivo Information Technology Joint Research Center. Code is publicly available at https://github.com/list0830/ResComp. Experiments run on NVIDIA H20 (96GB) and A6000 (48GB) GPUs.</p>
 <h2>Critical Assessment</h2>
-<p>Based on abstract analysis: relevance 5/5 to user interests. Directly studies quantization residual errors, compensation-aware errors in weight quantization, and output alignment between quantized and full-precision models..</p>
+<p>The paper's core theoretical contribution is a clean, correct algebraic refinement: Eqn. 13 shows the GPTAQ residual r1 is provably incomplete by exactly the r2 = (w^(0) − w^(q))X̃ term, and the neuron-decomposition reuse makes integration essentially free. However, a key weakness is that the gains are uneven across settings — on Llama2-7B W2A4KV4 (Table 3) the QuaRot+GPTAQ+Ours WikiText2 PPL (11.5) is only marginally better than QuaRot+GPTAQ (11.7) and average accuracy (48.9 vs 48.5) barely moves, suggesting the compensation-aware term matters most where weight-only error dominates and adds little when activation-quantization error dominates. Second, the method increases peak calibration memory materially: on Llama3-70B down_proj it goes from 4.48GB (GPTAQ) to 6.95GB, and total peak from 63.7GB to 69.5GB (Table 5), which on a 96GB H20 is fine but tightens memory headroom for the largest models — the CPU-offload variant (41.5GB peak) trades memory for added complexity. Third, the paper documents a catastrophic failure it does not fully resolve: SpinQuant+GPTAQ on Llama3-70B yields PPL > 1e5 because the pretrained rotation matrix was optimized for W16A4KV4 and cannot adapt to 2-bit weights; the authors only hypothesize the cause and do not fix it. Finally, the comparison is purely against GPTQ/GPTAQ/AWQ + rotation baselines — it does not include newer QAT or stronger PTQ methods like QuIP#, so the head-to-head against the state of the art at 2-bit is incomplete.</p>
 <h2>Strengths</h2>
 <ul>
-<li>Addresses topic relevant to user interests (score: 5/5)</li>
+<li>Mathematically clean and correct reformulation; the new r2 term is a provably missing component of the residual, not a heuristic.</li>
+<li>Drop-in integration with both GPTQ and GPTAQ via a single precomputed P2 matrix, with ~5% quantization-time overhead and zero inference overhead.</li>
+<li>Broad, honest evaluation: 1B–70B Llama2/3, Qwen3 4B/8B/14B, DeiT vision transformers, 3-bit/2-bit weight-only and W2A4KV4 weight-activation.</li>
+<li>Detailed memory and timing tables (Tables 5, 6, 10) make the engineering cost transparent.</li>
+<li>Public code (github.com/list0830/ResComp) and ICLR 2026 acceptance lend reproducibility.</li>
+<li>Calibration-sensitivity study (Tables 11, 12) shows gains are stable across 64–192 samples and four calibration datasets.</li>
 </ul>
 <h2>Limitations</h2>
 <ul>
-<li>Full assessment requires reading the complete paper</li>
+<li>Gains are small or negligible when activation-quantization error dominates (e.g., QuaRot+GPTAQ+Ours on Llama2-7B W2A4KV4: +0.4 avg accuracy).</li>
+<li>Peak calibration memory grows materially (Llama3-70B: 63.7GB → 69.5GB), constraining the largest models without CPU offload.</li>
+<li>SpinQuant on Llama3-70B collapses (PPL > 1e5) and is only hypothesized, not fixed.</li>
+<li>No comparison against QuIP# or other state-of-the-art 2-bit PTQ methods at the W2A16 extreme.</li>
+<li>The method is orthogonal to rotation/activation-smoothing but does not itself address activation outliers, so it must always be combined with QuaRot/SpinQuant for W2A4KV4.</li>
+<li>Vision-transformer gains (Table 7) are present but small at W4A4 (DeiT-Small 74.0 vs GPTAQ 73.8).</li>
 </ul>
 <h2>Relevance</h2>
-<p>Directly studies quantization residual errors, compensation-aware errors in weight quantization, and output alignment between quantized and full-precision models.。与用户关注的研究方向直接相关（相关性评分：5/5）。</p>
+<p>直接对应"计算可靠性与精度误差（Computation Reliability & Precision Errors）"方向——核心是补偿式量化中残差误差的精确建模与层内累积误差分析；同时触及"ML 可靠性与数学基础（ML Reliability & Mathematical Foundations）"，因为它从 OBS/OBD 的二阶信息框架出发严格推导出新的误差项 r2，并给出可证明的等价预计算形式。</p>
 <h2>Questions for Further Exploration</h2>
 <ul>
-<li>How does this work compare to related approaches in the same area?</li>
-<li>What are the practical implications for LLM reliability and interpretability?</li>
+<li>Can the compensation-aware error r2 be extended to non-uniform (e.g., codebook/lattice) quantizers where the neuron decomposition no longer factorizes column-wise?</li>
+<li>Why does SpinQuant's pretrained rotation fail catastrophically under 2-bit weights on Llama3-70B but QuaRot's random Hadamard rotation stays stable — is it the rotation's conditioning or its activation-outlier distribution?</li>
+<li>Is the r2 term's marginal benefit on W2A4KV4 (Table 3) a fundamental limit of weight-compensation when activation error dominates, or could an analogous "activation-compensation-aware error" be derived?</li>
+<li>Does the P2 precomputation remain tractable for ultra-long-context models where X̃ is much larger, or does the memory overhead become prohibitive?</li>
+<li>Could the r1 + r2 decomposition be applied to GPTQ-style methods for MoE expert matrices where per-expert Hessian conditioning differs?</li>
 </ul>
 <p>---</p>
 <p><em>Generated on 2026-04-12 | <a href="https://arxiv.org/abs/2604.07955">arxiv</a> | <a href="https://arxiv.org/pdf/2604.07955.pdf">pdf</a></em></p>

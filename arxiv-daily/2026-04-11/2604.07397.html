@@ -37,49 +37,85 @@ hr { border:none; border-top:1px solid var(--line); margin:1.5rem 0; }
 <div class="topnav"><a href="./index.html">← Today's digest</a></div>
 <div class="container">
 <h1>Data Warmup: Complexity-Aware Curricula for Efficient Diffusion Training</h1>
-<p class="authors">Lin, J, Wang, P, Zhan, Z, Zhang, L, Morgado, P</p>
+<p class="authors">Jinhong Lin, Pan Wang, Zitong Zhan, Lin Zhang, Pedro Morgado</p>
 <p class="meta">arXiv: 2604.07397</p>
 <p class="meta">Date: 2026-04-11</p>
 <p class="meta"><a href="https://arxiv.org/abs/2604.07397">https://arxiv.org/abs/2604.07397</a></p>
 <h1>Data Warmup: Complexity-Aware Curricula for Efficient Diffusion Training</h1>
-<blockquote><strong>一句话总结：</strong> 基于摘要分析：A key inefficiency in diffusion training occurs when a randomly initialized network, lacking visual priors, encounters gradients from the full complexity spectrum--most of which it lacks the capacity ...</blockquote>
-<blockquote><strong>TL;DR:</strong> A key inefficiency in diffusion training occurs when a randomly initialized network, lacking visual priors, encounters gradients from the full complexity spectrum--most of which it lacks the capacity to resolve. We propose Data Warmup, a curriculum strategy that schedules training images from simple</blockquote>
+<blockquote><strong>一句话总结：</strong> 提出 Data Warmup 课程学习策略，用 DINO-v2 离线计算每张图像的"前景显著性×典型性"复杂度分数，并通过温度退火采样器由简到难调度，在 ImageNet-256 的 SiT 系列（S/2 到 XL/2）上将 IS 提升最多 6.11、FID 降低最多 3.41，且反向课程会显著损害性能。</blockquote>
+<blockquote><strong>TL;DR:</strong> Data Warmup is a data-centric curriculum for diffusion training that scores each image offline (DINO-v2 features → foreground dominance Ωdom × foreground typicality Ωprot) and samples via a temperature-controlled softmax that anneals from simple to uniform over a warmup phase. On ImageNet-1K 256×256 with SiT backbones (S/2 to XL/2), it improves IS by up to +6.11 and FID by up to −3.41 vs the uniform-sampling SiT-B/2 baseline (IS 44.79→50.90, FID 35.32→31.95 on IN-500); reversing the curriculum (hard-first) degrades performance below baseline (IS −4.80, FID +4.89), and stacking on REPA gives further gains (IS +2.72, FID −1.70).</blockquote>
 <h2>核心贡献</h2>
 <ul>
-<li>Studies training dynamics and curriculum strategies for stable training of diffusion models, showing ordering effects on convergence.</li>
+<li>将扩散模型早期训练低效的根因归结为"数据复杂度与模型准备度失配"：随机初始化网络被迫去噪其尚无能力处理的复杂图像，梯度噪声大且信息量低。</li>
+<li>提出语义感知的图像复杂度度量，由两个因子组成：前景显著性（Ωdom，显著物体占画面比例，经 sigmoid 修正）与前景典型性（Ωprot，前景相对 k-means 原型的距离），二者乘积作为总复杂度。</li>
+<li>设计温度退火采样器：以有效数据集大小 |Dτ(t)| 沿 power-2 曲线从 |D0| 增长到 |D|×(1−1/e)，对应温度通过二分搜索恢复，warmup 阶段后切换为均匀采样。</li>
+<li>通过"反向课程"对照实验严格证明：增益来自简单→复杂的"方向"本身，而非单纯非均匀采样——反向课程使性能低于均匀基线。</li>
 </ul>
 <h2>Key Contributions</h2>
 <ul>
-<li>Studies training dynamics and curriculum strategies for stable training of diffusion models, showing ordering effects on convergence.</li>
+<li>Identifies the data-complexity/model-readiness mismatch as a concrete source of early-stage inefficiency in diffusion training and resolves it with a simple-to-complex curriculum that leaves model and loss untouched.</li>
+<li>Introduces a semantic-aware image complexity metric combining foreground dominance (Ωdom, sigmoid-corrected background ratio) and foreground typicality (Ωprot, distance to nearest k-means prototype), computed in a single offline DINO-v2 pass with zero per-iteration overhead.</li>
+<li>A temperature-controlled softmax sampler that anneals from concentrated (simple) to uniform via a power-2 schedule on effective dataset size, with within-cluster score normalization to avoid biasing toward low-raw-score visual concepts.</li>
+<li>A direction-matters ablation showing the reverse curriculum actively hurts (below baseline), isolating ordering — not non-uniformity — as the mechanism; plus additivity with the model-centric accelerator REPA.</li>
 </ul>
 <h2>Methodology</h2>
-<p>A key inefficiency in diffusion training occurs when a randomly initialized network, lacking visual priors, encounters gradients from the full complexity spectrum--most of which it lacks the capacity to resolve. We propose Data Warmup, a curriculum strategy that schedules training images from simple to complex without modifying the model or loss. Each image is scored offline by a semantic-aware complexity metric combining foreground dominance (how much of the image salient objects occupy) and fo</p>
+<ul>
+<li><strong>Offline complexity scoring (Stage 1, ~10 min on one H100)</strong>: Extract DINO-v2 spatial tokens {z_{i,j}} for each image; compute the first principal component u1 across the dataset; per-token saliency s_{i,j} = u1^⊤ z_{i,j}; foreground tokens are those with s_{i,j} > θ, θ=0.05 (following DINO-v2).</li>
+<li><strong>Foreground dominance</strong> Ωdom: background ratio r_bg = (L − L_fg)/L mapped through a sigmoid correction Ωdom = 1 / (1 + e^{−(κ r_bg + α(v_min))}) with κ=12.0, v_min=0.002, so that Ωdom = v_min when r_bg=0. The sigmoid captures that the complexity jump from 40%→20% foreground matters more than 80%→60%.</li>
+<li><strong>Foreground typicality</strong> Ωprot: average foreground tokens into z̄_i^fg (or all tokens if none), run k-means (K=1000 on ImageNet) to get prototypes {μ_k}, assign each image to nearest centroid k(i), Ωprot = ‖z̄_i^fg − μ_{k(i)}‖₂. Low = prototypical, high = outlier.</li>
+<li><strong>Overall score</strong> Ω = Ωdom × Ωprot (multiplicative: simple only if both dominant and prototypical). Normalize within each cluster: Ω̃_i = (Ω_i − Ω_min^{k(i)}) / (Ω_max^{k(i)} − Ω_min^{k(i)}).</li>
+<li><strong>Warmup sampling (Stage 2)</strong>: At iteration t, sample image i with P(i|t) ∝ exp(−Ω̃_i / τ(t)) (Eq. 7). Temperature is parameterized via effective dataset size |D_τ(t)| = Σ_i [1 − (1 − P(i|t))^{|D|}] (expected unique images per epoch), recovered by binary search. Schedule |D_τ(t)| on a power-2 curve from |D0| to |D_max| = |D|×(1−1/e) ≈ 0.632|D| over T_w warmup iterations, then uniform (τ→∞) for t > T_w.</li>
+<li><strong>Training setup</strong>: ImageNet 256×256, SiT framework (S/2, B/2, L/2, XL/2 with 2×2 non-overlapping patches), ADM preprocessing, Stable Diffusion VAE latents z ∈ R^{32×32×4}, batch size 256. Warmup runs use 200k curriculum + 200k uniform iterations; baselines train 400k uniform. A100 GPUs for training; H100 for preprocessing timing. Metrics: FID, sFID, IS, precision/recall. Qualitative model: SiT-XL/2 + REPA + Data Warmup, 2M iterations, CFG w=4.0.</li>
+<li><strong>Baselines/controls</strong>: uniform-sampling SiT (baseline); inverse Data Warmup (same mechanism, hard-first); REPA (representation-alignment accelerator) alone and stacked; ablations on Ωdom-only, Ωprot-only, and sigmoid hyperparameters (κ, v_min).</li>
+</ul>
 <h2>Results & Highlights</h2>
 <ul>
-<li>Relevance score: 4/5</li>
-<li>Studies training dynamics and curriculum strategies for stable training of diffusion models, showing ordering effects on convergence.</li>
+<li><strong>Main result (Table 1, SiT-B/2 on IN-1K 256×256)</strong>: Data Warmup IS 45.70 (+4.30) vs baseline 41.40; FID 32.75 (−3.41) vs 36.16; sFID 6.56 (−0.24); precision 0.54 (+0.02). Inverse Data Warmup degrades to IS 36.60 (−4.80), FID 41.05 (+4.89) — below baseline — proving direction is the mechanism.</li>
+<li><strong>Direction asymmetry</strong>: gap between forward and reverse curricula ≈ ΔIS 9, ΔFID 8, far larger than either's gap to baseline.</li>
+<li><strong>Dataset-size threshold (Table 3, SiT-B/2)</strong>: IN-100 — warmup hurts (IS 43.05→28.75, −14.30; FID 79.38→100.97, +21.59); IN-500 — largest gains (IS 44.79→50.90, +6.11; FID 35.32→31.95, −3.37); IN-1K — IS +4.30, FID −3.41. Establishes a diversity threshold.</li>
+<li><strong>Model-capacity scaling (Table 4, IN-1K)</strong>: gains grow with scale — SiT-S/2 IS +1.16 (FID −2.47), SiT-B/2 +4.30 (−3.41), SiT-L/2 +5.96 (−1.62), SiT-XL/2 +4.67 (−1.31).</li>
+<li><strong>REPA stacking (Table 2)</strong>: Data Warmup on top of REPA improves IS 55.36→58.08 (+2.72) and FID 27.54→25.84 (−1.70), confirming orthogonality with model-centric accelerators.</li>
+<li><strong>Component ablation (Table 5, SiT-B/2 IN-1K)</strong>: Ωdom alone IS +3.02 / FID −2.22; Ωprot alone IS +1.51 / FID −1.15; combined IS +4.30 / FID −3.41 — super-additive, indicating synergy.</li>
+<li><strong>Hyperparameter robustness (Table 6)</strong>: κ ∈ [10,16] and v_min ∈ [0.002, 0.02] all beat baseline; best at κ=12, v_min=0.002 (IS 45.69, FID 32.75).</li>
+<li><strong>Convergence speed (Figure 6, IN-500)</strong>: warmed-up model pulls ahead from earliest iterations, gap widens through the 40k–160k curriculum phase, and persists at 400k with ~6 IS point lead — "not merely front-loading gains the baseline eventually recovers."</li>
 </ul>
 <h2>Authors & Credibility</h2>
-<p>Authors listed: Lin, J, Wang, P, Zhan, Z, Zhang, L, Morgado, P. Requires further verification of institutional affiliations and track record.</p>
+<ul>
+<li>Authors span University of Wisconsin–Madison (Jinhong Lin, Lin Zhang, Pedro Morgado), University at Buffalo SUNY (Zitong Zhan), and University of Pittsburgh (Pan Wang). Jinhong Lin is the corresponding author. The paper builds directly on the authors' own prior prototype-based MAE curriculum work (Lin et al. 2024, arXiv:2411.10685), which they cite as the closest precursor. The SiT [19] and REPA [37] baselines are external (Ma et al. ECCV 2024; Yu et al. 2024). No venue acceptance or code link is stated in the extracted text.</li>
+</ul>
 <h2>Critical Assessment</h2>
-<p>Based on abstract analysis: relevance 4/5 to user interests. Studies training dynamics and curriculum strategies for stable training of diffusion models, showing ordering effects on convergence..</p>
+<ul>
+<li>The complexity metric is computed once offline from a frozen DINO-v2 backbone and is static throughout training — the authors themselves flag this as a limitation, noting that an adaptive, loss-aware re-scoring could yield tighter curricula in later phases; the current schedule defaults to uniform after T_w, so any late-training benefit from complexity-aware sampling is forfeited.</li>
+<li>The method's headline failure mode is severe and under-explored: on IN-100 it actively hurts (FID +21.59), and the paper's explanation ("too few unique images per epoch → overfit to a narrow manifold") is plausible but not formally characterized — there is no quantitative rule for predicting the diversity threshold on a new dataset, which limits safe deployment on smaller or uncurated corpora.</li>
+<li>The "direction matters" ablation, while a clean control, does not rule out that the specific complexity metric is doing the work rather than the ordering: a random ordering with the same non-uniform concentration, or an orthogonal difficulty metric (e.g., loss-based), would be a stronger comparison.</li>
+<li>All quantitative results are on class-conditional ImageNet 256×256 with SiT; text-conditioned generation, uncurated/web-scale data, and non-SiT architectures are entirely untested, so generalization claims are unsupported by evidence.</li>
+</ul>
 <h2>Strengths</h2>
 <ul>
-<li>Addresses topic relevant to user interests (score: 4/5)</li>
+<li>Clean, minimal, and orthogonal intervention: changes only the data sampling distribution, leaving model/loss untouched, which is why it composes with REPA.</li>
+<li>Strong direction ablation that isolates ordering as the causal factor — a methodologically rigorous control rarely seen in curriculum-learning papers.</li>
+<li>Comprehensive ablations: dataset-size threshold, model-capacity scaling, both complexity factors, sigmoid hyperparameters, and REPA stacking.</li>
+<li>Practically cheap: ~10 minutes one-time offline preprocessing on a single H100, zero per-iteration overhead.</li>
 </ul>
 <h2>Limitations</h2>
 <ul>
-<li>Full assessment requires reading the complete paper</li>
+<li>Static, frozen DINO-v2 complexity scores; no adaptive re-scoring as the model improves.</li>
+<li>Catastrophic failure on small datasets (IN-100) with no quantitative threshold rule for when it is safe to apply.</li>
+<li>Restricted to class-conditional ImageNet 256×256 / SiT; text-conditioned and uncurated regimes untested.</li>
+<li>The "direction matters" control does not disentangle the specific semantic metric from the ordering effect itself.</li>
+<li>No theoretical/empirical connection to loss-landscape geometry beyond a brief hand-wavy hypothesis in the Discussion.</li>
 </ul>
 <h2>Relevance</h2>
-<p>Studies training dynamics and curriculum strategies for stable training of diffusion models, showing ordering effects on convergence.。与用户关注的研究方向直接相关（相关性评分：4/5）。</p>
+<p>该论文研究扩散模型训练的加速与数据课程调度，核心是从训练动力学（早期梯度信号质量、模型准备度与数据复杂度失配）角度提升训练稳定性与效率。这映射到用户关注的「LLM Training Stability & Observability」（训练阶段的数据/梯度信号稳定性与课程调度）与「ML Reliability & Mathematical Foundations」（数据复杂度度量、采样分布退火的数学构造）两个方向，其"先简后难"的样本调度思想对自回归/大模型训练稳定性亦有借鉴价值。</p>
 <h2>Questions for Further Exploration</h2>
 <ul>
-<li>How does this work compare to related approaches in the same area?</li>
-<li>What are the practical implications for LLM reliability and interpretability?</li>
+<li>复杂度度量能否改为随训练自适应更新（如用模型自身 loss 或梯度范数在线重打分），以在 warmup 后期仍保留复杂度感知？</li>
+<li>该课程思想是否可迁移到 LLM 预训练/指令微调，按 prompt/样本复杂度（如 reasoning 链长度、token 熵）做简单→困难调度以稳定早期训练？</li>
+<li>IN-100 的失败是否可由"有效数据集大小下限"给出可预测的阈值规则（如 |D0|/类别数 ≥ 某常数），从而安全部署到小数据集？</li>
+<li>反向课程损害性能的根因（loss landscape 几何、梯度冲突平均化）能否用 loss-landscape 可视化或梯度余弦相似度定量验证，而非仅作假设？</li>
 </ul>
 <p>---</p>
-<p><em>Generated on 2026-04-12 | <a href="https://arxiv.org/abs/2604.07397">arxiv</a> | <a href="https://arxiv.org/pdf/2604.07397.pdf">pdf</a></em></p>
+<p><em>Generated on 2026-04-11 | <a href="https://arxiv.org/abs/2604.07397">arxiv</a> | <a href="https://arxiv.org/pdf/2604.07397.pdf">pdf</a></em></p>
 <p class="note">Generated from Markdown summary. Full paper: <a href="https://arxiv.org/abs/2604.07397">arXiv:2604.07397</a></p>
 </div>
 </body>

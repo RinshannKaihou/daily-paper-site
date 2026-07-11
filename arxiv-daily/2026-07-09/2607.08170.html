@@ -1,0 +1,895 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Layer Patching as Shortest Path — 2607.08170</title>
+<style>
+  /* ---------- Design tokens ---------- */
+  :root{
+    --paper:    #F4F1EA;   /* warm editorial paper */
+    --paper-2:  #EEE9DE;   /* deeper panel */
+    --ink:      #15161A;   /* near-black ink */
+    --ink-2:    #35373F;
+    --muted:    #6B6D78;
+    --hair:     #D8D2C4;   /* hairline border */
+    --hair-2:   #C5BDA9;
+    --accent:   #2B2D78;   /* deep indigo — lattice / shortest-path */
+    --accent-2: #1E2061;
+    --accent-soft:#E5E6F2;
+    --accent-line:#4A4FA0;
+    --caution:  #9A3A1C;   /* burnt amber — critical edge */
+    --caution-soft:#FBE7DE;
+    --pos:      #1F6B3A;
+    --neg:      #9A3A1C;
+    --maxw: min(95vw, 1100px);
+    --serif: ui-serif, "New York", "Iowan Old Style", "Apple Garamond", Georgia, "Songti SC", "Noto Serif CJK SC", serif;
+    --sans:  system-ui, -apple-system, "Segoe UI", "Helvetica Neue", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+    --mono:  ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+  }
+
+  *{ box-sizing: border-box; }
+  html,body{ margin:0; padding:0; }
+  body{
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* faint lattice-grid texture (the paper is about a Boolean lattice) */
+  body::before{
+    content:"";
+    position: fixed; inset:0;
+    background-image:
+      linear-gradient(to right, rgba(43,45,120,0.045) 1px, transparent 1px),
+      linear-gradient(to bottom, rgba(43,45,120,0.045) 1px, transparent 1px);
+    background-size: 34px 34px;
+    pointer-events:none;
+    z-index:0;
+  }
+
+  a{ color: var(--accent); text-decoration: none; }
+  a:hover{ text-decoration: underline; text-underline-offset: 3px; }
+
+  /* ---------- Fixed top-left nav ---------- */
+  .topnav{
+    position: fixed;
+    top: 14px; left: 16px;
+    z-index: 50;
+    font-family: var(--sans);
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+    background: rgba(244,241,234,0.88);
+    backdrop-filter: saturate(140%) blur(6px);
+    -webkit-backdrop-filter: saturate(140%) blur(6px);
+    border: 1px solid var(--hair);
+    border-radius: 999px;
+    padding: 7px 14px 7px 12px;
+  }
+  .topnav a{ color: var(--ink); }
+  .topnav a:hover{ color: var(--accent); text-decoration:none; }
+
+  .wrap{
+    position: relative;
+    z-index: 1;
+    width: var(--maxw);
+    margin: 0 auto;
+    padding: 56px 28px 28px;
+  }
+
+  /* ---------- HERO ---------- */
+  .hero{
+    border-top: 3px solid var(--accent);
+    background: var(--paper);
+    padding: 30px 0 26px;
+  }
+  .eyebrow{
+    display:flex; align-items:center; gap:10px;
+    font-family: var(--mono);
+    font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 18px;
+  }
+  .eyebrow .dot{
+    width:9px; height:9px; border-radius:50%;
+    background: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-soft);
+  }
+  .eyebrow .id{ color: var(--ink-2); font-weight:600; }
+  .eyebrow .live{ color: var(--pos); }
+
+  .kicker{
+    font-family: var(--mono);
+    font-size: 11px; letter-spacing: 0.16em; text-transform: uppercase;
+    color: var(--accent);
+    font-weight: 700;
+    margin: 0 0 10px;
+  }
+  h1.finding{
+    font-family: var(--serif);
+    font-weight: 600;
+    font-size: clamp(28px, 4.6vw, 50px);
+    line-height: 1.08;
+    letter-spacing: -0.015em;
+    margin: 0 0 18px;
+    color: var(--ink);
+    max-width: 24ch;
+  }
+  h1.finding em{
+    font-style: italic;
+    color: var(--accent);
+  }
+  h1.finding .underline{
+    background-image: linear-gradient(transparent 78%, rgba(43,45,120,0.22) 78%);
+    background-repeat: no-repeat;
+  }
+
+  .meta{
+    font-family: var(--sans);
+    font-size: 15px;
+    color: var(--muted);
+    line-height: 1.7;
+  }
+  .meta .title{
+    font-family: var(--serif);
+    font-style: italic;
+    color: var(--ink);
+    font-size: 16px;
+    font-weight: 500;
+    border-bottom: 1px solid var(--hair-2);
+  }
+  .meta .title:hover{ color: var(--accent); border-bottom-color: var(--accent); text-decoration:none; }
+  .sep{ color: var(--hair-2); margin: 0 8px; }
+
+  .authors{ color: var(--ink-2); }
+  .chips{ margin-top: 16px; display:flex; flex-wrap:wrap; gap:7px; }
+  .chip{
+    font-family: var(--mono);
+    font-size: 11.5px;
+    color: var(--ink-2);
+    background: var(--paper-2);
+    border: 1px solid var(--hair);
+    padding: 4px 10px;
+    border-radius: 999px;
+  }
+  .chip.acc{
+    color: var(--accent-2);
+    background: var(--accent-soft);
+    border-color: #C9CCE6;
+  }
+
+  /* ---------- ASSET ROW ---------- */
+  .assets{
+    display:grid;
+    grid-template-columns: 1.05fr 1fr 1fr;
+    gap: 14px;
+    margin: 22px 0 0;
+  }
+  .card{
+    background: var(--paper);
+    border: 1px solid var(--hair);
+    border-radius: 10px;
+    padding: 20px 20px 18px;
+    position: relative;
+    overflow: hidden;
+  }
+  .card .label{
+    font-family: var(--mono);
+    font-size: 10.5px; letter-spacing: 0.16em; text-transform: uppercase;
+    color: var(--muted);
+    margin: 0 0 12px;
+    font-weight: 700;
+  }
+
+  /* metric card */
+  .card.metric{
+    background: linear-gradient(180deg, var(--paper) 0%, var(--paper-2) 100%);
+    border-top: 3px solid var(--accent);
+  }
+  .card.metric .big{
+    font-family: var(--serif);
+    font-weight: 700;
+    font-size: clamp(58px, 10vw, 92px);
+    line-height: 0.95;
+    letter-spacing: -0.04em;
+    color: var(--accent);
+  }
+  .card.metric .big .x{ font-style: italic; font-weight: 600; }
+  .card.metric .unit{
+    font-family: var(--sans);
+    color: var(--ink-2);
+    font-size: 14px;
+    margin-top: 10px;
+    max-width: 30ch;
+  }
+  .card.metric .vs{
+    margin-top: 12px;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--muted);
+    border-top: 1px dashed var(--hair-2);
+    padding-top: 10px;
+  }
+  .card.metric .vs b{ color: var(--ink); font-weight:600; }
+
+  /* matters card */
+  .card.matters{
+    border-left: 3px solid var(--accent-line);
+  }
+  .card.matters .copy{
+    font-family: var(--serif);
+    font-size: 18px;
+    line-height: 1.42;
+    color: var(--ink);
+    font-weight: 500;
+  }
+  .card.matters .tag{
+    margin-top: 14px;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--muted);
+    letter-spacing: 0.04em;
+  }
+
+  /* edge card — cautionary */
+  .card.edge{
+    background: var(--caution-soft);
+    border: 1px solid #ECC4AE;
+    border-left: 3px solid var(--caution);
+  }
+  .card.edge .label{ color: var(--caution); }
+  .card.edge .copy{
+    font-family: var(--serif);
+    font-size: 16.5px;
+    line-height: 1.45;
+    color: #5A1C0E;
+    font-weight: 500;
+  }
+  .card.edge .copy b{ color: var(--caution); font-weight:700; }
+  .card.edge .src{
+    margin-top: 12px;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: #8A3220;
+    letter-spacing: 0.03em;
+  }
+
+  /* ---------- SECTIONS ---------- */
+  .sect-head{
+    display:flex; align-items:baseline; gap:14px;
+    margin: 42px 0 16px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--hair);
+  }
+  .sect-head .n{
+    font-family: var(--mono);
+    font-size: 12px; font-weight:700;
+    color: var(--accent);
+    background: var(--accent-soft);
+    border-radius: 4px;
+    padding: 3px 8px;
+  }
+  .sect-head h2{
+    margin:0;
+    font-family: var(--serif);
+    font-size: 22px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    color: var(--ink);
+  }
+  .sect-head .lede{
+    margin-left: auto;
+    max-width: 46ch;
+    font-family: var(--sans);
+    font-size: 13.5px;
+    color: var(--muted);
+    line-height: 1.5;
+  }
+
+  .body-grid{
+    display:grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+  }
+  .panel{
+    background: var(--paper);
+    border: 1px solid var(--hair);
+    border-radius: 10px;
+    padding: 22px 22px 20px;
+  }
+  .panel h3{
+    margin: 0 0 10px;
+    font-family: var(--serif);
+    font-size: 17px;
+    font-weight: 600;
+    color: var(--ink);
+  }
+  .panel p{
+    margin: 0 0 10px;
+    font-size: 14.5px;
+    color: var(--ink-2);
+    line-height: 1.62;
+  }
+  .panel p:last-child{ margin-bottom:0; }
+  .param{
+    font-family: var(--mono);
+    font-size: 12.5px;
+    color: var(--accent-2);
+    background: var(--accent-soft);
+    padding: 1px 5px;
+    border-radius: 3px;
+    white-space: nowrap;
+  }
+  .formula{
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--ink);
+    background: var(--paper-2);
+    border-left: 2px solid var(--accent);
+    padding: 8px 12px;
+    margin: 8px 0;
+    border-radius: 0 4px 4px 0;
+    overflow-x:auto;
+  }
+
+  .method-panel{ grid-column: 1 / -1; }
+  .method-grid{
+    display:grid;
+    grid-template-columns: 1.1fr 1fr;
+    gap: 22px;
+    align-items: start;
+  }
+  .pipeline{
+    display:flex; flex-direction:column; gap: 0;
+  }
+  .step{
+    position:relative;
+    padding: 10px 0 12px 34px;
+    border-left: 1.5px solid var(--hair-2);
+    margin-left: 8px;
+  }
+  .step::before{
+    content:"";
+    position:absolute;
+    left: -7px; top: 14px;
+    width: 12px; height: 12px;
+    border-radius: 50%;
+    background: var(--paper);
+    border: 2px solid var(--accent);
+  }
+  .step .h{
+    font-family: var(--sans);
+    font-weight: 700;
+    font-size: 13.5px;
+    color: var(--ink);
+    margin-bottom: 3px;
+  }
+  .step .d{
+    font-size: 13px;
+    color: var(--muted);
+    line-height: 1.55;
+  }
+
+  /* ---------- TABLES ---------- */
+  .table-wrap{ overflow-x:auto; }
+  table{
+    width:100%;
+    border-collapse: collapse;
+    font-size: 13px;
+    font-family: var(--sans);
+  }
+  table thead th{
+    text-align:left;
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--muted);
+    font-weight: 700;
+    padding: 9px 10px;
+    border-bottom: 1.5px solid var(--hair-2);
+    background: var(--paper-2);
+    white-space: nowrap;
+  }
+  table th.num, table td.num{ text-align:right; font-variant-numeric: tabular-nums; }
+  table td{
+    padding: 9px 10px;
+    border-bottom: 1px solid var(--hair);
+    color: var(--ink-2);
+    vertical-align: top;
+  }
+  table td.model{ font-weight:600; color: var(--ink); }
+  table td.num.win{ color: var(--accent); font-weight:700; }
+  table td.num.bad{ color: var(--neg); }
+  table td.pct{
+    font-family: var(--mono);
+    font-size: 11.5px;
+    color: var(--muted);
+  }
+  table tbody tr:hover{ background: var(--accent-soft); }
+  .tbl-caption{
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--muted);
+    margin: 8px 2px 0;
+    letter-spacing: 0.03em;
+  }
+
+  /* ---------- Strengths / Limitations ---------- */
+  .sl-grid{
+    display:grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+  }
+  .sl{
+    border-radius: 10px;
+    padding: 20px 22px 18px;
+    border: 1px solid var(--hair);
+  }
+  .sl.pos{
+    background: #EDF2EC;
+    border-color: #C7D6C5;
+  }
+  .sl.neg{
+    background: var(--caution-soft);
+    border-color: #ECC4AE;
+  }
+  .sl .sh{
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    font-weight: 700;
+    margin-bottom: 12px;
+  }
+  .sl.pos .sh{ color: var(--pos); }
+  .sl.neg .sh{ color: var(--caution); }
+  .sl ul{
+    margin:0; padding-left: 18px;
+    list-style: none;
+  }
+  .sl li{
+    position: relative;
+    padding: 6px 0 6px 14px;
+    font-size: 14px;
+    line-height: 1.5;
+    color: var(--ink-2);
+    border-bottom: 1px dashed rgba(0,0,0,0.06);
+  }
+  .sl li:last-child{ border-bottom: none; }
+  .sl li::before{
+    position: absolute;
+    left: 0; top: 6px;
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 700;
+  }
+  .sl.pos li::before{ content:"+"; color: var(--pos); }
+  .sl.neg li::before{ content:"–"; color: var(--caution); }
+  .sl li b{ color: var(--ink); font-weight: 600; }
+
+  /* ---------- Questions ---------- */
+  .qlist{
+    display:grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    counter-reset: q;
+  }
+  .q{
+    counter-increment: q;
+    background: var(--paper);
+    border: 1px solid var(--hair);
+    border-radius: 8px;
+    padding: 14px 16px 14px 48px;
+    position: relative;
+    font-size: 13.5px;
+    color: var(--ink-2);
+    line-height: 1.5;
+  }
+  .q::before{
+    content: "Q" counter(q);
+    position: absolute;
+    left: 14px; top: 13px;
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--accent);
+    background: var(--accent-soft);
+    padding: 2px 6px;
+    border-radius: 4px;
+  }
+
+  /* ---------- Provenance strip ---------- */
+  .provenance{
+    margin-top: 18px;
+    background: var(--paper);
+    border: 1px solid var(--hair);
+    border-radius: 8px;
+    padding: 14px 18px;
+    font-family: var(--mono);
+    font-size: 11.5px;
+    color: var(--muted);
+    line-height: 1.6;
+  }
+  .provenance b{ color: var(--ink-2); font-weight:600; }
+
+  /* ---------- Footer ---------- */
+  footer{
+    margin-top: 40px;
+    padding: 22px 0 8px;
+    border-top: 1px solid var(--hair);
+    display:flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--muted);
+  }
+  footer a{
+    color: var(--accent);
+    font-weight: 600;
+  }
+  footer a.md{
+    color: var(--ink-2);
+    border: 1px solid var(--hair-2);
+    padding: 6px 12px;
+    border-radius: 999px;
+  }
+  footer a.md:hover{ background: var(--accent-soft); border-color: var(--accent-line); text-decoration:none; }
+
+  /* ---------- Reveal animation ---------- */
+  .reveal{ opacity:0; transform: translateY(10px); animation: rv 0.7s cubic-bezier(.2,.7,.2,1) forwards; }
+  @keyframes rv{ to{ opacity:1; transform:none; } }
+  .d1{ animation-delay:.05s; } .d2{ animation-delay:.16s; }
+  .d3{ animation-delay:.24s; } .d4{ animation-delay:.32s; }
+  .d5{ animation-delay:.42s; } .d6{ animation-delay:.5s; }
+
+  /* ---------- Responsive ---------- */
+  @media (max-width: 920px){
+    .assets{ grid-template-columns: 1fr 1fr; }
+    .card.metric{ grid-column: 1 / -1; }
+    .sect-head{ flex-wrap: wrap; }
+    .sect-head .lede{ margin-left:0; width:100%; margin-top:4px; }
+    .method-grid{ grid-template-columns: 1fr; }
+  }
+  @media (max-width: 720px){
+    .wrap{ padding: 52px 16px 20px; }
+    .topnav{ font-size: 12px; top:10px; left:10px; padding: 6px 12px 6px 10px; }
+    .assets{ grid-template-columns: 1fr; }
+    .body-grid, .sl-grid, .qlist{ grid-template-columns: 1fr; }
+    h1.finding{ font-size: clamp(26px, 7.4vw, 40px); max-width: 100%; }
+    .card.metric .big{ font-size: 68px; }
+    .sect-head h2{ font-size: 19px; }
+  }
+  @media (prefers-reduced-motion: reduce){
+    .reveal{ animation: none; opacity:1; transform:none; }
+  }
+</style>
+</head>
+<body>
+
+<nav class="topnav">
+  <a href="./index.html">↩ Today's digest</a>
+</nav>
+
+<main class="wrap">
+
+  <!-- ===================== HERO ===================== -->
+  <header class="hero reveal d1">
+    <div class="eyebrow">
+      <span class="dot"></span>
+      <span class="id">arXiv 2607.08170</span>
+      <span class="sep">·</span>
+      <span class="live">theory + empirical</span>
+      <span class="sep">·</span>
+      <span>Harvard · Kempner · IST Austria</span>
+    </div>
+
+    <p class="kicker">Key finding</p>
+    <h1 class="finding">
+      Optimal <em>layer-patching order</em> in model-size interpolation is a
+      <span class="underline">shortest path</span> on a KL-weighted Boolean lattice —
+      solvable greedily in <em>O(N²)</em>.
+    </h1>
+
+    <div class="meta">
+      <a class="title" href="https://arxiv.org/abs/2607.08170" target="_blank" rel="noopener">Understanding Layer Patching in Model Size Interpolation</a>
+    </div>
+    <div class="meta" style="margin-top:8px;">
+      <span class="authors">Sara Kangaslahti · Jonathan Geuter · Nihal V. Nayak · Marco Fumero · Francesco Locatello · David Alvarez-Melis</span>
+      <span class="sep">|</span>
+      <span>2026-07-09</span>
+    </div>
+
+    <div class="chips">
+      <span class="chip acc">model-size-interpolation</span>
+      <span class="chip acc">boomerang-distillation</span>
+      <span class="chip">layer-patching</span>
+      <span class="chip">shortest-path</span>
+      <span class="chip">kl-divergence</span>
+      <span class="chip">llm-efficiency</span>
+      <span class="chip">knowledge-distillation</span>
+    </div>
+  </header>
+
+  <!-- ===================== ASSET ROW ===================== -->
+  <section class="assets">
+
+    <div class="card metric reveal d2">
+      <p class="label">Key metric · compute saved</p>
+      <div class="big">1,722<span class="x">×</span></div>
+      <div class="unit">speedup on Qwen3-4B-Base: <b>~37 min</b> of KL evals vs <b>~64,302 min</b> for exhaustive search.</div>
+      <div class="vs">
+        and ties the best of 200 sampled orders &nbsp;·&nbsp; <b>AUIC 0.533</b> (100th pctile) vs last-to-first 0.462
+      </div>
+    </div>
+
+    <div class="card matters reveal d3">
+      <p class="label">Why this matters</p>
+      <div class="copy">
+        Builds arbitrary intermediate-size model families <b>without retraining</b> — directly serving compute-budget model deployment across distillation, scaling, and pruning.
+      </div>
+      <div class="tag">Relevance · efficiency, deployment</div>
+    </div>
+
+    <div class="card edge reveal d4">
+      <p class="label">⚠ Critical edge</p>
+      <div class="copy">
+        KLPatch <b>fails out-of-the-box on Llama-3.2-3B</b> and needs a hand-coded "patch layer 1 first" fix — the method is <b>not model-agnostic</b>, and student initialization is an uncontrolled variable.
+      </div>
+      <div class="src">From: Critical Assessment · Limitations (App. J)</div>
+    </div>
+
+  </section>
+
+  <!-- ===================== METHODOLOGY ===================== -->
+  <div class="sect-head reveal d4">
+    <span class="n">01</span>
+    <h2>Method</h2>
+    <span class="lede">Boomerang distillation → Boolean lattice of patching states → KL-weighted shortest path → greedy KLPatch. No extra training.</span>
+  </div>
+
+  <section class="panel method-panel reveal d5">
+    <div class="method-grid">
+
+      <div>
+        <p>
+          Starting from a teacher <span class="param">T</span> (<span class="param">M</span> layers) and a smaller student <span class="param">S</span> (<span class="param">N&lt;M</span>) distilled from it, intermediate models are built by <b>patching</b> — replacing contiguous student blocks with their teacher counterparts. The order of patching traces a trajectory from <span class="param">S</span> to <span class="param">T</span> with <b>no additional training</b>.
+        </p>
+        <p>
+          The design space is exponential: best <span class="param">k</span>-subset of patched layers costs <span class="param">O(2ᴺ)</span>; the permutation view costs <span class="param">O(N!)</span>. The paper's central move is to recast both as one shortest-path problem.
+        </p>
+        <div class="formula">
+          edge&nbsp; M_A → M_{A∪{i}} &nbsp;:=&nbsp; 𝔼_{x∼D_cal}[ KL( p_T(·|x) ∥ p_{M_{A∪{i}}}(·|x) ) ]
+        </div>
+        <p>
+          <b>Proposition 1.</b> Under an equidistant-model-size assumption, shortest paths in the <i>interpolation graph</i> <span class="param">G</span> are exactly the optimal permutations w.r.t. teacher-relative log-AUPIC — turning an <span class="param">N!</span> search into a DAG shortest-path problem (gaps to the raw, data-AUPIC actually reported are bounded by Props. 2–3).
+        </p>
+      </div>
+
+      <div>
+        <h3 style="margin-top:0;">KLPatch — greedy on the lattice</h3>
+        <div class="pipeline">
+          <div class="step">
+            <div class="h">Calibrate</div>
+            <div class="d">Pick 64 Pile samples as the calibration set <span class="param">D_cal</span>.</div>
+          </div>
+          <div class="step">
+            <div class="h">Greedy KL step</div>
+            <div class="d">At each step, patch the unpatched student layer whose patched version <b>minimizes KL divergence to the teacher</b>.</div>
+          </div>
+          <div class="step">
+            <div class="h">Commit &amp; repeat</div>
+            <div class="d">Fix that layer, recurse over remaining layers until all N are patched.</div>
+          </div>
+          <div class="step" style="border-left-color:transparent;">
+            <div class="h">Cost: O(N²) KL evals</div>
+            <div class="d">Iteration <span class="param">k</span> evaluates <span class="param">N−k</span> candidates. A greedy approximation to the shortest path in <span class="param">G</span>.</div>
+          </div>
+        </div>
+        <p style="margin-top:10px; font-size:13px; color:var(--muted);">
+          Metrics: <b>AUIC</b> (higher-better, e.g. accuracy) and <b>AUPIC</b> (lower-better, perplexity), with log &amp; teacher-relative variants.
+        </p>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ===================== RESULTS ===================== -->
+  <div class="sect-head reveal d5">
+    <span class="n">02</span>
+    <h2>Results</h2>
+    <span class="lede">KLPatch matches or beats both sequential baselines; on small models it provably hits the global optimum. KL tracks perplexity at r ≈ 0.98.</span>
+  </div>
+
+  <section class="body-grid">
+
+    <div class="panel reveal d6">
+      <h3>Small models — exhaustive (all 720 orders)</h3>
+      <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Model · Wikitext</th>
+            <th class="num">AUPIC ↓</th>
+            <th class="num">Pctile</th>
+            <th>Notes</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="model">DistilBERT · KLPatch</td>
+            <td class="num win">0.397</td>
+            <td class="num">100th</td>
+            <td class="pct">= global optimum, = last-to-first</td>
+          </tr>
+          <tr>
+            <td class="model">DistilBERT · first-to-last</td>
+            <td class="num bad">0.968</td>
+            <td class="num">38.75th</td>
+            <td class="pct">mean 0.909</td>
+          </tr>
+          <tr>
+            <td class="model">DistilGPT2 · KLPatch</td>
+            <td class="num win">0.831</td>
+            <td class="num">95.28th</td>
+            <td class="pct">near global KL path (0.824)</td>
+          </tr>
+          <tr>
+            <td class="model">DistilGPT2 · last-to-first</td>
+            <td class="num">0.815</td>
+            <td class="num">—</td>
+            <td class="pct">strong simple baseline</td>
+          </tr>
+        </tbody>
+      </table>
+      </div>
+      <p class="tbl-caption">Source: Table 3. AUPIC lower is better; KLPatch recovers or nears the global shortest KL path.</p>
+    </div>
+
+    <div class="panel reveal d6">
+      <h3>LLMs — 200 random orders sampled</h3>
+      <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Model · downstream</th>
+            <th class="num">KLPatch</th>
+            <th class="num">Last→First</th>
+            <th class="num">First→Last</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="model">Qwen3-4B · AUIC ↑</td>
+            <td class="num win">0.533 <span class="pct">(100th)</span></td>
+            <td class="num">0.462</td>
+            <td class="num">0.441</td>
+          </tr>
+          <tr>
+            <td class="model">Qwen3-8B · AUIC ↑</td>
+            <td class="num win">0.571 <span class="pct">(99.5th)</span></td>
+            <td class="num">0.495</td>
+            <td class="num">0.464</td>
+          </tr>
+          <tr>
+            <td class="model">Pythia-6.9B · AUPIC ↓</td>
+            <td class="num win">0.567 <span class="pct">(100th)</span></td>
+            <td class="num">0.839</td>
+            <td class="num">—</td>
+          </tr>
+          <tr>
+            <td class="model">Pythia-6.9B · AUIC ↑</td>
+            <td class="num">0.379 <span class="pct">(99.5th)</span></td>
+            <td class="num">0.261</td>
+            <td class="num win">0.410</td>
+          </tr>
+        </tbody>
+      </table>
+      </div>
+      <p class="tbl-caption">Source: Tables 4–5. Upper bound (max-AUIC interpolation) on Qwen3-4B = 0.580.</p>
+    </div>
+
+    <div class="panel reveal d6" style="grid-column:1 / -1;">
+      <h3>Compute cost — KLPatch vs exhaustive search</h3>
+      <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Model</th>
+            <th class="num">KLPatch (~min)</th>
+            <th class="num">Exhaustive (~min)</th>
+            <th class="num">Speedup</th>
+            <th>Outcome</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="model">Qwen3-4B-Base</td>
+            <td class="num">~37</td>
+            <td class="num">~64,302</td>
+            <td class="num win">1,722×</td>
+            <td class="pct">ties best of 200 orders</td>
+          </tr>
+          <tr>
+            <td class="model">Pythia-6.9B</td>
+            <td class="num">—</td>
+            <td class="num">—</td>
+            <td class="num win">548×</td>
+            <td class="pct">ties best AUPIC permutation</td>
+          </tr>
+        </tbody>
+      </table>
+      </div>
+      <p class="tbl-caption">Source: Table 6. KL-to-teacher ↔ Wikitext perplexity Pearson r = 0.981 (DistilBERT), 0.955 (DistilGPT2) — empirically justifying the shortest-path reduction.</p>
+    </div>
+  </section>
+
+  <!-- ===================== STRENGTHS / LIMITATIONS ===================== -->
+  <div class="sect-head reveal d6">
+    <span class="n">03</span>
+    <h2>Strengths &amp; Limitations</h2>
+    <span class="lede">Theory-backed, exhaustive small-model ground truth, honest Llama failure — but coarse baselines and an initialization-dependent recipe.</span>
+  </div>
+
+  <section class="sl-grid reveal d6">
+    <div class="sl pos">
+      <div class="sh">+ Strengths</div>
+      <ul>
+        <li><b>First principled treatment</b> of a patching-order design choice that prior work left ad hoc.</li>
+        <li><b>Clean theorem (Prop. 1)</b> with explicit, bounded assumptions; full proofs in the appendix.</li>
+        <li><b>Exhaustive 720-order enumeration</b> on DistilBERT/DistilGPT2 gives ground-truth optima, not sampling folklore.</li>
+        <li><b>KLPatch is simple &amp; fast</b> (O(N²)) and consistently near-optimal where it applies.</li>
+        <li><b>Honest reporting</b> of the Llama failure and of where simple baselines stay competitive — no cherry-picking.</li>
+      </ul>
+    </div>
+    <div class="sl neg">
+      <div class="sh">– Limitations</div>
+      <ul>
+        <li><b>Not model-agnostic.</b> Llama-3.2-3B needs a hand-coded "patch layer 1 first" fix (App. J).</li>
+        <li><b>Coarse baselines.</b> Only two sequential orders; no head-to-head vs activation-similarity / cosine patching policies.</li>
+        <li><b>Perplexity ≠ downstream.</b> The AUPIC the theorem optimizes is a leaky proxy for the AUIC practitioners care about.</li>
+        <li><b>Headroom unquantified at scale.</b> True optimum infeasible for N≈17–19; "near-optimal" is relative to 200 samples + 2 baselines.</li>
+        <li><b>Theory–practice bridge is empirical.</b> Optimality holds for log-AUPIC under equidistant sizes, not the raw data-AUPIC reported.</li>
+        <li><b>No released code or pinned checkpoints</b> in the main text.</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- ===================== QUESTIONS ===================== -->
+  <div class="sect-head reveal d6">
+    <span class="n">04</span>
+    <h2>Open questions</h2>
+    <span class="lede">Where patching-order optimization goes next.</span>
+  </div>
+
+  <section class="qlist reveal d6">
+    <div class="q">Can a single <b>initialization-aware</b> variant of KLPatch unify behavior across Qwen, Pythia, and Llama — instead of the hand-coded layer-1 rule?</div>
+    <div class="q">How do gains scale to much larger teachers (e.g. <b>70B+</b>) where N is large and per-step KL evals get expensive — can the teacher-conditioned KL be amortized?</div>
+    <div class="q">Would a non-greedy <b>Dijkstra</b> on G with KL edges, made tractable via pruning, beat greedy KLPatch meaningfully?</div>
+    <div class="q">Is "naive patching degrades performance" a property of <b>patching</b> or of imperfect distillation alignment — does it interact with training-token budget?</div>
+    <div class="q">Can the shortest-path / AUPIC framework extend to <b>non-uniform teacher blocks</b>, or to patching within a block rather than at block granularity?</div>
+    <div class="q">How transferable are near-optimal orders discovered for one student to a <b>sibling student</b> distilled with a different seed or corpus from the same teacher?</div>
+  </section>
+
+  <div class="provenance reveal d6">
+    <b>Provenance.</b> Authors are from Harvard, the Kempner Institute, and IST Austria (Locatello); the leads also authored the foundational boomerang-distillation paper [Kangaslahti et al., ICLR 2026] this extends. Funding disclosed (NSF GRF, Kempner, FAS Dean's Fund, Aramont, NSF AI-SDM, FWF COE12). All interpolated models built on public Kangaslahti et al. checkpoints with <b>no additional training</b>; LLM-use statement included.
+  </div>
+
+  <!-- ===================== FOOTER ===================== -->
+  <footer>
+    <span>arXiv:2607.08170 · 2026-07-09 · dashboard digest</span>
+    <a class="md" href="2607.08170.html">↗ Markdown source</a>
+  </footer>
+
+</main>
+
+</body>
+</html>

@@ -40,55 +40,70 @@ hr { border:none; border-top:1px solid var(--line); margin:1.5rem 0; }
 <p class="authors">[&quot;Zhanchao Xu&quot;, &quot;Haoyang Li&quot;, &quot;Qingfa Xiao&quot;, &quot;Fei Teng&quot;, &quot;Chen Jason Zhang&quot;, &quot;Lei Chen&quot;, &quot;Qing Li&quot;]</p>
 <p class="meta">arXiv: 2606.09508</p>
 <p class="meta">Date: 2026-06-08</p>
-<p class="meta">Tags: [&quot;NLP&quot;, &quot;AI&quot;]</p>
+<p class="meta">Tags: [&quot;NLP&quot;, &quot;AI&quot;, &quot;LLM&quot;, &quot;Long-Context&quot;, &quot;KV-Cache&quot;, &quot;Sparse-Attention&quot;, &quot;Inference&quot;]</p>
 <p class="meta"><a href="https://arxiv.org/abs/2606.09508">https://arxiv.org/abs/2606.09508</a></p>
-<p>⚠️ Abstract-only summary</p>
-<blockquote><strong>一句话总结：</strong> [待生成 — 基于摘要的自动模板]</blockquote>
-<blockquote><strong>TL;DR:</strong> [待生成 — 基于摘要的自动模板]</blockquote>
+<blockquote><strong>一句话总结：</strong> EntropyInfer 是一个无需训练的长上下文 LLM 推理加速框架，利用在线注意力熵将头分为 Rigid/Dynamic 两类并按头-段粒度自适应分配预算，配合基于输出 token 重排的潜在 KV 缓存压缩，在 100k+ token 下实现最高 2.39× 端到端加速且质量近乎无损。</blockquote>
+<blockquote><strong>TL;DR:</strong> EntropyInfer, a training-free framework that classifies attention heads online into Rigid (entropy < 1e−5) vs Dynamic via per-head-per-segment entropy to adaptively allocate prefill budgets, plus latent KV-cache compression that defers eviction until N_D output tokens are generated to re-rank cache entries, achieves up to <strong>2.39×</strong> end-to-end speedup at >100k tokens on Llama-3.1-8B-Instruct with minimal quality loss; on LongBench it averages <strong>48.91</strong> vs full-attention base 48.94 (Llama) and beats SnapKV/AdaKV/CritiPrefill on both LongBench and InfiniteBench.</blockquote>
 <h2>核心贡献</h2>
 <ul>
-<li>[基于摘要待生成]</li>
+<li>识别出注意力头的两种熵态——Rigid Heads（行熵恒低于 1e−5）与 Dynamic Heads（熵剧烈波动），并证明同一头在不同输入下归属不同态，因此必须在线判定，无法离线固化</li>
+<li>提出 EntropyInfer：用在线熵信号在"头×段"粒度自适应分配稀疏预填充预算——Rigid 头给固定最小预算，Dynamic 头按相邻段熵波动率缩放预算</li>
+<li>提出潜在 KV 缓存压缩：将压缩推迟到生成 N_D 个输出 token 之后，把输出 token 纳入观察窗口重排缓存条目，纠正"预填充期注意力模式 ≠ 解码期"的失配</li>
+<li>在 Llama-3.1-8B/Qwen-2.5-7B/openPangu-1B/7B 上验证，100k+ token 下端到端最高 2.39× 加速，质量近乎无损，无需微调</li>
 </ul>
 <h2>Key Contributions</h2>
 <ul>
-<li>Based on abstract analysis (full paper not yet summarized)</li>
+<li>Identification of two attention-head regimes (Rigid vs Dynamic) by segment-wise row entropy, with empirical proof that head assignment is context-dependent and therefore cannot be captured by offline profiling (e.g., RazorAttention, Duo-Attention)</li>
+<li>EntropyInfer: a training-free sparse-prefill scheme that estimates per-head, per-segment entropy from a cheap "observation attention matrix" and allocates Rigid heads a fixed minimal budget while Dynamic heads get a budget scaled by inter-segment entropy fluctuation</li>
+<li>Latent KV-cache compression: defers eviction past the prefill-decode boundary until N_D output tokens are generated, then includes those output tokens in the observation window to re-rank cache entries — correcting the prefill-to-decoding attention-pattern shift reported by LoopServe/LouisKV</li>
+<li>Drop-in attention replacement requiring no fine-tuning, validated on 4 model families (Llama, Qwen, openPangu-1B/7B) achieving up to 2.39× end-to-end speedup at >100k tokens</li>
 </ul>
 <h2>Methodology</h2>
-<p>Existing sparse attention and KV cache compression methods for long-context LLM inference typically apply fixed sparsity patterns or uniform budgets across all attention heads, overlooking the substantial variation in attention behavior among heads and contexts. We observe two distinct entropy patterns among attention heads: Rigid Heads, whose entropy stays near zero across input segments, and Dynamic Heads, whose entropy fluctuates significantly. Crucially, the distribution of these types is context-dependent and cannot be predetermined offline. We therefore propose EntropyInfer, a training-free framework that uses attention entropy to adaptively allocate compute at the granularity of individual heads and segments during prefilling. For decoding, we introduce a latent KV cache compression scheme that leverages generated output tokens, rather than prefill tokens alone, to identify and retain the most critical cache entries. Extensive experiments on Llama, Qwen and openPangu model series show that EntropyInfer consistently outperforms baselines including SnapKV, AdaKV, and CritiPrefill, achieving up to 2.39$\times$ end-to-end speedup beyond 100k tokens with minimal quality degradation compared to full attention. The code is released in https://github.com/SHA-4096/EntropyInfer.</p>
-<p><em>Note: This section is derived from the abstract only. Full methodology details require reading the paper.</em></p>
+<p><strong>Motivation.</strong> Prefilling attention cost grows quadratically with context length and dominates first-token latency; KV cache grows linearly during decoding. Existing methods assume homogeneity across positions (MInference fixed templates), heads (FlexPrefill single threshold), or contexts (CritiPrefill uniform per-segment k). Per-head entropy analysis on Llama-3.1-8B-Instruct and Qwen-2.5-7B-Instruct shows two regimes: Rigid heads (max segment entropy ≤ 1e−5) and Dynamic heads (entropy fluctuates); the same head switches regime across inputs.</p>
+<p><strong>Observation attention matrix.</strong> To avoid O(N²) entropy computation, follow CritiPrefill's blocking: segment Q and K into blocks (size L_S), build representative vectors Q_Rep={Q.max, Q.min} per segment (Algorithm 1), then compute a small observation attention A_obs from the 4 softmax products of {Qmax,Qmin}×{Kmax,Kmin} (Algorithm 2). Row entropy H(a_i:)=−Σ_j a_i,j log a_i,j is computed on A_obs.</p>
+<p><strong>Entropy-based budget allocation (Algorithm 3).</strong> Threshold e_t=1e−5. If max entropy < e_t → Rigid head: every segment gets base budget B_h. Else Dynamic head: B_0=B_h; for each subsequent segment, Δbudget = α·B_h·(|e_i−e_{i−1}|/e_{i−1}) − Δt, with α=0.5, Δt=0.4, clipped to [⅓B_h, 3B_h]. Higher entropy fluctuation → more budget.</p>
+<p><strong>Latent KV-cache compression (Algorithm 4).</strong> After generating N_D output tokens, build an observation window Q_W from the last N_W positions (input tail + generated tokens), compute importance w = Σ Q_W K^T, keep top-B_d tokens. This contrasts with SnapKV/AdaKV which commit eviction at end-of-prefill using only input-tail attention.</p>
+<p><strong>Setup.</strong> Backbones: Llama-3.1-8B-Instruct, Qwen-2.5-7B-Instruct, plus openPangu-Embedded-1B/7B-v1.1. Hardware: single NVIDIA H100 80GB, 192GB CPU. Benchmarks: LongBench (16 tasks), InfiniteBench (>100k tokens), LoCoMo (multi-turn). Baselines: SnapKV (KV budget 1024), AdaKV (1024), CritiPrefill (segment budget 2048), StreamingLLM (4096+4 sink). EntropyInfer: prefill base budget 2048, decode cache budget 1024. Complexity shown near-linear in N (Appendix A).</p>
 <h2>Results & Highlights</h2>
 <ul>
-<li>Key results to be extracted from full paper</li>
+<li><strong>LongBench avg (Llama-3.1-8B):</strong> EntropyInfer <strong>48.91</strong> vs full-attention base <strong>48.94</strong> (−0.03) vs AdaKV 48.32 vs CritiPrefill 48.55 vs SnapKV 47.66 — EntropyInfer is best among all compressed methods and essentially matches full attention; on Qwen-2.5-7B it reaches <strong>47.43</strong> vs base 47.98, again beating all baselines (SnapKV 47.51, AdaKV 47.34, CritiPrefill 47.43).</li>
+<li><strong>InfiniteBench avg (Llama-3.1-8B, >100k):</strong> EntropyInfer <strong>43.36</strong> vs base 44.06 vs SnapKV 40.59 vs AdaKV 39.62 vs CritiPrefill 26.91 — CritiPrefill collapses badly at extreme length (R.PassKey drops to 85.42, R.Number to 4.41) while EntropyInfer holds 100.00/82.37.</li>
+<li><strong>End-to-end speedup:</strong> On Llama-3.1-8B summarization from 4k→140k tokens, EntropyInfer reaches <strong>2.39×</strong> acceleration over full-attention at the longest context (Figure 4); with latent decode disabled (sparse prefill only) it is slightly slower than CritiPrefill due to per-head budget variance, but enabling latent decode closes the gap and makes EntropyInfer the fastest overall.</li>
+<li><strong>openPangu generalization:</strong> On openPangu-Embedded-7B-v1.1, LongBench avg EntropyInfer 29.66 vs base 30.33 (−0.67); LoCoMo overall 20.82 vs base 21.12 (−0.30); efficiency acceleration grows with context length (Figure 7).</li>
 </ul>
 <h2>Authors & Credibility</h2>
 <ul>
-<li>Zhanchao Xu, Haoyang Li, Qingfa Xiao, Fei Teng, Chen Jason Zhang, Lei Chen, Qing Li</li>
+<li>Zhanchao Xu, Haoyang Li, Chen Jason Zhang, Qing Li — Department of Computing, PolyU. Qingfa Xiao, Lei Chen — DSA, HKUST(GZ). Fei Teng — CSE, HKUST.</li>
+<li>Code released at https://github.com/SHA-4096/EntropyInfer.</li>
+<li>Pre-print (arXiv:2606.09508v1, 8 Jun 2026); no venue stated. Backbones are well-known open models (Llama-3.1-8B-Instruct, Qwen-2.5-7B-Instruct, openPangu-Embedded).</li>
 </ul>
 <h2>Critical Assessment</h2>
-<ul>
-<li><strong>Novelty:</strong> To be assessed from full paper</li>
-<li><strong>Rigor:</strong> To be assessed from full paper</li>
-<li><strong>Reproducibility:</strong> To be assessed from full paper</li>
-<li><strong>Significance:</strong> To be assessed from full paper</li>
-<li><strong>Red flags:</strong> None identified from abstract</li>
-</ul>
+<p>The headline 2.39× speedup is measured on a single model (Llama-3.1-8B-Instruct) doing a constrained summarization task (generate-100-tokens-and-stop on a modified Needle-in-a-Haystack prompt), not on the LongBench/InfiniteBench workloads where quality is reported — so the speedup and quality numbers come from different setups and are not jointly validated. The Rigid/Dynamic threshold e_t=1e−5 and budget coefficients (α=0.5, Δt=0.4, clip [⅓B_h, 3B_h]) are fixed heuristics with no sensitivity sweep or principled justification; the paper does not show whether the same constants transfer to architectures beyond Llama/Qwen/Pangu (e.g., Mistral, Gemma). CritiPrefill is a weak baseline at extreme context (InfiniteBench avg 26.91, R.Number 4.41) — it is arguably misconfigured rather than fairly beaten, since its segment budget (2048) may be inappropriate >100k. The latent-decode step requires generating N_D tokens before eviction, adding latency before compression kicks in; the paper notes this yields "limited performance boost in short context" but does not quantify the N_D overhead or its memory cost. No statistical significance testing or variance across seeds is reported.</p>
 <h2>Strengths</h2>
 <ul>
-<li>To be assessed from full paper</li>
+<li>Principled core insight: head regime is context-dependent, falsifying offline profiling (RazorAttention/Duo-Attention) with a clean per-head entropy visualization</li>
+<li>Latent-decode idea directly targets a real documented failure (prefill attention ≠ decode attention, per LoopServe/LouisKV) that eviction methods ignore</li>
+<li>Genuinely training-free and drop-in; validated across 4 model families including an openPangu series not commonly benchmarked</li>
+<li>Near-lossless on LongBench (48.91 vs 48.94 base on Llama) while beating all compressed baselines</li>
 </ul>
 <h2>Limitations</h2>
 <ul>
-<li>To be assessed from full paper</li>
+<li>Speedup (2.39×) and quality (LongBench/InfiniteBench) measured on different setups; no joint latency-quality curve on the benchmark tasks</li>
+<li>Entropy threshold and budget coefficients are fixed heuristics without sensitivity analysis or cross-architecture tuning</li>
+<li>CritiPrefill baseline collapses at >100k (possibly misconfigured), inflating the relative win</li>
+<li>Latent decode adds N_D-token generation latency and the paper does not quantify this overhead or the memory cost of deferring eviction</li>
+<li>No variance/significance reporting; single H100, no multi-GPU or serving-system evaluation</li>
 </ul>
 <h2>Relevance</h2>
 <ul>
-<li>相关性评分：5/5（基于关键词匹配）</li>
-<li>待进一步分析</li>
+<li>相关性评分：5/5。直接命中 <strong>#2 LLM Inference Evaluation</strong>（长上下文推理加速、稀疏注意力与 KV 缓存压缩，在 LongBench/InfiniteBench 上评测），并强相关 <strong>#4 Computation Reliability & Precision Errors</strong>（核心发现是"预填充期注意力模式 ≠ 解码期"，错误地在预填充期永久驱逐 token 会导致生成质量下降——这本质上是一种由近似/精度选择引入的静默失效）。同时与 <strong>#1 LLM Training Stability & Observability</strong> 间接相关：用注意力熵作为在线可观测信号来诊断和分配计算，属于推理期的可观测性工具。</li>
 </ul>
 <h2>Questions for Further Exploration</h2>
 <ul>
-<li>What are the specific technical contributions beyond the abstract?</li>
-<li>How does this compare to concurrent work in the same area?</li>
+<li>Would the fixed entropy threshold e_t=1e−5 and budget coefficients (α=0.5, Δt=0.4) transfer to architectures outside Llama/Qwen/openPangu (e.g., Mistral, Gemma, Mixture-of-Experts), given the paper provides no cross-architecture sensitivity sweep?</li>
+<li>The latent-decode step defers eviction until N_D output tokens exist — how large is the added latency and peak KV memory before compression, and does it negate gains under tight memory budgets the paper does not test?</li>
+<li>CritiPrefill collapses on InfiniteBench (R.Number 4.41) — is this a fair comparison at its configured segment budget of 2048, or is the baseline misconfigured for >100k contexts, inflating EntropyInfer's relative win?</li>
+<li>The paper cites LoopServe/LouisKV as evidence that prefill attention ≠ decode attention: can the latent-decode re-ranking be quantified to show how much the eviction set changes once output tokens are included, isolating that mechanism's contribution?</li>
 </ul>
 <p class="note">Generated from Markdown summary. Full paper: <a href="https://arxiv.org/abs/2606.09508">arXiv:2606.09508</a></p>
 </div>

@@ -1,0 +1,613 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>CoAx · Conditional Co-Ablation for Transformer Circuit Backup Recovery</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600&family=JetBrains+Mono:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    /* warm phosphor / lab instrument */
+    --bg:#14110d;
+    --bg-2:#1a1611;
+    --panel:#1f1a13;
+    --panel-2:#241e16;
+    --panel-3:#2c241a;
+    --line:#36302510;
+    --rule:#3a3122;
+    --rule-strong:#52452f;
+    --ink:#f4ecdd;            /* warm paper */
+    --ink-dim:#c4b79e;
+    --ink-mute:#857a64;
+    --phos:#ffb000;           /* primary phosphor amber */
+    --phos-soft:rgba(255,176,0,.12);
+    --phos-line:rgba(255,176,0,.36);
+    --cyan:#5be3c9;           /* secondary signal */
+    --cyan-soft:rgba(91,227,201,.10);
+    --cyan-line:rgba(91,227,201,.30);
+    --rose:#ff6f61;           /* first-order / critical */
+    --rose-soft:rgba(255,111,97,.10);
+    --violet:#b794f4;
+    --serif:"Instrument Serif","Newsreader",Georgia,serif;
+    --body:"Newsreader","Instrument Serif",Georgia,serif;
+    --mono:"JetBrains Mono",ui-monospace,monospace;
+    --zh:"Noto Sans SC",var(--body);
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth;scroll-padding-top:108px}
+  body{
+    margin:0;background:var(--bg);color:var(--ink);
+    font-family:var(--body);font-weight:400;line-height:1.65;font-size:17px;
+    -webkit-font-smoothing:antialiased;
+    background-image:
+      radial-gradient(1100px 560px at 82% -10%, rgba(255,176,0,.08), transparent 60%),
+      radial-gradient(820px 480px at -6% 24%, rgba(91,227,201,.045), transparent 55%),
+      linear-gradient(180deg,var(--bg),var(--bg-2));
+    background-attachment:fixed;
+  }
+  /* CRT scanline + grid texture */
+  body::before{
+    content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
+    background-image:
+      linear-gradient(rgba(255,176,0,.022) 1px,transparent 1px),
+      linear-gradient(90deg,rgba(255,176,0,.022) 1px,transparent 1px);
+    background-size:48px 48px;
+    mask-image:radial-gradient(circle at 50% 32%,#000 32%,transparent 92%);
+  }
+  body::after{
+    content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
+    background:repeating-linear-gradient(180deg,rgba(0,0,0,0) 0 2px,rgba(0,0,0,.025) 2px 3px);
+    opacity:.5;
+  }
+  a{color:var(--cyan);text-decoration:none;border-bottom:1px solid transparent}
+  a:hover{border-bottom-color:var(--cyan)}
+  ::selection{background:var(--phos);color:#1a1408}
+
+  /* ─── TOP BAR ─── */
+  .topbar{
+    position:sticky;top:0;z-index:60;
+    backdrop-filter:blur(14px);
+    background:linear-gradient(180deg,rgba(20,17,13,.94),rgba(20,17,13,.74));
+    border-bottom:1px solid var(--rule);
+  }
+  .topbar-inner{max-width:1320px;margin:0 auto;padding:12px 30px;display:flex;align-items:center;gap:18px;flex-wrap:wrap}
+  .brand{display:flex;align-items:center;gap:11px;font-family:var(--mono);font-weight:600;font-size:14px;letter-spacing:.5px}
+  .brand .glyph{
+    width:30px;height:30px;border-radius:8px;display:grid;place-items:center;
+    background:var(--phos-soft);border:1px solid var(--phos-line);color:var(--phos);
+    font-family:var(--serif);font-style:italic;font-size:19px;font-weight:400;
+    box-shadow:0 0 18px rgba(255,176,0,.18) inset;
+  }
+  .brand small{color:var(--ink-dim);font-weight:400;font-size:11.5px}
+  .chips{display:flex;gap:7px;flex-wrap:wrap;margin-left:8px}
+  .chip{font-family:var(--mono);font-size:10.5px;color:var(--ink-dim);border:1px solid var(--rule);border-radius:5px;padding:3px 9px;background:rgba(255,255,255,.015)}
+  .chip.tag{color:var(--cyan);border-color:var(--cyan-line);background:var(--cyan-soft)}
+  .status{
+    margin-left:auto;display:flex;align-items:center;gap:8px;
+    font-family:var(--mono);font-size:10.5px;letter-spacing:.8px;text-transform:uppercase;color:var(--phos);
+    padding:5px 12px;border:1px solid var(--phos-line);border-radius:999px;background:var(--phos-soft);
+  }
+  .status .dot{width:7px;height:7px;border-radius:50%;background:var(--phos);box-shadow:0 0 8px var(--phos);animation:pulse 2.4s infinite}
+  @keyframes pulse{0%{opacity:1}50%{opacity:.4}100%{opacity:1}}
+
+  /* ─── NAV ─── */
+  .navtabs{position:sticky;top:55px;z-index:50;background:linear-gradient(180deg,rgba(20,17,13,.9),rgba(20,17,13,.6));backdrop-filter:blur(10px);border-bottom:1px solid var(--rule)}
+  .navtabs-inner{max-width:1320px;margin:0 auto;padding:0 30px;display:flex;gap:2px;overflow-x:auto;scrollbar-width:none}
+  .navtabs-inner::-webkit-scrollbar{display:none}
+  .navtabs a{
+    color:var(--ink-mute);font-family:var(--mono);font-size:12px;letter-spacing:.4px;white-space:nowrap;
+    padding:12px 14px;border-bottom:2px solid transparent;display:block;border-bottom-style:solid;
+  }
+  .navtabs a:hover{color:var(--ink);text-decoration:none}
+  .navtabs a.active{color:var(--phos);border-bottom-color:var(--phos)}
+
+  .wrap{max-width:1320px;margin:0 auto;padding:0 30px;position:relative;z-index:1}
+
+  /* ─── HERO ─── */
+  .hero{padding:70px 0 34px;position:relative}
+  .eyebrow{
+    font-family:var(--mono);font-size:11px;letter-spacing:2.4px;text-transform:uppercase;
+    color:var(--phos);display:inline-flex;align-items:center;gap:10px;margin-bottom:26px;
+  }
+  .eyebrow::before{content:"";width:30px;height:1px;background:var(--phos);box-shadow:0 0 6px var(--phos)}
+
+  .keyfinding{
+    font-family:var(--serif);font-weight:400;
+    font-size:clamp(38px,6.4vw,82px);line-height:1.02;letter-spacing:-1.6px;
+    max-width:17ch;margin:0 0 26px;
+  }
+  .keyfinding em{color:var(--phos);font-style:italic}
+  .keyfinding .foil{color:var(--ink-mute);text-decoration:line-through;text-decoration-color:var(--rose);text-decoration-thickness:3px}
+  .keyfinding sub{font-family:var(--mono);font-size:.22em;letter-spacing:0;color:var(--cyan);vertical-align:sub}
+
+  .hero-zh{
+    font-family:var(--zh);font-size:15px;line-height:1.8;color:var(--ink-dim);
+    max-width:62ch;border-left:2px solid var(--phos-line);padding:6px 0 6px 18px;margin-top:10px;
+  }
+  .hero-zh b{color:var(--phos)}
+  .hero-foot{
+    display:flex;gap:28px;flex-wrap:wrap;align-items:center;margin-top:36px;
+    padding-top:22px;border-top:1px dashed var(--rule-strong);font-size:13px;color:var(--ink-dim);
+  }
+  .hero-foot b{color:var(--ink);font-weight:600}
+  .authors{display:flex;gap:6px;flex-wrap:wrap}
+  .authors .a{font-family:var(--mono);font-size:11px;color:var(--ink-dim);background:rgba(255,255,255,.02);border:1px solid var(--rule);padding:2px 8px;border-radius:5px}
+
+  /* equation digest */
+  .digest{
+    position:absolute;top:60px;right:0;font-family:var(--mono);font-size:11px;
+    color:var(--ink-mute);max-width:240px;text-align:right;line-height:1.9;letter-spacing:.3px;
+  }
+  .digest .eq{color:var(--phos);font-size:13px;display:block;margin-bottom:6px}
+  .digest b{color:var(--cyan);font-weight:500}
+  @media(max-width:900px){.digest{display:none}}
+
+  /* ─── ASSET ROW ─── */
+  .assets{display:grid;grid-template-columns:1.05fr .9fr 1.15fr;gap:16px;margin-top:12px}
+  @media(max-width:1000px){.assets{grid-template-columns:1fr}}
+  .card{background:var(--panel);border:1px solid var(--rule);border-radius:14px;padding:26px 26px 24px;position:relative;overflow:hidden}
+  .card .tag{font-family:var(--mono);font-size:10px;letter-spacing:1.8px;text-transform:uppercase;color:var(--ink-mute);margin-bottom:16px;display:flex;align-items:center;gap:9px}
+  .card .tag i{width:7px;height:7px;border-radius:50%;background:var(--phos);display:inline-block;box-shadow:0 0 6px var(--phos)}
+
+  /* metric */
+  .metric .big{font-family:var(--serif);font-size:clamp(60px,7.6vw,96px);line-height:.92;letter-spacing:-3px;color:var(--phos);display:flex;align-items:baseline;gap:6px}
+  .metric .big .arr{font-family:var(--mono);font-size:.28em;color:var(--ink-mute);font-weight:400;letter-spacing:0}
+  .metric .big .to{color:var(--phos)}
+  .metric .sub{margin-top:16px;font-size:14px;color:var(--ink-dim);line-height:1.6}
+  .metric .sub b{color:var(--ink);font-weight:600}
+  .metric .micro{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:20px;padding-top:18px;border-top:1px solid var(--rule)}
+  .metric .micro div b{display:block;color:var(--cyan);font-family:var(--mono);font-size:17px;font-weight:600;letter-spacing:-.3px;margin-bottom:2px}
+  .metric .micro div span{color:var(--ink-mute);font-family:var(--mono);font-size:9.5px;letter-spacing:.6px;text-transform:uppercase}
+
+  /* matter */
+  .matter p{font-size:16.5px;line-height:1.6;color:var(--ink);margin:0 0 12px;font-family:var(--body)}
+  .matter .zh{font-family:var(--zh);font-size:13px;color:var(--ink-dim);line-height:1.75}
+  .matter .pill{margin-top:20px;display:flex;gap:7px;flex-wrap:wrap}
+  .matter .pill span{font-family:var(--mono);font-size:10.5px;color:var(--cyan);border:1px solid var(--cyan-line);background:var(--cyan-soft);padding:3px 9px;border-radius:5px}
+
+  /* edge */
+  .edge{border-color:var(--rose-soft);background:linear-gradient(180deg,var(--panel),rgba(255,111,97,.05))}
+  .edge .tag{color:var(--rose)}
+  .edge .tag i{background:var(--rose);box-shadow:0 0 6px var(--rose)}
+  .edge .lead{font-family:var(--serif);font-size:22px;line-height:1.28;color:var(--ink);margin:0 0 16px}
+  .edge .lead em{color:var(--rose);font-style:italic}
+  .edge ul{margin:14px 0 0;padding:0;list-style:none}
+  .edge li{font-size:12.5px;color:var(--ink-dim);padding:8px 0 8px 22px;position:relative;border-top:1px solid var(--rule);line-height:1.5}
+  .edge li:first-child{border-top:none}
+  .edge li::before{content:"⚠";position:absolute;left:0;top:7px;color:var(--rose);font-size:12px}
+  .edge li b{color:var(--ink)}
+
+  /* ─── SECTION SHELL ─── */
+  section.block{padding:58px 0;border-top:1px solid var(--rule)}
+  .sec-head{display:flex;align-items:baseline;gap:16px;margin-bottom:30px;flex-wrap:wrap}
+  .sec-head .num{font-family:var(--mono);font-size:11.5px;color:var(--phos);letter-spacing:1.4px}
+  .sec-head h2{font-family:var(--serif);font-weight:400;font-size:clamp(26px,3.4vw,40px);letter-spacing:-.8px;margin:0;line-height:1.1}
+  .sec-head h2 em{color:var(--phos);font-style:italic}
+  .sec-head .lede{margin-left:auto;font-size:13px;color:var(--ink-dim);max-width:36ch;text-align:right;font-style:italic}
+  @media(max-width:760px){.sec-head .lede{display:none}}
+
+  /* ─── METHODOLOGY ─── */
+  .method-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  @media(max-width:900px){.method-grid{grid-template-columns:1fr}}
+  .mcard{background:var(--panel);border:1px solid var(--rule);border-radius:14px;padding:26px}
+  .mcard h3{font-family:var(--serif);font-size:22px;font-weight:400;margin:0 0 6px;line-height:1.2}
+  .mcard h3 em{font-style:italic;color:var(--cyan)}
+  .mcard .lbl{font-family:var(--mono);font-size:10px;letter-spacing:1.4px;text-transform:uppercase;color:var(--ink-mute);margin-bottom:14px}
+  .mcard p{font-size:14.5px;color:var(--ink-dim);margin:8px 0 0;line-height:1.62}
+  .mcard p b{color:var(--ink)}
+  .mcard .formula{
+    font-family:var(--mono);font-size:13.5px;color:var(--phos);background:rgba(255,176,0,.06);
+    border:1px dashed var(--phos-line);border-radius:8px;padding:12px 14px;margin:14px 0;line-height:1.5;
+    text-align:center;letter-spacing:.2px;
+  }
+  .mcard .formula .ghost{color:var(--ink-mute)}
+  .mcard ul{margin:12px 0 0;padding:0;list-style:none}
+  .mcard li{font-size:13px;color:var(--ink-dim);padding:6px 0 6px 20px;position:relative;line-height:1.55}
+  .mcard li::before{content:"▸";position:absolute;left:0;color:var(--phos)}
+  .mcard li b{color:var(--ink);font-weight:600}
+  .mcard li code{font-family:var(--mono);font-size:11.5px;color:var(--cyan)}
+
+  /* theorems strip */
+  .theorems{margin-top:16px;background:var(--panel-2);border:1px solid var(--rule);border-radius:14px;padding:26px}
+  .theorems h4{font-family:var(--mono);font-size:11px;letter-spacing:1.6px;text-transform:uppercase;color:var(--ink-mute);margin:0 0 18px}
+  .props{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+  @media(max-width:820px){.props{grid-template-columns:1fr}}
+  .prop{position:relative;padding:18px 16px 16px 48px;border:1px solid var(--rule);border-radius:10px;background:rgba(255,255,255,.012)}
+  .prop .pn{position:absolute;left:14px;top:16px;font-family:var(--serif);font-style:italic;font-size:30px;color:var(--phos);line-height:1}
+  .prop h5{margin:0 0 5px;font-size:14px;font-family:var(--body);font-weight:600;color:var(--ink)}
+  .prop p{margin:0;font-size:12.5px;color:var(--ink-dim);line-height:1.55}
+  .prop p b{color:var(--cyan);font-family:var(--mono);font-weight:500;font-size:12px}
+
+  /* ─── RESULTS ─── */
+  .results{display:grid;grid-template-columns:1.45fr 1fr;gap:16px}
+  @media(max-width:980px){.results{grid-template-columns:1fr}}
+  .bars{background:var(--panel);border:1px solid var(--rule);border-radius:14px;padding:26px}
+  .bars h3{font-family:var(--serif);font-size:20px;margin:0 0 4px;font-weight:400}
+  .bars h3 em{color:var(--phos);font-style:italic}
+  .bars .cap{font-size:12px;color:var(--ink-mute);margin:0 0 24px;font-style:italic}
+  .bar-row{margin-bottom:18px}
+  .bar-row:last-child{margin-bottom:0}
+  .bar-top{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:7px}
+  .bar-top .lbl{font-size:13.5px;font-weight:500;color:var(--ink-dim)}
+  .bar-top .val{font-family:var(--mono);font-size:13px;font-weight:600;color:var(--ink-dim)}
+  .bar-row.win .lbl{color:var(--ink)}
+  .bar-row.win .val{color:var(--phos)}
+  .bar-track{position:relative;height:22px;background:var(--panel-3);border-radius:5px;overflow:hidden;border:1px solid var(--rule)}
+  .bar-fill{position:absolute;left:0;top:0;bottom:0;background:linear-gradient(90deg,rgba(120,100,70,.45),rgba(140,116,80,.6));transition:width .6s cubic-bezier(.2,.7,.2,1)}
+  .bar-row.win .bar-fill{background:linear-gradient(90deg,rgba(255,176,0,.55),rgba(255,176,0,.95));box-shadow:0 0 12px rgba(255,176,0,.3)}
+  .bar-row.anti .bar-fill{background:linear-gradient(90deg,rgba(255,111,97,.4),rgba(255,111,97,.6))}
+  .bars .foot{margin-top:20px;padding-top:16px;border-top:1px solid var(--rule);font-family:var(--mono);font-size:10.5px;color:var(--ink-mute);line-height:1.7}
+  .bars .foot b{color:var(--cyan)}
+
+  /* causal card */
+  .causal{background:linear-gradient(180deg,var(--panel),rgba(91,227,201,.05));border:1px solid var(--cyan-line);border-radius:14px;padding:26px;display:flex;flex-direction:column}
+  .causal .tag{font-family:var(--mono);font-size:10.5px;letter-spacing:1.6px;text-transform:uppercase;color:var(--cyan)}
+  .causal h3{font-family:var(--serif);font-size:20px;margin:8px 0 18px;font-weight:400;line-height:1.2}
+  .causal .num{font-family:var(--serif);font-size:68px;line-height:.9;color:var(--cyan);letter-spacing:-2.5px}
+  .causal .num span{font-size:.32em;color:var(--ink-dim);font-family:var(--mono);letter-spacing:0}
+  .causal p{font-size:13.5px;color:var(--ink-dim);margin:12px 0 0;line-height:1.6}
+  .causal .stack{display:flex;flex-direction:column;gap:8px;margin-top:18px}
+  .causal .stack div{display:flex;justify-content:space-between;font-family:var(--mono);font-size:12px;padding:6px 0;border-top:1px solid var(--rule)}
+  .causal .stack div b{color:var(--ink)}
+  .causal .stack div i{color:var(--cyan);font-style:normal}
+
+  /* ─── DOWNSTREAM ─── */
+  .down-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+  @media(max-width:980px){.down-grid{grid-template-columns:1fr}}
+  .dcard{background:var(--panel);border:1px solid var(--rule);border-radius:14px;padding:24px;position:relative;overflow:hidden}
+  .dcard .ix{position:absolute;top:18px;right:20px;font-family:var(--mono);font-size:10px;color:var(--ink-mute);letter-spacing:1px}
+  .dcard h3{font-family:var(--serif);font-size:19px;font-weight:400;margin:0 0 14px;line-height:1.2}
+  .dcard h3 em{font-style:italic;color:var(--phos)}
+  .dcard .delta{font-family:var(--mono);font-size:15px;color:var(--phos);margin:6px 0 12px;letter-spacing:-.3px}
+  .dcard .delta .ghost{color:var(--ink-mute)}
+  .dcard p{font-size:13px;color:var(--ink-dim);margin:8px 0 0;line-height:1.55}
+  .dcard p b{color:var(--ink)}
+  .dcard .target{margin-top:14px;font-family:var(--mono);font-size:11px;color:var(--cyan);border-top:1px dashed var(--rule-strong);padding-top:10px}
+  .dcard .target b{color:var(--ink)}
+
+  /* ─── STRENGTHS / LIMITS ─── */
+  .duo{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  @media(max-width:980px){.duo{grid-template-columns:1fr}}
+  .panel{border-radius:14px;padding:28px;border:1px solid var(--rule)}
+  .panel.pro{background:linear-gradient(180deg,var(--panel),rgba(91,227,201,.035));border-color:var(--cyan-line)}
+  .panel.con{background:linear-gradient(180deg,var(--panel),rgba(255,111,97,.035));border-color:rgba(255,111,97,.28)}
+  .panel h3{font-family:var(--serif);font-size:20px;margin:0 0 18px;font-weight:400;display:flex;align-items:center;gap:10px}
+  .panel.pro h3{color:var(--cyan)}
+  .panel.con h3{color:var(--rose)}
+  .panel ul{margin:0;padding:0;list-style:none}
+  .panel li{font-size:13.5px;line-height:1.55;color:var(--ink-dim);padding:11px 0 11px 24px;position:relative;border-top:1px solid var(--rule)}
+  .panel li:first-child{border-top:none}
+  .panel.pro li::before{content:"▲";position:absolute;left:0;top:11px;color:var(--cyan);font-size:10px}
+  .panel.con li::before{content:"▼";position:absolute;left:0;top:11px;color:var(--rose);font-size:10px}
+  .panel li b{color:var(--ink);font-weight:600}
+
+  /* ─── QUESTIONS ─── */
+  .qlist{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  @media(max-width:900px){.qlist{grid-template-columns:1fr}}
+  .q{background:var(--panel);border:1px solid var(--rule);border-radius:12px;padding:20px 22px;display:flex;gap:14px;transition:border-color .18s,transform .18s}
+  .q:hover{border-color:var(--phos-line);transform:translateY(-2px)}
+  .q .qn{flex-shrink:0;font-family:var(--mono);font-size:12px;color:var(--phos);font-weight:600;width:28px;padding-top:2px}
+  .q p{margin:0;font-family:var(--body);font-size:14.5px;line-height:1.55;color:var(--ink)}
+  .q p .k{color:var(--cyan);font-style:italic}
+
+  /* ─── FOOTER ─── */
+  footer{border-top:1px solid var(--rule);margin-top:50px;padding:34px 0 54px}
+  .foot-inner{display:flex;justify-content:space-between;gap:20px;flex-wrap:wrap;align-items:center}
+  .foot-inner p{font-size:12px;color:var(--ink-mute);margin:0;font-family:var(--mono);letter-spacing:.3px}
+  .foot-inner a{font-size:12px}
+
+  /* ─── REVEAL ─── */
+  .reveal{opacity:0;transform:translateY(18px);animation:rise .75s cubic-bezier(.2,.7,.2,1) forwards}
+  @keyframes rise{to{opacity:1;transform:none}}
+  .d1{animation-delay:.05s}.d2{animation-delay:.14s}.d3{animation-delay:.24s}
+  .d4{animation-delay:.34s}.d5{animation-delay:.45s}.d6{animation-delay:.56s}
+  .d7{animation-delay:.66s}.d8{animation-delay:.76s}
+  @media(prefers-reduced-motion:reduce){.reveal{animation:none;opacity:1;transform:none}.bar-fill{transition:none}}
+</style>
+</head>
+<body>
+
+<!-- TOP BAR -->
+<div class="topbar">
+  <div class="topbar-inner">
+    <div class="brand">
+      <span class="glyph">C</span>
+      <span>CoAx</span>
+      <small>· arXiv 2607.01940</small>
+    </div>
+    <div class="chips">
+      <span class="chip">2026-07-02</span>
+      <span class="chip tag">mech-interp</span>
+      <span class="chip">circuit-discovery</span>
+      <span class="chip">structured-pruning</span>
+    </div>
+    <div class="status"><span class="dot"></span>Signal · Conditional Co-Ablation</div>
+  </div>
+</div>
+
+<!-- NAV -->
+<nav class="navtabs">
+  <div class="navtabs-inner" id="nav">
+    <a href="#hero" class="active">Overview</a>
+    <a href="#assets">At a Glance</a>
+    <a href="#method">Method</a>
+    <a href="#results">Recovery</a>
+    <a href="#downstream">Downstream</a>
+    <a href="#sl">Strengths / Limits</a>
+    <a href="#questions">Open Questions</a>
+  </div>
+</nav>
+
+<div class="wrap">
+
+<!-- HERO -->
+<header class="hero" id="hero">
+  <div class="digest reveal d1">
+    <span class="eq">comp<sub>u</sub>(S) = E(δz<sub>u</sub>|S) − E(δz<sub>u</sub>|∅)</span>
+    seed S · unit u<br>
+    <b>O(|U|)</b> fwd passes / seed<br>
+    <b>Fisher</b> information geometry<br>
+    reads the <b>off-diagonal</b> term
+  </div>
+
+  <div class="eyebrow reveal d1">Mechanistic Interpretability · Second-Order Circuit Completion</div>
+  <h1 class="keyfinding reveal d2">
+    Transformer circuits <em>self-repair</em> —
+    so first-order scoring is <span class="foil">blind</span> to dormant backups.
+    CoAx <em>reads the second order</em>.
+  </h1>
+  <p class="hero-zh reveal d3">
+    本文将 Transformer 的"自我修复"（Hydra 效应）形式化为组件重要性的"可加性失效"，提出基于 Fisher 几何、<b>无标签、输出驱动</b>的二阶评分 CoAx，通过度量主组件被消融后剩余单元消融效应的增长，揭示被一阶评分掩盖的休眠备份头；在 GPT-2-small IOI 电路上将备份头恢复 ROC-AUC 从 0.33 提升至 0.91。
+  </p>
+  <div class="hero-foot reveal d4">
+    <div><b>Zhiren Gong</b>, Zihao Zeng, Chau Yuen, <b>Wei Yang Bryan Lim</b> (NTU CCDS / EEE) · <a href="https://arxiv.org/abs/2607.01940" target="_blank" rel="noopener">arxiv.org/abs/2607.01940</a></div>
+    <div class="authors">
+      <span class="a">Hydra effect</span>
+      <span class="a">AtP* / GIM</span>
+      <span class="a">Optimal Brain Damage</span>
+      <span class="a">SubspacePath (ICML'26)</span>
+    </div>
+  </div>
+</header>
+
+<!-- ASSET ROW -->
+<section id="assets" style="padding-top:14px">
+  <div class="assets">
+    <!-- KEY METRIC -->
+    <div class="card metric reveal d3">
+      <div class="tag"><i></i>Key Metric · Backup-Head Recovery</div>
+      <div class="big">0.33<span class="arr">→</span><span class="to">0.91</span></div>
+      <p class="sub">ROC-AUC on GPT-2-small IOI, over 8 documented backups. Beats seed-free <b>AtP* GradDrop 0.82</b> and seeded <b>GIM 0.63</b> (paired DeLong p=2×10⁻³).</p>
+      <div class="micro">
+        <div><b>0.60</b><span>standalone finder</span></div>
+        <div><b>0.90</b><span>100-synth benchmark</span></div>
+      </div>
+    </div>
+
+    <!-- WHY THIS MATTERS -->
+    <div class="card matter reveal d4">
+      <div class="tag"><i></i>Why This Matters</div>
+      <p>Self-repair silently breaks the attribution, knockout, and pruning workflows every interpretability practitioner already runs — a cheap, label-free corrector restores them.</p>
+      <p class="zh">自我修复系统性破坏一阶归因、能力击倒与剪枝流程；CoAx 提供低成本、无标签的修正工具，并使同一组恢复头闭环服务于三类下游任务。</p>
+      <div class="pill"><span>attribution</span><span>knockout</span><span>pruning</span><span>label-free</span></div>
+    </div>
+
+    <!-- CRITICAL EDGE -->
+    <div class="card edge reveal d5">
+      <div class="tag"><i></i>Critical Edge</div>
+      <p class="lead">CoAx <em>completes</em> a circuit — it does not <em>discover</em> one. As a standalone finder it peaks at 0.60, and its headline 0.91 rests on just 8 positive heads.</p>
+      <ul>
+        <li><b>Seed-dependent:</b> needs a primary circuit; complements, doesn't replace, first-order discovery.</li>
+        <li><b>Home-turf rival:</b> cheap input co-activation also hits 0.92 AUC on IOI — CoAx only clearly wins on movement circuits.</li>
+        <li><b>Transfer ceiling:</b> fails on the MLP-dominated greater-than circuit (~1.5× random).</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- METHODOLOGY -->
+<section class="block" id="method">
+  <div class="sec-head">
+    <span class="num">01 / METHOD</span>
+    <h2>Two faces of <em>non-additivity</em></h2>
+    <span class="lede">Output-grounded Fisher geometry makes ablation effects measurable in the metric the model itself induces.</span>
+  </div>
+
+  <div class="method-grid">
+    <div class="mcard reveal d3">
+      <div class="lbl">Lens A · Symmetric Cooperation</div>
+      <h3>Pairwise <em>synergy</em> I<sub>uv</sub></h3>
+      <div class="formula">I<sub>uv</sub> = δz<sub>uv</sub> − δz<sub>u</sub> − δz<sub>v</sub><br><span class="ghost">non-additive part of the joint ablation</span></div>
+      <p>Captures <b>symmetric cooperation</b> invisible to first-order affinity. Energy S<sub>uv</sub> drives same-circuit clustering (name-mover heads cluster at 0.76; drop the second-order term → collapses to 0.34).</p>
+      <ul>
+        <li>Reads the <b>off-diagonal</b> interaction single-ablation scores discard.</li>
+        <li>Used for <b>cooperation</b>: which units act together inside one circuit.</li>
+      </ul>
+    </div>
+    <div class="mcard reveal d4">
+      <div class="lbl">Lens B · Dormant Substitution</div>
+      <h3>The <em>CoAx</em> score (Def. 1)</h3>
+      <div class="formula">comp<sub>u</sub>(S) = E(δz<sub>u</sub> | S) − E(δz<sub>u</sub> | ∅)<br><span class="ghost">growth of Fisher-KL energy once seed S is ablated</span></div>
+      <p>Large for <b>backups</b> (effect appears only after S is removed); near zero for non-redundant units. Cost is <code>O(|U|)</code> forward passes per seed — same order as one single-ablation scan, far below O(|U|²).</p>
+      <ul>
+        <li>Used for <b>substitution</b>: which dormant units stand in for the primary set.</li>
+        <li><b>Label-free, output-grounded</b> — no dependence on curated circuit labels.</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="theorems reveal d5">
+    <h4>Three propositions give the geometry real teeth</h4>
+    <div class="props">
+      <div class="prop"><span class="pn">1</span><h5>Fisher identity</h5><p>The centered, √p₀-weighted feature inner product <b>⟨δz̃<sub>u</sub>, δz̃<sub>v</sub⟩ = δz<sub>u</sub>ᵀ F δz<sub>v</sub></b> — so the Fisher Gram H is PSD and ablation energy is mean KL cost.</p></div>
+      <div class="prop"><span class="pn">2</span><h5>Additivity blind-spot</h5><p>Any clean-state per-unit score <b>cannot rank a pure backup above an inert unit</b> — an impossibility result — while CoAx gives comp<sub>backup</sub>(S)=Δ&gt;0 vs comp<sub>inert</sub>(S)=0.</p></div>
+      <div class="prop"><span class="pn">3</span><h5>Growth = seed synergy</h5><p>Under pairwise truncation, <b>comp<sub>u</sub>(S)</b> reduces to u's synergistic coupling to the seed — confirming CoAx reads the off-diagonal second-order term.</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- RESULTS -->
+<section class="block" id="results">
+  <div class="sec-head">
+    <span class="num">02 / RECOVERY</span>
+    <h2>Backup-head discovery, <em>ranked</em></h2>
+    <span class="lede">GPT-2-small IOI · 8 documented backups. First-order energy actively anti-ranks at 0.42.</span>
+  </div>
+  <div class="results">
+    <div class="bars reveal d3">
+      <h3>ROC-AUC on the <em>IOI backup</em> set</h3>
+      <p class="cap">Higher is better · 0.5 = chance. Bars scaled to width 0.91.</p>
+
+      <div class="bar-row anti">
+        <div class="bar-top"><span class="lbl">Single-ablation energy</span><span class="val">0.33</span></div>
+        <div class="bar-track"><div class="bar-fill" style="width:36%"></div></div>
+      </div>
+      <div class="bar-row">
+        <div class="bar-top"><span class="lbl">Attribution patching</span><span class="val">0.60</span></div>
+        <div class="bar-track"><div class="bar-fill" style="width:66%"></div></div>
+      </div>
+      <div class="bar-row">
+        <div class="bar-top"><span class="lbl">Seeded GIM (fair same-seed)</span><span class="val">0.63</span></div>
+        <div class="bar-track"><div class="bar-fill" style="width:69%"></div></div>
+      </div>
+      <div class="bar-row">
+        <div class="bar-top"><span class="lbl">EAP-IG</span><span class="val">0.70</span></div>
+        <div class="bar-track"><div class="bar-fill" style="width:77%"></div></div>
+      </div>
+      <div class="bar-row">
+        <div class="bar-top"><span class="lbl">AtP* GradDrop (seed-free)</span><span class="val">0.82</span></div>
+        <div class="bar-track"><div class="bar-fill" style="width:90%"></div></div>
+      </div>
+      <div class="bar-row win">
+        <div class="bar-top"><span class="lbl">CoAx (seeded)</span><span class="val">0.91</span></div>
+        <div class="bar-track"><div class="bar-fill" style="width:100%"></div></div>
+      </div>
+      <p class="foot">
+        Statistics: label-permutation <b>p&lt;10⁻⁴</b> · hypergeometric top-k <b>p=9×10⁻⁵</b> · paired DeLong vs GIM <b>p=2×10⁻³</b>.<br>
+        100-backup synthetic (underpower fix): CoAx <b>0.90</b> p&lt;10⁻¹⁵ · first-order energy anti-ranks at <b>0.42</b>.
+      </p>
+    </div>
+
+    <div class="causal reveal d4">
+      <span class="tag">Causal Verification · Counterfactual Patching</span>
+      <h3>Freezing recovered backups removes real self-repair</h3>
+      <div class="num">55<span>%</span></div>
+      <p>of self-repair eliminated when the recovered backups are frozen to their dormant value — versus <b>0%</b> for a matched random set. DLA confirms answer hand-off (backup DLA to IO−S doubles, +0.07 → +0.21).</p>
+      <div class="stack">
+        <div><span>output-norm ratio as primaries ablated (k=0→3)</span><b>1.00 → 1.15</b></div>
+        <div><span>conditional causal drop (k=0→3)</span><b>+0.05 → +0.11</b></div>
+        <div><span>circuit-faithfulness gap, first-order alone</span><i>0.72</i></div>
+        <div><span>gap after CoAx completion</span><i>0.15</i></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- DOWNSTREAM -->
+<section class="block" id="downstream">
+  <div class="sec-head">
+    <span class="num">03 / DOWNSTREAM</span>
+    <h2>One recovered set, <em>three</em> closed loops</h2>
+    <span class="lede">The same label-free backups serve attribution, capability knockout, and pruning — 124M → 7B.</span>
+  </div>
+  <div class="down-grid">
+    <div class="dcard reveal d3">
+      <span class="ix">01</span>
+      <h3>Attribution <em>recovery</em></h3>
+      <div class="delta">logit-diff drop <span class="ghost">0.22 →</span> 1.76</div>
+      <p>Ablating primaries alone barely dents the logit-difference (drop 0.22 of a clean 2.53). <b>Adding CoAx backups recovers 1.76</b> — exceeding matched-random (1.0±0.7) and even the documented backups (1.15).</p>
+      <div class="target">Self-repair was <b>masking</b> the attribution; CoAx unmasks it.</div>
+    </div>
+    <div class="dcard reveal d4">
+      <span class="ix">02</span>
+      <h3>Capability <em>knockout</em></h3>
+      <div class="delta">IOI accuracy <span class="ghost">0.97 →</span> 0.70</div>
+      <p>Primary ablation alone barely dents IOI accuracy (1.00 → 0.97). Adding CoAx backups drives it to <b>0.70</b>, matching the documented oracle (0.72) — while first-order +own <b>overshoots to 0.24</b>, cutting into core heads.</p>
+      <div class="target">Hits the <b>oracle</b> without the curated label.</div>
+    </div>
+    <div class="dcard reveal d5">
+      <span class="ix">03</span>
+      <h3>Repair-aware <em>pruning</em></h3>
+      <div class="delta">50% perplexity <span class="ghost">80.6 vs</span> 201.4</div>
+      <p>Co-ablation order beats magnitude / Wanda / gradient-Taylor across GPT-2 small/large, Pythia-1.4B, Qwen2.5-7B. On GPT-2-small: <b>80.6 vs Taylor 201.4</b>. Sequential re-measuring adds a further self-repair-aware gain (80.6 vs static 112.6).</p>
+      <div class="target">Dominant effect = better head score; <b>conditioning</b> refines it.</div>
+    </div>
+  </div>
+</section>
+
+<!-- STRENGTHS / LIMITS -->
+<section class="block" id="sl">
+  <div class="sec-head">
+    <span class="num">04 / ASSESSMENT</span>
+    <h2>Strengths vs. <em>Limitations</em></h2>
+    <span class="lede">A methodologically careful, notably self-critical paper. The reframing is the real contribution.</span>
+  </div>
+  <div class="duo">
+    <div class="panel pro reveal d3">
+      <h3>▲ Strengths</h3>
+      <ul>
+        <li><b>Principled reformulation</b> — self-repair as measurable additivity failure, with Prop 2 a clean impossibility result for any clean-state per-unit score.</li>
+        <li><b>Label-free &amp; output-grounded</b> — no dependence on curated circuit labels; one recovered set serves three downstream pipelines.</li>
+        <li><b>Rigorous statistics</b> — permutation, hypergeometric, DeLong tests plus a 100-backup synthetic to fix the 8-positive underpowering.</li>
+        <li><b>Unusually honest writing</b> — explicitly flags the unfair-seed caveat, reports the fair 0.63 vs 0.91, discloses the 0.60 standalone limit and the 0.92 co-activation rival.</li>
+        <li><b>Cheap vs brute force</b> — O(|U|) per seed vs O(|U|²); clean ablation (drop the 2nd-order term collapses name-mover clustering 0.76 → 0.34).</li>
+        <li><b>Causal verification</b> via counterfactual patching, not just correlational ranking.</li>
+      </ul>
+    </div>
+    <div class="panel con reveal d4">
+      <h3>▼ Limitations</h3>
+      <ul>
+        <li><b>Completion-only</b> — needs a primary seed; standalone (0.60) is weaker than seed-free AtP* (0.82). It complements, not replaces, first-order discovery.</li>
+        <li><b>Single labeled-backup circuit</b> — IOI is the only one with head-level ground truth; the 0.91 headline rests on 8 positives whose labels come from prior manual work.</li>
+        <li><b>Home-turf competitor</b> — input-side co-activation also finds IOI backups (0.92 AUC) and is cheaper; CoAx's clear win is confined to movement circuits.</li>
+        <li><b>No MLP transfer</b> — greater-than circuit fails (~1.5× random); head-level signal may not transfer to FFN-group granularity.</li>
+        <li><b>Pruning framing</b> — the dominant gain is "co-ablation energy is a good head score," not the self-repair-specific sequential refinement; strongest one-shot pruners (SparseGPT) not fully represented; 7B compute unreported.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- QUESTIONS -->
+<section class="block" id="questions">
+  <div class="sec-head">
+    <span class="num">05 / OPEN</span>
+    <h2>Questions for further <em>exploration</em></h2>
+    <span class="lede">Where the additivity-blind-spot theorem meets automated circuit discovery.</span>
+  </div>
+  <div class="qlist">
+    <div class="q reveal d3"><span class="qn">Q1</span><p>Can the external primary seed be removed — e.g. <span class="k">bootstrapping a seed from CoAx's own top first-order heads and iterating</span> — to jointly recover primaries + backups?</p></div>
+    <div class="q reveal d4"><span class="qn">Q2</span><p>What is CoAx's false-positive / false-negative behavior on circuits that <span class="k">do not self-repair</span>, and is there a principled comp(S) threshold to declare a circuit non-redundant?</p></div>
+    <div class="q reveal d5"><span class="qn">Q3</span><p>Beyond IOI and induction, does CoAx recover known redundancy in <span class="k">copy-suppression, anti-erasure, factual-recall / MQA</span> — at head and at MLP / feature granularity?</p></div>
+    <div class="q reveal d6"><span class="qn">Q4</span><p>How do pruning gains compare head-to-head with <span class="k">SparseGPT and Wanda-quantized variants</span> at matched sparsity &amp; zero-shot accuracy, and what is the wall-clock cost of sequential re-measuring at 7B?</p></div>
+    <div class="q reveal d7"><span class="qn">Q5</span><p>Can pairwise synergy + CoAx unify into a single <span class="k">interaction-aware circuit-discovery objective</span> that improves ACDC / EAP-IG on standard MIB benchmarks?</p></div>
+    <div class="q reveal d8"><span class="qn">Q6</span><p>Is the additivity-blind-spot theorem tight — are there <span class="k">relaxed first-order scores</span> that partially recover backups, and where exactly is the information-theoretic boundary?</p></div>
+  </div>
+</section>
+
+<footer>
+  <div class="foot-inner">
+    <p>CoAx · Conditional Co-Ablation · arXiv:2607.01940 · NTU CCDS / EEE · 2026-07-02</p>
+    <a href="https://arxiv.org/abs/2607.01940" target="_blank" rel="noopener">View on arXiv ↗</a>
+  </div>
+</footer>
+
+</div>
+
+<script>
+  // Scroll-spy for navtabs
+  const links = [...document.querySelectorAll('#nav a')];
+  const secs = links.map(l => document.querySelector(l.getAttribute('href')));
+  const spy = () => {
+    const y = window.scrollY + 130;
+    let cur = 0;
+    secs.forEach((s,i)=>{ if(s && s.offsetTop <= y) cur = i; });
+    links.forEach((l,i)=> l.classList.toggle('active', i===cur));
+  };
+  window.addEventListener('scroll', spy, {passive:true});
+  window.addEventListener('load', spy);
+  spy();
+</script>
+</body>
+</html>

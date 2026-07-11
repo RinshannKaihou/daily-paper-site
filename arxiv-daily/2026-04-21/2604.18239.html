@@ -40,59 +40,80 @@ hr { border:none; border-top:1px solid var(--line); margin:1.5rem 0; }
 <p class="meta">arXiv: 2604.18239</p>
 <p class="meta">Date: 2026-04-21</p>
 <p class="meta"><a href="https://arxiv.org/abs/2604.18239">https://arxiv.org/abs/2604.18239</a></p>
-<p>⚠️ Abstract-only summary</p>
-<blockquote><strong>一句话总结：</strong> 本文通过统一的激励-分数分解揭示了偏好优化中likelihood displacement现象的动力学机制，提出"解耦带"条件和自适应奖励校准方法，在不修改基础目标函数的前提下缓解chosen响应被抑制的问题。</blockquote>
-<blockquote><strong>TL;DR:</strong> Presents a unified incentive-score decomposition of preference optimization objectives, revealing that diverse methods share identical local update directions differing only in scalar weights. Identifies the "disentanglement band" (DB) condition for when training avoids likelihood displacement, and proposes plug-and-play reward calibration (RC) that adaptively rebalances chosen vs. rejected updates to satisfy the DB.</blockquote>
+<blockquote><strong>一句话总结：</strong> 本文提出偏好优化的统一激励-分数分解，证明不同目标函数共享相同的局部更新方向仅标量权重不同，由此导出刻画训练何时避免likelihood displacement的"解耦带"(DB)条件，并提出即插即用的奖励校准(RC)方法，在不重新设计基础目标的前提下使训练进入"赢家不降、输家不升"的Pathway (iii)区，在Mistral-7B上将DPO平均分从24.26提升到36.44(+12.18)。</blockquote>
+<blockquote><strong>TL;DR:</strong> Presents a unified incentive-score decomposition showing diverse preference optimization objectives (DPO, IPO, SimPO, CPO, DDRO, DIL family) share identical gradient update directions and differ only in scalar incentive coefficients (dw, dl); derives the disentanglement band (DB), a testable condition for when training enters Pathway (iii) (chosen likelihood maintained while rejected suppressed); proposes plug-and-play reward calibration (RC) that rebalances chosen vs. rejected gradients. On Mistral-7B with UltraFeedback Binarized, RC lifts DPO average benchmark score from 24.26 to 36.44 (+12.18) and DDRO from 16.53 to 36.34 (+19.81); on AlpacaEval 2.0 (DeepSeek V3.2 judge), RC improves entangled DPO to a 70.56% LC win rate while remaining non-regressive for already-disentangled BCE (51.43%).</blockquote>
 <h2>核心贡献</h2>
 <ul>
-<li>提出偏好优化的统一激励-分数分解，证明不同目标函数共享相同的局部更新方向，仅在标量权重系数上有差异</li>
-<li>发现"解耦带"(DB)条件，刻画了训练何时能避免likelihood displacement（抑制输家同时保持赢家）</li>
-<li>提出即插即用的奖励校准(RC)方法，自适应调整chosen与rejected更新的平衡</li>
-<li>RC方法无需重新设计基础目标函数，可应用于多种偏好优化算法</li>
+<li>提出偏好优化的<strong>统一激励-分数分解</strong>：无论目标是entangled（DPO/IPO/SimPO/CPO等margin-based）还是disentangled（DDRO/DIL等density-ratio based），其梯度沿chosen/rejected两个score方向的负梯度分解形式相同，目标设计完全被蒸馏为标量激励系数(dw, dl)，仅在权重上有差异。</li>
+<li>导出<strong>解耦带(Disentanglement Band, DB)条件</strong>：基于连续时间动力学（Theorem 3.1）给出log-ratio轴上的阈值划分，刻画训练何时能进入Pathway (iii)（chosen不降、rejected不升，可能在初始瞬态后），是一个简单可测试的诊断条件。</li>
+<li>提出<strong>即插即用的奖励校准(Reward Calibration, RC)</strong>：作为backward-pass包装器，通过(r_t*/r_t)的平方根因子重新缩放chosen/rejected的log-likelihood（forward不变），自适应地把realized log-ratio拉向DB中心，无需重新设计基础目标函数，且无额外forward pass。</li>
+<li>给出<strong>RC的高效近似与稳定性设计</strong>：用output-side参数（LM head或最后adapter层）的梯度近似score norm（Mistral-7B上与full-parameter版本宽度和趋势一致），并用log-domain EMA稳定batch size 1下的随机梯度方差；EMA momentum在β∈{0.5,0.9,0.95,0.98,0.999}范围内性能稳定。</li>
 </ul>
 <h2>Key Contributions</h2>
 <ul>
-<li>Unified incentive-score decomposition revealing that diverse preference optimization objectives share identical local update directions</li>
-<li>Disentanglement band (DB) condition characterizing when training avoids likelihood displacement</li>
-<li>Plug-and-play reward calibration (RC) that adaptively rebalances updates without modifying base objectives</li>
-<li>Empirical validation showing RC steers training toward disentangled dynamics across multiple objectives</li>
+<li>Unified incentive-score decomposition proving that entangled (DPO, IPO, SimPO, CPO, TI-DPO) and disentangled (DDRO, DIL-BCE/LSIF/UKL) objectives share identical gradient update directions along chosen/rejected score vectors, differing only in scalar incentive coefficients (dw, dl) tabulated in Table 1.</li>
+<li>Disentanglement band (DB) condition derived from a continuous-time dynamical-system analysis (Theorem 3.1) of chosen/rejected log-likelihoods, giving a testable threshold partition of the log-ratio axis that characterizes when training enters Pathway (iii) (winner not down, loser not up, possibly after an initial transient).</li>
+<li>Plug-and-play reward calibration (RC) wrapper (Algorithm 1) that rescales backward gradients by (r_t*/r_t)^{1/2} factors to pull the realized log-ratio toward the DB center, without changing the forward pass or redesigning the base objective.</li>
+<li>Efficient DB estimation using output-side gradients (LM head for full fine-tuning, final adapter layers for QLoRA) validated against full-parameter gradients on Mistral-7B, plus log-domain EMA stabilization robust across β∈{0.5,...,0.999}.</li>
 </ul>
 <h2>Methodology</h2>
-<p>Analyzes preference optimization dynamics through incentive-score decomposition. By examining chosen/rejected likelihood trajectories, identifies the disentanglement band condition. Proposes reward calibration as a modular correction layer that can be applied to any margin-based preference optimization objective.</p>
+<p><strong>Unified gradient decomposition.</strong> For any objective L(z_w, z_l) where z_w = log π(y_w|x), z_l = log π(y_l|x), the chain rule gives a unified decomposition of the negative gradient: -∇_θ L = d_w s_w + d_l s_l, where s_w = ∇_θ z_w, s_l = ∇_θ z_l are the score directions (shared across all objectives) and (d_w, d_l) are scalar incentive coefficients (Table 1) that depend on the objective form. Entangled margin-based objectives (Eq. 3: L = ℓ(h_w(z_w) − h_l(z_l) − c) + Λ(z_w)) have coupled/symmetric incentives (e.g., DPO/IPO have d_w = d_l = βσ(−βm̃)); disentangled density-ratio objectives (Eq. 4: L = ℓ_w(z_w − z_w^ref) + ℓ_l(z_l − z_l^ref)) have independent incentives (e.g., DIL-BCE: d_w = σ(−z̃_w), d_l = σ(z̃_l)).</p>
+<p><strong>Continuous-time dynamics & DB.</strong> Theorem 3.1 analyzes the gradient flow trajectory θ_t and derives the dynamics of (z_w, z_l) governed by (d_w, d_l) and the score-norm ratio r_t = ||s_l||/||s_w||. The disentanglement band is a region on the log-ratio axis log r_t bounded by thresholds derived from (d_w, d_l); when the realized log-ratio stays inside the DB, training realizes Pathway (iii). Table 2 gives the band-threshold partition for ρ_t > 0.</p>
+<p><strong>Reward calibration (Algorithm 1).</strong> Given a triplet (x, y_w, y_l), RC: (1) evaluates incentive coefficients (d_w, d_l) for the chosen objective; (2) approximates score norms ||s_w||, ||s_l|| using output-side gradients; (3) computes the realized ratio r_t = d_w/d_l and the target (band center) r_t<em> = ||s_l||/||s_w||; (4) rescales z_w and z_l via stop-gradient convex combinations: z_w^rc = (r_t</em>/r_t)^{1/2}·z_w + (1−(r_t<em>/r_t)^{1/2})·sg(z_w), and z_l^rc = (r_t</em>/r_t)^{−1/2}·z_l + (1−(r_t*/r_t)^{−1/2})·sg(z_l); (5) computes the base objective L(z_w^rc, z_l^rc) and backpropagates. The forward pass (inference) is unchanged; only backward gradients are calibrated.</p>
+<p><strong>Experimental setup.</strong> Models: Pythia-410M (full fine-tuning), Pythia-2.8B, Mistral-7B-Base, Qwen2.5-7B-Instruct (QLoRA). Training: 1 epoch, AdamW, constant LR (no warmup), global batch size 32; LRs: Pythia-410M 6e-7, Pythia-2.8B 1e-4, Mistral-7B 3e-7, Qwen2.5-7B 5e-7. Datasets: UltraFeedback Binarized, Anthropic-HH. Benchmarks: Open LLM Leaderboard (MMLU-Pro, BBH, MUSR, ARC, MATH, GSM8K), AlpacaEval 2.0 (Length-Controlled Win Rate, DeepSeek V3.2 judge). Baselines: entangled (DPO, IPO, CPO, SimPO, TI-DPO) and disentangled (DDRO, DIL-BCE/LSIF/UKL). Hardware: 2× NVIDIA RTX 5090 D + 6× NVIDIA RTX A6000. RC overhead: Mistral-7B LoRA ~11h→~11.4h; Pythia-410M full ~50m→~59m.</p>
 <h2>Results & Highlights</h2>
 <ul>
-<li>RC improves downstream performance across a range of preference optimization objectives</li>
-<li>Training dynamics become more disentangled (chosen likelihood maintained while rejected suppressed)</li>
-<li>The DB condition provides a testable criterion for diagnosing likelihood displacement in training</li>
+<li><strong>Mistral-7B, DPO (UltraFeedback, Open LLM Leaderboard average):</strong> RC lifts the average score from 24.26 (w/o RC) to 36.44 (+12.18), with MMLU-Pro jumping from 11.66 to 30.31 and ARC from 22.70 to 60.92 — the flagship recovery of an entangled, unstable baseline.</li>
+<li><strong>Mistral-7B, DDRO:</strong> RC recovers average from 16.53 to 36.34 (+19.81), the largest single-objective gain, showing RC rescues disentangled objectives that nonetheless deviate from the DB-feasible regime on this model.</li>
+<li><strong>Mistral-7B, already-strong baselines are non-disruptive:</strong> SimPO +0.01, BCE −0.05, LSIF +0.15, TI-DPO +0.00 in average score — RC does not harm objectives already in Pathway (iii).</li>
+<li><strong>Pythia-2.8B, ARC:</strong> DPO improves ARC from 34.04 to 37.12 (+3.08); SimPO improves ARC from 32.59 to 37.03 (+4.44) and BBH from 30.49 to 31.34 (+0.85); TI-DPO improves average from 27.13 to 28.44 (+1.31).</li>
+<li><strong>AlpacaEval 2.0 (Pythia-2.8B, DeepSeek V3.2 judge):</strong> RC improves entangled DPO to a 70.56% LC win rate (vs. 70.12% via GPT-4-Turbo judge), while remaining non-regressive for the already-disentangled BCE variant (51.43%).</li>
+<li><strong>Qwen2.5-7B, average score deltas:</strong> DPO +0.48, SimPO +0.26, BCE +1.33, LSIF +0.23, TI-DPO +0.11; CPO +0.01 (nearly unchanged), DDRO −0.05 (small drop) — modest but mostly positive.</li>
+<li><strong>EMA momentum ablation (Pythia-2.8B, DPO):</strong> Average score ranges 28.43–28.95 across β∈{0.5,0.9,0.95,0.98,0.999} vs. 26.91 w/o RC, confirming RC is insensitive to the EMA momentum.</li>
+<li><strong>Head-only vs. full-parameter DB approximation (Mistral-7B):</strong> The head-only-gradient DB closely matches the full-parameter DB in both width and trend (Fig. 5), validating the efficient approximation.</li>
 </ul>
 <h2>Authors & Credibility</h2>
-<p>Multi-institutional team including Zhou Wang (well-known for image quality assessment work). Code available on GitHub.</p>
+<ul>
+<li>Wei Chen<em>, Yubing Wu</em> (equal contribution), Junmei Yang, Delu Zeng (corresponding), Min Chen — South China University of Technology.</li>
+<li>Qibin Zhao — AIP, RIKEN.</li>
+<li>John Paisley — Columbia University.</li>
+<li>Zhou Wang — University of Waterloo.</li>
+<li>Code released at https://github.com/IceyWuu/DisentangledPreferenceOptimization.</li>
+<li>Submission formatted for ICML 2026 (per the "Submission and Formatting Instructions for ICML 2026" page header). arXiv:2604.18239v1 [cs.LG], 20 Apr 2026.</li>
+</ul>
 <h2>Critical Assessment</h2>
 <ul>
-<li><strong>Novelty:</strong> High — the incentive-score decomposition unifies understanding across diverse preference optimization methods</li>
-<li><strong>Rigor:</strong> Strong — analytical framework with clear mathematical characterization</li>
-<li><strong>Limitations:</strong> Abstract-only assessment; unclear how RC interacts with very large-scale training or different model architectures</li>
-<li><strong>Significance:</strong> Addresses a practically important problem (likelihood displacement) with a principled solution</li>
+<li><strong>The DB condition is a local/instantaneous diagnostic, not a global convergence guarantee.</strong> Theorem 3.1 governs continuous-time dynamics along a fixed trajectory; the DB is evaluated step-by-step from stochastic (batch-size-1) estimates, so the proof that "staying in the DB realizes Pathway (iii)" does not translate into a finite-step guarantee that RC keeps the trajectory inside the band — RC only pulls log r_t toward the band center heuristically.</li>
+<li><strong>RC's benefit is conditional on the baseline being weak.</strong> The authors themselves state RC "mainly acts as a stabilizer for weak runs" and is "non-disruptive" (often near-zero) when the baseline is already strong (BCE/SimPO/LSIF on Mistral-7B). This means RC's headline +12/+19 gains are concentrated on pathological runs (DPO/DDRO collapsing to ~16–24 average), raising the question of whether the comparison is against a properly tuned DPO baseline or a degenerate one; the paper does not report whether the w/o-RC DPO/DDRO collapses are reproducible across seeds.</li>
+<li><strong>Results on MMLU-PRO and MUSR are mixed.</strong> On Pythia-2.8B, RC shows "both gains and regressions" (e.g., MMLU-PRO drops for CPO), which the authors attribute to RC being a "dynamics-oriented intervention rather than a guaranteed monotonic booster" — an honest but important caveat that RC is not uniformly beneficial.</li>
+<li><strong>Evaluation breadth is limited to alignment-flavored benchmarks.</strong> The Open LLM Leaderboard tasks (MMLU-Pro, BBH, MUSR, ARC, MATH, GSM8K) and AlpacaEval 2.0 do not include safety/harmfulness or holdout human-preference evaluations, so the downstream "alignment" claim rests on proxy benchmarks.</li>
+<li><strong>Scale ceiling is 7B.</strong> All experiments use ≤7B-parameter models (Pythia-410M to Qwen2.5-7B); whether the DB/RC framework and the head-only gradient approximation remain valid at 30B+ scale is unverified.</li>
 </ul>
 <h2>Strengths</h2>
 <ul>
-<li>Unifies understanding across multiple preference optimization methods</li>
-<li>Plug-and-play design makes adoption straightforward</li>
-<li>Principled theoretical grounding with practical impact</li>
+<li>Genuinely unifying theory: the incentive-score decomposition cleanly explains why entangled and disentangled objectives behave differently despite sharing gradient directions, with Table 1 making the (d_w, d_l) coefficients explicit for 10 objectives.</li>
+<li>The DB is a practical, monitorable diagnostic (a scalar log-ratio plotted against two thresholds) that practitioners can compute during training — more actionable than abstract convergence proofs.</li>
+<li>RC is lightweight (no auxiliary model, no extra forward pass, ~4% wall-clock overhead under LoRA) and modular (applies to any objective via its (d_w, d_l)).</li>
+<li>Honest reporting: the paper explicitly states RC is non-monotonic (regressions on some MMLU-PRO/MUSR cells) and non-disruptive-when-strong, rather than cherry-picking only positive deltas.</li>
+<li>Code is publicly released, supporting reproducibility.</li>
 </ul>
 <h2>Limitations</h2>
 <ul>
-<li>PDF is 13.7MB, suggesting extensive experiments but limiting detailed review</li>
-<li>Generalization to very large models or complex preference structures not established</li>
-<li>The DB condition may be difficult to monitor in practice</li>
+<li>The largest gains are on baselines that collapse without RC (DPO/DDRO at ~16–24 average on Mistral-7B); it is unclear how much of the gain is "fixing a broken baseline" versus "improving a well-tuned baseline," since no per-seed stability analysis of the w/o-RC baselines is provided.</li>
+<li>The continuous-time Theorem 3.1 assumes a deterministic gradient flow, while training uses batch-size-1 stochastic gradients with EMA-smoothed ratio estimates — the gap between the theory and the implemented RC is bridged only empirically.</li>
+<li>The head-only score-norm approximation is validated only on Mistral-7B (Fig. 5); its fidelity for deeper architectures or non-standard heads is not established.</li>
+<li>No human-preference or safety evaluation; downstream claims rest on automated benchmarks and an LLM judge (DeepSeek V3.2 / GPT-4-Turbo) whose own biases are not controlled for.</li>
+<li>Scale limited to 7B; generalization to frontier-scale preference optimization is unverified.</li>
 </ul>
 <h2>Relevance</h2>
-<p>直接关联LLM训练稳定性研究——偏好优化中的likelihood displacement是训练动态中的重要可靠性问题，RC方法为缓解该问题提供了有理论保证的实用工具。</p>
+<p>直接映射到 <strong>LLM Training Stability & Observability</strong>：likelihood displacement 是偏好优化训练动态中的核心不稳定性现象，本文的DB条件提供了一种可监控的训练观测指标，RC方法则是一种稳定性干预工具。同时与 <strong>LLM Hidden States & Interpretability</strong> 间接相关——激励-分数分解揭示了不同目标函数在梯度空间上的统一结构，是对偏好优化机制可解释性的贡献。</p>
 <h2>Questions for Further Exploration</h2>
 <ul>
-<li>How does RC interact with online preference optimization methods like DPO?</li>
-<li>Can the disentanglement band be monitored during training as an early warning signal?</li>
-<li>Does the decomposition extend to multi-objective preference settings?</li>
+<li>Can the DB log-ratio trajectory be used as an early-warning signal to trigger RC only when training drifts toward the red zone, rather than applying RC continuously?</li>
+<li>How does RC interact with online/iterative preference optimization (e.g., self-play or on-policy DPO) where the preference data distribution shifts during training?</li>
+<li>Does the incentive-score decomposition extend to multi-preference (e.g., multi-attribute or constitutional) objectives where more than two score directions are involved?</li>
+<li>Are the large DPO/DDRO recoveries on Mistral-7B reproducible across seeds, or do the w/o-RC baselines collapse only for specific initialization/data-order seeds?</li>
+<li>Can the head-only score-norm approximation be replaced by a cheaper probe (e.g., last-layer activations) to further reduce overhead at frontier scale?</li>
 </ul>
 <p class="note">Generated from Markdown summary. Full paper: <a href="https://arxiv.org/abs/2604.18239">arXiv:2604.18239</a></p>
 </div>

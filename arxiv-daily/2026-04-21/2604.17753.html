@@ -40,59 +40,78 @@ hr { border:none; border-top:1px solid var(--line); margin:1.5rem 0; }
 <p class="meta">arXiv: 2604.17753</p>
 <p class="meta">Date: 2026-04-21</p>
 <p class="meta"><a href="https://arxiv.org/abs/2604.17753">https://arxiv.org/abs/2604.17753</a></p>
-<p>⚠️ Abstract-only summary</p>
-<blockquote><strong>一句话总结：</strong> 本文发现在LoRA合并中存在"负模块"——特定LoRA层会固有地降低合并模型的全局性能，提出ENMP进化搜索方法在合并前定位并剪除这些有害模块。</blockquote>
-<blockquote><strong>TL;DR:</strong> Uncovers "negative modules" in LoRA merging — specific layers that inherently degrade global performance when merged. Proposes ENMP (Evolutionary Negative Module Pruning), a plug-and-play method that uses evolutionary search to identify and prune detrimental modules before merging. Achieves new SOTA across language and vision domains, boosting existing merging algorithms.</blockquote>
+<blockquote><strong>一句话总结：</strong> 本文发现LoRA合并中存在"负模块"（特定LoRA层合并后反而降低全局性能），提出ENMP——基于CMA-ES进化搜索的即插即用剪枝方法，在合并前定位并移除这些有害模块，在Llama-3-8B的6个NLI任务上将DARE平均归一化准确率从89.20%提升到96.17%(+6.97)，在ViT-B/32视觉任务上将KnOTS提升+5.54%。</blockquote>
+<blockquote><strong>TL;DR:</strong> Identifies "negative modules" — specific LoRA layers that inherently degrade global merged performance — and proposes Evolutionary Negative Module Pruning (ENMP), a plug-and-play method using CMA-ES to search a continuous latent space of per-module negativity scores and derive a binary pruning mask before merging. On Llama-3-8B across 6 NLI tasks (SNLI, MNLI, SICK, QNLI, RTE, SciTail), ENMP boosts DARE average normalized accuracy from 89.20% to 96.17% (+6.97), TIES from 89.99% to 96.39% (+6.40), and lifts KnOTS to a new SOTA of 97.29%; on ViT-B/32 across 8 image-classification datasets, ENMP adds +5.54% to KnOTS and +3.53% to DARE, with zero inference overhead and ~2.3h one-time search cost (8× RTX 4090).</blockquote>
 <h2>核心贡献</h2>
 <ul>
-<li>发现LoRA合并中的"负模块"现象：某些层会固有地降低合并后模型的性能</li>
-<li>提出ENMP（Evolutionary Negative Module Pruning）方法，在合并前定位并排除有害模块</li>
-<li>使用进化搜索策略导航离散、不可微的模块选择空间</li>
-<li>即插即用设计，持续提升现有合并算法性能</li>
+<li>揭示LoRA合并中的<strong>负模块现象</strong>：通过逐模块leave-one-out实验（Llama-3-8B，6个NLI任务）发现部分LoRA层合并后会降低全局性能，挑战了"所有LoRA矩阵都对合并有建设性贡献"的隐含假设。</li>
+<li>指出<strong>贪心剪枝的失败</strong>：贪心策略移除所有看似有害的模块（图2），忽略跨层耦合，导致准确率退化至55.76%；且搜索空间为2^N的组合爆炸，穷举不可行。</li>
+<li>提出<strong>ENMP（Evolutionary Negative Module Pruning）</strong>：将离散二值剪枝掩码松弛为连续潜变量z∈R^N（每个模块一个"负性分数"），用CMA-ES协方差矩阵建模模块间依赖，通过动态阈值（最大剪枝比k）映射回二值掩码，以验证集归一化准确率为适应度进行进化搜索。</li>
+<li>设计<strong>保守初始化与即插即用特性</strong>：CMA-ES均值初始化为μ(0)=−1（因z_j>0才触发剪枝，故从全合并状态开始搜索）；ENMP是合并前的离线一次性过程，合并后模型与原backbone架构完全相同，零推理开销。</li>
 </ul>
 <h2>Key Contributions</h2>
 <ul>
-<li>Discovery of negative modules in LoRA merging that degrade global performance</li>
-<li>ENMP: plug-and-play evolutionary search for optimal module pruning configurations</li>
-<li>Navigates the discrete, non-differentiable landscape of module selection</li>
-<li>New SOTA across language and vision domains when combined with existing merging methods</li>
+<li>Empirical identification of "negative modules" in LoRA merging via leave-one-out analysis on Llama-3-8B across 6 NLI tasks, showing some LoRA layers inherently degrade merged global performance — challenging the full-retention assumption of prior merging methods (TA, TIES, DARE, TSV, KnOTS, CoreSpace).</li>
+<li>Demonstration that greedy pruning (remove all apparently detrimental modules) fails because it ignores cross-layer couplings, degrading accuracy to 55.76%, and that the 2^N discrete mask search is intractable.</li>
+<li>ENMP formulation: a continuous latent vector z∈R^N of per-module negativity scores optimized by CMA-ES (population Npop=16, 60 generations, σ=0.5, max pruning ratio k=0.2), with a dynamic-threshold mapping (top-⌊k·N⌋ entries with z_j>0 are pruned) bridging continuous search and discrete masks.</li>
+<li>Plug-and-play, zero-inference-overhead design: ENMP runs once offline before merging; the final merged model has identical architecture to the backbone. Conservative initialization (μ(0)=−1) starts from the full-merge state.</li>
 </ul>
 <h2>Methodology</h2>
-<p>Uses evolutionary search to navigate the combinatorial space of module selection. The key insight is that not all LoRA matrices contribute constructively — some are detrimental. ENMP identifies and prunes these before merging.</p>
+<p><strong>Negative module identification.</strong> The authors perform a leave-one-out study: prune one LoRA module at a time from Llama-3-8B, merge the rest via Task Arithmetic, and measure the change in average normalized performance across 6 NLI tasks. Red regions (performance improvement upon removal) reveal negative modules — showing that module interference is non-uniform and that some modules are net-negative contributors.</p>
+<p><strong>Pruning formulation.</strong> Task Arithmetic with module pruning (Eq. 5): the merged model W_ENMP(m) = W_0 + λ·Φ(S(m)), where m∈{0,1}^{L×T} is a binary pruning mask (L layers × T tasks), S(m) zeroes out pruned modules' LoRA updates, Φ is the base merging operator (TA/TIES/DARE/TSV/KnOTS/CoreSpace), and λ is a scaling factor. The objective is to find m* maximizing average normalized accuracy on a validation set D_val.</p>
+<p><strong>CMA-ES search (Section 3.3).</strong> Because the 2^N discrete mask space is intractable and module decisions are coupled (cross-layer interactions), ENMP introduces a continuous latent vector z∈R^N where z_j is a "negativity score" for module j. A dynamic-threshold mapping (Eq. 6) converts z to a binary mask: the top N_prune=⌊k·N⌋ entries with z_j>0 are pruned (k=0.2 default). CMA-ES models variable dependencies via a covariance matrix C^(g), sampling Npop=16 candidates per generation from N(μ^(g), (σ^(g))²C^(g)) for 60 generations, evaluating each candidate's fitness (validation normalized accuracy), and updating μ, σ, C from the top-performing candidates. Conservative initialization μ(0)=−1 ensures the search starts from full merging (no pruning).</p>
+<p><strong>Experimental setup.</strong> NLP: Llama-3-8B, 6 NLI tasks (SNLI, MNLI, SICK, QNLI, RTE, SciTail); LoRA on all attention matrices (q/k/v/out_proj), rank r=16, α=16. Vision: ViT-B/32 CLIP encoder, 8 datasets (Cars, DTD, EuroSAT, GTSRB, MNIST, RESISC45, SUN397, SVHN). Metric: Normalized Accuracy = Acc_merged/Acc_expert. Baselines: TA, TIES, DARE, TSV, KnOTS, CoreSpace (each tested with and without ENMP). Pre-trained LoRA checkpoints from Stoica et al. (2025); held-out validation sets from Panariello et al. (2025). Hardware: 8× NVIDIA RTX 4090, candidate evaluations parallelized across GPUs. Code: https://github.com/CaoAnda/ENMP-LoRAMerging. Results are mean±std over 3 runs.</p>
 <h2>Results & Highlights</h2>
 <ul>
-<li>Consistently boosts performance of existing merging algorithms</li>
-<li>New state-of-the-art in both language and vision domains</li>
-<li>Accepted to ACL 2026 main conference with code available</li>
+<li><strong>NLP (Llama-3-8B, 6 NLI tasks, normalized accuracy, Table 1):</strong> ENMP improves every baseline — TA 90.25→93.49 (+3.24), TIES 89.99→96.39 (+6.40), DARE 89.20→96.17 (+6.97), TSV 92.56→95.85 (+3.29), KnOTS 92.47→97.29 (+4.82, new SOTA), CoreSpace 94.18→96.73 (+2.55).</li>
+<li><strong>QNLI recovery:</strong> TIES and DARE suffer severe degradation on QNLI (71.54% and 72.44%); ENMP restores them to 94.95% and 94.94% respectively — over +20% gain on a single sensitive task, indicating task interference is catastrophically concentrated rather than uniform.</li>
+<li><strong>Vision (ViT-B/32, 8 datasets, Table 2):</strong> ENMP adds +1.67 (TA), +2.74 (TIES), +3.53 (DARE), +3.26 (TSV), +5.54 (KnOTS), +2.32 (CoreSpace) to average normalized accuracy, confirming cross-modal generalizability.</li>
+<li><strong>Search efficiency (Figure 4, TA baseline):</strong> +2.72% gain within the first 10 generations (~23 minutes); full 60-generation search converges to +3.24% in ~2.3 hours, with test-set accuracy tracking validation accuracy (no overfitting).</li>
+<li><strong>Pruning-ratio sensitivity (Figure 6):</strong> Increasing k leads to saturated module removal with stable accuracy, confirming ENMP's adaptive sparsity — the search self-limits rather than over-pruning.</li>
+<li><strong>Validation-data efficiency (Table 3):</strong> Even with 64 samples/task, ENMP improves TA by +0.92; gains grow with validation size (128→+1.61, 256→+1.99, full→+3.24), and random pruning degrades TA to 89.10 (−1.15 vs. TA's 90.25).</li>
+<li><strong>Zero inference overhead:</strong> The merged model retains the exact backbone architecture; the CMA-ES search is a one-time offline cost.</li>
 </ul>
 <h2>Authors & Credibility</h2>
-<p>Team from Zhejiang University. Accepted to ACL 2026 main conference, code available at https://github.com/CaoAnda/ENMP-LoRAMerging.</p>
+<ul>
+<li>Anda Cao, Yi Wang, Kaixuan Chen, Yu Wang, Can Wang, Mingli Song — College of Computer Science and Technology, Zhejiang University.</li>
+<li>Zhuo Gou, Jie Song (corresponding) — School of Software Technology, Zhejiang University.</li>
+<li>Kaixuan Chen, Can Wang, Mingli Song — State Key Laboratory of Blockchain and Security; Hangzhou High-Tech Zone (Binjiang) Institute of Blockchain and Data Security.</li>
+<li>Code released at https://github.com/CaoAnda/ENMP-LoRAMerging.</li>
+<li>arXiv:2604.17753v1 [cs.AI], 20 Apr 2026. Funded by NSFC (62576305, 62506330), Ningbo Leading Youth Talents (2025QL052), Zhejiang Provincial NSF (LQN26F020007).</li>
+</ul>
 <h2>Critical Assessment</h2>
 <ul>
-<li><strong>Novelty:</strong> High — the "negative module" concept challenges the implicit assumption in all prior merging work</li>
-<li><strong>Rigor:</strong> Good — evolutionary search is appropriate for the discrete optimization problem</li>
-<li><strong>Limitations:</strong> Evolutionary search adds computational cost; unclear how many modules are typically negative</li>
-<li><strong>Significance:</strong> Practical impact on multi-task model deployment efficiency</li>
+<li><strong>ENMP requires labeled validation data, breaking the data-free merging promise.</strong> The authors acknowledge this as a primary limitation: ENMP's fitness function needs a representative validation set D_val, which is a constraint in strictly data-free merging scenarios. While they argue competing methods also tune scaling factors on validation data, ENMP's dependency is structurally deeper — without validation data the entire CMA-ES search has no fitness signal, whereas TA/TIES can at least produce a (suboptimal) merge with no data at all.</li>
+<li><strong>The CMA-ES search cost scales poorly.</strong> The reported ~2.3h on 8× RTX 4090 is for a single Llama-3-8B merge; the authors explicitly flag that "applying this search to extremely large-scale settings (e.g., 70B models with hundreds of tasks) remains a challenge that may necessitate more sample-efficient optimization strategies." The population×generation budget (16×60=960 merged-model evaluations) grows with the number of modules N, and each evaluation requires a full forward pass over the validation set.</li>
+<li><strong>The "negative module" phenomenon is validated only via leave-one-out, not higher-order ablation.</strong> The leave-one-out heatmap (Figure 1) establishes single-module negativity, but ENMP's premise — that module decisions are coupled (cross-layer dependencies) — is asserted rather than directly quantified; the gap between greedy (55.76%) and ENMP (96.17%) is attributed to coupling, but no controlled experiment isolates the coupling effect from the search-quality effect.</li>
+<li><strong>Gains are uneven across tasks and can include regressions on individual tasks.</strong> While averages improve, some task cells show ENMP slightly below the baseline (e.g., RTE under TA: 99.19→101.34 is a gain, but normalized accuracy >100% suggests the metric's interpretation is non-standard; SUN397 under CoreSpace: 97.51→97.80 is marginal). The headline averages mask per-task variance reported as ±std.</li>
+<li><strong>Normalized accuracy can exceed 100%, complicating interpretation.</strong> Several cells report >100% (e.g., RTE 101.34, 102.42), meaning the merged model beats the single-task expert on that task — a known artifact of the normalized-accuracy metric that makes cross-method comparison less intuitive.</li>
 </ul>
 <h2>Strengths</h2>
 <ul>
-<li>Identifies and addresses a fundamental assumption in LoRA merging</li>
-<li>Plug-and-play design works with existing merging algorithms</li>
-<li>Strong empirical results across language and vision domains</li>
+<li>Identifies and names a concrete, previously-underemphasized failure mode (negative modules) in LoRA merging, with supporting leave-one-out evidence.</li>
+<li>The CMA-ES formulation elegantly handles the discrete, non-separable, 2^N combinatorial mask space via a continuous latent relaxation with a principled threshold mapping.</li>
+<li>Genuinely plug-and-play: ENMP composes with 6 different merging algorithms (TA, TIES, DARE, TSV, KnOTS, CoreSpace) and improves all of them, demonstrating the negative-module bottleneck is pervasive across merging families.</li>
+<li>Cross-modal validation (NLP on Llama-3-8B, vision on ViT-B/32) strengthens the claim that the phenomenon is architecture-agnostic.</li>
+<li>Zero inference overhead and public code release support practical adoption.</li>
 </ul>
 <h2>Limitations</h2>
 <ul>
-<li>Evolutionary search adds overhead to the merging pipeline</li>
-<li>The "negative module" phenomenon lacks deeper theoretical explanation</li>
-<li>Unclear how the approach scales to very large numbers of LoRA experts</li>
+<li>Requires labeled validation data; incompatible with strict data-free merging.</li>
+<li>Search cost (~2.3h on 8× RTX 4090 for 8B) does not obviously scale to 70B+ or hundreds of tasks; sample-efficient optimization is left as future work.</li>
+<li>The cross-layer coupling premise is asserted, not directly isolated by a controlled ablation decoupling search quality from interaction effects.</li>
+<li>Per-task results are uneven; normalized accuracy >100% complicates interpretation; average gains mask task-level variance.</li>
+<li>Only attention matrices receive LoRA adapters (q/k/v/out_proj); MLP adapters and higher ranks are untested.</li>
 </ul>
 <h2>Relevance</h2>
-<p>关联LLM训练可靠性和模型合并——发现LoRA合并中的负模块现象揭示了参数融合过程中的潜在风险，为安全的多任务部署提供了实用工具。</p>
+<p>主要映射到 <strong>LLM Inference Evaluation</strong>——ENMP本质上是对多任务LoRA合并模型推理质量的评估与优化方法，通过负模块识别提升合并后模型的多任务推理表现。同时与 <strong>Self-Evolving Agents & Automated Research</strong> 间接相关：自动化模块选择与进化搜索是自动化模型组装/合并流程的一个组件，可服务于自演化代理的多能力整合。</p>
 <h2>Questions for Further Exploration</h2>
 <ul>
-<li>What causes certain LoRA modules to be "negative"? Is it task interference or something deeper?</li>
-<li>Can negative module detection be done analytically rather than via evolutionary search?</li>
-<li>How does ENMP interact with recent MoE-style LoRA architectures?</li>
+<li>Can the validation-data dependency be removed via a data-free proxy fitness (e.g., parameter-space divergence between the candidate merge and the individual experts)?</li>
+<li>How does ENMP's search cost scale with model size (70B) and number of tasks (hundreds) — is there a sample-efficient CMA-ES variant or a warm-start from a greedy initialization that preserves the coupling-aware advantage?</li>
+<li>Are "negative modules" stable across different LoRA ranks, adapter placements (MLP vs. attention), or fine-tuning data orders, or are they an artifact of specific checkpoints?</li>
+<li>Can the continuous negativity scores z be interpreted as a diagnostic of task-module interference structure, beyond their use as a pruning signal?</li>
+<li>Does Prune-then-Align's superiority over Align-then-Prune generalize to all SVD-based merging methods, or is it specific to KnOTS/CoreSpace's basis construction?</li>
 </ul>
 <p class="note">Generated from Markdown summary. Full paper: <a href="https://arxiv.org/abs/2604.17753">arXiv:2604.17753</a></p>
 </div>

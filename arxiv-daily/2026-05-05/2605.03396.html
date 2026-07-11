@@ -40,76 +40,91 @@ hr { border:none; border-top:1px solid var(--line); margin:1.5rem 0; }
 <p class="meta">arXiv: 2605.03396</p>
 <p class="meta">Date: 2026-05-05</p>
 <p class="meta"><a href="https://arxiv.org/abs/2605.03396">https://arxiv.org/abs/2605.03396</a></p>
-<p>⚠️ Abstract-only summary</p>
-<blockquote><strong>一句话总结：</strong> 本文在低成本FPGA上实现了基于二值神经网络（BNN）的YOLOv3-tiny目标检测器，采用1-bit权重和8-bit激活，在VOC上达到39.6% mAP50，RTL仿真与ONNX模型的相关系数高达0.999964。</blockquote>
-<blockquote><strong>TL;DR:</strong> Implements a BNN-based YOLOv3-tiny object detector on low-cost FPGA with 1-bit weights and 8-bit activations. Achieves 39.6% mAP50 on VOC with only 0.098 GFLOPs and 0.74M parameters. Full Verilog RTL design with fused Mul_prev compensation in BNN PEs; RTL simulation shows near-perfect agreement (r=0.999964) with ONNX reference.</blockquote>
+<blockquote><strong>一句话总结：</strong> 本文在低成本 PYNQ-Z2 FPGA 上用全 Verilog RTL 实现了 W1A8（1-bit 权重/8-bit 激活）YOLOv3-tiny-like 目标检测器，将 Mul_prev 逐通道补偿融合进 BNN PE，在 VOC 上达到 39.6% mAP50（0.098 GFLOPs / 0.74M 参数），RTL 与 ONNX 的最终输出相关系数 0.999964，端到端 1.26 FPS。</blockquote>
+<blockquote><strong>TL;DR:</strong> The authors deploy a W1A8 (1-bit weight, 8-bit activation) YOLOv3-tiny-like detector on a PYNQ-Z2 (XC7Z020) FPGA in handwritten Verilog RTL. On PASCAL VOC 2007 test, the model achieves 39.6% mAP50 with 0.098 GFLOPs and 0.74 M parameters — versus YOLOv5n at 67.8% mAP50 / 4.5 GFLOPs / 1.9 M params and YOLOv2-tiny at 35.4% mAP50 / 7.0 GFLOPs / 15.86 M params. RTL-vs-ONNX layer-wise verification gives a final detection-head correlation of 0.999964 and MAE 0.020027. On-chip implementation closes timing at 30 MHz, using 73% BRAM and 91% DSP, with 795.58 ms latency per frame (1.26 FPS) and 2.047 W total on-chip power.</blockquote>
 <h2>核心贡献</h2>
 <ul>
-<li>在低成本FPGA上完整实现了基于BNN的YOLOv3-tiny目标检测器，主体卷积层使用1-bit权重和8-bit激活</li>
-<li>设计了全Verilog RTL硬件，包含padding、行缓冲、二值卷积、量化后处理、最大池化和检测头计算</li>
-<li>将Mul_prev融合进BNN PE中，在累加过程中实现逐通道补偿，提高量化精度</li>
-<li>从训练好的ONNX模型提取权重并转换为定点格式，通过COE文件存入Vivado BRAM ROM</li>
-<li>RTL仿真验证与ONNX参考节点的相关系数达0.999964，均值绝对误差仅0.020027</li>
+<li>在低成本 PYNQ-Z2（XC7Z020）FPGA 上完成 W1A8 YOLOv3-tiny-like 检测器的全 Verilog RTL 实现（非 HLS），覆盖 padding、行缓冲、二值卷积、量化后处理、max pooling 与检测头。</li>
+<li>将 Mul_prev（按输入通道索引的缩放）融合进 W1A8 PE 的累加过程，实现逐输入通道补偿；Div_current（按输出通道索引）在 post-processing 处理，避免单一缩放忽略通道贡献差异引入误差。</li>
+<li>给出从训练好的 ONNX 模型到 FPGA 部署的完整流程：参数提取、定点转换（Conv1 Q5.11/Q2.14；Conv2–Conv10 1-bit W/8-bit A；Conv11 Q1.15/Q4.12）、COE 生成、BRAM ROM 部署。</li>
+<li>RTL 与 ONNX Runtime 逐层比对：Conv1 前激活 corr=0.999999，Conv11 检测头 raw 输出 corr=0.999964、MAE=0.020027。</li>
+<li>在 VOC 上以 0.098 GFLOPs / 0.74M 参数取得 39.6% mAP50，比 YOLOv2-tiny 高 4.2 个百分点，计算量仅约为 YOLOv5n 的 1/45.9。</li>
 </ul>
 <h2>Key Contributions</h2>
 <ul>
-<li>Full FPGA implementation of a BNN-based YOLOv3-tiny detector using 1-bit weights and 8-bit activations for main convolution layers</li>
-<li>Complete Verilog RTL design encompassing padding, line buffering, binary convolution, quantization post-processing, max pooling, and detection-head computation</li>
-<li>Fused Mul_prev into the BNN PE for channel-wise compensation during accumulation, improving quantization fidelity</li>
-<li>Automated flow from trained ONNX model → fixed-point conversion → COE files → Vivado BRAM ROM storage</li>
-<li>RTL simulation achieves correlation coefficient of 0.999964 and MAE of 0.020027 against ONNX reference, validating hardware correctness</li>
+<li>Full handwritten Verilog RTL implementation (not HLS) of a W1A8 YOLOv3-tiny-like detector on PYNQ-Z2 (XC7Z020), including padding adapter, LineBuffer_3x3, W1A8 convolution PE, standard convolution PE, post-processing, MaxPool, and Conv11 detection head (PE_NUM=5).</li>
+<li>Fuses Mul_prev (input-channel-indexed scale) into the W1A8 PE accumulation (y_o = Σ s_{o,i}(m_i·a_i), Eq. 3-4) so channel-wise compensation is applied during accumulation; Div_current (output-channel-indexed) is handled in post-processing. This split avoids the error a single merged scale would introduce.</li>
+<li>Complete ONNX-to-FPGA deployment flow: parameter extraction (weights, biases, Div/Mul tensors), fixed-point conversion, COE packing in ROM address order, BRAM ROM initialization with a state machine scheduled to actual ROM read latency (Vivado BRAM ROM without Primitives Output Register).</li>
+<li>Layer-wise RTL-vs-ONNX numerical verification: Conv1 pre-activation corr=0.999999 (max abs 0.132158, mean abs 0.001345); Conv1 post-quantization 98.81% of outputs within 1 LSB; Conv2 post-quantization 98.76% within 1 LSB; Conv11 detection-head raw output corr=0.999964, MAE=0.020027.</li>
+<li>Accuracy-complexity trade-off on PASCAL VOC 2007 test: 39.6% mAP50 at 0.098 GFLOPs / 0.74 M params, +4.2 pp over YOLOv2-tiny (35.4% mAP50) at ~1/71.4 the compute and ~1/21.4 the params.</li>
 </ul>
 <h2>Methodology</h2>
-<p>The authors design a YOLOv3-tiny-like architecture adapted for binary neural network inference on FPGA. Key methodological choices include:</p>
-<ul>
-<li><strong>Network architecture:</strong> 320×320×3 RGB input; main convolutional layers use 1-bit weights with 8-bit activations; Conv1 and the final detection head retain fixed-point standard convolutions.</li>
-<li><strong>Quantization flow:</strong> A trained ONNX model serves as the source; weights, biases, and quantization parameters are extracted, converted to fixed-point, packed into COE files, and stored in Vivado BRAM ROMs.</li>
-<li><strong>Hardware design:</strong> Fully implemented in Verilog RTL with dedicated modules for padding, line buffering, binary convolution, quantization post-processing, max pooling, and detection-head computation.</li>
-<li><strong>Fused compensation:</strong> Mul_prev (indexed by input channel) is fused into the BNN processing element alongside Div_current (indexed by output channel), enabling channel-wise compensation during the accumulation step.</li>
-</ul>
+<p><strong>Network structure (Table 1).</strong> Input 320×320×3 RGB; output 10×10×75 tensor in y/x/channel order. Eleven main convolutions Conv1–Conv11. Conv2–Conv10 use W1A8 (1-bit weights, 8-bit activations); Conv1 (3→16, 3×3) and Conv11 (64→75, 1×1) use fixed-point standard convolution to reduce input/output-side errors. MaxPool after Conv1/2/3/4/7. Channel progression: 3→16→32→64→128→128→128→128→128→64→64→75.</p>
+<p><strong>W1A8 quantization.</strong> Weights binarized via w_b=sign(w)∈{−1,+1} (Eq. 3-1); real-valued weights kept in training with straight-through estimator for the sign gradient. Inference stores only binary weights → 1/32 of 32-bit storage. W1A8 convolution replaces multiplication with sign-controlled add/sub: y_o=Σ s_{o,i}·a_i, s_{o,i}∈{−1,+1}, a_i∈[0,255] (Eq. 3-2). Activations quantized via learned step-size quantization (LSQ): q_a=clip(round(x/s_a),0,255) (Eq. 3-3), step size s_a learned during training, fixed-point at inference.</p>
+<p><strong>Channel-wise scale fusion.</strong> Because Mul_prev is indexed by input channel and Div_current by output channel, the fused accumulation is y_o=Σ s_{o,i}(m_i·a_i) (Eq. 3-4), with m_i fixed-point and applied inside the PE; Div_current applied in post-processing (scaling, bias correction, rounding, clipping).</p>
+<p><strong>Fixed-point formats (Table 3).</strong> Conv1: W Q5.11, B Q2.14. Conv2–Conv10: 1-bit sign-packed W, 8-bit A. Conv11: W Q1.15, B Q4.12, output signed Q*.15 (recovered as signed_int32/2^15). All parameters packed as COE files in ROM address order into BRAM ROMs.</p>
+<p><strong>Hardware datapath (Figure 1, Table 4).</strong> Top module Yolo3-tiny_Top, streaming style with valid/ready backpressure. RGB adapter → Padding Adapter → LineBuffer_3x3 → W1A8/Standard PE → post-process → optional MaxPool → Conv11 (PE_NUM=5, serializes 10×10×75). ROM state machine schedules address issue / data latch / compute start to actual ROM read latency.</p>
+<p><strong>Verification.</strong> Vivado simulation testbench with 320×320 RGB input; ONNX Runtime as software reference; RTL outputs converted to float per Q-format and compared layer-by-layer.</p>
+<p><strong>Implementation target.</strong> Xilinx XC7Z020 on PYNQ-Z2; synthesized/implemented in Vivado; 4.9 Mb BRAM budget.</p>
 <h2>Results & Highlights</h2>
 <ul>
-<li><strong>Accuracy:</strong> 39.6% mAP50 on PASCAL VOC with only 0.098 GFLOPs and 0.74M parameters.</li>
-<li><strong>Hardware validation:</strong> RTL simulation shows near-perfect agreement with ONNX model — correlation coefficient 0.999964, MAE 0.020027.</li>
-<li><strong>Efficiency:</strong> Binary weights drastically reduce memory and compute requirements, making real-time inference feasible on low-cost FPGAs.</li>
+<li><strong>Detection accuracy (Table 5, VOC 2007 test):</strong> 39.6% mAP50 at 0.098 GFLOPs and 0.74 M params (320×320 input). This is +4.2 pp over YOLOv2-tiny (35.4% mAP50, 7.0 GFLOPs, 15.86 M params) but below YOLOv5n (67.8%, 4.5 GFLOPs, 1.9 M), YOLOv5s (68.0%, 2.3 GFLOPs, 5.8 M), YOLOv4-tiny (59.2%, 6.9 GFLOPs, 6.0 M), and MobileNetSSD (74.4%, 16.5 GFLOPs, 7.2 M). Compute is ~1/45.9 of YOLOv5n and params ~1/2.6 of YOLOv5n.</li>
+<li><strong>RTL-vs-ONNX Conv1 pre-activation (Table 6):</strong> max abs error 0.132158, mean abs error 0.001345, correlation 0.999999.</li>
+<li><strong>RTL-vs-ONNX Conv1 post-quantization:</strong> 98.8094% of outputs within 1 LSB (max abs 4, mean abs 0.121686).</li>
+<li><strong>RTL-vs-ONNX Conv2 post-quantization:</strong> 98.7648% within 1 LSB (max abs 6, mean abs 0.231006).</li>
+<li><strong>RTL-vs-ONNX Conv11 detection-head raw output:</strong> max abs 0.10889649, mean abs 0.020027, correlation 0.999964.</li>
+<li><strong>FPGA resource utilization (Table 7, XC7Z020):</strong> LUT 61%, LUTRAM 32%, FF 14%, BRAM 73%, DSP 91%, IO 13%, BUFG 16%, MMCM 25%. BRAM (parameter ROMs, line buffers, intermediate buffers) and DSP (Conv1, Conv11, fixed-point scaling) are the tightest resources.</li>
+<li><strong>On-chip performance (Table 7):</strong> Maximum clock frequency 30 MHz (post-implementation timing); 23.79 M cycles/frame; PL inference latency 793.17 ms; PS processing latency 2.41 ms; end-to-end latency 795.58 ms/frame; throughput 1.26 FPS.</li>
+<li><strong>Power (Table 7):</strong> Total on-chip power 2.047 W (dynamic 1.881 W = 92%, static 0.166 W = 8%); junction temperature 48.6 °C.</li>
 </ul>
 <h2>Authors & Credibility</h2>
 <ul>
-<li>Baochang Zhang (corresponding/last author) has prior publications on model compression and efficient inference.</li>
-<li>The team spans multiple institutions and covers both algorithm design and hardware implementation expertise.</li>
-<li>The paper is categorized under cs.AR (Architecture), aligning with its hardware focus.</li>
+<li><strong>Xuyu Zhao</strong> — School of Physics, Beihang University, Beijing, China.</li>
+<li><strong>Yunpeng Wu, Haoyu Huang, Yanjing Li, Baochang Zhang</strong> — School of Artificial Intelligence, Beihang University, Beijing, China.</li>
+<li><strong>Mengyuan Zhu</strong> — China Information Technology Designing and Consulting Institute Co. Ltd., Beijing, China.</li>
+<li><strong>Xiaoyu Xu</strong> — State Key Laboratory of Radiation Medicine and Protection, Soochow University, Suzhou, China.</li>
+<li><strong>Gaolong Zhang</strong> — School of Physics, Beihang University; and State Key Laboratory of Complex & Critical Software Environment (SKLCCSE), Beihang University.</li>
+<li>arXiv:2605.03396 [cs.AR], 5 May 2026. No venue stated; no code/RTL release mentioned in the PDF.</li>
+<li>The work cites the relevant BNN/FPGA toolchain literature (FINN, FINN-R, hls4ml, DNNWeaver) and quantization methods (BinaryConnect, XNOR-Net, DoReFa-Net, ReActNet, LSQ).</li>
 </ul>
 <h2>Critical Assessment</h2>
 <ul>
-<li><strong>Novelty:</strong> Moderate. BNN-based object detection on FPGA has been explored before (e.g., FINN, BNN-VITIS). The main novelty lies in the fused Mul_prev compensation in the PE and the specific YOLOv3-tiny adaptation.</li>
-<li><strong>Rigor:</strong> The RTL-vs-ONNX validation is thorough (r=0.999964). However, the paper only reports VOC mAP — no comparison with prior BNN-FPGA works on latency, throughput, resource utilization, or power consumption is available from the abstract.</li>
-<li><strong>Reproducibility:</strong> The ONNX-to-FPGA flow is well-described. Whether RTL source or bitstreams are released is unclear.</li>
-<li><strong>Significance:</strong> Useful for the edge-deployment community, but 39.6% mAP50 on VOC is relatively low compared to even lightweight full-precision detectors.</li>
-<li><strong>Red flags:</strong> Missing on-device performance metrics (FPS, LUTs/BRAM/DSP usage, power). The 0.098 GFLOPs figure refers to the BNN model's theoretical cost, not actual FPGA throughput.</li>
+<li><strong>Low accuracy for a meaningful detection budget:</strong> 39.6% mAP50 on VOC 2007 is below YOLOv2-tiny's 35.4% only by 4.2 pp, but YOLOv2-tiny itself is an early/weaker baseline; modern lightweight detectors (YOLOv5n 67.8%, YOLOv4-tiny 59.2%) are far ahead. The paper acknowledges "sacrifices part of the detection accuracy for extremely low computational cost," but the single 10×10 detection head "limits small-object localization and recall" — a structural ceiling the W1A8 quantization alone cannot overcome.</li>
+<li><strong>Throughput is not real-time:</strong> 1.26 FPS at 30 MHz is far below real-time (typically ≥30 FPS). The authors attribute this to "30 MHz timing closure, PE parallelism, the detection-head critical path, and inter-layer scheduling" and defer fixes to "future optimization passes," so the current implementation is a feasibility demonstration rather than a deployable detector.</li>
+<li><strong>DSP is nearly exhausted (91%):</strong> Although W1A8 is meant to reduce DSP pressure in the main body, the fixed-point Conv1/Conv11 and post-processing scaling still consume 91% of DSPs — leaving almost no headroom and indicating the standard-convolution layers, not the BNN body, dominate the DSP budget.</li>
+<li><strong>Timing closure at only 30 MHz:</strong> The XC7Z020 can typically clock higher; 30 MHz suggests the detection-head critical path and inter-layer scheduling are poorly pipelined, which the authors acknowledge but do not resolve.</li>
+<li><strong>Single-dataset, single-image evaluation:</strong> Only VOC 2007 test is reported; no COCO, no mAP@[0.5:0.95], and the detection visualization (Figure 3) uses a limited set. The RTL-vs-ONNX verification uses one 320×320 sample, so numerical consistency is not characterized across the input distribution.</li>
+<li><strong>No comparison to prior BNN-FPGA accelerators:</strong> Despite citing FINN/FINN-R and other BNN-FPGA work, the paper does not benchmark against them on resource/throughput/accuracy, so the relative merit of the fused Mul_prev PE is unestablished.</li>
 </ul>
 <h2>Strengths</h2>
 <ul>
-<li>Complete end-to-end flow from ONNX training model to Verilog RTL implementation</li>
-<li>Strong RTL simulation validation against software reference</li>
-<li>Practical focus on low-cost FPGA deployment rather than high-end platforms</li>
-<li>Fused PE design that integrates quantization compensation directly into the hardware datapath</li>
+<li>Complete end-to-end handwritten RTL flow (ONNX → fixed-point → COE → BRAM ROM → Verilog), avoiding HLS abstractions and exposing bit widths, ROM latency, and per-channel scaling.</li>
+<li>The Mul_prev fusion into the W1A8 PE is a principled fix to a real quantization-accuracy issue (input-channel vs. output-channel scale indexing), and the split between PE-fused Mul_prev and post-process Div_current is well-motivated.</li>
+<li>Rigorous layer-by-layer RTL-vs-ONNX numerical verification (correlation ≥0.999964 at the detection head, ≥98.76% within 1 LSB at post-quantization) establishes the hardware faithfully implements the trained model.</li>
+<li>Full on-chip implementation results (resource utilization, power, timing, FPS) are reported, not just simulation.</li>
+<li>Extreme compute/param efficiency (0.098 GFLOPs, 0.74 M params) for the accuracy level, demonstrating the W1A8 cost-reduction benefit on a constrained FPGA.</li>
 </ul>
 <h2>Limitations</h2>
 <ul>
-<li>39.6% mAP50 on VOC is modest; real-world deployment may require higher accuracy</li>
-<li>No reported on-chip results — only RTL simulation is presented</li>
-<li>Missing FPGA resource utilization, clock frequency, and actual throughput numbers</li>
-<li>Evaluation limited to VOC only; no COCO or other challenging benchmarks</li>
-<li>Abstract-only assessment — full paper may address some of these gaps</li>
+<li>39.6% mAP50 is low; the single 10×10 detection head structurally limits small-object recall.</li>
+<li>1.26 FPS is far from real-time; 30 MHz timing closure is the bottleneck.</li>
+<li>DSP at 91% leaves almost no headroom; the standard-convolution layers dominate DSP usage rather than the BNN body.</li>
+<li>Evaluation limited to VOC 2007; no COCO, no mAP@[0.5:0.95], RTL-vs-ONNX checked on a single sample.</li>
+<li>No head-to-head comparison with FINN/FINN-R or other BNN-FPGA accelerators on the same metrics.</li>
+<li>No code or RTL release stated; reproduction requires re-implementing the full Verilog datapath.</li>
+<li>The paper does not measure accuracy degradation attributable specifically to W1A8 vs. the full-precision model (no FP32 baseline mAP reported).</li>
 </ul>
 <h2>Relevance</h2>
-<p>本文针对边缘设备上的高效目标检测，通过BNN量化在FPGA上实现轻量级YOLO检测器，与高效模型部署和硬件加速方向相关。其ONNX到RTL的完整流程设计对模型压缩与端侧推理有参考价值。</p>
+<p>本文研究 W1A8（1-bit 权重/8-bit 激活）量化在 FPGA 上的部署及其与 ONNX 软件参考的数值一致性验证，直接对应「Computation Reliability & Precision Errors」方向——低精度量化引入的误差、定点转换的 LSB 偏差、以及硬件实现与软件模型的相关性验证正是该方向关注的内容；同时与「LLM Inference Evaluation」中量化推理的保真度评估有方法论上的共通性。</p>
 <h2>Questions for Further Exploration</h2>
 <ul>
-<li>What are the actual on-chip FPGA resource utilization (LUTs, BRAM, DSP), clock frequency, and FPS?</li>
-<li>How does the accuracy scale with input resolution or when migrating to more complex BNN architectures?</li>
-<li>Can the fused PE compensation technique generalize to other quantization schemes (e.g., ternary, INT4)?</li>
-<li>What is the power efficiency compared to equivalent GPU or CPU inference?</li>
+<li>What is the FP32 (full-precision) mAP50 of the same YOLOv3-tiny-like architecture, to isolate the accuracy cost attributable to W1A8 quantization?</li>
+<li>Can the 30 MHz timing closure be improved by pipelining the Conv11 detection-head critical path and increasing PE parallelism, and what FPS would result?</li>
+<li>How much DSP is consumed by Conv1 vs. Conv11 vs. post-processing scaling, and could replacing Conv1 with a W1A8 layer (or a lower-precision standard conv) relieve the 91% DSP pressure?</li>
+<li>Does the Mul_prev-fused PE generalize to W2A8 or INT4 quantization, and does the input-channel compensation benefit persist at higher weight precision?</li>
+<li>How does RTL-vs-ONNX numerical consistency vary across the input distribution (not just one sample) — are there adversarial or high-activation inputs that amplify LSB divergence?</li>
+<li>Can a multi-scale detection head or feature-fusion structure (as the authors suggest for future work) recover small-object recall without breaking the BRAM/DSP budget?</li>
+<li>How does the 2.047 W / 1.26 FPS point compare in energy-per-frame to a GPU or embedded NPU running a comparable-accuracy detector?</li>
 </ul>
 <p class="note">Generated from Markdown summary. Full paper: <a href="https://arxiv.org/abs/2605.03396">arXiv:2605.03396</a></p>
 </div>

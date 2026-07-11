@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Closing the Null Space: Guidance-Aware Quantization for Classifier-Free Diffusion</title>
+<style>
+:root { --paper:#fafafa; --ink:#1a1a1a; --muted:#555; --accent:#1a5276; --line:#ddd; --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif; --serif:Georgia,"Noto Serif SC",serif; }
+body { font-family:var(--serif); background:var(--paper); color:var(--ink); line-height:1.6; margin:0; padding:0; }
+.container { max-width:min(95vw, 760px); margin:0 auto; padding:28px 20px 60px; }
+.topnav { position:fixed; top:12px; left:14px; z-index:50; font-family:var(--sans); font-size:.75rem; background:var(--paper); border:1px solid var(--line); padding:5px 10px; border-radius:999px; }
+.topnav a { color:var(--muted); text-decoration:none; font-weight:600; }
+.topnav a:hover { color:var(--accent); }
+h1 { font-size:1.6rem; margin:2.2rem 0 1rem; border-bottom:2px solid var(--accent); padding-bottom:.3rem; }
+h2 { font-size:1.3rem; margin:1.8rem 0 .8rem; color:var(--accent); }
+h3 { font-size:1.1rem; margin:1.4rem 0 .6rem; }
+p { margin:.8rem 0; }
+.authors { font-style:italic; color:var(--muted); margin-top:-.4rem; }
+.meta { font-family:var(--sans); font-size:.82rem; color:var(--muted); margin:.2rem 0; }
+a { color:var(--accent); text-decoration:none; }
+a:hover { text-decoration:underline; }
+blockquote { border-left:3px solid var(--accent); margin:1rem 0; padding:.2rem 0 .2rem 1rem; color:var(--muted); font-style:italic; }
+code { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; background:#f0f0f0; padding:2px 5px; border-radius:3px; font-size:.9em; }
+pre { background:#f5f5f5; padding:14px; overflow-x:auto; border-radius:4px; border:1px solid var(--line); }
+pre code { background:transparent; padding:0; }
+ul,ol { margin:.6rem 0; padding-left:1.5rem; }
+li { margin:.25rem 0; }
+table { border-collapse:collapse; width:100%; margin:1rem 0; font-family:var(--sans); font-size:.9rem; }
+th,td { border:1px solid var(--line); padding:6px 10px; text-align:left; }
+th { background:#f0f0f0; }
+hr { border:none; border-top:1px solid var(--line); margin:1.5rem 0; }
+.note { font-family:var(--sans); font-size:.78rem; color:var(--muted); border-top:1px solid var(--line); margin-top:2rem; padding-top:1rem; }
+@media (max-width: 600px) { .container { padding:22px 14px 40px; } h1 { font-size:1.35rem; } }
+</style>
+</head>
+<body>
+<div class="topnav"><a href="./index.html">← Today's digest</a></div>
+<div class="container">
+<h1>Closing the Null Space: Guidance-Aware Quantization for Classifier-Free Diffusion</h1>
+<p class="meta">arXiv: 2607.08241</p>
+<p class="meta">Date: 2026-07-09</p>
+<p class="meta"><a href="https://arxiv.org/abs/2607.08241">https://arxiv.org/abs/2607.08241</a></p>
+<blockquote><strong>一句话总结：</strong> 本文揭示并形式化证明了 CFG 扩散模型量化中的"分支漂移陷阱"——仅对引导间隙（guidance gap）校准的 PTQ 目标存在精确零空间，会使无条件下支任意漂移、最终样本质量最差（FID 334）；并提出 GAMP，直接对引导预测校准、按引导输出敏感度分配激活位宽，在 CIFAR-10 上以 6 位平均激活精度取得 FID 39.4，比等精度均匀分配基线改善 49%。</blockquote>
+<blockquote><strong>TL;DR:</strong> The paper proves that gap-only PTQ calibration for classifier-free-guidance diffusion admits an exact "branch-drift" null space, empirically confirmed on CIFAR-10 where the best gap-fidelity config (Gap-only-W4A8, ρ=1.004, cos(Δ)=0.882) yields the worst FID (334.24 vs FP32's 13.67); the proposed GAMP calibrates directly on the guided prediction ε̃=ε∅+wΔ, fixing weights at W4 and allocating activation bits by guided-output sensitivity, reaching FID 39.40 at 6.03 avg bits — a 49% improvement over the uniform-spending linear baseline (predicted FID ≈76.5) — while also measuring a consistent 1.99× CFG latency tax on T4 and diagnosing a 147× INT8 slowdown in ONNX Runtime (no TensorRT).</blockquote>
+<h2>核心贡献</h2>
+<ul>
+<li><strong>CFG 延迟特征刻画（系统层面发现）：</strong> 在 NVIDIA T4 上实测发现，CFG 的双前向传递在每个去噪步带来约 1.99× 的延迟开销，该"CFG 税"被所有参数量与 BOPs 指标完全掩盖；同时诊断出在无 TensorRT 的 ONNX Runtime 中 INT8 推理比 FP16 慢约 147×（4598 ms vs 31.2 ms），根因是 192 个算子回退 memcpy 节点，而非算术能力不足。</li>
+<li><strong>分支漂移陷阱的形式化证明与实证确认：</strong> 证明了仅以引导间隙 Lgap 为目标的 PTQ 校准存在精确零空间（Proposition 1）：任意平移 δ 同时加到条件/无条件分支上可使 Lgap=0，但无条件下支漂移 δ 不受约束，按 (1) 式传播后使引导预测误差 ε̃q−ε̃fp=δ（Proposition 2）；ρ=1 与 cos(Δ)=1 可与 ∥δ∥≫0 同时成立（Corollary 1）。在 CIFAR-10 上，间隙对齐最优的 Gap-only-W4A8（ρ=1.004, cos(Δ)=0.882）反而取得整个 sweep 中最差的 FID 334.24，构成对该零空间的"假阳性"实证。</li>
+<li><strong>提出 GAMP（Guidance-Aware Mixed Precision）：</strong> 直接对引导预测 ε̃ 校准（LGAMP=∥ε̃q−ε̃fp∥²），按定义令 δ→0 从而在构造上关闭零空间；权重固定为 4-bit，激活位宽按各层对引导输出退化的敏感度经贪心背包分配（A4→A8）。</li>
+<li><strong>部署指南：</strong> 为 HPEC 从业者给出三条可操作建议——报告 guided-step BOPs（而非单程 BOPs）、用引导预测误差而非间隙诊断校准 PTQ、在压缩区间落入"激活精度悬崖"时按 GAMP 敏感度分配激活位宽。</li>
+</ul>
+<h2>Key Contributions</h2>
+<ul>
+<li><strong>CFG latency characterization (systems finding):</strong> Empirical measurement on an NVIDIA T4 GPU reveals a consistent ~1.99× guided-inference overhead (two forward passes per DDIM step) that is invisible to all parameter-count and BOPs metrics; a precise software-stack diagnosis attributes the INT8 failure in ONNX Runtime (no TensorRT) to a ~147× slowdown (4598 ms vs 31.2 ms for PyTorch FP16) caused by 192 operator-fallback memcpy nodes, not an arithmetic limitation.</li>
+<li><strong>Null-space theorem plus empirical confirmation of the branch-drift trap:</strong> Formally proves that gap-only PTQ calibration admits an exact null space (Proposition 1: εqy=εfpy+δ, εq∅=εfp∅+δ ⇒ Lgap=0 for any δ), that guided-prediction error equals δ under any such solution (Proposition 2), and that gap-fidelity metrics are therefore insufficient (Corollary 1). A controlled ablation on CIFAR-10 confirms it: the configuration with the best guidance-gap alignment (Gap-only-W4A8: ρ=1.004, cos(Δ)=0.882) produces the worst sample quality of the entire sweep (FID 334.24).</li>
+<li><strong>Guidance-Aware Mixed Precision (GAMP):</strong> A PTQ method that calibrates directly on the guided prediction ε̃=ε∅+wΔ, fixes all weights at W4, and allocates per-layer activation bits by guided-output sensitivity E(l)=∥ε̃ql−ε̃fpl∥² via a greedy knapsack, closing the null space by construction.</li>
+<li><strong>Deployment guidelines for HPEC practitioners:</strong> Report guided-step BOPs (2× single-pass), validate PTQ calibration with guided-prediction error rather than gap diagnostics alone, and allocate activation bits by GAMP sensitivity when the activation cliff falls within the compression regime.</li>
+</ul>
+<h2>Methodology</h2>
+<p>The analysis rests on the linear CFG combination ε̃ = ε∅ + w(εy − ε∅), w>1 (Eq. 1), evaluated over K=50 DDIM steps on the publicly released DASH student checkpoint — a 6.1M-parameter ADM UNet (base channels 64, attention at 16×16) trained on CIFAR-10 (32×32 RGB).</p>
+<p><strong>Null-space analysis.</strong> The most natural PTQ objective for a CFG model is the guidance-gap reconstruction error Lgap = ∥(εqy−εq∅) − (εfpy−εfp∅)∥² (Eq. 2). Proposition 1 shows that for any δ the assignment εqy=εfpy+δ, εq∅=εfp∅+δ achieves Lgap=0, leaving δ unconstrained. Proposition 2 then shows the guided-prediction error is exactly δ, independent of w and regardless of gap calibration quality; trajectory error accumulates as O(K∥δ∥). The trap is structural, not an optimization pathology: PTQ threshold optimization has only O(L) degrees of freedom and no gradient mechanism to suppress δ (unlike DASH's >200K-iteration distillation with an explicit unconditional branch loss).</p>
+<p><strong>GAMP.</strong> Because activations are far more precision-sensitive than weights in CFG models, GAMP fixes all weights at W4 and allocates activation bits per layer. Per-layer guided-output error E(l)=∥ε̃ql−ε̃fpl∥² (Eq. 4) serves as both the sensitivity signal and the calibration objective; E(l)=0 forces δ=0, closing the null space by construction. Algorithm 1 proceeds in five offline steps: (1) dual-branch calibration over 1024 CIFAR-10 images captures full activation ranges; (2) cache the FP32 guided prediction ε̃fp; (3) per-layer sensitivity s_l = E_l^{A4} − E_base over 49 additional forward passes (~5 min on T4); (4) greedy 0/1 knapsack ranked by s_l/ΔBOPs, promoting layers A4→A8 until the target average-bit budget b̄ is met; (5) calibrate thresholds via LGAMP over 800 Adam iterations. Total one-time overhead ≈22 min on T4; inference cost equals standard mixed-precision PTQ. Quantization uses per-output-channel symmetric signed weights and per-tensor asymmetric unsigned activations, with conv_in/conv_out and biases kept FP32.</p>
+<h2>Results & Highlights</h2>
+<ul>
+<li><strong>Branch-drift trap confirmed (CIFAR-10, FID, 50k samples, DDIM K=50):</strong> Gap-only-W4A8 achieves the best guidance-gap fidelity of any quantized configuration — ρ=1.004 and cos(Δ)=0.882 — yet produces the worst FID of the entire sweep at 334.24 (IS 1.26), worse than even the much-coarser RTN-W4A4 (FID 272.78) and far worse than FP32 (FID 13.67). This is the literal false-positive predicted by Corollary 1: the calibration objective is satisfied near-perfectly while the guided prediction is severely corrupted.</li>
+<li><strong>GAMP Pareto efficiency (CIFAR-10, FID):</strong> GAMP-b̄6 reaches FID 39.40 (IS 7.42) at 6.03 average activation bits and 31.3 G guided-step BOPs. A linear reference interpolating the two measured uniform endpoints (MSE-W4A4: FID 122.36; MSE-W4A8: FID 30.62) predicts FID ≈76.5 at 6 average bits, so GAMP delivers a 49% FID improvement over the uniform-spending reference at matched average precision. GAMP-b̄5 reaches FID 40.01 at 28.3 G BOPs — near-W4A8 quality at 13% fewer BOPs than the 32.7 G uniform W4A8 counterpart (where the same linear reference would predict FID ≈99).</li>
+<li><strong>Activation precision cliff (CIFAR-10, FID):</strong> Reducing weight precision W8→W4 at fixed A8 raises FID by 20.1 (10.53→30.62 for MSE-cal), whereas reducing activation precision A8→A4 at fixed W4 raises FID by 91.8 (30.62→122.36) — a 4.6× steeper per-bit degradation, directly motivating GAMP's strategy of fixing weight bits and allocating activation bits non-uniformly.</li>
+<li><strong>CFG latency tax (NVIDIA T4, 50-step CFG-DDIM):</strong> Measured guided vs unguided latency shows a consistent ~1.99× tax across batch sizes {1, 16, 64} and both FP32 and FP16 (e.g., FP32 B=64: 3936.2 ms guided vs 1988.5 ms unguided = 1.98×; FP16 B=64: 3107.7 ms vs 1569.8 ms = 1.98×). This overhead is invisible to all BOPs and parameter-count metrics, so reporting single-pass metrics overstates realized deployment gain by a factor of two.</li>
+<li><strong>INT8 deployment gap (T4, ONNX Runtime 1.18, no TensorRT, B=64):</strong> W8A8 single-pass BOPs predict a 16× speedup over FP32, but ORT INT8 delivers single-pass latency of 4598 ms vs 31.2 ms for PyTorch FP16 — a ~147× slowdown. Root cause: absence of libnvinfer.so.10 forces 192 quantized operators through GPU↔CPU memcpy fallback nodes plus FP32 execution of UNet downsample Slice ops; the 3.8× on-disk size reduction (6.4 vs 24.5 MB) confirms weight quantization itself succeeds, isolating the failure to inference-stack support rather than arithmetic.</li>
+</ul>
+<h2>Authors & Credibility</h2>
+<p>The authors, Abdullah Al Shafi and Sumaiya Rahim Suma, are from the Department of Computer Science and Engineering at Khulna University of Engineering & Technology (Bangladesh). The first author is also the lead of the closely related DASH work (arXiv:2606.00798, 2026), whose publicly released 6.1M-parameter student checkpoints, ρ/cos(Δ) guidance-fidelity diagnostics, and training-time null-space analysis are the direct foundation this paper extends to the PTQ regime. The argument is presented with formal propositions and proofs, a controlled ablation designed specifically to falsify the theory, and honest acknowledgment of the single-seed ±2–3 FID variance. The systems measurements (T4, ORT 1.18, specific library-absence diagnosis) are concrete and reproducible by anyone with a Kaggle/colab T4 environment.</p>
+<h2>Critical Assessment</h2>
+<ul>
+<li><strong>Novelty:</strong> The branch-drift null-space analysis is a genuinely clean, non-trivial theoretical contribution. Propositions 1–2 plus Corollary 1 are short, correct, and the empirical confirmation is unambiguous (best ρ/cos(Δ) → worst FID 334.24). The CFG-tax and 147× INT8-software-stack findings are systems-level observations that, while not novel as individual facts (two-pass CFG cost is well known), are packaged here as a deliberate, citable measurement gap.</li>
+<li><strong>Rigor:</strong> The theory is sound and the ablation that constructs Gap-only-W4A8 as a deliberate strawman is exactly the right experiment to confirm the null space. However, the GAMP headline "49% FID improvement" is measured against a <em>linear interpolation between two uniform-bit endpoints</em>, not against a uniform mixed-precision baseline at avgA=6 — which the paper never actually runs. A directly comparable uniform-b̄6 MSE-cal config would be the more honest strong baseline and is conspicuously absent from Table III.</li>
+<li><strong>Absolute quality concern:</strong> In absolute terms GAMP-b̄6 (FID 39.40, 6.03 avg bits) is substantially <em>worse</em> than MSE-W4A8 (FID 30.62, 8 avg bits) at the same W4 weight precision. GAMP's pitch is Pareto efficiency at sub-8-bit activation budgets, but the absolute FID gap to the strongest uniform baseline is large, and the paper does not test whether a uniform b̄6 MSE-cal config would close much of it.</li>
+<li><strong>Reproducibility:</strong> Strong on the systems side (named hardware, library versions, specific missing .so). The model side is single-seed with ±2–3 FID variance acknowledged; the FID 10.53 reported for MSE-W8A8 is noted to marginally exceed FP32's 13.67 only due to single-seed noise and AdaRound regularization, a candid caveat.</li>
+<li><strong>Significance:</strong> The diagnostic and theoretical findings (CFG tax, INT8 stack gap, branch-drift trap) are more broadly transferable than GAMP itself. But all evaluation is confined to a single 6.1M-param CIFAR-10 model at 32×32; the paper explicitly flags that GAMP has not been validated on Stable Diffusion or other latent CFG models, and that the trap's predicted intensification at w∼7–15 (text-to-image guidance scales) remains untested.</li>
+<li><strong>Red flags:</strong> The Gap-only-W4A8 "baseline" that produces FID 334 is a deliberately pathological objective nobody would deploy; it functions as a falsification probe rather than a competitor, which the paper is mostly transparent about but which inflates the apparent contrast. The branch-drift argument also depends on the optimizer reaching a shared-drift solution — the paper asserts Lgap≈0 is consistent with a constant δ but does not directly instrument εq∅−εfp∅ to prove the mechanism (it names this as a natural extension).</li>
+</ul>
+<h2>Strengths</h2>
+<ul>
+<li>Formal, provable statement of the branch-drift trap with crisp propositions and a falsifying empirical confirmation (best gap fidelity coinciding with worst FID).</li>
+<li>Concrete, reproducible systems findings: the 1.99× CFG tax across formats/batch sizes and the 147× ORT-INT8 slowdown with a root-caused 192-memcpy-node diagnosis.</li>
+<li>GAMP's calibration objective LGAMP=∥ε̃q−ε̃fp∥² is mathematically the minimal fix — it removes the exact null space by construction rather than adding regularization.</li>
+<li>Honest caveats throughout (single-seed variance, FP32-as-quality-ceiling, scope limited to CIFAR-10 32×32).</li>
+<li>Clear, actionable deployment guidelines for practitioners (report guided-step BOPs; validate with guided-prediction error, not gap diagnostics; allocate bits by GAMP sensitivity).</li>
+</ul>
+<h2>Limitations</h2>
+<ul>
+<li>Evaluation is restricted to a single 6.1M-parameter ADM UNet on CIFAR-10 at 32×32; no validation on Stable Diffusion, DiT, or other latent CFG models, nor on higher-resolution or text-to-image settings.</li>
+<li>The branch-drift trap's predicted intensification at production guidance scales w∼7–15 is untested (experiments use DASH's TAG w=4.0).</li>
+<li>The headline 49% gain is relative to a linear interpolation baseline; a uniform mixed-precision b̄6 config is not run, leaving GAMP's advantage over the most natural uniform competitor implicitly argued rather than directly measured.</li>
+<li>Hardware validation is confined to NVIDIA T4; newer accelerators (H100) with mature INT8 tensor-core support are flagged but not evaluated.</li>
+<li>Single-seed protocol (acknowledged ±2–3 FID at 50k samples).</li>
+<li>The shared-drift mechanism is inferred from Lgap≈0 rather than directly instrumented via εq∅−εfp∅.</li>
+</ul>
+<h2>Relevance</h2>
+<p>对关注扩散模型高效部署与量化的研究者高度相关：本文首次系统揭示了 CFG 推理的双分支结构如何破坏现有 PTQ 校准目标（分支漂移陷阱），并给出可证伪的理论与实证，对扩散模型压缩、推理加速与 CFG 机制理解都有直接参考价值。其系统侧发现（1.99× CFG 税、ORT-INT8 147× 回退）也对实际部署管线优化具有工程指导意义。</p>
+<h2>Questions for Further Exploration</h2>
+<ul>
+<li>How does GAMP perform on Stable Diffusion / DiT latent CFG models, and does the branch-drift trap intensify at the w∼7–15 guidance scales typical of text-to-image generation?</li>
+<li>Would a directly comparable uniform mixed-precision b̄6 MSE-cal baseline close most of GAMP's reported Pareto advantage, or does guided-output sensitivity allocation retain a clear edge?</li>
+<li>Does adding an unconditional anchor term λ∥εq∅−εfp∅∥² to Lgap — the paper's proposed extension — match GAMP's quality while keeping uniform activation precision, simplifying deployment?</li>
+<li>How do the CFG tax and the ORT-INT8 operator-fallback diagnosis change on H100/A100 with TensorRT, and can the 192-memcpy-node pathology be fixed at the inference-stack level?</li>
+<li>Does directly instrumenting εq∅−εfp∅ alongside ρ/cos(Δ) confirm the shared-drift mechanism, or do other unconstrained error patterns also contribute to the Gap-only-W4A8 collapse?</li>
+<li>Can GAMP's per-layer guided-output sensitivity be combined with PTQD-style timestep-aware mixed precision to address both branch-level and trajectory-accumulation error sources jointly?</li>
+</ul>
+<p class="note">Generated from Markdown summary. Full paper: <a href="https://arxiv.org/abs/2607.08241">arXiv:2607.08241</a></p>
+</div>
+</body>
+</html>

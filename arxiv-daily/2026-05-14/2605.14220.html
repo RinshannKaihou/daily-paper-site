@@ -40,62 +40,75 @@ hr { border:none; border-top:1px solid var(--line); margin:1.5rem 0; }
 <p class="meta">arXiv: 2605.14220</p>
 <p class="meta">Date: 2026-05-14</p>
 <p class="meta"><a href="https://arxiv.org/abs/2605.14220">https://arxiv.org/abs/2605.14220</a></p>
-<p>⚠️ Abstract-only summary</p>
-<blockquote><strong>一句话总结：</strong> 本文揭示了LLM强化学习中 rollout 生成与策略优化阶段之间的 token 概率数值不一致（Training-Inference Mismatch），证明了这种微小的数值差异能独立导致训练崩溃，并提出了一套诊断框架和缓解方案。</blockquote>
-<blockquote><strong>TL;DR:</strong> This paper identifies Training-Inference Mismatch (TIM) — numerical disagreements in token probabilities between rollout generation and policy optimization in LLM RL — and shows that even small TIM can independently cause training collapse, advocating for treating it as a first-order stability factor.</blockquote>
+<blockquote><strong>一句话总结：</strong> 本文构建零失配的 rollout 引擎 VeXact 作为诊断基线，证明训练-推理不匹配（TIM，由 kernel/实现差异导致的 token 级概率漂移）本身就能独立引发 LLM RL 训练崩溃，并指出 recomputation 与 bypass 两种实现各自如何改变有效优化目标、以及 rcorr + TIS 组合可逼近零失配基线。</blockquote>
+<blockquote><strong>TL;DR:</strong> The authors build VeXact — a rollout engine achieving bit-wise-aligned log-probabilities with FSDP via batch-invariant kernels — and use it as a TIM-free diagnostic baseline. With TIM as the only difference (vLLM vs VeXact), a Qwen3-30B-A3B MoE REINFORCE run on DAPO-Math-17k collapses from training reward 0.574 / AIME24 val 0.293 to 0.255 / 0.067, while VeXact reaches 0.753 / 0.534; in Qwen3-1.7B GRPO on Sanity-Test-R1D-1.5B, vLLM recomputation collapses to near-zero reward after step ~1665 whereas the rcorr-based TIS+SRS patch closely tracks VeXact.</blockquote>
 <h2>核心贡献</h2>
 <ul>
-<li>在零不匹配诊断设定（VeXact）下隔离并量化了 LLM 强化学习中的 Training-Inference Mismatch（TIM）现象。</li>
-<li>证明了即使是很小的 token 级数值不一致也能独立导致训练崩溃，而非仅仅是可忽略的数值噪声。</li>
-<li>揭示了 TIM 会改变实际面对的优化问题本质。</li>
-<li>提出了一系列缓解 TIM 的具体措施。</li>
+<li><strong>VeXact 零失配基线</strong>：通过统一 HuggingFace 模型实现 + batch-invariant（确定性、batch 无关）kernel（RMSNorm、batched GEMM、Fused MoE，禁用 KV-split 的 FlashAttention），让 rollout 与 FSDP 训练引擎在相同权重下产出位级一致的 token log-prob；代码开源于 verl-project/vexact。</li>
+<li><strong>TIM 因果分离</strong>：在 REINFORCE 下以 TIM 为唯一变量，证明 TIM 单独即可导致 Qwen3-1.7B（dense）与 Qwen3-30B-A3B（MoE）的 RL 训练崩溃，而非二阶副作用。</li>
+<li><strong>失配路径机制</strong>：区分两种 π_old 获取实现——trainer-side recomputation 与 rollout-side bypass，证明二者会改变有效优化问题：recomputation 在 advantage-weighted 损失上产生符号失衡的偏斜（C(r)=-(r-1)A 在正/负 advantage 上非对称放大），bypass 则因训练侧 ∇log π 的失配空间导致策略更新无法落地。</li>
+<li><strong>算法补偿诊断</strong>：在 VeXact 参考下系统比较 token-level 截断重要性采样（TIS, τ_tok=2）与 sequence-level rejection sampling（SRS, τ_seq=0.001），证明以 r_corr（=π_old^train/π_old^rollout）为过滤信号的 r_corr+SRS+TIS 组合可最接近地逼近零失配基线。</li>
 </ul>
 <h2>Key Contributions</h2>
 <ul>
-<li>Introduce VeXact, a zero-mismatch diagnostic setting that isolates TIM from off-policy drift and stabilization mechanisms.</li>
-<li>Demonstrate that small token-level numerical disagreements between rollout and training pipelines can independently cause training collapse.</li>
-<li>Show that TIM alters the effective optimization problem being solved.</li>
-<li>Identify a set of practical remedies to mitigate TIM in LLM RL systems.</li>
+<li>Release <strong>VeXact</strong>, a lightweight (~nano-vLLM LOC) zero-mismatch rollout engine that achieves bit-wise alignment with the FSDP trainer by reusing HuggingFace model implementations and registering deterministic, batch-invariant kernels (RMSNorm, batched matmul, batch-invariant Fused MoE, KV-split-disabled attention), integrated with chunked prefill, CUDAGraph, pipeline parallelism, and optimistic KV allocation.</li>
+<li><strong>Causally isolate TIM</strong> as a destabilizer: by using REINFORCE (single policy-gradient step per rollout) to remove PPO-clipping confounds, they show that with TIM as the only difference (vLLM vs VeXact) RL training collapses on both dense (Qwen3-1.7B) and MoE (Qwen3-30B-A3B) models.</li>
+<li><strong>Explain failure modes</strong> of recomputation and bypass at the objective level via a zero-centered loss contribution C(r)=-(r-1)A, showing recomputation induces a sign-imbalanced skew (asymmetric amplification of harmful contributions under PPO clipping) that aggregate KL estimators K1/K3 cannot detect during the first ~700 steps.</li>
+<li><strong>Diagnose algorithmic TIM compensations</strong>: compare truncated importance sampling (TIS, τ_tok=2), sequence-level rejection sampling (SRS, τ_seq=0.001), masking signals (r_corr vs r^rollout_ppo), and KL instantiations (K1 vs K3), showing that r_corr-based SRS with TIS most closely tracks the VeXact reference.</li>
 </ul>
 <h2>Methodology</h2>
-<p>The authors isolate TIM by constructing a controlled diagnostic environment (VeXact) that eliminates confounding factors such as off-policy drift and common stabilization tricks. In this zero-mismatch setting, they measure token-level probability disagreements between the rollout generation stage and the policy optimization stage under identical model weights. They then analyze how these numerical discrepancies propagate through training and affect RL stability.</p>
+<p><strong>TIM definition.</strong> For context x, response y=(a1,…,aT), state s_t=(x,y_<t), the token-level mismatch is δ_t = log π_old^train(a_t|s_t) − log π_old^rollout(a_t|s_t). It exists before any choice of update rule (REINFORCE/PPO/GRPO) and is infrastructure-level, hence not addressable by naive PPO clipping.</p>
+<p><strong>VeXact construction.</strong> TIM has two sources: (1) model/kernel implementation differences between training (FSDP/Megatron) and inference (vLLM/SGLang) engines (e.g., FlashInfer only on inference side); (2) variation in kernel reduction order and tiling (atomic-add non-determinism, batch-dependent auto-tuning triggering different launch grids). VeXact removes both by reusing HF model code in the FSDP engine and fixing tiling/reduction via batch-invariant kernels.</p>
+<p><strong>Diagnostic objective.</strong> REINFORCE with batch-whitened advantages is used as the cleanest probe (one policy-gradient step per rollout, no clipping).</p>
+<p><strong>Recomputation vs bypass (PPO/GRPO).</strong> Both use the clipped surrogate L^ppo(r,A) = -min(rA, clip(r,1-ε,1+ε)A). Recomputation uses r^train_ppo = π_θ/π_old^train in the denominator; bypass uses r^rollout_ppo = π_θ/π_old^rollout. The numerator π_θ^train is always trainer-side.</p>
+<p><strong>Zero-centered loss contribution.</strong> C(r^ppo) = -(r^ppo − 1)·A_t, which shares the gradient of -r·A but is zero when r=1, isolating the ratio-dependent surrogate contribution.</p>
+<p><strong>Algorithmic patches.</strong> Correction ratio r_corr = π_old^train / π_old^rollout. Token-level TIS truncates r_corr at τ_tok=2; sequence-level rejection masks trajectories where K1 or K3 aggregated over tokens exceeds τ_seq=0.001. Four configurations tested: srs-k3-corr-ratio, srs-k3-ppo-ratio, tis-srs-k1-corr-ratio, tis-srs-k3-corr-ratio.</p>
+<p><strong>Experimental settings (Appendix Table 2).</strong> Dense GRPO: Qwen3-1.7B, GRPO, Sanity-Test-R1D-1.5B, AIME2024 every 50 steps, global batch 64 / minibatch 16 / rollout group 8, prompt 1024 / response 8192, 1 node 8×H100, FSDP2 + vLLM/VeXact. Dense REINFORCE: same model/data, global batch 64. MoE REINFORCE: Qwen3-30B-A3B, REINFORCE, DAPO-Math-17k, AIME2024 every 20 steps, global batch 512, prompt 2048 / response 20480, 8 nodes 64×H100.</p>
 <h2>Results & Highlights</h2>
 <ul>
-<li>Small token-level numerical mismatches between rollout and training are not benign — they can independently trigger training collapse.</li>
-<li>TIM effectively changes the optimization landscape, meaning the algorithm is not optimizing the intended objective.</li>
-<li>The proposed remedies can mitigate TIM, suggesting it is a tractable systems-level issue.</li>
+<li><strong>TIM alone collapses MoE REINFORCE (Fig. 2)</strong>: on Qwen3-30B-A3B with DAPO-Math-17k, the vLLM run improves until step ~280 then degrades from training reward 0.574 and AIME24 val 0.293 down to 0.255 and 0.067, while VeXact reaches training reward 0.753 and val reward 0.534.</li>
+<li><strong>TIM collapses dense GRPO too (Fig. 3)</strong>: on Qwen3-1.7B with Sanity-Test-R1D-1.5B, VeXact keeps training reward ~0.93; vLLM recomputation degrades from ~0.87 to ~0.40 in the first 650 steps, partially recovers, then collapses to near-zero after step ~1665; vLLM bypass degrades to ~0.40 but does not collapse to zero and shows no comparably synchronized loss spike.</li>
+<li><strong>Aggregate KL is blind to early failure (Fig. 4)</strong>: under recomputation, K1 and K3 KL estimators stay nearly flat and close to VeXact over the first 700 steps even though reward is already degrading; under bypass, K1/K3 rise visibly.</li>
+<li><strong>Sign-imbalanced contribution (Fig. 5)</strong>: recomputation skews C(r)=-(r-1)A asymmetrically across positive vs negative advantage samples — harmful contributions are amplified while offsetting ones are not, before any KL spike appears.</li>
+<li><strong>Algorithmic patch ranking (Fig. 6, §4.2)</strong>: r_corr-based SRS beats r^rollout_ppo-based SRS; combining token-level TIS (τ_tok=2) with r_corr-based sequence rejection (τ_seq=0.001) most closely tracks VeXact; K1 vs K3 choice has comparatively minor effect. Configurations: srs-k3-corr-ratio, srs-k3-ppo-ratio, tis-srs-k1-corr-ratio, tis-srs-k3-corr-ratio.</li>
+<li><strong>Token-level drift magnitude (Fig. 1, Table 1)</strong>: on Qwen3-8B (bf16) greedy-sampled on an AIME2024 problem, mean |δ_t| is small per batch but per-token max |δ_t| reaches ~1.0 over a 2000-step run; one observed argmax flip changes "that" → ":\n\n".</li>
 </ul>
 <h2>Authors & Credibility</h2>
-<p>The work comes from a multi-institution team including Geoffrey Fox (a highly cited computer scientist known for work in distributed and high-performance computing) and researchers with expertise in ML systems and reinforcement learning. The topic is timely given the widespread adoption of RLHF and similar RL-based LLM training pipelines.</p>
+<ul>
+<li>Authors are from <strong>ByteDance</strong> (Tianle Zhong, Neiwen Ling, Yifan Pi, Zijun Wei, Tianshu Yu, Peng Wu, Xiao Yu) and <strong>University of Virginia</strong> (Tianle Zhong, Geoffrey Fox); †corresponding authors Peng Wu and Xiao Yu. Neiwen Ling and Tianle Zhong are equal-contribution first authors.</li>
+<li>VeXact source code is openly released at <strong>https://github.com/verl-project/vexact</strong> and is built on top of the VeRL framework (HybridFlow, EuroSys'25). arXiv:2605.14220v1 [cs.LG], 14 May 2026. No peer-review venue is stated.</li>
+</ul>
 <h2>Critical Assessment</h2>
 <ul>
-<li><strong>Novelty:</strong> Moderate to high. While numerical precision issues in deep learning are well-known, systematically diagnosing and quantifying their impact specifically in the LLM RL pipeline (rollout vs. optimization) is a valuable and relatively understudied angle.</li>
-<li><strong>Rigor:</strong> The use of a controlled diagnostic setting (VeXact) to isolate TIM from confounders is methodologically sound. However, without access to the full paper, it is unclear how extensive the empirical evaluation is across different model scales and RL algorithms.</li>
-<li><strong>Reproducibility:</strong> Likely high if VeXact is clearly specified; the core insight relies on comparing token probabilities between two implementations, which is straightforward to verify.</li>
-<li><strong>Significance:</strong> Potentially high. If TIM is indeed a first-order factor in LLM RL instability, this could influence how all major LLM RL training infrastructure is built and validated.</li>
-<li><strong>Red flags:</strong> Abstract-only assessment limits depth. The claim that TIM "changes the effective optimization problem" is strong and needs careful empirical substantiation across diverse settings.</li>
+<li><strong>Sample of models is narrow.</strong> All main results use the Qwen3 family (Qwen3-1.7B dense, Qwen3-30B-A3B MoE, plus a Qwen3-8B example for δ_t illustration); generalisation to Llama, Mistral, or proprietary stacks (Megatron + SGLang) is asserted but not demonstrated. The Discussion section itself flags this as a limitation.</li>
+<li><strong>Algorithmic-patch tuning is ad hoc without VeXact.</strong> The authors admit that τ_tok=2 and τ_seq=0.001 are diagnostic instantiations, and that without VeXact as a ground-truth reference "patch configuration remains largely ad hoc" — so the practical recipe for someone without a zero-mismatch baseline is underspecified.</li>
+<li><strong>Throughput cost of VeXact is acknowledged but not quantified.</strong> Batch-invariant kernels trade performance for numerical stability (fixed tiling/reduction); the paper says VeXact "retains reasonable throughput" via chunked prefill / CUDAGraph / pipeline parallelism, but provides no tokens/sec or wall-clock comparison vs vLLM, so the production-readiness case is incomplete.</li>
+<li><strong>The REINFORCE diagnostic is cleaner than GRPO but less representative.</strong> The headline causal-isolation result uses REINFORCE (no clipping); the GRPO results (Fig. 3) show that bypass fails differently and less synchronously, so the precise TIM-to-collapse causal chain in production PPO/GRPO is partly indirect (relies on the zero-centered contribution argument rather than direct observation).</li>
 </ul>
 <h2>Strengths</h2>
 <ul>
-<li>Addresses a practical and underappreciated systems-level issue in modern LLM RL training.</li>
-<li>Clean experimental design isolating TIM from other sources of instability.</li>
-<li>Actionable recommendations rather than just diagnosis.</li>
+<li>Cleanly isolates an infrastructure-level confounder that the RLHF/RL community routinely conflates with off-policy drift, by building a true zero-mismatch reference rather than another stabilisation heuristic.</li>
+<li>The zero-centered loss contribution C(r)=-(r-1)A is an elegant diagnostic that explains <em>why</em> recomputation silently distorts the optimisation surface before KL estimators notice.</li>
+<li>Concrete, falsifiable algorithmic-patch ablations with explicit thresholds (τ_tok=2, τ_seq=0.001) and a clear ranking (r_corr > r^rollout_ppo; TIS+SRS most faithful).</li>
+<li>Open-sources VeXact under the verl-project umbrella, making the diagnostic baseline reproducible.</li>
 </ul>
 <h2>Limitations</h2>
 <ul>
-<li>Without the full paper, the generality of the findings across different RL algorithms (PPO, GRPO, DPO, etc.), model sizes, and infrastructure implementations is unclear.</li>
-<li>The abstract does not quantify how common TIM is across popular training frameworks or how expensive the proposed remedies are.</li>
+<li>Evaluation scale is finite — limited model families, datasets (Sanity-Test-R1D-1.5B, DAPO-Math-17k), and system configurations; the authors explicitly state generalisation across broader RL settings is unproven.</li>
+<li>No quantitative throughput / overhead numbers for VeXact, despite the batch-invariant-kernel cost being the central practical concern.</li>
+<li>The paper does not study interaction with other known stability levers (e.g., DAPO non-symmetric clipping, GSPO sequence-level ratios, R3 MoE routing replay) beyond a brief related-work mention.</li>
+<li>Asynchronous RL is discussed only at the implication level; no async experiments are run despite async being where TIM is arguably most damaging.</li>
 </ul>
 <h2>Relevance</h2>
-<p>本文直接分析了 LLM 强化学习训练中的系统性数值不一致问题，对理解 RLHF/GRPO 等训练流程的稳定性具有重要意义，是 LLM 对齐与训练基础设施研究的关键议题。</p>
+<p>高度契合"LLM Training Stability & Observability"——把训练-推理数值失配定位为可观测、可诊断的一阶系统级因子，并提供 VeXact 作为校准工具。同时也直接服务于"Computation Reliability & Precision Errors"（bf16 浮点非结合性、kernel tiling/reduction 顺序、batch 无关 kernel）与"Silent Data Corruption (SDC)"（rollout 侧 δ_t 重尾极值、argmax 翻转即为静默数值腐蚀）。</p>
 <h2>Questions for Further Exploration</h2>
-<ul>
-<li>How prevalent is TIM across popular open-source LLM RL frameworks (e.g., vLLM + DeepSpeed, TRL, OpenRLHF)?</li>
-<li>Do the proposed remedies introduce any additional computational overhead or training latency?</li>
-<li>How does TIM scale with model size — does it become more or less severe for larger models?</li>
-<li>Is TIM specific to certain tokenization schemes or token-level operations (e.g., log-softmax, masked operations)?</li>
-<li>Can TIM be detected and corrected online during training without the VeXact diagnostic setup?</li>
-</ul>
+<ol>
+<li>How does TIM severity scale with precision format — does FP16 (cf. Qi et al. 2025, arXiv:2510.26788) or FP8 narrow/widen δ_t tails relative to BF16?</li>
+<li>Can the zero-centered contribution diagnostic C(r)=-(r-1)A be turned into an online training-time alarm that fires before KL estimators detect failure?</li>
+<li>How do DAPO's asymmetric clipping and GSPO's sequence-level ratios interact with TIM-induced sign-imbalanced skew — do they amplify or suppress it?</li>
+<li>What is the VeXact vs vLLM throughput gap on production-scale (e.g., 70B+ MoE) training, and can TBIK (arXiv:2511.17826) close it?</li>
+<li>In asynchronous RL, does TIM compound with policy staleness multiplicatively, or are they orthogonal failure axes?</li>
+</ol>
 <p class="note">Generated from Markdown summary. Full paper: <a href="https://arxiv.org/abs/2605.14220">arXiv:2605.14220</a></p>
 </div>
 </body>

@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WARP: Weight-Space Analysis for Recovering Training Data Portfolios</title>
+<style>
+:root { --paper:#fafafa; --ink:#1a1a1a; --muted:#555; --accent:#1a5276; --line:#ddd; --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif; --serif:Georgia,"Noto Serif SC",serif; }
+body { font-family:var(--serif); background:var(--paper); color:var(--ink); line-height:1.6; margin:0; padding:0; }
+.container { max-width:min(95vw, 760px); margin:0 auto; padding:28px 20px 60px; }
+.topnav { position:fixed; top:12px; left:14px; z-index:50; font-family:var(--sans); font-size:.75rem; background:var(--paper); border:1px solid var(--line); padding:5px 10px; border-radius:999px; }
+.topnav a { color:var(--muted); text-decoration:none; font-weight:600; }
+.topnav a:hover { color:var(--accent); }
+h1 { font-size:1.6rem; margin:2.2rem 0 1rem; border-bottom:2px solid var(--accent); padding-bottom:.3rem; }
+h2 { font-size:1.3rem; margin:1.8rem 0 .8rem; color:var(--accent); }
+h3 { font-size:1.1rem; margin:1.4rem 0 .6rem; }
+p { margin:.8rem 0; }
+.authors { font-style:italic; color:var(--muted); margin-top:-.4rem; }
+.meta { font-family:var(--sans); font-size:.82rem; color:var(--muted); margin:.2rem 0; }
+a { color:var(--accent); text-decoration:none; }
+a:hover { text-decoration:underline; }
+blockquote { border-left:3px solid var(--accent); margin:1rem 0; padding:.2rem 0 .2rem 1rem; color:var(--muted); font-style:italic; }
+code { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; background:#f0f0f0; padding:2px 5px; border-radius:3px; font-size:.9em; }
+pre { background:#f5f5f5; padding:14px; overflow-x:auto; border-radius:4px; border:1px solid var(--line); }
+pre code { background:transparent; padding:0; }
+ul,ol { margin:.6rem 0; padding-left:1.5rem; }
+li { margin:.25rem 0; }
+table { border-collapse:collapse; width:100%; margin:1rem 0; font-family:var(--sans); font-size:.9rem; }
+th,td { border:1px solid var(--line); padding:6px 10px; text-align:left; }
+th { background:#f0f0f0; }
+hr { border:none; border-top:1px solid var(--line); margin:1.5rem 0; }
+.note { font-family:var(--sans); font-size:.78rem; color:var(--muted); border-top:1px solid var(--line); margin-top:2rem; padding-top:1rem; }
+@media (max-width: 600px) { .container { padding:22px 14px 40px; } h1 { font-size:1.35rem; } }
+</style>
+</head>
+<body>
+<div class="topnav"><a href="./index.html">← Today's digest</a></div>
+<div class="container">
+<h1>WARP: Weight-Space Analysis for Recovering Training Data Portfolios</h1>
+<p class="meta">arXiv: 2607.01686</p>
+<p class="meta">Date: 2026-07-03</p>
+<p class="meta"><a href="https://arxiv.org/abs/2607.01686">https://arxiv.org/abs/2607.01686</a></p>
+<blockquote><strong>一句话总结：</strong> WARP 通过模型合并（SLERP/LERP/TIES）在 base 与 fine-tuned 权重之间插值生成"伪检查点"模拟缺失的训练轨迹，再用 Mimic Score 提取各领域在权重空间中的几何足迹，从而仅从已发布权重反推微调数据的领域混合比例；在 BERT/GPT-2 上平均 MAE 低至 0.046/0.104，优于样本级成员推断与拥有真实轨迹的 oracle 变体。</blockquote>
+<blockquote><strong>TL;DR:</strong> WARP recovers a fine-tuned model's domain mixture from its released weights alone: it interpolates between the base and fine-tuned models via model merging (SLERP/LERP/TIES) to generate pseudo-checkpoints approximating the missing training trajectory, computes Mimic-Score geometric footprints per domain, and maps them to mixture proportions via either a parameter-free softmax readout or a 2-layer MLP trained on synthetic mixtures. On BERT-base across SNLI/AGNews/Yelp/Yahoo (40 trials each), the supervised variant attains avg MAE as low as 0.046 (TIES) / 0.048 (LERP), beating Sample-level MI (0.064), Centroid Guess (0.149), and Random Guess (0.192) — and even beating the oracle variant that uses the real checkpoint trajectory (0.080). On GPT-2-Small, avg MAE reaches 0.104 (LERP) vs MI 0.130.</blockquote>
+<h2>核心贡献</h2>
+<ol>
+<li><strong>逆向问题形式化</strong>：把"从已发布权重反推微调数据领域混合 π⋆"形式化为权重空间几何的逆问题，仅需 base 模型、fine-tuned 模型与一个小型 probing 数据集，无需真实训练轨迹或中间检查点。</li>
+<li><strong>用模型合并模拟训练轨迹</strong>：通过 SLERP/LERP/TIES 在两端点之间插值生成 T=15 个伪检查点，替代缺失的中间路径，暴露训练数据在权重空间中的几何足迹。</li>
+<li><strong>几何足迹 → 混合比例</strong>：基于 Mimic Score（样本负梯度到 θref 方向的投影）构造领域×时间步的特征矩阵 M，再用无参数 softmax 或监督式 2 层 MLP 映射到混合比例。</li>
+<li><strong>实证优于 MI 与 oracle</strong>：BERT 平均 MAE 低至 0.046，比样本级 MI（0.064）降低 ~35%，甚至优于使用真实轨迹的 oracle 变体（0.080）；对早停/收敛/过训练检查点均鲁棒。</li>
+</ol>
+<h2>Key Contributions</h2>
+<ul>
+<li><strong>Formalizes the inverse data-mixture problem</strong>: given only θ_base, θ_ref, and a small probing set D_probe covering K domains, estimate the unknown mixture π⋆ ∈ Δ^(K−1) — no access to the true fine-tuning data or intermediate checkpoints.</li>
+<li><strong>Simulates the missing training trajectory via model merging</strong>: constructs T=15 pseudo-checkpoints $\tilde\theta_t = (1-\alpha_t)\theta_{base} + \alpha_t\theta_{ref}$ (LERP), or via SLERP / TIES merging operators, standing in for the unobserved parameter evolution.</li>
+<li><strong>Distills a geometric footprint</strong>: adapts the Mimic Score to compute, at each pseudo-checkpoint, the projection of each probing sample's negative gradient onto the direction $v_t = \theta_{ref} - \tilde\theta_t$ toward the fine-tuned model; pools per-domain to build a feature matrix $M \in \mathbb{R}^{K\times T}$.</li>
+<li><strong>Two geometry→mixture mappers</strong>: (i) a parameter-free softmax readout over time-averaged scores (unsupervised, label-free); (ii) a supervised 2-layer MLP $f_\phi: \mathbb{R}^{K\times T} \to \Delta^{K-1}$ trained on synthetic (mixture, footprint) pairs generated from short cheap fine-tunes.</li>
+<li><strong>Beats MI and even the real-trajectory oracle</strong>: supervised LERP/TIES attain avg MAE 0.046–0.048 on BERT vs 0.080 for the oracle, because the smooth monotone merged path is less noisy than real stochastic-mini-batch trajectories.</li>
+</ul>
+<h2>Methodology</h2>
+<p><strong>Setup.</strong> θ_base = pretrained base (BERT-base / GPT-2-Small); θ_ref = fine-tuned model from data drawn under unknown mixture π⋆ over K domains. Practitioner can sample a small probing set $D_{probe} = \bigcup_{k=1}^K D_k$ (|D_probe|=2,500, uniform per domain) from the same source S — D_probe need not follow π⋆, only cover the K domains. Goal: estimate π⋆.</p>
+<p><strong>Step 1 — Simulated training trajectory (§3.1).</strong> Since the true path θ_base → θ_ref is unreleased, interpolate T=15 pseudo-checkpoints $\tilde\theta_t = \mathcal{M}(\theta_{base}, \theta_{ref}; t)$ where $\mathcal{M}$ is a merging operator: LERP $\tilde\theta_t=(1-\alpha_t)\theta_{base}+\alpha_t\theta_{ref}$, SLERP (spherical), or TIES. α_t plays the role of normalized training progress.</p>
+<p><strong>Step 2 — Geometric footprint (§3.2).</strong> Define the time-varying direction $v_t = \theta_{ref} - \tilde\theta_t$. For each probing sample, the Mimic Score is the projection of its negative gradient onto the unit vector along $v_t$:</p>
+<p>$$m_{i,t} = \frac{\langle -g_i(\tilde\theta_t), v_t\rangle}{\|v_t\|}.$$</p>
+<p>Raw scores are min-max normalized within each step (since $\|v_t\|$ shrinks as α_t→1), then pooled per-domain: $\bar m_{k,t} = \frac{1}{|D_k|}\sum_{i\in D_k} m_{i,t}$. Stacking yields the footprint matrix $M \in \mathbb{R}^{K\times T}$.</p>
+<p><strong>Step 3 — Geometry → mixture (§3.3).</strong> Two variants:</p>
+<ul>
+<li><em>Unsupervised readout</em>: $\hat\pi_k = \frac{\exp(\dot m_k/\tau)}{\sum_{k'}\exp(\dot m_{k'}/\tau)}$ where $\dot m_k = \frac{1}{T}\sum_t \bar m_{k,t}$. Fast, label-free, but collapses the temporal dimension.</li>
+<li><em>Supervised 2-layer MLP</em>: draw J random mixtures π^(j) (uniform in $\ell_1$ from uniform), fine-tune the base model on each to get synthetic reference models, compute their footprints M^(j), and train $f_\phi: \mathbb{R}^{K\times T}\to\Delta^{K-1}$ with a softmax output and regression loss against π^(j). Synthetic fine-tunes are short/cheap since they only generate projector training signal.</li>
+</ul>
+<p><strong>Datasets.</strong> SNLI (3 classes), AGNews (4), Yelp (5), Yahoo (10); each class treated as a domain. 40 ground-truth mixtures π⋆ per dataset; 5,000-sample fine-tune set drawn per π⋆; BERT-base and GPT-2-Small. Metric: MAE between $\hat\pi$ and π⋆ averaged over 40 trials. Baselines: Random Guess (sample from simplex), Centroid Guess (uniform 1/K), Sample-level MI (loss-reduction threshold sweep, aggregated to per-domain rates), and an oracle WARP variant using real intermediate checkpoints.</p>
+<h2>Results & Highlights</h2>
+<ul>
+<li><strong>BERT-base recovery (Table 1, avg MAE over 40 trials):</strong> supervised LERP/TIES reach <strong>0.048 / 0.046</strong>, vs Sample-level MI <strong>0.064</strong>, Centroid Guess <strong>0.149</strong>, Random Guess <strong>0.192</strong> — a ~35% error reduction over the strongest baseline (MI), and <strong>lower than the real-trajectory oracle (0.080)</strong>.</li>
+<li><strong>GPT-2-Small recovery:</strong> supervised LERP attains avg MAE <strong>0.104</strong> (vs MI 0.130, oracle 0.138) — a ~30% reduction over MI; the merged-path variant again beats the real-checkpoint oracle.</li>
+<li><strong>Unsupervised softmax readout is competitive</strong> even with no learned projector: on BERT it already beats all baselines (e.g., SNLI LERP 0.091 vs MI 0.074 is close; AGNews LERP 0.118 vs MI 0.084) and closes most of the gap to the supervised variant — useful when collecting synthetic training pairs is impractical.</li>
+<li><strong>Why merged beats real:</strong> real fine-tuning paths are noisy (stochastic mini-batches, LR warmup, curriculum effects); LERP/TIES create a clean monotone path yielding a smoother footprint matrix M from which the MLP extracts the mixture more easily.</li>
+<li><strong>Training-recipe robustness (Table 2, GPT-2-Small on AGNews, TIES merging):</strong> WARP remains accurate across short (9 epoch / early-stop), converged (12 epoch), and overtrained (18 epoch, past convergence) checkpoints — mirroring the post-training regime where released models are routinely pushed beyond compute-optimal budgets.</li>
+</ul>
+<h2>Authors & Credibility</h2>
+<ul>
+<li>All authors are at the <strong>University of Wisconsin-Madison</strong> (stated in the PDF). The paper appears in the <strong>ICML 2026 Workshop on Weight-Space Symmetries (WSS): from Foundations to Practical Applications</strong> (workshop paper, not a main-conference/full-paper venue).</li>
+<li>The authors provide their <strong>source code</strong> (link stated in the PDF footer). Controlled experiments with known ground-truth mixtures and 40-trial averaging give the recovery claims a clean evaluation protocol.</li>
+</ul>
+<h2>Critical Assessment</h2>
+<ul>
+<li><strong>The strongest baseline (Sample-level MI) is already a fairly weak comparator</strong> for <em>domain-mixture</em> recovery: MI is fundamentally sample-level, so aggregating its detections into proportions is a known mismatch. The headline 35%/30% reductions would be more convincing against a purpose-built mixture-recovery baseline (e.g., a proxy-model regression from the data-mixture-optimization literature, which the paper cites but does not benchmark against).</li>
+<li><strong>Scale is the biggest caveat</strong>: experiments are limited to <strong>BERT-base and GPT-2-Small</strong> on 4 text-classification datasets with 3–10 classes. Whether the Mimic-Score footprint remains informative on billion-parameter decoder LLMs, on continuous (non-class) domain structure, or on pre-training (not fine-tuning) mixtures is unverified — and the method's cost grows with the need to compute per-sample gradients at each pseudo-checkpoint.</li>
+<li><strong>The "merged beats real oracle" result</strong>, while honestly reported, is somewhat suspicious: it suggests the real-trajectory oracle is implemented sub-optimally (e.g., using all noisy real checkpoints rather than a smoothed subset), and the paper does not ablate checkpoint spacing/count for the oracle. The win may reflect oracle implementation, not a fundamental superiority of merged paths.</li>
+<li><strong>The supervised MLP requires generating J synthetic mixtures with short fine-tunes</strong> — acceptable on BERT/GPT-2 but a non-trivial cost at scale; the paper acknowledges synthetic fine-tunes are "cheap, short" but does not quantify J or wall-clock.</li>
+<li><strong>Probing-set sensitivity</strong>: D_probe must cover all K domains but the method's sensitivity to |D_probe|, domain coverage gaps, and probing-set distribution shift is not analyzed.</li>
+</ul>
+<h2>Strengths</h2>
+<ul>
+<li>Clean reframing of data-mixture recovery as a weight-space inverse problem using only released artifacts — a practical, auditing-relevant setup.</li>
+<li>Model merging as a trajectory simulator is an elegant, checkpoint-free way to expose geometric footprints.</li>
+<li>Two mappers (unsupervised softmax + supervised MLP) give a useful cost/accuracy trade-off.</li>
+<li>Honest, well-instrumented evaluation (40 trials, 4 datasets, 2 architectures, oracle comparison, training-recipe robustness).</li>
+</ul>
+<h2>Limitations</h2>
+<ul>
+<li>Small-model scale only (BERT-base, GPT-2-Small); frontier-LLM and pre-training-mixture applicability unproven.</li>
+<li>Baselines omit purpose-built forward-direction mixture-regression methods; MI is an asymmetric comparator.</li>
+<li>Per-sample-gradient computation at each of T pseudo-checkpoints is costly at scale; J and wall-clock for synthetic-pair generation unreported.</li>
+<li>"Merged beats real oracle" may stem from oracle implementation rather than a fundamental property; not ablated.</li>
+<li>Probing-set size/coverage sensitivity not analyzed; behavior under partial domain coverage unknown.</li>
+</ul>
+<h2>Relevance</h2>
+<p>与 <strong>LLM Hidden States & Interpretability</strong>（权重空间几何、训练数据足迹、表征几何的可逆分析）和 <strong>Model System Cards & Technical Reports</strong>（审计已发布模型的训练数据组成、数据污染与配方透明度）两个方向直接相关；对关注训练数据可审计性、成员推断替代方案、以及权重空间结构的研究者具有方法论价值。</p>
+<h2>Questions for Further Exploration</h2>
+<ol>
+<li>Mimic-Score 足迹在数十亿参数 decoder LLM（如 7B/70B）上是否仍具判别力？每样本梯度在 T=15 个伪检查点上的计算成本能否用 LoRA/低秩近似分摊？</li>
+<li>若与正向 mixture-regression 基线（如 DoReMi/R&B 的梯度对齐、proxy-model 回归）在相同合成设置下对比，WARP 的优势是否仍然成立？</li>
+<li>"合并轨迹优于真实轨迹"是否主要源于 oracle 使用了全部噪声检查点？若对真实轨迹做平滑/稀疏化子采样，oracle 是否能反超？</li>
+<li>方法能否扩展到预训练（非微调）混合比例恢复——此时 θ_base 不存在单一明确对应物，需用 random-init 作 base 吗？</li>
+<li>监督 MLP 所需的合成对数量 J 与目标精度的关系如何？能否用主动采样减少 J？</li>
+<li>probing 集在领域覆盖不完整或存在分布偏移时，恢复误差如何退化？</li>
+<li>该足迹信号能否用于检测数据污染（论文 Related Work 提及的 auditing 应用）而非仅恢复混合比例？</li>
+</ol>
+<p class="note">Generated from Markdown summary. Full paper: <a href="https://arxiv.org/abs/2607.01686">arXiv:2607.01686</a></p>
+</div>
+</body>
+</html>

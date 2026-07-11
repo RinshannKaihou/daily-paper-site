@@ -40,84 +40,93 @@ hr { border:none; border-top:1px solid var(--line); margin:1.5rem 0; }
 <p class="meta">arXiv: 2605.03351</p>
 <p class="meta">Date: 2026-05-05</p>
 <p class="meta"><a href="https://arxiv.org/abs/2605.03351">https://arxiv.org/abs/2605.03351</a></p>
-<p>⚠️ Abstract-only summary</p>
-<blockquote><strong>一句话总结：</strong> 本文提出无需训练的视觉状态复用策略，在视频VLM推理中跳过对稳定画面的重复编码，使同视频后续查询延迟降低14.9–35.9倍。</blockquote>
-<blockquote><strong>TL;DR:</strong> Proposes training-free anti-recomputation for video VLMs — reuse cached visual state when the scene is stable, recompute only on change. On frozen Qwen2.5-VL-7B-4bit, adaptive same-video follow-up reuse cuts latency 14.9–35.9x on VideoMME while preserving correctness. Also introduces C-VISION to skip redundant vision-tower work before the first answer, achieving 1.316x speedup on Gemma 4-E4B-4bit.</blockquote>
+<blockquote><strong>一句话总结：</strong> 本文提出无需训练的视频 VLM 反重计算框架，包含三大机制：C-PERSIST（同视频后续查询复用并修复 KV 缓存，在 Qwen2.5-VL-7B-4bit 上实现 14.90–35.92× 后续查询加速且 0/93 配对漂移）、C-VISION（首查询视觉塔剪枝，Gemma 4-E4B-4bit 上 1.316× 加速）、C-CEILING（阶段占比天花板，约束组件加速向端到端的转化）。</blockquote>
+<blockquote><strong>TL;DR:</strong> The authors study training-free anti-recomputation for frozen video VLMs across three regimes. C-PERSIST (adaptive repaired-cache inheritance) on Qwen2.5-VL-7B-Instruct-4bit preserves paired choice/correctness on 93 VideoMME breadth queries (0/93 drift) while delivering 14.90–35.92× same-class follow-up speedup (15.28–35.97× all-query) versus cold follow-up, with the second follow-up inheriting repaired cache at 9.50× paired speedup. C-VISION on Gemma 4-E4B-4bit reaches 1.316× first-query end-to-end speedup (32f short, 20 items, 0 paired drift, 42.2% vision-time reduction) versus the dense baseline. C-CEILING provides the E2Eideal=1/(f_fixed+(1−f_fixed)/s) guardrail, validated by an n=60 composition audit landing at 1.042× where the measured share terms predict.</blockquote>
 <h2>核心贡献</h2>
 <ul>
-<li>将视频VLM中的重复视觉编码问题建模为"训练无关的反重计算"（training-free anti-recomputation），即当验证表明视觉状态未变化时直接复用缓存状态。</li>
-<li>提出自适应同视频后续查询复用策略，在Qwen2.5-VL-7B-4bit上将跟进查询延迟降低14.90–35.92倍，且在93题VideoMME上保持正确性。</li>
-<li>提出C-VISION方法，在首个答案生成前跳过定时视觉塔计算，在Gemma 4-E4B-4bit上实现1.316倍的首查询加速。</li>
-<li>引入C-CEILING（阶段占比天花板）作为会计护栏：组件加速只能按其墙钟占比转化为端到端加速，不会叠加放大。</li>
-<li>展望VLM原生媒体格式方向，直接暴露变化、运动、不确定性等信息，避免模型从密集RGB重新发现世界。</li>
+<li><strong>C-PERSIST（后续查询复用）</strong>：提出自适应"修复-继承"缓存策略——首次后续查询刷新一帧最新视觉尾部，第二次后续查询继承已修复的缓存状态；在 Qwen2.5-VL-7B-4bit 的 93 题 VideoMME 广度设置上实现 0/93 配对选择/正确性漂移、14.90–35.92× 同类加速，第二次后续查询配对加速 9.50× 且尾部 token 减少 88.9%。</li>
+<li><strong>C-CEILING（阶段占比天花板）</strong>：给出端到端加速公式 E2Eideal=1/(f_fixed+(1−f_fixed)/s) 与视觉塔特化预测 E2E_pred=1/(1−V_share·V_red)，解释为何首查询加速受视觉塔墙钟占比约束、为何 C-VISION 与 C-PERSIST 不能简单相乘。</li>
+<li><strong>C-VISION（首查询视觉剪枝）</strong>：在 Gemma 4-E4B-4bit 上通过视觉塔内部层后保留部分 token 并 scatter-back，32f short 单元实现 1.316× 端到端加速、42.2% 视觉时间减少、0 配对漂移；同时给出 Qwen 的 keep-rate 边界（krV=0.85 仅 1.032× 增益）。</li>
+<li><strong>压力测试边界</strong>：50 轮重复问题压力下自适应修复与 scheduled-refresh 保持 0/343 漂移；dense-answer-anchored 提示变化下保守 K=1 保持 0/133 漂移而激进策略出现 4.51% 漂移，刻画保守/激进边界。</li>
+<li><strong>失败模式剖析</strong>：明确"cache basin"病态输出（重复 malformed attractor 字符串），并证明不修复的继承规则会导致第三次查询全部塌缩到病态盆地（Δacc=−0.0952，7/7 病态）。</li>
 </ul>
 <h2>Key Contributions</h2>
 <ul>
-<li>Formulates redundant visual encoding in video VLMs as a training-free anti-recomputation problem — reuse cached visual state when validation confirms stability.</li>
-<li>Achieves 14.90–35.92x latency reduction on same-video follow-up queries with Qwen2.5-VL-7B-4bit, preserving correctness on a 93-query VideoMME benchmark.</li>
-<li>Introduces C-VISION to prune timed vision-tower work before first-answer generation, yielding 1.316x speedup on Gemma 4-E4B-4bit with no accuracy drift.</li>
-<li>Proposes C-CEILING as an accounting guardrail: component-level speedups translate to end-to-end gains only proportional to their wall-clock share.</li>
-<li>Advocates for VLM-native media formats that expose change, motion, uncertainty, and object state directly, eliminating the need to rediscover the world from dense RGB every frame.</li>
+<li><strong>C-PERSIST (after-ingest follow-up reuse with repair):</strong> Adaptive repaired-cache inheritance refreshes one newest visual frame at the first follow-up, then lets the second follow-up inherit the repaired cache with no additional visual re-prefill. On Qwen2.5-VL-7B-Instruct-4bit across 20f short/medium/long + 32f short VideoMME slices, this yields 0/93 paired choice drift, 0/93 paired correctness drift, 0/62 pathological follow-ups, and 14.90–35.92× same-class follow-up speedup (15.28–35.97× all-query).</li>
+<li><strong>C-CEILING (stage-share ceiling):</strong> The arithmetic guardrail E2Eideal=1/(f_fixed+(1−f_fixed)/s) and its vision-tower specialization E2E_pred=1/(1−V_share·V_red), validated by 17 regimes in Figure 4 and an n=60 composition audit landing at 1.042× observed vs. 1.028× predicted. This explains why first-pass gains are share-limited and why C-VISION and C-PERSIST do not multiply.</li>
+<li><strong>C-VISION (first-pass vision pruning):</strong> On Gemma 4-E4B-4bit (MLX-community 4-bit), the clean 32f short cell reaches 1.316× first-query end-to-end speedup with 0 paired drift on 20 items, 0 parse failures, 42.2% vision-time reduction, and a −0.012× ceiling gap. Qwen's 16f krV=0.85 point recovers to within aggregate-accuracy/format gates but only 1.032× gain (13.6% vision reduction).</li>
+<li><strong>Stress-test boundaries:</strong> A 50-turn repeated-question stress shows adaptive repair and scheduled-refresh at 0/343 paired choice/correctness drift (median follow-up <0.8s); fixed K=1 stays under the 3% gate with sparse 3/343 drift. A dense-answer-anchored prompt-variation stress separates conservative fixed K=1 (0/133 drift) from aggressive adaptive/refresh-10 (6/133 = 4.51% drift).</li>
+<li><strong>Failure-mode forensics:</strong> Documents the "cache basin" where unrepaired long-prefix reuse collapses into pathological outputs (e.g., "addCriterion..." or the literal four-character Chinese auto-generated string U+81EA U+52A8 U+751F U+6210); a failed adaptive variant that omits second-follow-up refresh collapses 7/7 second follow-ups into the basin (Δacc=−0.0952, 6/21 choice diffs).</li>
 </ul>
 <h2>Methodology</h2>
-<p>The paper studies three axes of training-free anti-recomputation for video VLMs:</p>
-<ol>
-<li><strong>After-ingest follow-up reuse</strong>: When a user asks follow-up questions about the same video, the visual state (KV-cache from the vision tower) is reused rather than recomputed. An adaptive policy decides when cached state is still valid vs. when fresh encoding is needed based on scene change, query type, and cache topology.</li>
-</ol>
-<ol>
-<li><strong>C-VISION (first-query vision pruning)</strong>: Before the first answer is generated, the vision tower is invoked on a schedule. C-VISION skips unnecessary vision-tower invocations when the visual input hasn't changed, accelerating the cold-start path.</li>
-</ol>
-<ol>
-<li><strong>C-CEILING (accounting guardrail)</strong>: A theoretical and practical framework establishing that component-level speedups (e.g., vision tower only) can only improve end-to-end latency in proportion to that component's share of total wall-clock time. This prevents overclaiming from composing non-overlapping speedups.</li>
-</ol>
-<p>All experiments use frozen quantized models (4-bit) with no retraining. Stress tests include 50-turn repeated-question schedules and dense-answer-anchored prompt variations to separate conservative from aggressive caching policies.</p>
+<p><strong>Three regimes, kept analytically separate.</strong> (1) First-pass visual pruning (C-VISION): skip/reduce vision-tower work before the rest of the model pays for it. (2) After-ingest follow-up reuse (C-PERSIST): keep the expensive prefix from the first query and ask later questions against the same video. (3) Candidate streaming (C-STREAM): native-rate reuse, treated as a boundary/target, not a headline. Plus a routing lane (Qwen) for mechanism validation under a fixed dense backend.</p>
+<p><strong>Models & hardware (Table 3).</strong> Routing & persistent-KV: Qwen2.5-VL-7B-Instruct-4bit via MLX-VLM on M3 Air 16 GB. First-pass pruning: MLX-community gemma-4-e4b-4bit on M3 Air 16 GB; plus Qwen2.5-VL-3B-4bit for the frame-scaling envelope. Scale-out streaming: Gemma 4 26B/A4B-family RTSP/screen-recording stack on M5 Max MacBook Pro 128 GB. All models frozen, 4-bit, no retraining.</p>
+<p><strong>Benchmarks.</strong> TOMATO [37] and a frozen motion-heavy MVBench [15] slice for routing; VideoMME [13,14,39] for first-pass (8f) and persistent-KV (20f short/medium/long + 32f short). Uniform global sampling at 8 frames, square-pad + resize to 560×560; routing planner operates on decoded RGB frames.</p>
+<p><strong>C-PERSIST mechanism.</strong> Selective re-prefill refreshes a fixed newest-frame visual tail (K frames) before a follow-up. Fixed K=1 refreshes one newest frame each follow-up; adaptive repair refreshes once at the first follow-up then inherits the repaired cache. Prefix coverage and tail-token counts are logged (e.g., adaptive second follow-up: 50 tail tokens, 0.994 coverage vs. fixed K=1: 451 tail tokens, 0.944 coverage).</p>
+<p><strong>C-VISION mechanism.</strong> Patches the vision tower after internal layer L, keeps fraction krV of visual token groups, scatters back so downstream geometry is unchanged. L=2 is the default cut layer. The speedup is bounded by E2E_pred=1/(1−V_share·V_red) where V_share is the dense vision wall-clock share and V_red the observed vision-time reduction.</p>
+<p><strong>C-CEILING.</strong> For a stage accelerated by factor s with the rest held fixed: E2Eideal=1/(f_fixed+(1−f_fixed)/s). Predictions are computed from measured stage timings, not fit to observed end-to-end results; residuals are reported (Table 14).</p>
+<p><strong>Paired-drift metrics.</strong> Paired choice drift = session answer picks a different multiple-choice option than matched cold baseline; paired correctness drift = different right/wrong on the same item; pathological-like outputs matched against logged malformed attractor strings. Stricter than aggregate accuracy. The 93-query breadth envelope = 31 sessions × 3 queries; the rule-of-three query-level bound is ~3.2%.</p>
 <h2>Results & Highlights</h2>
 <ul>
-<li><strong>14.90–35.92x latency reduction</strong> on same-video follow-up queries with Qwen2.5-VL-7B-4bit on VideoMME (93 queries), with paired choice correctness preserved.</li>
-<li><strong>1.316x first-query speedup</strong> with C-VISION on Gemma 4-E4B-4bit (32-frame short cell, 20 items), no drift or parse failures.</li>
-<li>Repeated-question schedules hold through 50 turns without degradation.</li>
-<li>Conservative fixed K=1 repair policy maintains fidelity; aggressive policies trade slight drift for higher speed.</li>
-<li>Fresh-video pruning shows smaller but real gains.</li>
-<li>C-CEILING analysis correctly bounds end-to-end improvements from component-level optimizations.</li>
+<li><strong>C-PERSIST adaptive repair (Table 5):</strong> 14.90–35.92× same-class follow-up speedup (15.28–35.97× all-query), 0/93 paired choice drift, 0/93 paired correctness drift, 0/62 pathological follow-ups, across 20f short/medium/long + 32f short VideoMME slices on Qwen2.5-VL-7B-Instruct-4bit.</li>
+<li><strong>C-PERSIST second-follow-up inheritance (Figure 3):</strong> Adaptive repair reuses the repaired cache (median 50 tail tokens, 0.994 coverage, 0.675s latency) vs. fixed K=1 re-buying the tail (median 451 tokens, 0.944 coverage, 6.65s latency) — a 9.50× paired second-follow-up speedup and 88.9% median tail-token reduction.</li>
+<li><strong>C-PERSIST raw warm reuse (Table 4):</strong> At 16f, Qwen2.5-VL-7B raw warm reuse reaches 91.1× cold/cached follow-up speedup with Δacc=0.000 (0.807s median); at 8f, 47.2× with Δacc=−0.048 (0.815s median). The 3B model holds Δacc=−0.19 through 24f/32f/36f before basin onset beyond 14.5k prefill tokens (Figure 2).</li>
+<li><strong>C-PERSIST many-turn stress (Table 8):</strong> 50-turn repeated-question stress on seven 20f videos — adaptive repair 0/343 choice drift, 0/343 correctness drift, 0.771s median follow-up; scheduled refresh-10 0/343, 0.706s; fixed K=1 3/343 choice, 2/343 correctness, 7.362s (passes 3% gate).</li>
+<li><strong>C-PERSIST prompt-variation stress (Table 9):</strong> Dense-answer-anchored 20-turn — conservative fixed K=1: 0/133 choice/correctness drift (5.329s, ~15.0×); aggressive adaptive/refresh-10: 6/133 = 4.51% drift each (0.698s/~114.6× and 0.709s/~112.8×), failing the 3% gate.</li>
+<li><strong>C-VISION Gemma measured sparse (Table 12):</strong> 32f short cell — 1.316× first-query E2E speedup, Δacc=+0.000, 100% choice agreement, 0 parse failures (dense and sparse), 42.2% vision-time reduction, −0.012× ceiling residual (clean operating point). The 8f/16f/32f full sweep preserves paired accuracy but shares parse failures.</li>
+<li><strong>C-VISION Qwen boundary (Table 13):</strong> 16f krV=0.85 — 1.032× E2E, Δacc=−0.050, 81.7% agreement, 13.6% vision reduction (within aggregate-accuracy/format gates, low-gain boundary). 8f krV=0.50 — 1.042× E2E but Δacc=−0.067, fidelity-contract fail.</li>
+<li><strong>C-CEILING validation (Table 14, Figure 4):</strong> n=60 composition audit — V_share=0.063, V_red=0.430, predicted 1.028×, observed 1.042×, residual +1.4pp (composition null). Qwen cross-arch matched point — V_share=0.100, V_red=0.448, predicted 1.047×, observed 1.042×, residual −0.5pp.</li>
+<li><strong>Random-keep sanity (Table 11):</strong> Qwen magnitude_norm scorer at krV=0.50 reaches 0.500 accuracy vs. uniform-random mean 0.358 (4 seeds) — a +14.2pp structured-vs-random gap; dense reference 0.533.</li>
+<li><strong>Setup-inclusive economics (Table 10):</strong> Qwen 7B/16f raw reuse — Q=1 session speedup 1.04×, Q=2 2.05×, Q=5 4.94×, Q=10 9.33×, Q=50 32.17× (Δacc=+0.00). Gemma 26B/32f after-warm prefix snapshots — Q=10 6.74×, Q=50 13.58× (Δacc=+0.00).</li>
+<li><strong>Composition hard negative (Table 15):</strong> Qwen 8f L=2 krV=0.50 + persistent-KV — cold aggregate accuracy 0.561 vs. streaming 0.503 (Δ=−0.0585, 95% paired CI ≈[−0.117, 0.000]) at 2.79× amortized speedup; instrumentation shows follow-up vision pruning is mechanically inactive (active fraction 0.0, all follow-up image tokens cache-served).</li>
 </ul>
 <h2>Authors & Credibility</h2>
 <ul>
-<li><strong>JF Bastien</strong> and <strong>Sam D'Amico</strong> — limited prior publication history visible from the abstract alone; the writing style is unconventional and meme-adjacent ("VLMaxxing," "FrameMogging"), which may indicate industry/practitioner authors or a deliberately informal submission.</li>
-<li>The technical content demonstrates hands-on systems engineering with real hardware measurements and honest accounting of ceiling effects.</li>
-<li>Use of quantized models (4-bit) and practical benchmark settings (VideoMME) suggests real-world deployment motivation.</li>
+<li><strong>JF Bastien</strong> (paper@jfbastien.com) and <strong>Sam D'Amico</strong> (sam@impulselabs.com). Sam D'Amico is affiliated with Impulse Labs (per the email domain). JF Bastien's affiliation is not separately stated in the PDF.</li>
+<li>arXiv:2605.03351v1 [cs.CV], 5 May 2026. The paper is a preprint; no venue is stated.</li>
+<li>No code link is provided in the PDF body. The footnote on the title ("Look, they said attention was all you needed, well we got your attention with this title") signals a deliberately informal tone.</li>
+<li>The paper cites 43 references spanning video-VLM efficiency (FastV, VisionZip, FrameFusion, SparseVLM), KV-cache systems (SGLang RadixAttention, vLLM PagedAttention, CacheBlend, ReKV, VLCache), codec-native approaches (CodecSight, CoViAR, CoPE-VideoLM, Deja Vu), and benchmarks (VideoMME, TOMATO, MVBench).</li>
 </ul>
 <h2>Critical Assessment</h2>
 <ul>
-<li><strong>Novelty</strong>: Moderate. KV-cache reuse for LLMs is well-studied; the application to video VLM vision towers is a natural but non-trivial extension. The C-CEILING accounting framework is a useful contribution for honest benchmarking.</li>
-<li><strong>Rigor</strong>: The stress-test methodology (50-turn schedules, prompt variation anchoring) is commendable. However, the abstract-only view limits assessment of full ablation depth.</li>
-<li><strong>Reproducibility</strong>: Claims are tied to specific quantized models and benchmarks. The "training-free" nature aids reproducibility. Unconventional naming and writing may hinder clarity for some readers.</li>
-<li><strong>Significance</strong>: The 14.9–35.9x speedup on follow-up queries is substantial for multi-turn video QA deployments. However, the first-query speedup (1.316x) is modest, and the cold-start problem remains.</li>
-<li><strong>Red flags</strong>: The 14.9–35.9x figure applies only to follow-up queries on the <em>same video</em> — not to the general case. The headline number may mislead without careful reading. C-STREAM is explicitly noted as "not a headline result," suggesting unfinished work.</li>
+<li><strong>Headline speedup applies only to after-ingest follow-ups, not first queries:</strong> The 14.90–35.92× figure is a same-class follow-up speedup (cold follow-up / repaired follow-up); the first query "still pays full freight." The paper is explicit about this (C-CEILING, Table 10's Q=1 ≈1.04×), but the abstract's prominence of the large multiplier risks misreading by casual readers. The setup-inclusive Q=1 number is essentially neutral (1.04×).</li>
+<li><strong>Small sample sizes for the clean headline cells:</strong> The 0/93 paired-drift breadth result is a finite-sample observation with a rule-of-three bound of ~3.2%; the clean C-VISION 32f short cell is n=20 items. The 0/31 session-level view is even coarser. The authors acknowledge "this is a finite tested envelope, not a population proof," but the headline phrasing ("0/93") may overstate certainty.</li>
+<li><strong>Composition is a hard negative, not a positive:</strong> The Qwen 8f composition of vision pruning + persistent-KV (Table 15) is a near-miss/failure (Δ=−0.0585, CI touching zero), and instrumentation reveals follow-up vision pruning is mechanically inactive under prompt-cache reuse. The paper honestly reports this, but it means the two main mechanisms do not stack as a deployable combined policy on Qwen.</li>
+<li><strong>Single-hardware, single-quantization evaluation:</strong> All main results use 4-bit MLX conversions on Apple Silicon (M3 Air 16 GB, M5 Max 128 GB). Whether the cache-basin failure mode, the V_share magnitudes, and the keep-rate boundaries transfer to other runtimes (CUDA, higher precision) is untested.</li>
+<li><strong>C-STREAM is explicitly not a headline:</strong> The streaming/native-rate regime is flagged as "the native-rate deployment target, not a headline result here," and the 26B scale-out bundle primarily sharpens boundaries (default cross-turn cache path unsafe; low-FPS dense is a strong baseline) rather than adding wins.</li>
+<li><strong>Routing lane produces no deployable speedup:</strong> Qwen routing is "semantic substitution evidence, not a latency claim" — it tests answer preservation under a fixed dense backend but does not skip timed work, so it is mechanism evidence rather than a systems result.</li>
 </ul>
 <h2>Strengths</h2>
 <ul>
-<li>Training-free approach requires no model changes, enabling immediate deployment.</li>
-<li>Honest accounting via C-CEILING prevents overclaiming from composed speedups.</li>
-<li>Practical stress tests (50 turns, prompt variation) stress-test the caching policies meaningfully.</li>
-<li>Addresses a real cost bottleneck in video VLM serving — redundant visual encoding.</li>
+<li>Separates three reuse regimes with distinct denominators and refuses to multiply headline numbers — the C-CEILING accounting is a genuine methodological contribution toward honest efficiency reporting.</li>
+<li>Paired-drift metrics (choice, correctness, pathological outputs, parse failures) are stricter than aggregate accuracy and expose failure modes (cache basin, format collapse) that aggregate scores hide.</li>
+<li>Forensic failure-mode analysis: the failed adaptive variant (7/7 basin collapse, Δacc=−0.0952) and the mechanically-inactive composition (active fraction 0.0) are reported, not buried.</li>
+<li>Real wall-clock measurements with per-stage timing, prefix-coverage logging, and tail-token accounting; speedup denominators are stated for every claim.</li>
+<li>Stress tests (50-turn repeated-question, dense-answer-anchored prompt variation) meaningfully probe cache-horizon and prompt-sensitivity boundaries.</li>
+<li>Training-free and frozen-model: results are immediately deployable without retraining.</li>
 </ul>
 <h2>Limitations</h2>
 <ul>
-<li>First-query (cold-start) gains are modest (~1.3x); the headline speedup only applies to follow-up queries on the same video.</li>
-<li>Evaluated on only two model families (Qwen2.5-VL and Gemma 4) in 4-bit quantization.</li>
-<li>C-STREAM (native-rate streaming) remains a future target, not yet realized.</li>
-<li>The writing style, while entertaining, may obscure technical content for some audiences.</li>
-<li>Unclear how the approach handles scene cuts, camera switches, or rapid motion within a single video.</li>
+<li>The 14.90–35.92× speedup is after-ingest only (follow-up queries on the same video); first-query gains are modest (1.113–1.316×) and share-limited.</li>
+<li>Small n for clean headline cells (93 paired queries, 20 items for C-VISION 32f short); finite-sample bounds are coarse.</li>
+<li>Composition of C-VISION + C-PERSIST is a hard negative on Qwen (follow-up pruning mechanically inactive under prompt-cache reuse).</li>
+<li>Single runtime (MLX 4-bit on Apple Silicon); transfer to CUDA/other precisions untested.</li>
+<li>C-STREAM (native-rate streaming) is unfinished — a target, not a result.</li>
+<li>Qwen routing produces no timed speedup, only answer-preservation evidence.</li>
+<li>No code release stated in the PDF; reproduction requires re-implementing the MLX hooks, planner, and cache-repair logic.</li>
+<li>Unconventional naming ("VLMaxxing," "FrameMogging") and informal tone may hinder uptake by venues expecting conventional academic style.</li>
 </ul>
 <h2>Relevance</h2>
-<p>与视频VLM推理效率直接相关——通过KV缓存复用大幅降低同视频多轮查询的计算开销，对实际部署场景（如视频问答系统）有显著实用价值。</p>
+<p>本文研究视频 VLM 推理中的 KV 缓存复用与视觉塔剪枝，核心是"何时可安全跳过重计算"的验证门控与配对漂移监测，直接对应「LLM Inference Evaluation」方向（推理效率与质量保真的评估方法）；其 C-CEILING 阶段占比护栏与配对漂移契约也为「Computation Reliability & Precision Errors」提供了量化可靠性分析的范例。</p>
 <h2>Questions for Further Exploration</h2>
 <ul>
-<li>How does the caching policy handle videos with frequent scene cuts or rapid visual changes (e.g., action movies, sports)?</li>
-<li>What is the memory overhead of maintaining visual state caches for multiple concurrent videos?</li>
-<li>Can the adaptive reuse policy be learned or tuned automatically per video type?</li>
-<li>How do the results scale to longer videos (hours) beyond the benchmark durations?</li>
-<li>What is the interaction between anti-recomputation and other inference optimizations (speculative decoding, quantization-aware caching)?</li>
+<li>Do the cache-basin failure mode and the V_share magnitudes transfer to CUDA runtimes and higher precisions (FP16/FP32), or are they artifacts of MLX 4-bit on Apple Silicon?</li>
+<li>Can the adaptive repair policy be made content-adaptive (refresh more frames when codec motion vectors signal high change) rather than fixed at K=1?</li>
+<li>Why is follow-up vision pruning mechanically inactive under prompt-cache reuse (active fraction 0.0), and can the cache contract be redesigned to allow active follow-up pruning without breaking fidelity?</li>
+<li>How does C-PERSIST interact with speculative decoding or other inference optimizations that also touch the KV cache?</li>
+<li>Can the paired-drift contract and C-CEILING accounting be standardized as a benchmark protocol for the broader efficient-video-VLM literature (which often reports only aggregate accuracy and component multipliers)?</li>
+<li>What is the memory cost of maintaining repaired-cache snapshots for many concurrent video sessions, and does it change the Q=50 economics in Table 10?</li>
+<li>Could VLM-native media formats (exposing change/motion/uncertainty tiles directly) eliminate the need for pixel-diff planners and push C-VISION gains beyond the V_share ceiling?</li>
 </ul>
 <p class="note">Generated from Markdown summary. Full paper: <a href="https://arxiv.org/abs/2605.03351">arXiv:2605.03351</a></p>
 </div>

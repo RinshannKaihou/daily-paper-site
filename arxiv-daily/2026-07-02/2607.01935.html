@@ -1,0 +1,606 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>A-TMA — Decoupling State-Aware Memory Failures · 2607.01935</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght,SOFT@9..144,300..900,0..100&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    /* archival dark — "memory vault" aesthetic */
+    --bg:#0c0e13;
+    --bg-grid:#10131a;
+    --elev:#151924;
+    --surface:#1a1f2b;
+    --surface-2:#222838;
+    --ink:#ece9e2;
+    --ink-dim:#a6a59c;
+    --ink-faint:#6c6e76;
+    --border:#2a3142;
+    --border-bright:#3a4258;
+
+    /* semantic state accents */
+    --current:#e6a752;       /* amber — active / current */
+    --current-bright:#f6c074;
+    --historical:#5fb8a6;    /* teal — historical */
+    --transition:#9d8ec7;    /* violet — transition */
+    --crit:#e06a6a;          /* red — critical edge */
+    --crit-bg:rgba(224,106,106,.08);
+    --good:#5fb8a6;
+  }
+
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{scroll-behavior:smooth;-webkit-text-size-adjust:100%}
+  body{
+    background:var(--bg);
+    color:var(--ink);
+    font-family:"IBM Plex Sans",system-ui,sans-serif;
+    font-size:16px;
+    line-height:1.6;
+    -webkit-font-smoothing:antialiased;
+    text-rendering:optimizeLegibility;
+    overflow-x:hidden;
+  }
+  /* faint archive grid backdrop */
+  body::before{
+    content:"";
+    position:fixed;inset:0;
+    background-image:
+      linear-gradient(rgba(255,255,255,.018) 1px,transparent 1px),
+      linear-gradient(90deg,rgba(255,255,255,.018) 1px,transparent 1px);
+    background-size:48px 48px;
+    pointer-events:none;z-index:0;
+  }
+  /* warm vignette */
+  body::after{
+    content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
+    background:radial-gradient(120% 80% at 80% -10%,rgba(230,167,82,.07),transparent 55%);
+  }
+
+  a{color:inherit;text-decoration:none}
+
+  .wrap{max-width:1280px;margin:0 auto;padding:0 28px;position:relative;z-index:1}
+
+  /* ===== top nav ===== */
+  nav.bar{
+    position:sticky;top:0;z-index:50;
+    backdrop-filter:blur(14px);
+    background:rgba(12,14,19,.82);
+    border-bottom:1px solid var(--border);
+  }
+  .nav-inner{display:flex;align-items:center;gap:24px;height:58px}
+  .brand{display:flex;align-items:center;gap:10px;font-family:"IBM Plex Mono",monospace;font-size:13px;font-weight:600;letter-spacing:.02em}
+  .brand .dot{width:9px;height:9px;border-radius:2px;background:var(--current);box-shadow:0 0 14px var(--current)}
+  .brand .id{color:var(--ink-faint)}
+  .nav-links{display:flex;gap:4px;margin-left:auto}
+  .nav-links a{
+    font-family:"IBM Plex Mono",monospace;font-size:12px;
+    color:var(--ink-dim);padding:7px 12px;border-radius:6px;
+    transition:.18s;letter-spacing:.03em;text-transform:uppercase;
+  }
+  .nav-links a:hover{color:var(--ink);background:var(--surface)}
+  .nav-links a.active{color:var(--bg);background:var(--current)}
+  .arxiv-btn{
+    font-family:"IBM Plex Mono",monospace;font-size:12px;font-weight:600;
+    padding:8px 14px;border:1px solid var(--border-bright);border-radius:6px;
+    color:var(--ink);transition:.18s;letter-spacing:.02em;
+    display:inline-flex;align-items:center;gap:6px;
+  }
+  .arxiv-btn:hover{border-color:var(--current);color:var(--current-bright)}
+
+  /* ===== hero ===== */
+  header.hero{padding:54px 0 40px;border-bottom:1px solid var(--border)}
+  .eyebrow{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-bottom:26px}
+  .chip{
+    font-family:"IBM Plex Mono",monospace;font-size:11px;font-weight:500;
+    padding:4px 9px;border-radius:4px;background:var(--surface);
+    color:var(--ink-dim);border:1px solid var(--border);letter-spacing:.02em;
+  }
+  .chip.state-current{color:var(--current);border-color:rgba(230,167,82,.3)}
+  .meta-line{font-family:"IBM Plex Mono",monospace;font-size:12px;color:var(--ink-faint);margin-left:auto;letter-spacing:.02em}
+  .meta-line .sep{color:var(--border-bright);margin:0 8px}
+
+  .hero-title{
+    font-family:"Fraunces",serif;font-weight:340;font-optical-sizing:auto;
+    font-size:clamp(26px,3.4vw,40px);line-height:1.12;letter-spacing:-.015em;
+    color:var(--ink);font-variation-settings:"SOFT" 50;
+    max-width:18ch;margin-bottom:8px;
+  }
+  .hero-title em{font-style:italic;font-weight:300;color:var(--current-bright);font-variation-settings:"SOFT" 100}
+  .authors{font-family:"IBM Plex Mono",monospace;font-size:12.5px;color:var(--ink-faint);margin-bottom:40px}
+  .authors b{color:var(--ink-dim);font-weight:500}
+
+  /* the oversized KEY FINDING */
+  .keyfinding{
+    position:relative;
+    padding:40px 0 8px;
+    border-top:1px dashed var(--border);
+  }
+  .kf-label{
+    font-family:"IBM Plex Mono",monospace;font-size:11px;font-weight:600;
+    letter-spacing:.22em;color:var(--current);text-transform:uppercase;
+    margin-bottom:18px;display:flex;align-items:center;gap:10px;
+  }
+  .kf-label::after{content:"";flex:1;height:1px;background:linear-gradient(90deg,rgba(230,167,82,.4),transparent)}
+  .kf-text{
+    font-family:"Fraunces",serif;font-weight:340;font-optical-sizing:auto;
+    font-size:clamp(30px,5.6vw,68px);line-height:1.04;letter-spacing:-.025em;
+    font-variation-settings:"SOFT" 60;
+    max-width:22ch;
+  }
+  .kf-text .hl{color:var(--current-bright);font-style:italic;font-weight:300;font-variation-settings:"SOFT" 100}
+  .kf-text .ghost{
+    color:var(--transition);font-style:italic;font-weight:300;
+    text-shadow:0 0 18px rgba(157,142,199,.35);
+    font-variation-settings:"SOFT" 100;
+  }
+
+  /* ===== asset row ===== */
+  section{padding:64px 0;border-bottom:1px solid var(--border)}
+  .section-head{display:flex;align-items:baseline;gap:16px;margin-bottom:34px}
+  .section-num{font-family:"IBM Plex Mono",monospace;font-size:12px;color:var(--ink-faint);letter-spacing:.1em}
+  .section-title{
+    font-family:"Fraunces",serif;font-weight:400;font-optical-sizing:auto;
+    font-size:clamp(22px,2.6vw,30px);letter-spacing:-.01em;line-height:1.1;
+  }
+  .section-title em{font-style:italic;color:var(--current-bright);font-weight:300}
+
+  .asset-row{display:grid;grid-template-columns:1.25fr 1fr 1fr;gap:18px}
+  .card{
+    background:var(--surface);border:1px solid var(--border);border-radius:10px;
+    padding:26px 26px 28px;position:relative;overflow:hidden;
+    transition:border-color .25s,transform .25s;
+  }
+  .card:hover{border-color:var(--border-bright)}
+  .card-label{
+    font-family:"IBM Plex Mono",monospace;font-size:11px;font-weight:600;
+    letter-spacing:.18em;text-transform:uppercase;color:var(--ink-faint);
+    margin-bottom:18px;display:flex;align-items:center;gap:8px;
+  }
+  .card-label .tag-dot{width:7px;height:7px;border-radius:50%}
+
+  /* metric card */
+  .card.metric{background:linear-gradient(160deg,var(--surface),var(--elev))}
+  .card.metric .card-label{color:var(--current)}
+  .metric-host{font-family:"IBM Plex Mono",monospace;font-size:12px;color:var(--ink-dim);margin-bottom:6px;letter-spacing:.02em}
+  .metric-host b{color:var(--ink)}
+  .metric-pair{display:flex;align-items:flex-end;gap:14px;margin:8px 0 4px;font-family:"Fraunces",serif;font-weight:300;line-height:.9}
+  .metric-before{font-size:42px;color:var(--ink-faint);text-decoration:line-through;text-decoration-color:var(--ink-faint);text-decoration-thickness:2px}
+  .metric-arrow{font-size:30px;color:var(--current);padding-bottom:4px}
+  .metric-after{font-size:74px;color:var(--current-bright);font-weight:340;letter-spacing:-.02em}
+  .metric-desc{font-size:13.5px;color:var(--ink-dim);margin-top:12px;line-height:1.5}
+  .metric-desc b{color:var(--ink);font-weight:600}
+  .delta-pill{
+    display:inline-block;font-family:"IBM Plex Mono",monospace;font-size:12px;font-weight:600;
+    color:var(--good);background:rgba(95,184,166,.12);border:1px solid rgba(95,184,166,.3);
+    padding:3px 9px;border-radius:4px;margin-top:12px;
+  }
+
+  /* why card */
+  .card.why .card-label{color:var(--historical)}
+  .card.why .card-label .tag-dot{background:var(--historical)}
+  .why-text{font-family:"Fraunces",serif;font-weight:380;font-size:19px;line-height:1.42;color:var(--ink);letter-spacing:-.005em}
+  .why-foot{font-family:"IBM Plex Mono",monospace;font-size:11px;color:var(--ink-faint);margin-top:18px;letter-spacing:.02em;border-top:1px solid var(--border);padding-top:14px}
+
+  /* critical edge card */
+  .card.crit{background:var(--crit-bg);border-color:rgba(224,106,106,.28)}
+  .card.crit .card-label{color:var(--crit)}
+  .card.crit .card-label .tag-dot{background:var(--crit);box-shadow:0 0 10px var(--crit)}
+  .card.crit:hover{border-color:rgba(224,106,106,.5)}
+  .crit-text{font-size:15px;line-height:1.55;color:var(--ink)}
+  .crit-text b{color:var(--crit);font-weight:600}
+
+  /* ===== methodology ===== */
+  .meth-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:18px}
+  .layer{
+    background:var(--surface);border:1px solid var(--border);border-radius:10px;
+    padding:24px;position:relative;transition:.25s;
+  }
+  .layer:hover{border-color:var(--border-bright);transform:translateY(-2px)}
+  .layer-num{
+    font-family:"IBM Plex Mono",monospace;font-size:11px;font-weight:600;
+    color:var(--ink-faint);letter-spacing:.1em;margin-bottom:14px;
+    display:flex;align-items:center;gap:8px;
+  }
+  .layer-num .lvl{color:var(--bg);background:var(--current);padding:2px 7px;border-radius:3px;font-weight:700}
+  .layer.l2 .lvl{background:var(--historical)}
+  .layer.l3 .lvl{background:var(--transition)}
+  .layer-name{font-family:"Fraunces",serif;font-weight:420;font-size:21px;line-height:1.15;margin-bottom:12px;letter-spacing:-.01em}
+  .layer-body{font-size:13.5px;line-height:1.55;color:var(--ink-dim)}
+  .layer-body b{color:var(--ink);font-weight:600}
+  .layer-tags{display:flex;flex-wrap:wrap;gap:6px;margin-top:16px}
+  .tok{font-family:"IBM Plex Mono",monospace;font-size:10.5px;background:var(--bg-grid);border:1px solid var(--border);color:var(--ink-dim);padding:3px 7px;border-radius:3px}
+  .tok.cur{color:var(--current);border-color:rgba(230,167,82,.3)}
+  .tok.hist{color:var(--historical);border-color:rgba(95,184,166,.3)}
+  .tok.tran{color:var(--transition);border-color:rgba(157,142,199,.3)}
+
+  /* ===== results ===== */
+  .results-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+  .result-card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:24px}
+  .rc-head{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:18px;gap:12px}
+  .rc-host{font-family:"IBM Plex Sans",sans-serif;font-weight:600;font-size:15.5px;color:var(--ink)}
+  .rc-host .sys{font-family:"IBM Plex Mono",monospace;font-size:11px;color:var(--ink-faint);font-weight:400;display:block;margin-top:2px}
+  .rc-bench{font-family:"IBM Plex Mono",monospace;font-size:10.5px;color:var(--current);letter-spacing:.05em;background:rgba(230,167,82,.1);padding:3px 8px;border-radius:3px;white-space:nowrap}
+  .bar-block{margin-bottom:14px}
+  .bar-block:last-child{margin-bottom:0}
+  .bar-label{display:flex;justify-content:space-between;font-size:12px;margin-bottom:6px;font-family:"IBM Plex Mono",monospace}
+  .bar-label .nm{color:var(--ink-dim)}
+  .bar-label .vs{color:var(--ink-faint)}
+  .bar-label .vs b{color:var(--current-bright);font-weight:600}
+  .bar-track{position:relative;height:8px;background:var(--bg-grid);border-radius:2px;overflow:hidden}
+  .bar-fill{position:absolute;left:0;top:0;height:100%;border-radius:2px;width:0;transition:width 1.1s cubic-bezier(.2,.7,.2,1)}
+  .bar-fill.base{background:var(--ink-faint);opacity:.45}
+  .bar-fill.atma{background:linear-gradient(90deg,var(--current),var(--current-bright));box-shadow:0 0 12px rgba(230,167,82,.35)}
+  .bar-legend{display:flex;gap:18px;margin-top:18px;font-family:"IBM Plex Mono",monospace;font-size:11px;color:var(--ink-faint)}
+  .bar-legend .sw{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:middle}
+
+  .results-note{
+    margin-top:20px;font-size:13px;color:var(--ink-faint);line-height:1.55;
+    border-left:2px solid var(--border-bright);padding:6px 0 6px 16px;
+  }
+  .results-note b{color:var(--ink-dim);font-weight:600}
+
+  /* ===== strengths / limitations split ===== */
+  .split{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+  .split-panel{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:28px}
+  .split-panel.cons{border-color:rgba(224,106,106,.22);background:linear-gradient(180deg,rgba(224,106,106,.04),var(--surface))}
+  .sp-head{display:flex;align-items:center;gap:10px;margin-bottom:20px}
+  .sp-icon{width:26px;height:26px;border-radius:6px;display:grid;place-items:center;font-family:"Fraunces",serif;font-weight:500;font-size:16px}
+  .sp-icon.plus{background:rgba(95,184,166,.14);color:var(--historical)}
+  .sp-icon.minus{background:rgba(224,106,106,.14);color:var(--crit)}
+  .sp-title{font-family:"Fraunces",serif;font-weight:430;font-size:20px;letter-spacing:-.01em}
+  .sp-list{list-style:none;display:flex;flex-direction:column;gap:14px}
+  .sp-list li{position:relative;padding-left:20px;font-size:13.5px;line-height:1.5;color:var(--ink-dim)}
+  .sp-list li b{color:var(--ink);font-weight:600}
+  .sp-list li::before{content:"";position:absolute;left:2px;top:9px;width:7px;height:1px}
+  .split-panel.pros .sp-list li::before{background:var(--historical)}
+  .split-panel.cons .sp-list li::before{background:var(--crit)}
+
+  /* ===== questions ===== */
+  .q-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:14px}
+  .q-card{
+    background:var(--surface);border:1px solid var(--border);border-radius:10px;
+    padding:20px 22px;transition:.22s;display:flex;gap:14px;
+  }
+  .q-card:hover{border-color:var(--transition);transform:translateX(3px)}
+  .q-num{font-family:"Fraunces",serif;font-weight:300;font-size:30px;color:var(--transition);line-height:1;flex-shrink:0;opacity:.7}
+  .q-text{font-size:14px;line-height:1.5;color:var(--ink-dim)}
+  .q-text b{color:var(--ink);font-weight:600}
+
+  /* ===== footer ===== */
+  footer.foot{padding:38px 0 56px;border-bottom:none}
+  .foot-inner{display:flex;flex-wrap:wrap;justify-content:space-between;gap:18px;align-items:center}
+  .foot-meta{font-family:"IBM Plex Mono",monospace;font-size:11.5px;color:var(--ink-faint);letter-spacing:.02em}
+  .foot-meta .ghost-tag{color:var(--transition)}
+
+  /* ===== entrance animation ===== */
+  .reveal{opacity:0;transform:translateY(18px);animation:rise .7s cubic-bezier(.2,.7,.2,1) forwards}
+  @keyframes rise{to{opacity:1;transform:none}}
+  .d1{animation-delay:.05s}.d2{animation-delay:.13s}.d3{animation-delay:.21s}
+  .d4{animation-delay:.29s}.d5{animation-delay:.37s}.d6{animation-delay:.45s}
+
+  /* ===== responsive ===== */
+  @media(max-width:980px){
+    .asset-row{grid-template-columns:1fr}
+    .meth-grid{grid-template-columns:1fr}
+    .results-grid,.split,.q-grid{grid-template-columns:1fr}
+    .nav-links{display:none}
+  }
+  @media(max-width:560px){
+    .wrap{padding:0 18px}
+    .metric-after{font-size:58px}
+    .metric-before{font-size:32px}
+    header.hero{padding:36px 0 28px}
+    section{padding:46px 0}
+    .kf-text{font-size:34px}
+    .meta-line{margin-left:0;width:100%}
+  }
+  @media(prefers-reduced-motion:reduce){
+    *{animation:none!important;transition:none!important}
+    .bar-fill{transition:none}
+  }
+</style>
+</head>
+<body>
+
+<nav class="bar">
+  <div class="wrap nav-inner">
+    <div class="brand"><span class="dot"></span><span>A-TMA</span><span class="id">/ 2607.01935</span></div>
+    <div class="nav-links">
+      <a href="#overview">Overview</a>
+      <a href="#method">Method</a>
+      <a href="#results">Results</a>
+      <a href="#assessment">Assessment</a>
+      <a href="#questions">Questions</a>
+    </div>
+    <a class="arxiv-btn" href="https://arxiv.org/abs/2607.01935" target="_blank" rel="noopener">arXiv ↗</a>
+  </div>
+</nav>
+
+<header class="hero" id="overview">
+  <div class="wrap">
+    <div class="eyebrow reveal d1">
+      <span class="chip state-current">llm-agents</span>
+      <span class="chip">long-term-memory</span>
+      <span class="chip">memory-conflict</span>
+      <span class="chip">benchmark</span>
+      <span class="chip">temporal-reasoning</span>
+      <span class="meta-line">2026-07-02<span class="sep">·</span>NUS</span>
+    </div>
+
+    <h1 class="hero-title reveal d2">Decoupling <em>State-Aware</em> Memory Failures in Long-Term Agent Memory</h1>
+    <p class="authors reveal d2"><b>Zitong Shi · Yixuan Tang · Anthony Kum Hoe Tung</b> — National University of Singapore</p>
+
+    <div class="keyfinding reveal d3">
+      <div class="kf-label">Key Finding</div>
+      <p class="kf-text">
+        A host-agnostic overlay that resolves <span class="ghost">ghost memory</span> — superseded, current, and transition facts coexisting in an agent's memory and <span class="hl">misleading retrieval</span>.
+      </p>
+    </div>
+  </div>
+</header>
+
+<!-- ASSET ROW -->
+<section id="assets" style="padding-top:52px">
+  <div class="wrap">
+    <div class="asset-row">
+      <!-- KEY METRIC -->
+      <div class="card metric reveal d1">
+        <div class="card-label"><span class="tag-dot" style="background:var(--current)"></span>Key Metric</div>
+        <div class="metric-host">InsideOut + A-TMA · <b>overall QA accuracy</b></div>
+        <div class="metric-pair">
+          <span class="metric-before" id="before">0.117</span>
+          <span class="metric-arrow">→</span>
+          <span class="metric-after" id="after">0.117</span>
+        </div>
+        <div class="metric-desc">The largest single-host gain — expected, since InsideOut compresses dialogue into an evolving profile that <b>loses old states</b>. Evidence support climbs 0.239 → 0.848.</div>
+        <span class="delta-pill">+0.545 absolute</span>
+      </div>
+
+      <!-- WHY THIS MATTERS -->
+      <div class="card why reveal d2">
+        <div class="card-label"><span class="tag-dot"></span>Why This Matters</div>
+        <p class="why-text">Formalizes fact-evolution memory conflicts, a <em style="font-style:italic;color:var(--historical)">bank / retrieval / QA</em> decoupled evaluation protocol, and a human-verified LTP benchmark for reliable persistent-memory assistants.</p>
+        <div class="why-foot">LTP · 10 profiles · 800 probes · IAA 97.5–100%</div>
+      </div>
+
+      <!-- CRITICAL EDGE -->
+      <div class="card crit reveal d3">
+        <div class="card-label"><span class="tag-dot"></span>Critical Edge</div>
+        <p class="crit-text">Absolute LoCoMo temporal F1 stays low at <b>0.1705</b>, the ablation covers only <b>3 profiles on one host</b>, and a single <b>70B judge</b> scores results with no reliability analysis.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- METHODOLOGY -->
+<section id="method">
+  <div class="wrap">
+    <div class="section-head">
+      <span class="section-num">01 /</span>
+      <h2 class="section-title">Methodology — a <em>state-alignment overlay</em>, not a new substrate</h2>
+    </div>
+    <p style="max-width:70ch;color:var(--ink-dim);font-size:14.5px;margin-bottom:30px;line-height:1.6">
+      A-TMA wraps an existing host (Graphiti/Zep, A-Mem, InsideOut, SeCom…) along three decoupled layers, preserving history for auditability rather than overwriting it.
+    </p>
+    <div class="meth-grid">
+      <div class="layer l1 reveal d1">
+        <div class="layer-num"><span class="lvl">BANK</span> layer 1</div>
+        <h3 class="layer-name">Sentry + Judge maintenance</h3>
+        <p class="layer-body">A lightweight dual-head <b>Sentry</b> (nomic-embed + topic/logic heads) proposes state-sharing candidates; a <b>Judge</b> (Qwen2.5-3B, QLoRA-SFT then GRPO) commits structured verdicts — marking records <b>active→superseded</b> and adding typed links, while coexisting facts stay active.</p>
+        <div class="layer-tags"><span class="tok">τ_top .60</span><span class="tok">τ_log .45</span><span class="tok">supersedes</span><span class="tok">scoped exception</span></div>
+      </div>
+      <div class="layer l2 reveal d2">
+        <div class="layer-num"><span class="lvl">RETR</span> layer 2</div>
+        <h3 class="layer-name">State-aligned retrieval</h3>
+        <p class="layer-body">A query profiler assigns a <b>state view</b>; the host seed set is expanded via relation + semantic hops into pool <b>C_q</b>. A bounded controller (≤3 of ≤10 candidates) may reorder but is <b>constrained to C_q</b> — it cannot retrieve missing or invent facts.</p>
+        <div class="layer-tags"><span class="tok cur">current</span><span class="tok hist">historical</span><span class="tok tran">transition</span><span class="tok">neutral</span></div>
+      </div>
+      <div class="layer l3 reveal d3">
+        <div class="layer-num"><span class="lvl">QA</span> layer 3</div>
+        <h3 class="layer-name">QA state conditioning</h3>
+        <p class="layer-body">A deterministic serializer tags each evidence line with a role <b>λ ∈ {cur, hist, tran, link, raw}</b>; a rule set constrains the generator (qwen2.5:3b, k=5) to follow the requested view — current memory is active state unless the question asks about the past.</p>
+        <div class="layer-tags"><span class="tok cur">cur</span><span class="tok hist">hist</span><span class="tok tran">tran</span><span class="tok">link · raw</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- RESULTS -->
+<section id="results">
+  <div class="wrap">
+    <div class="section-head">
+      <span class="section-num">02 /</span>
+      <h2 class="section-title">Results — gains are <em>host-dependent</em>, not universal</h2>
+    </div>
+    <div class="results-grid">
+
+      <div class="result-card reveal d1">
+        <div class="rc-head">
+          <div class="rc-host">InsideOut + A-TMA<span class="sys">overall QA accuracy · LTP</span></div>
+          <span class="rc-bench">LTP</span>
+        </div>
+        <div class="bar-block">
+          <div class="bar-label"><span class="nm">Accuracy</span><span class="vs">0.117 <b>→ 0.662</b></span></div>
+          <div class="bar-track"><div class="bar-fill base" data-w="11.7"></div><div class="bar-fill atma" data-w="66.2"></div></div>
+        </div>
+        <div class="bar-block">
+          <div class="bar-label"><span class="nm">Evidence support</span><span class="vs">0.239 <b>→ 0.848</b></span></div>
+          <div class="bar-track"><div class="bar-fill base" data-w="23.9"></div><div class="bar-fill atma" data-w="84.8"></div></div>
+        </div>
+        <div class="bar-legend"><span><span class="sw" style="background:var(--ink-faint);opacity:.45"></span>base host</span><span><span class="sw" style="background:var(--current)"></span>+ A-TMA</span></div>
+      </div>
+
+      <div class="result-card reveal d2">
+        <div class="rc-head">
+          <div class="rc-host">Graphiti/Zep + A-TMA<span class="sys">conflict accuracy · LTP</span></div>
+          <span class="rc-bench">LTP</span>
+        </div>
+        <div class="bar-block">
+          <div class="bar-label"><span class="nm">Conflict accuracy</span><span class="vs">0.480 <b>→ 0.720</b></span></div>
+          <div class="bar-track"><div class="bar-fill base" data-w="48.0"></div><div class="bar-fill atma" data-w="72.0"></div></div>
+        </div>
+        <div class="bar-block">
+          <div class="bar-label"><span class="nm">Overall accuracy</span><span class="vs">0.524 <b>→ 0.635</b></span></div>
+          <div class="bar-track"><div class="bar-fill base" data-w="52.4"></div><div class="bar-fill atma" data-w="63.5"></div></div>
+        </div>
+        <div class="bar-block">
+          <div class="bar-label"><span class="nm">Evidence support</span><span class="vs">0.711 <b>→ 0.809</b></span></div>
+          <div class="bar-track"><div class="bar-fill base" data-w="71.1"></div><div class="bar-fill atma" data-w="80.9"></div></div>
+        </div>
+        <div class="bar-legend"><span><span class="sw" style="background:var(--ink-faint);opacity:.45"></span>base host</span><span><span class="sw" style="background:var(--current)"></span>+ A-TMA</span></div>
+      </div>
+
+      <div class="result-card reveal d3">
+        <div class="rc-head">
+          <div class="rc-host">A-Mem + A-TMA<span class="sys">conflict accuracy · LTP</span></div>
+          <span class="rc-bench">LTP</span>
+        </div>
+        <div class="bar-block">
+          <div class="bar-label"><span class="nm">Conflict accuracy</span><span class="vs">0.812 <b>→ 0.860</b></span></div>
+          <div class="bar-track"><div class="bar-fill base" data-w="81.2"></div><div class="bar-fill atma" data-w="86.0"></div></div>
+        </div>
+        <div class="bar-block">
+          <div class="bar-label"><span class="nm">Best aggregate Acc</span><span class="vs"><b>0.818</b> (overlay preserves strong host)</span></div>
+          <div class="bar-track"><div class="bar-fill atma" data-w="81.8"></div></div>
+        </div>
+        <div class="bar-legend"><span><span class="sw" style="background:var(--ink-faint);opacity:.45"></span>base host</span><span><span class="sw" style="background:var(--current)"></span>+ A-TMA</span></div>
+      </div>
+
+      <div class="result-card reveal d4">
+        <div class="rc-head">
+          <div class="rc-host">Graphiti/Zep + A-TMA<span class="sys">temporal F1 · LoCoMo generalization</span></div>
+          <span class="rc-bench">LoCoMo</span>
+        </div>
+        <div class="bar-block">
+          <div class="bar-label"><span class="nm">Temporal F1</span><span class="vs">0.0295 <b>→ 0.1705</b></span></div>
+          <div class="bar-track"><div class="bar-fill base" data-w="2.95"></div><div class="bar-fill atma" data-w="17.05"></div></div>
+        </div>
+        <div class="bar-block">
+          <div class="bar-label"><span class="nm">Multi-hop F1</span><span class="vs">0.1231 <b>→ 0.2398</b></span></div>
+          <div class="bar-track"><div class="bar-fill base" data-w="12.31"></div><div class="bar-fill atma" data-w="23.98"></div></div>
+        </div>
+        <div class="bar-legend"><span><span class="sw" style="background:var(--ink-faint);opacity:.45"></span>base host</span><span><span class="sw" style="background:var(--current)"></span>+ A-TMA</span></div>
+      </div>
+
+    </div>
+    <p class="results-note reveal d5"><b>Note:</b> AriadneMem has timestamped graph facts yet conflict accuracy only 0.512 despite Evidence support 0.656 — direct evidence that graph labels alone don't guarantee state-correct QA. LoCoMo deltas are sometimes tiny or negative (A-Mem BLEU-1 down in places); authors frame it as a "mixed generalization check," not proof of uniform improvement.</p>
+  </div>
+</section>
+
+<!-- ASSESSMENT: strengths / limitations -->
+<section id="assessment">
+  <div class="wrap">
+    <div class="section-head">
+      <span class="section-num">03 /</span>
+      <h2 class="section-title">Assessment — <em>strengths</em> vs. limitations</h2>
+    </div>
+    <div class="split">
+      <div class="split-panel pros reveal d1">
+        <div class="sp-head"><div class="sp-icon plus">+</div><div class="sp-title">Strengths</div></div>
+        <ul class="sp-list">
+          <li><b>Clean problem framing.</b> Separates a genuinely under-measured failure mode from generic RAG / retrieval quality.</li>
+          <li><b>Non-destructive design.</b> Preserves history for auditability rather than overwriting — valuable for trustworthy assistants.</li>
+          <li><b>Rigorous benchmark construction.</b> Documented leakage prevention, structural validators, human verification (IAA up to 100%).</li>
+          <li><b>Methodological discipline.</b> Decoupled bank/retrieval/QA metrics, a bounded controller that cannot invent facts, explicit ablation.</li>
+          <li><b>Intellectual honesty.</b> Results repeatedly framed as host- and metric-dependent with a "bounded conclusion," not overclaimed.</li>
+        </ul>
+      </div>
+      <div class="split-panel cons reveal d2">
+        <div class="sp-head"><div class="sp-icon minus">−</div><div class="sp-title">Limitations</div></div>
+        <ul class="sp-list">
+          <li><b>Absolute capability stays low.</b> LoCoMo temporal F1 only 0.1705 even after gains — the problem is far from solved.</li>
+          <li><b>Narrow ablation.</b> 3 profiles on a single host (A-Mem); component-level contribution across hosts unverified.</li>
+          <li><b>Benchmark co-design risk.</b> LTP is LoCoMo-derived with only 10 profiles; validators reduce but don't eliminate the concern.</li>
+          <li><b>Single 70B judge</b> with no reported judge-reliability analysis or human-vs-judge calibration.</li>
+          <li><b>Small QA model</b> (qwen2.5:3b) — some gains may reflect rescuing a weak reader, not fundamental memory improvement.</li>
+          <li><b>Added system complexity</b> (Sentry + Judge + controller + traces) with unclear latency / cost at deployment scale.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- QUESTIONS -->
+<section id="questions">
+  <div class="wrap">
+    <div class="section-head">
+      <span class="section-num">04 /</span>
+      <h2 class="section-title">Open <em>Questions</em> for further exploration</h2>
+    </div>
+    <div class="q-grid">
+      <div class="q-card reveal d1"><div class="q-num">01</div><p class="q-text">Do <b>component contributions</b> (Sentry/Judge/controller/QA-label) shift across hosts — does the dominant failure layer differ on Graphiti vs. InsideOut?</p></div>
+      <div class="q-card reveal d2"><div class="q-num">02</div><p class="q-text">How sensitive are QA Acc and conflict accuracy to the <b>choice of offline judge</b>? Would a judge swap or calibration change rankings?</p></div>
+      <div class="q-card reveal d3"><div class="q-num">03</div><p class="q-text">Do gains hold with a <b>stronger answerer</b> (e.g. 70B), or does it erase A-TMA's benefit by inferring state from raw text?</p></div>
+      <div class="q-card reveal d4"><div class="q-num">04</div><p class="q-text">Is LTP robust to <b>benchmark/method co-design</b>? Could an independent, non-LoCoMo-derived benchmark replicate the ordering?</p></div>
+      <div class="q-card reveal d5"><div class="q-num">05</div><p class="q-text">How does A-TMA handle <b>ambiguous or partial transitions</b> (contradictory updates, conditional/scope changes) vs. clean supersessions?</p></div>
+      <div class="q-card reveal d6"><div class="q-num">06</div><p class="q-text">What is the <b>latency / compute overhead</b> of the Sentry+Judge pipeline and per-query evidence-packet construction in deployment?</p></div>
+      <div class="q-card reveal d4"><div class="q-num">07</div><p class="q-text">Can A-TMA support <b>transition-targeted QA</b> — "what changed and when" — which is currently interface-only, not evaluated?</p></div>
+      <div class="q-card reveal d5"><div class="q-num">08</div><p class="q-text">Does the bounded controller's constraint (<b>i_m ∈ C_q</b>) become a bottleneck when the host retriever's seed set is weak?</p></div>
+    </div>
+  </div>
+</section>
+
+<footer class="foot">
+  <div class="wrap foot-inner">
+    <div class="foot-meta">A-TMA · <span class="ghost-tag">Adaptive Truth Maintenance Auditing</span> · arXiv 2607.01935 · NUS · 2026-07-02</div>
+    <a class="arxiv-btn" href="https://arxiv.org/abs/2607.01935" target="_blank" rel="noopener">Read on arXiv ↗</a>
+  </div>
+</footer>
+
+<script>
+(function(){
+  /* count-up the headline metric */
+  const after = document.getElementById('after');
+  if(after){
+    const target = 0.662;
+    let started = false;
+    const run = ()=>{
+      if(started) return; started = true;
+      const dur = 1100, t0 = performance.now();
+      const step = (t)=>{
+        const p = Math.min((t - t0)/dur, 1);
+        const e = 1 - Math.pow(1 - p, 3);
+        after.textContent = (0.117 + (target - 0.117)*e).toFixed(3);
+        if(p < 1) requestAnimationFrame(step);
+      };
+      requestAnimationFrame(step);
+    };
+    const io = new IntersectionObserver((es)=>{es.forEach(e=>{if(e.isIntersecting){run();io.disconnect();}})},{threshold:.4});
+    io.observe(after);
+  }
+
+  /* animate result bars when scrolled into view */
+  const bars = document.querySelectorAll('.bar-fill');
+  const bio = new IntersectionObserver((entries)=>{
+    entries.forEach(en=>{
+      if(en.isIntersecting){
+        const w = en.target.getAttribute('data-w');
+        /* stagger the A-TMA fill slightly after base for a layered feel */
+        const delay = en.target.classList.contains('atma') ? 160 : 0;
+        setTimeout(()=>{ en.target.style.width = w + '%'; }, delay);
+        bio.unobserve(en.target);
+      }
+    });
+  }, {threshold:.35});
+  bars.forEach(b=>bio.observe(b));
+
+  /* scroll-spy for nav */
+  const links = [...document.querySelectorAll('.nav-links a')];
+  const map = {};
+  links.forEach(l=>{ const id=l.getAttribute('href').slice(1); const s=document.getElementById(id); if(s) map[id]=s; });
+  const spy = new IntersectionObserver((entries)=>{
+    entries.forEach(en=>{
+      if(en.isIntersecting){
+        const id = en.target.id;
+        links.forEach(l=> l.classList.toggle('active', l.getAttribute('href')==='#'+id));
+      }
+    });
+  }, {rootMargin:'-45% 0px -50% 0px'});
+  Object.values(map).forEach(s=>spy.observe(s));
+})();
+</script>
+</body>
+</html>

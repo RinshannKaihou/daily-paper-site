@@ -1,0 +1,784 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>GRAPHEVAL — Can We Trust LLM's Logic? (2607.08017)</title>
+<style>
+  /* ---------- Design tokens ---------- */
+  :root{
+    --paper:    #F5F2EB;   /* warm editorial paper */
+    --paper-2:  #EFEAE0;   /* slightly deeper panel */
+    --ink:      #1A1916;   /* near-black ink */
+    --ink-2:    #3A3833;
+    --muted:    #6E6A62;
+    --hair:     #D9D3C6;   /* hairline border */
+    --hair-2:   #C7C0B0;
+    --accent:   #0F5E5C;   /* deep teal — graph / coherence */
+    --accent-2: #0B4745;
+    --accent-soft:#E2EDEB;
+    --caution:  #9A3412;   /* burnt amber — critical edge */
+    --caution-soft:#FBE8DC;
+    --pos:      #0F5E5C;
+    --neg:      #9A3412;
+    --maxw: min(95vw, 1100px);
+    --serif: ui-serif, "New York", "Iowan Old Style", "Apple Garamond", Georgia, "Songti SC", "Noto Serif CJK SC", serif;
+    --sans:  system-ui, -apple-system, "Segoe UI", "Helvetica Neue", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+    --mono:  ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+  }
+
+  *{ box-sizing: border-box; }
+  html,body{ margin:0; padding:0; }
+  body{
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* faint grid texture for "graph" feel, no marketing blobs */
+  body::before{
+    content:"";
+    position: fixed; inset:0;
+    background-image:
+      linear-gradient(to right, rgba(26,25,22,0.035) 1px, transparent 1px),
+      linear-gradient(to bottom, rgba(26,25,22,0.035) 1px, transparent 1px);
+    background-size: 28px 28px;
+    pointer-events:none;
+    z-index:0;
+  }
+
+  a{ color: var(--accent); text-decoration: none; }
+  a:hover{ text-decoration: underline; text-underline-offset: 3px; }
+
+  /* ---------- Fixed top-left nav ---------- */
+  .topnav{
+    position: fixed;
+    top: 14px; left: 16px;
+    z-index: 50;
+    font-family: var(--sans);
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+    background: rgba(245,242,235,0.86);
+    backdrop-filter: saturate(140%) blur(6px);
+    -webkit-backdrop-filter: saturate(140%) blur(6px);
+    border: 1px solid var(--hair);
+    border-radius: 999px;
+    padding: 7px 14px 7px 12px;
+  }
+  .topnav a{ color: var(--ink); }
+  .topnav a:hover{ color: var(--accent); text-decoration:none; }
+
+  .wrap{
+    position: relative;
+    z-index: 1;
+    width: var(--maxw);
+    margin: 0 auto;
+    padding: 72px 28px 48px;
+  }
+
+  /* ---------- HERO band ---------- */
+  .hero{
+    border-top: 2px solid var(--ink);
+    padding: 22px 0 30px;
+  }
+  .eyebrow{
+    display:flex; flex-wrap:wrap; align-items:center; gap:10px;
+    font-family: var(--mono);
+    font-size: 11.5px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 18px;
+  }
+  .eyebrow .dot{ width:7px; height:7px; border-radius:50%; background: var(--accent); display:inline-block; }
+  .eyebrow .id{ color: var(--ink); }
+
+  .kicker{
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin: 0 0 10px;
+    font-weight: 600;
+  }
+
+  .hero h1{
+    font-family: var(--serif);
+    font-weight: 600;
+    font-size: clamp(30px, 5.4vw, 58px);
+    line-height: 1.06;
+    letter-spacing: -0.018em;
+    margin: 0 0 22px;
+    color: var(--ink);
+    max-width: 22ch;
+  }
+  .hero h1 em{
+    font-style: italic;
+    color: var(--accent);
+    background: linear-gradient(transparent 62%, rgba(15,94,92,0.14) 62%);
+    padding: 0 2px;
+  }
+  .hero h1 .quote{
+    font-family: var(--serif);
+    font-style: italic;
+  }
+
+  .meta{
+    display:flex; flex-wrap:wrap; gap: 10px 18px;
+    align-items: baseline;
+    font-size: 14px;
+    color: var(--ink-2);
+  }
+  .meta .title{
+    font-family: var(--serif);
+    font-style: italic;
+    font-size: 15.5px;
+    color: var(--ink);
+    max-width: 60ch;
+  }
+  .meta .authors{ color: var(--muted); }
+  .meta .sep{ color: var(--hair-2); }
+
+  .chips{ display:flex; flex-wrap:wrap; gap:8px; margin-top: 16px; }
+  .chip{
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.04em;
+    color: var(--ink-2);
+    background: var(--paper-2);
+    border: 1px solid var(--hair);
+    border-radius: 4px;
+    padding: 4px 9px;
+  }
+  .chip.acc{ color: var(--accent); border-color: rgba(15,94,92,0.35); background: var(--accent-soft); }
+
+  /* ---------- Asset row ---------- */
+  .assets{
+    display:grid;
+    grid-template-columns: 1.05fr 1.15fr 1.1fr;
+    gap: 16px;
+    margin-top: 30px;
+  }
+  .card{
+    background: #FBF9F4;
+    border: 1px solid var(--hair);
+    border-radius: 10px;
+    padding: 22px 22px 20px;
+    position: relative;
+  }
+  .card .label{
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin: 0 0 12px;
+    display:flex; align-items:center; gap:8px;
+  }
+  .card .label::before{
+    content:""; width:18px; height:1px; background: var(--hair-2); display:inline-block;
+  }
+
+  /* KEY METRIC */
+  .metric .big{
+    font-family: var(--serif);
+    font-weight: 600;
+    font-size: clamp(54px, 8.2vw, 92px);
+    line-height: 0.92;
+    letter-spacing: -0.03em;
+    color: var(--accent);
+    margin: 4px 0 6px;
+  }
+  .metric .big .frac{
+    font-size: 0.42em;
+    font-weight: 500;
+    color: var(--ink-2);
+    letter-spacing: 0;
+    margin-left: 2px;
+  }
+  .metric .unit{
+    font-family: var(--mono);
+    font-size: 11.5px;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+    text-transform: uppercase;
+    margin-bottom: 12px;
+  }
+  .metric p{
+    margin: 10px 0 0;
+    font-size: 14.5px;
+    color: var(--ink-2);
+    line-height: 1.5;
+  }
+  .metric .vs{
+    margin-top: 14px;
+    font-family: var(--mono);
+    font-size: 11.5px;
+    color: var(--muted);
+    border-top: 1px dashed var(--hair);
+    padding-top: 10px;
+  }
+  .metric .vs b{ color: var(--neg); font-weight:600; }
+
+  /* WHY THIS MATTERS */
+  .matters{
+    background: var(--ink);
+    color: #F3EFE6;
+    border-color: var(--ink);
+  }
+  .matters .label{ color: rgba(243,239,230,0.55); }
+  .matters .label::before{ background: rgba(243,239,230,0.25); }
+  .matters p{
+    font-family: var(--serif);
+    font-size: clamp(18px, 2.1vw, 22px);
+    line-height: 1.4;
+    margin: 6px 0 0;
+    color: #F7F3EA;
+  }
+  .matters p mark{
+    background: transparent;
+    color: #7FD3CE;
+  }
+  .matters .tag{
+    margin-top: 16px;
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    color: rgba(243,239,230,0.5);
+    text-transform: uppercase;
+  }
+
+  /* CRITICAL EDGE */
+  .edge{
+    background: var(--caution-soft);
+    border-color: rgba(154,52,18,0.28);
+  }
+  .edge .label{ color: var(--caution); }
+  .edge .label .warn{
+    display:inline-block; width:12px; height:12px; border-radius:50%;
+    background: var(--caution); margin-right: 2px;
+  }
+  .edge p{
+    font-family: var(--serif);
+    font-size: clamp(17px, 1.95vw, 20px);
+    line-height: 1.42;
+    color: #4A1A07;
+    margin: 6px 0 0;
+  }
+  .edge p b{ color: var(--caution); font-weight: 600; }
+  .edge .src{
+    margin-top: 14px;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: rgba(74,26,7,0.65);
+    letter-spacing: 0.04em;
+  }
+
+  /* ---------- Section heading ---------- */
+  .sect-head{
+    display:flex; align-items: baseline; gap: 14px;
+    margin: 48px 0 18px;
+    border-bottom: 1px solid var(--hair);
+    padding-bottom: 10px;
+  }
+  .sect-head h2{
+    font-family: var(--serif);
+    font-weight: 600;
+    font-size: clamp(22px, 2.6vw, 28px);
+    margin: 0;
+    letter-spacing: -0.01em;
+  }
+  .sect-head .n{
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--accent);
+    letter-spacing: 0.1em;
+  }
+  .sect-head .lede{
+    margin-left:auto;
+    font-size: 13px;
+    color: var(--muted);
+    font-style: italic;
+    max-width: 42ch;
+    text-align: right;
+  }
+
+  /* ---------- Body grid ---------- */
+  .body-grid{
+    display:grid;
+    grid-template-columns: 1.05fr 1.25fr;
+    gap: 16px;
+  }
+  .panel{
+    background: #FBF9F4;
+    border: 1px solid var(--hair);
+    border-radius: 10px;
+    padding: 22px 24px;
+  }
+  .panel h3{
+    font-family: var(--serif);
+    font-size: 18px;
+    margin: 0 0 12px;
+    letter-spacing: -0.005em;
+  }
+  .panel p{ margin: 0 0 10px; font-size: 14.5px; color: var(--ink-2); }
+  .panel p:last-child{ margin-bottom:0; }
+
+  /* Methodology stages */
+  .stages{ list-style:none; padding:0; margin: 10px 0 0; counter-reset: st; }
+  .stages li{
+    counter-increment: st;
+    position: relative;
+    padding: 8px 0 8px 38px;
+    border-top: 1px solid var(--hair);
+    font-size: 14px;
+    color: var(--ink-2);
+  }
+  .stages li:first-child{ border-top: none; }
+  .stages li::before{
+    content: counter(st, decimal-leading-zero);
+    position: absolute; left: 0; top: 9px;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--accent);
+    font-weight: 600;
+    letter-spacing: 0.05em;
+  }
+  .stages li b{ color: var(--ink); font-weight: 600; }
+  .stages .param{
+    font-family: var(--mono); font-size: 12px;
+    color: var(--accent); background: var(--accent-soft);
+    padding: 1px 5px; border-radius: 3px; margin: 0 1px;
+  }
+
+  /* Results tables */
+  .table-wrap{ overflow-x: auto; }
+  table{
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13.5px;
+    margin-top: 6px;
+  }
+  table caption{
+    text-align: left;
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 8px;
+  }
+  th, td{
+    padding: 9px 10px;
+    text-align: left;
+    border-bottom: 1px solid var(--hair);
+    white-space: nowrap;
+  }
+  thead th{
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--muted);
+    font-weight: 600;
+    border-bottom: 1.5px solid var(--ink);
+  }
+  tbody td.num{ font-family: var(--mono); font-size: 13px; }
+  tbody tr:hover{ background: var(--accent-soft); }
+  .delta{ font-family: var(--mono); font-weight: 600; }
+  .delta.pos{ color: var(--pos); }
+  .delta.neg{ color: var(--neg); }
+  .model{ font-weight: 600; color: var(--ink); }
+  .model small{ color: var(--muted); font-weight: 400; font-family: var(--mono); font-size: 11px; }
+
+  .stat-strip{
+    display:grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+    margin-top: 16px;
+  }
+  .stat{
+    background: var(--paper-2);
+    border: 1px solid var(--hair);
+    border-radius: 8px;
+    padding: 12px 13px;
+  }
+  .stat .v{
+    font-family: var(--serif);
+    font-weight: 600;
+    font-size: 26px;
+    line-height: 1;
+    color: var(--accent);
+    letter-spacing: -0.02em;
+  }
+  .stat .v.caution{ color: var(--caution); }
+  .stat .k{
+    font-size: 12px;
+    color: var(--muted);
+    margin-top: 6px;
+    line-height: 1.35;
+  }
+
+  /* Strengths / Limitations */
+  .duo{
+    display:grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+  }
+  .duo .panel h3{ display:flex; align-items:center; gap:8px; }
+  .duo .panel h3 .mark{
+    width:10px; height:10px; border-radius:2px; display:inline-block;
+  }
+  .duo .pro h3 .mark{ background: var(--accent); }
+  .duo .con h3 .mark{ background: var(--caution); }
+  .duo ul{ margin: 8px 0 0; padding-left: 18px; }
+  .duo li{ font-size: 14px; color: var(--ink-2); margin-bottom: 9px; line-height: 1.5; }
+  .duo li b{ color: var(--ink); }
+
+  /* Questions */
+  .qlist{ list-style:none; padding:0; margin: 10px 0 0; }
+  .qlist li{
+    padding: 12px 0 12px 30px;
+    border-top: 1px solid var(--hair);
+    position: relative;
+    font-size: 14.5px;
+    color: var(--ink-2);
+    line-height: 1.5;
+  }
+  .qlist li:first-child{ border-top: none; }
+  .qlist li::before{
+    content: "?";
+    position: absolute; left: 0; top: 11px;
+    font-family: var(--serif);
+    font-style: italic;
+    font-weight: 600;
+    color: var(--accent);
+    font-size: 18px;
+  }
+  .qlist li b{ color: var(--ink); }
+
+  /* ---------- Footer ---------- */
+  footer{
+    margin-top: 48px;
+    padding-top: 18px;
+    border-top: 1px solid var(--hair);
+    display:flex; flex-wrap:wrap; gap: 10px 22px;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 13px;
+    color: var(--muted);
+  }
+  footer .src a{
+    font-family: var(--mono);
+    font-size: 12.5px;
+    color: var(--ink-2);
+    border: 1px solid var(--hair);
+    border-radius: 6px;
+    padding: 6px 11px;
+    background: #FBF9F4;
+  }
+  footer .src a:hover{ border-color: var(--accent); color: var(--accent); text-decoration:none; }
+  footer .credit{ font-family: var(--mono); font-size: 11px; letter-spacing: 0.05em; }
+
+  /* ---------- Load animation ---------- */
+  .reveal{ opacity:0; transform: translateY(8px); animation: rise .6s cubic-bezier(.2,.7,.2,1) forwards; }
+  @keyframes rise{ to{ opacity:1; transform:none; } }
+  .d1{ animation-delay:.04s; } .d2{ animation-delay:.10s; } .d3{ animation-delay:.16s; }
+  .d4{ animation-delay:.22s; } .d5{ animation-delay:.28s; } .d6{ animation-delay:.34s; }
+  @media (prefers-reduced-motion: reduce){
+    .reveal{ animation:none; opacity:1; transform:none; }
+  }
+
+  /* ---------- Responsive ---------- */
+  @media (max-width: 920px){
+    .assets{ grid-template-columns: 1fr 1fr; }
+    .assets .metric{ grid-column: 1 / -1; }
+    .body-grid{ grid-template-columns: 1fr; }
+    .duo{ grid-template-columns: 1fr; }
+    .stat-strip{ grid-template-columns: 1fr 1fr; }
+  }
+  @media (max-width: 720px){
+    .wrap{ padding: 64px 18px 36px; }
+    .assets{ grid-template-columns: 1fr; }
+    .stat-strip{ grid-template-columns: 1fr; }
+    .sect-head{ flex-wrap: wrap; }
+    .sect-head .lede{ margin-left:0; text-align:left; flex-basis: 100%; }
+    .topnav{ font-size: 12px; top:10px; left:10px; padding: 6px 12px 6px 10px; }
+    .hero h1{ font-size: clamp(28px, 8vw, 40px); }
+    th,td{ padding: 8px 6px; font-size: 12.5px; }
+  }
+</style>
+</head>
+<body>
+
+<nav class="topnav">
+  <a href="./index.html">↩ Today's digest</a>
+</nav>
+
+<main class="wrap">
+
+  <!-- ============ HERO ============ -->
+  <header class="hero reveal d1">
+    <div class="eyebrow">
+      <span class="dot"></span>
+      <span class="id">arXiv 2607.08017</span>
+      <span>·</span>
+      <span>COLM 2026 · Under review</span>
+      <span>·</span>
+      <span>University of Illinois Chicago</span>
+    </div>
+
+    <p class="kicker">Key finding</p>
+    <h1>
+      Small-model Self-Consistency accuracy is inflated by unfaithful <span class="quote">"lucky&nbsp;guesses"</span> &mdash;
+      <em>GRAPHEVAL's graph metric is the only one that catches them.</em>
+    </h1>
+
+    <div class="meta">
+      <a class="title" href="https://arxiv.org/abs/2607.08017" target="_blank" rel="noopener">
+        "Can We Trust LLM's Logic? Quantifying Uncertainty, Coherence, and Robustness via a Graph-Based Framework" ↗
+      </a>
+    </div>
+    <div class="meta" style="margin-top:8px;">
+      <span class="authors">Riccardo Revalor · Jalees Rehman · Debjit Pal</span>
+      <span class="sep">|</span>
+      <span class="authors">2026-07-09</span>
+    </div>
+
+    <div class="chips">
+      <span class="chip acc">uncertainty-quantification</span>
+      <span class="chip acc">reasoning-faithfulness</span>
+      <span class="chip">chain-of-thought</span>
+      <span class="chip">graph-reasoning</span>
+      <span class="chip">self-consistency</span>
+      <span class="chip">llm-evaluation</span>
+    </div>
+  </header>
+
+  <!-- ============ ASSET ROW ============ -->
+  <section class="assets">
+
+    <!-- KEY METRIC -->
+    <div class="card metric reveal d2">
+      <p class="label">Key metric</p>
+      <div class="big">93.3<span class="frac">% &nbsp;·&nbsp; 14/15</span></div>
+      <div class="unit">model–dataset configs</div>
+      <p>
+        <b>GRCS</b> is the only one of five UQ metrics that stays <b>negatively correlated with reasoning faithfulness</b> across Llama 3.1 8B, Phi-4, and DeepSeek R1 on five datasets.
+      </p>
+      <div class="vs">
+        Baselines that flip: dispersion/entropy turn <b>positive</b> on GSM8K &amp; BoolQ; Topo-UQ near-zero on Phi-4.
+      </div>
+    </div>
+
+    <!-- WHY THIS MATTERS -->
+    <div class="card matters reveal d3">
+      <p class="label">Why this matters</p>
+      <p>
+        An actionable framework that quantifies uncertainty and faithfulness <mark>at the CoT level</mark> — not just the final answer — for spotting "lucky guesses" in medical &amp; legal safety-critical deployment.
+      </p>
+      <div class="tag">Relevance · user-aligned</div>
+    </div>
+
+    <!-- CRITICAL EDGE -->
+    <div class="card edge reveal d4">
+      <p class="label"><span class="warn"></span>Critical edge</p>
+      <p>
+        GRCS <b>weakens precisely on the most capable model tested</b> (DeepSeek R1) — the framework's flagship signal is weakest exactly where frontier deployment actually happens.
+      </p>
+      <div class="src">From: Critical Assessment · Rigor (mixed)</div>
+    </div>
+
+  </section>
+
+  <!-- ============ BODY: METHODOLOGY ============ -->
+  <div class="sect-head reveal d4">
+    <span class="n">01</span>
+    <h2>Methodology</h2>
+    <span class="lede">Five-stage pipeline turns raw CoT text into causal DAGs, then into a single bounded coherence score.</span>
+  </div>
+
+  <section class="body-grid">
+    <div class="panel reveal d5">
+      <h3>GRAPHEVAL pipeline</h3>
+      <p>
+        GRAPHEVAL converts sampled Chain-of-Thought paths into analyzable reasoning topologies. Each path becomes a causally-annotated DAG; pairwise distances collapse into one distributional UQ score and a medoid answer is selected by graph consensus rather than majority vote.
+      </p>
+      <p style="color:var(--muted); font-size:13.5px;">
+        Architecturally independent components avoid self-evaluation bias: <span class="param">GPT-4o</span> decomposes, <span class="param">Qwen3-Embedding-0.6B</span> embeds. Correlations use 1,000 bootstrap resamples.
+      </p>
+    </div>
+
+    <div class="panel reveal d5">
+      <h3>Five stages</h3>
+      <ol class="stages">
+        <li><b>Causal DAG construction.</b> Generator emits <span class="param">N=20</span> CoTs at <span class="param">T=0.7</span>, each <span class="param">[3–6]</span> causally-annotated steps; a distinct Decomposer LLM re-segments them into atomic Subject–Verb–Object facts.</li>
+        <li><b>Semantic-Structural GED (SS-GED).</b> All C(N,2) DAG pairs compared via Hungarian matching in <span class="param">O(m³)</span>; fair-normalized + terminal-node semantic blend <span class="param">β=0.4</span>, <span class="param">γ=5.0</span> penalizes "same topology, different conclusion."</li>
+        <li><b>GRCS.</b> Aggregates pairwise distances into <span class="param">GRCS = 1/(1+μ(D(q)))</span>; mode collapse &amp; confident hallucinations both lower it.</li>
+        <li><b>Graph Self-Consistency (GSC).</b> Medoid <span class="param">z* = argmax[α·centrality + (1−α)·consensus]</span>, <span class="param">α=0.8</span>, filters unfaithful lucky guesses.</li>
+        <li><b>Adversarial medoid ablation.</b> Prompt-poisoning forbids the medoid path; proves it is "load-bearing" when accuracy gains couple with faithfulness drops.</li>
+      </ol>
+    </div>
+  </section>
+
+  <!-- ============ RESULTS ============ -->
+  <div class="sect-head reveal d4">
+    <span class="n">02</span>
+    <h2>Results</h2>
+    <span class="lede">GSC trades nominal accuracy for faithfulness in small models; preserves or improves it in capable ones.</span>
+  </div>
+
+  <section class="panel reveal d6" style="margin-bottom:16px;">
+    <div class="table-wrap">
+      <table>
+        <caption>GSC vs. Self-Consistency (SC) accuracy — by model &amp; dataset</caption>
+        <thead>
+          <tr>
+            <th>Model</th>
+            <th>Dataset</th>
+            <th class="num">SC</th>
+            <th class="num">GSC</th>
+            <th class="num">Δ (pp)</th>
+            <th>Sig.</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="model">Llama 3.1 <small>8B</small></td>
+            <td>GSM8K</td>
+            <td class="num">88.9%</td>
+            <td class="num">81.3%</td>
+            <td class="num delta neg">−7.6</td>
+            <td>p&lt;0.05 · McNemar</td>
+          </tr>
+          <tr>
+            <td class="model">Llama 3.1 <small>8B</small></td>
+            <td>MedQA</td>
+            <td class="num">61.0%</td>
+            <td class="num">52.0%</td>
+            <td class="num delta neg">−9.0</td>
+            <td>p&lt;0.05 · McNemar</td>
+          </tr>
+          <tr>
+            <td class="model">Llama 3.1 <small>8B</small></td>
+            <td>GPQA</td>
+            <td class="num">24.4%</td>
+            <td class="num">19.3%</td>
+            <td class="num delta neg">−5.1</td>
+            <td>p&lt;0.05 · McNemar</td>
+          </tr>
+          <tr>
+            <td class="model">DeepSeek R1</td>
+            <td>GSM8K</td>
+            <td class="num">94.3%</td>
+            <td class="num">96.9%</td>
+            <td class="num delta pos">+3.1</td>
+            <td>n.s.</td>
+          </tr>
+          <tr>
+            <td class="model">DeepSeek R1</td>
+            <td>BoolQ</td>
+            <td class="num">76.0%</td>
+            <td class="num">77.0%</td>
+            <td class="num delta pos">+1.0</td>
+            <td>n.s.</td>
+          </tr>
+          <tr>
+            <td class="model">DeepSeek R1</td>
+            <td>MedQA</td>
+            <td class="num">90.9%</td>
+            <td class="num">91.9%</td>
+            <td class="num delta pos">+1.0</td>
+            <td>n.s.</td>
+          </tr>
+          <tr>
+            <td class="model">DeepSeek R1</td>
+            <td>GPQA</td>
+            <td class="num">52.4%</td>
+            <td class="num">53.4%</td>
+            <td class="num delta pos">+1.1</td>
+            <td>n.s.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="stat-strip">
+      <div class="stat">
+        <div class="v">+21.9<span style="font-size:.5em;"> pp</span></div>
+        <div class="k">Faithful disagreement wins: <b>GSC 79.5%</b> vs SC 57.6% (Wilcoxon p&lt;0.05).</div>
+      </div>
+      <div class="stat">
+        <div class="v">κ = 0.913</div>
+        <div class="k">Human annotator vs Gemini 3 Pro judge agreement on the audit.</div>
+      </div>
+      <div class="stat">
+        <div class="v caution">55.0%</div>
+        <div class="k">Phi-4 StrategyQA points below ΔFaith=0 after medoid ablation (Llama 43.2%, DeepSeek R1 15.2%).</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ STRENGTHS / LIMITATIONS ============ -->
+  <div class="sect-head reveal d4">
+    <span class="n">03</span>
+    <h2>Strengths &amp; Limitations</h2>
+    <span class="lede">Genuine conceptual novelty — but flagship signal concentrates on smaller models.</span>
+  </div>
+
+  <section class="duo reveal d5">
+    <div class="panel pro">
+      <h3><span class="mark"></span>Strengths</h3>
+      <ul>
+        <li>Reframes UQ from <b>answer-level to holistic reasoning-fidelity</b> — useful for mission-critical (medical/legal) deployment.</li>
+        <li>SS-GED's semantic-structural blend is a <b>concrete fix</b> for Topo-UQ's blind spot to "same topology, different conclusion."</li>
+        <li>Decoding analysis (GSC vs SC + faithful/spurious audit) <b>demonstrates practical consequence</b>, not just correlations.</li>
+        <li>Strong statistical reporting: effect sizes, p-values, bootstrap CIs, <b>κ = 0.913</b>.</li>
+        <li>Honest disclosure of where the method breaks (large-capable models, long-horizon).</li>
+      </ul>
+    </div>
+    <div class="panel con">
+      <h3><span class="mark"></span>Limitations</h3>
+      <ul>
+        <li><b>O(N²·m³) per question</b> vs SC's O(N) — non-trivial inference cost.</li>
+        <li><b>Diminishing signal on capable models</b> — GRCS correlation &amp; ablation effect both weaken on DeepSeek R1.</li>
+        <li><b>Short-horizon only</b> — CoTs capped at 6 steps; agentic / multi-thousand-token scalability unaddressed.</li>
+        <li><b>Small, single-seed slices</b> for MedQA (100 q, seed 42) + closed DLLM/judge reduce reproducibility in the most safety-relevant domain.</li>
+        <li>Faithfulness proxy depends on <b>Early Answering</b> (Counterfactual Editing only in appendix).</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- ============ QUESTIONS ============ -->
+  <div class="sect-head reveal d4">
+    <span class="n">04</span>
+    <h2>Open questions</h2>
+    <span class="lede">Where the framework must be stress-tested next.</span>
+  </div>
+
+  <section class="panel reveal d5">
+    <ol class="qlist">
+      <li>How does <b>GRCS / GSC behave on genuinely long-horizon reasoning</b> (agentic trajectories, multi-thousand-token CoTs from o1-style models) where n_h ≫ 6?</li>
+      <li>Can the medoid ablation result be replicated on a <b>frontier dense model (≥100B)</b>, or is "load-bearing path" an artifact of distilled / small-model mode collapse?</li>
+      <li>Is <b>Early Answering</b> a robust enough faithfulness oracle — how do GRCS correlations shift under Counterfactual Editing or human-graded ground truth?</li>
+      <li>What is the <b>compute cost-benefit frontier</b> of GSC vs SC: at what N does medoid selection stop paying off vs simply running more SC samples?</li>
+      <li>Could SS-GED be <b>approximated cheaply</b> (embedding-only or learned graph kernels) to bring O(N²·m³) into an inference-time regime?</li>
+      <li>Does GSC's faithfulness advantage <b>transfer downstream</b> (tool use, code generation) where "correct answer via wrong reasoning" is especially costly?</li>
+    </ol>
+  </section>
+
+  <footer>
+    <span class="credit">Dashboard · extracted from source markdown · single accent · grid layout</span>
+    <span class="src"><a href="2607.08017.html">↗ Markdown source</a></span>
+  </footer>
+
+</main>
+
+</body>
+</html>

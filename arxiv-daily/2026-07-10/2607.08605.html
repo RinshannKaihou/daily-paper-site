@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>When Structured Sparse Autoencoders Learn Consistent Concepts Across Modalities</title>
+<style>
+:root { --paper:#fafafa; --ink:#1a1a1a; --muted:#555; --accent:#1a5276; --line:#ddd; --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif; --serif:Georgia,"Noto Serif SC",serif; }
+body { font-family:var(--serif); background:var(--paper); color:var(--ink); line-height:1.6; margin:0; padding:0; }
+.container { max-width:min(95vw, 760px); margin:0 auto; padding:28px 20px 60px; }
+.topnav { position:fixed; top:12px; left:14px; z-index:50; font-family:var(--sans); font-size:.75rem; background:var(--paper); border:1px solid var(--line); padding:5px 10px; border-radius:999px; }
+.topnav a { color:var(--muted); text-decoration:none; font-weight:600; }
+.topnav a:hover { color:var(--accent); }
+h1 { font-size:1.6rem; margin:2.2rem 0 1rem; border-bottom:2px solid var(--accent); padding-bottom:.3rem; }
+h2 { font-size:1.3rem; margin:1.8rem 0 .8rem; color:var(--accent); }
+h3 { font-size:1.1rem; margin:1.4rem 0 .6rem; }
+p { margin:.8rem 0; }
+.authors { font-style:italic; color:var(--muted); margin-top:-.4rem; }
+.meta { font-family:var(--sans); font-size:.82rem; color:var(--muted); margin:.2rem 0; }
+a { color:var(--accent); text-decoration:none; }
+a:hover { text-decoration:underline; }
+blockquote { border-left:3px solid var(--accent); margin:1rem 0; padding:.2rem 0 .2rem 1rem; color:var(--muted); font-style:italic; }
+code { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; background:#f0f0f0; padding:2px 5px; border-radius:3px; font-size:.9em; }
+pre { background:#f5f5f5; padding:14px; overflow-x:auto; border-radius:4px; border:1px solid var(--line); }
+pre code { background:transparent; padding:0; }
+ul,ol { margin:.6rem 0; padding-left:1.5rem; }
+li { margin:.25rem 0; }
+table { border-collapse:collapse; width:100%; margin:1rem 0; font-family:var(--sans); font-size:.9rem; }
+th,td { border:1px solid var(--line); padding:6px 10px; text-align:left; }
+th { background:#f0f0f0; }
+hr { border:none; border-top:1px solid var(--line); margin:1.5rem 0; }
+.note { font-family:var(--sans); font-size:.78rem; color:var(--muted); border-top:1px solid var(--line); margin-top:2rem; padding-top:1rem; }
+@media (max-width: 600px) { .container { padding:22px 14px 40px; } h1 { font-size:1.35rem; } }
+</style>
+</head>
+<body>
+<div class="topnav"><a href="./index.html">← Today's digest</a></div>
+<div class="container">
+<h1>When Structured Sparse Autoencoders Learn Consistent Concepts Across Modalities</h1>
+<p class="meta">arXiv: 2607.08605</p>
+<p class="meta">Date: 2026-07-09</p>
+<p class="meta"><a href="https://arxiv.org/abs/2607.08605">https://arxiv.org/abs/2607.08605</a></p>
+<blockquote><strong>一句话总结：</strong> 针对稀疏自编码器（SAE）在视觉语言模型中视觉模态概念"碎片化/多义性"的问题，本文提出 S²AE：用 Transformer 注意力相似度 + 空间邻近度把图像 patch 聚类成语义区域，再施加组间排他稀疏（exclusive sparsity，跨区域解耦）与组内组稀疏（group sparsity，区域内一致）两种结构化正则；在 Qwen2.5-VL-7B-Instruct 上使视觉概念对齐 mIoU 平均提升 6.06%、激活的 SAE 特征数从 256 降到 180–215（EV 仍 >0.99），且由于视觉/文本共享字典，视觉侧正则还"溢出"提升了语言侧的单义性与跨模态一致性。</blockquote>
+<blockquote><strong>TL;DR:</strong> Vanilla SAEs applied to VLMs learn fragmented, polysemantic visual concepts; S²AE adds exclusive + group sparsity over attention+spatial visual regions to a Top-K SAE, and on Qwen2.5-VL-7B-Instruct it lifts semantic-alignment mIoU by +6.06% on average (e.g. layer-15 mIoU 0.516→0.594) while cutting active features from a fixed 256 to ~180–215 (EV stays >0.99). Because vision and text share one SAE dictionary, the vision-only regularizer also raises language-side monosemanticity (Layer-5 language MS 0.872→0.896) and cross-modal consistency rate by up to +4.3 pts over vanilla Top-K SAE. A hierarchical VLM→LLM interpretation pipeline (98.8% identification at layer 5 vs 66.4% for direct VLM summarization) is the only concept-quality evidence — there are no downstream-task gains and the single-model evaluation (Qwen2.5-VL-7B only) is the main caveat.</blockquote>
+<h2>核心贡献</h2>
+<ul>
+<li><strong>提出 S²AE 结构化稀疏自编码器：</strong> 在 Top-K SAE 的重建损失之外，新增两项针对视觉 patch 组的结构化正则——排他稀疏（exclusive sparsity）鼓励同一 SAE 特征在多个视觉区域间相互竞争、专一化到单一区域（跨区域解耦）；组稀疏（group sparsity）鼓励同一区域内的 patch 激活同一组稀疏 SAE 特征（区域内一致）。两者合力缓解视觉模态的残余多义性。</li>
+<li><strong>基于注意力+空间邻近度的视觉区域构造：</strong> 用所有层平均的注意力矩阵 Ā 经对称化转为距离，与 patch 级曼哈顿空间距离矩阵 S^α 调制后做层次聚类（agglomerative clustering），把图像分成 G 个语义连贯区域作为结构先验；消融证实 Ā+S 组合比单用注意力或单用空间更干净。</li>
+<li><strong>视觉正则"跨模态溢出"的发现：</strong> 结构正则只施加在视觉 patch 上，但因多模态 SAE 用共享字典同时重建图像 patch 与文本 token，视觉概念变干净后，语言侧单义性和视觉-语言一致性也随之提升——把视觉结构先验从"局部正则"升级为"组织共享多模态概念空间"的全局机制。</li>
+<li><strong>二值化 + 直通估计器（STE）去收缩偏差：</strong> 把 SAE 激活二值化为门控后再施加结构罚，使正则只惩罚激活频率与组内共现，而非激活幅值，规避 ℓ1 常见的 shrinkage bias。</li>
+<li><strong>层级化跨模态可解释性流水线：</strong> 先用 VLM（Qwen3-VL-8B）把每个 masked 视觉参考转成局部概念描述，再用 LLM（Qwen3-30B）做模态内汇总与跨模态一致性判定，验证性地优于"直接让 VLM 总结"的基线。</li>
+<li><strong>公开资源：</strong> 代码（github.com/liaoweiduo/s2ae）与交互式 SAE 可视化网站（HuggingFace Spaces）。</li>
+</ul>
+<h2>Key Contributions</h2>
+<ul>
+<li><strong>S²AE structured SAE:</strong> Augments Top-K SAE with two complementary regularizers over visual patch-groups — exclusive sparsity (inter-region disentanglement, "one-of-many") and group sparsity (intra-region coherence, "all-or-nothing") — both reformulated to operate on a group-level activation profile matrix S.</li>
+<li><strong>Attention+spatial visual regions:</strong> Builds a symmetric adjacency matrix from layer-averaged attention (Ā) modulated by a power of patch Manhattan distance (S^α), then agglomeratively clusters patches into G semantically coherent regions; ablations (Fig. 2, 10) justify Ā+S over attention-only or spatial-only.</li>
+<li><strong>Vision→language cross-modal transfer:</strong> The key empirical finding — regularizing only visual patches improves language-side monosemanticity and vision-language consistency because SAE features are shared across modalities, reframing visual structure as an organizing prior for the whole multimodal feature space.</li>
+<li><strong>Binarized STE gates:</strong> Decouples feature selection from magnitude by applying structural penalties on binary gates computed with a Straight-Through Estimator, removing the ℓ1 shrinkage bias.</li>
+<li><strong>Hierarchical interpretation pipeline:</strong> A two-stage VLM-then-LLM concept-identification + summarization method that reliably interprets masked SAE references, plus an Activation-Semantic Alignment (Ψ = mean activation × max IoU) sample-ranking metric that filters polysemantic noise.</li>
+</ul>
+<h2>Methodology</h2>
+<p>S²AE is built on a Top-K SAE trained on residual-stream activations of Qwen2.5-VL-7B-Instruct (layers 5/10/15/20), treating image patches and text tokens as equivalent reconstruction units with a shared dictionary (expansion factor R=32, K=256 active features, N=114688 latents, D=3584).</p>
+<p><strong>Visual region construction (§4.1).</strong> For each image, pairwise patch affinities combine (i) symmetric, layer-averaged Transformer attention distance d_A = Norm(−(Ā+Ā⊤)) and (ii) normalized Manhattan spatial distance d_S; the final adjacency is d = d_A ⊙ (d_S)^α (α=0.02). Agglomerative clustering on d partitions the image into G=20 regions.</p>
+<p><strong>Structured sparsity (§4.2).</strong> A group-level activation matrix S∈ℝ^{G×N} is built by taking the ℓ2 norm of each SAE feature's activations within each region. Exclusive sparsity ℒ_es = (1/N)Σ_j(Σ_g |s_j^g|)² drives each feature to dominate a single region (inner ℓ1 + outer ℓ2). Group sparsity ℒ_gs = (1/G)Σ_g ‖s^g‖_1 drives intra-region features to share a sparse subset (inner ℓ2 + outer ℓ1). Both are computed on binary STE gates. Total loss: ℒ_total = ℒ_sae + λ_es ℒ_es + λ_gs ℒ_gs (λ_es=0.1, λ_gs=0.01).</p>
+<p><strong>Hierarchical interpretation (§5).</strong> For each SAE feature, top reference samples are ranked by Ψ = mean activation × max-IoU-with-cluster. A VLM (Qwen3-VL-8B-Instruct) converts each masked vision reference into a one-line concept description; an LLM (Qwen3-30B-Instruct) then (1) summarizes modality-specific concepts and (2) scores cross-modal consistency. Mask dilation (1 patch / 1 token) provides peripheral context.</p>
+<h2>Results & Highlights</h2>
+<ul>
+<li><strong>Semantic alignment (mIoU):</strong> On Qwen2.5-VL-7B-Instruct, S²AE improves mean cluster-alignment mIoU by +6.06% on average across layers 5–20 vs vanilla Top-K SAE; at layer 15, mIoU rises from 0.516 (vanilla) to 0.594 (+7.8 pts), with gains largest in shallow/middle layers.</li>
+<li><strong>Reconstruction fidelity preserved:</strong> Explained Variance stays above 0.99 at every layer despite the added regularization, i.e. the concept disentanglement costs essentially nothing in reconstruction quality.</li>
+<li><strong>Representational efficiency (ℓ0):</strong> S²AE uses ~180–215 active SAE features per input vs the fixed K=256 budget of vanilla Top-K SAE (the abstract reports a 60.81 efficiency figure on the lower ℓ0 norm), i.e. more sparse representations for the same fidelity.</li>
+<li><strong>Cross-modal consistency rate:</strong> S²AE beats vanilla at every layer, peaking at +4.3 pts on layer 5 (consistency rate 0.294→0.337); average gain ~3.08%. This is achieved with vision-only regularization.</li>
+<li><strong>Language-side monosemanticity rises too:</strong> Although no regularizer touches text tokens, language MS score increases at layer 5 from 0.872→0.896, and the average monosemanticity gain across both modalities is ~2.37%.</li>
+<li><strong>Ablation (Table 2, layer 5):</strong> ES alone lifts cluster-level mIoU_c 0.524→0.568 but collapses group consistency mIoU_g to 0.080; GS alone is marginal (mIoU_g 0.211); ES+GS together restore mIoU_g to 0.153 while keeping mIoU_c=0.555 — confirming the two regularizers are complementary.</li>
+<li><strong>Interpretation pipeline reliability:</strong> Hierarchical pipeline identification rate is 98.8% at layer 5 vs only 66.4% for direct VLM summarization; for "Big Ben" neuron 77862 the hierarchical pipeline outputs "tall ornate clock tower with pointed spire" while direct summarization fails with "no common characteristic."</li>
+<li><strong>Clustering ablation (Fig. 10–11):</strong> Ā+S yields the most cohesive clusters; silhouette-score tuning over 50 samples places the optimum α∈[0.01, 0.02], chosen α=0.02.</li>
+</ul>
+<h2>Authors & Credibility</h2>
+<p>Weiduo Liao and corresponding author Ying Wei (Zhejiang University), with Yunqiao Yang (Nanyang Technological University). The work cites the relevant SAE-for-VLM line (Pach et al. 2026 for the MS score, Zhang et al. 2025 for the multimodal SAE setup and reference dataset, Haurum et al. 2024 for agglomerative token clustering) and adopts standard SAE training (Top-K, Gao et al. 2024). Code (github.com/liaoweiduo/s2ae) and an interactive HuggingFace Spaces explorer are released, and hyperparameters (N, D, K, λ, G, α) are fully tabulated (Table 3). The paper was submitted as arXiv:2607.08605v1 [cs.CV] on 9 Jul 2026.</p>
+<h2>Critical Assessment</h2>
+<ul>
+<li><strong>Novelty — moderate, genuine.</strong> Applying group + exclusive sparsity to SAE feature activations over attention-clustered visual regions is a clean, well-motivated idea that is not a trivial re-skin; the cross-modal "spillover" claim (vision-only regularization improving language MS) is the genuinely interesting and less-obvious finding. The hierarchical VLM→LLM interpretation pipeline is a sensible engineering contribution but builds directly on Bills et al. 2023 / Zhang et al. 2025.</li>
+<li><strong>Rigor — mixed.</strong> The headline evaluation metric (mIoU vs clusters) is <strong>circular/self-referential</strong>: the "ground-truth" clusters are derived from the same Qwen2.5-VL attention that the method regularizes against, so an improvement in mIoU is partly an improvement at hitting the model's own clustering, not an independent concept-quality gain. The external MS score mitigates this by using SigLip2 embeddings, but SigLip2 is itself a learned VLM that may share biases.</li>
+<li><strong>Baseline weakness.</strong> The only comparison is vanilla Top-K SAE. The related work explicitly lists Gated SAE, JumpReLU SAE, Archetypal SAE, and BatchTopK — none are benchmarked. Given that the contribution is "regularization improves monosemanticity," at least one stronger SAE variant should have been the baseline.</li>
+<li><strong>Generalization — narrow.</strong> Everything runs on a single model (Qwen2.5-VL-7B-Instruct) and the entire interpretation pipeline uses Qwen-family models (Qwen3-VL-8B, Qwen3-30B). There is no transfer to InternVL, GLM-V, or a non-Qwen LLM/VLM, so it is unclear whether the gains are Qwen-specific.</li>
+<li><strong>No downstream validation.</strong> Concept interpretability improvements are not shown to help any downstream task (e.g. hallucination mitigation, unlearning, steering), which is the usual payoff claim for mechanistic interpretability.</li>
+<li><strong>Overclaiming risk.</strong> The abstract reports "60.81 in representational efficiency" without a clear definition; the body's concrete numbers (256→180–215 active features) are the reliable ones. The "6.06% average improvement" and "3.08%/2.37% gains" are honestly framed but small in absolute terms and are averages over just 4 layers.</li>
+<li><strong>Reproducibility — good.</strong> Hyperparameters are listed, code + data references (lmms-lab/sae-sample-cache-dataset) and a visualization site are public, and 4×A800 hardware is stated. Missing: exact training duration, dataset size, and seeds for the variance that the SAE literature (Paulo & Belrose 2026) flags as substantial.</li>
+</ul>
+<h2>Strengths</h2>
+<ul>
+<li>Clean problem formulation: pinpoints a real failure mode of vanilla SAEs on VLMs (fragmented, spatially disjoint visual activations) and addresses it with a principled two-term regularizer grounded in mixed-norm theory (Yoon & Hwang 2017).</li>
+<li>Strong, honest ablation (Table 2) that clearly shows why both ES and GS are needed — ES alone breaks intra-group consistency, GS alone is weak, the combination is balanced.</li>
+<li>The cross-modal spillover finding reframes visual structural priors as organizing the whole shared multimodal feature space, which is a conceptually valuable claim backed by Table 1.</li>
+<li>The hierarchical-vs-direct interpretation comparison (Fig. 9) is a convincing, concrete validation of the pipeline design.</li>
+<li>Generous artifact release (code + interactive explorer) lowers the bar for community follow-up.</li>
+</ul>
+<h2>Limitations</h2>
+<ul>
+<li>Single-model evaluation (Qwen2.5-VL-7B-Instruct only); no InternVL/GLM-V/Llama-VLM transfer.</li>
+<li>Self-referential evaluation: cluster "ground truth" comes from the model's own attention, so mIoU gains partially measure fitting the model's internal clustering rather than an independent semantic truth.</li>
+<li>Only vanilla Top-K SAE baseline; no Gated/JumpReLU/Archetypal comparison.</li>
+<li>No downstream task benefit demonstrated (hallucination, steering, unlearning).</li>
+<li>Qwen-only interpretation pipeline (Qwen3-VL-8B + Qwen3-30B) may carry vendor-specific bias; consistency scoring is LLM-judged and somewhat subjective.</li>
+<li>Absolute gains are small (a few percentage points); no error bars or multi-seed variance despite known SAE training instability.</li>
+<li>The abstract's "60.81 efficiency" figure is under-defined.</li>
+</ul>
+<h2>Relevance</h2>
+<p>对关注多模态大模型可解释性与机制理解（mechanistic interpretability）的研究者高度相关：它直接改进 SAE 在 VLM 上提取可解释概念的能力，并揭示了"视觉结构先验可经共享字典影响语言侧表征"这一跨模态机制，为后续做幻觉定位、概念编辑、对齐诊断提供了更干净的特征工具。</p>
+<h2>Questions for Further Exploration</h2>
+<ul>
+<li>Does S²AE's advantage hold on non-Qwen VLMs (InternVL3, GLM-4.5V), and does the cross-modal spillover scale to larger (e.g. 32B/72B) backbones?</li>
+<li>How sensitive are the +6.06% mIoU and +4.3 pts consistency gains to SAE training seed, given that SAEs are known to learn different features across runs (Paulo & Belrose 2026)?</li>
+<li>Can the cleaner, region-grounded S²AE features be used for downstream interventions — e.g. reducing object hallucination via activation steering, or targeted concept unlearning — and does the improved monosemanticity translate into measurable task gains?</li>
+<li>The evaluation clusters come from the model's own attention; what happens to the mIoU numbers when "ground truth" regions come from an independent segmenter (e.g. SAM) or human masks instead?</li>
+<li>How does S²AE compare against Gated / JumpReLU / Archetypal SAEs at matched reconstruction fidelity, rather than only against vanilla Top-K?</li>
+</ul>
+<p class="note">Generated from Markdown summary. Full paper: <a href="https://arxiv.org/abs/2607.08605">arXiv:2607.08605</a></p>
+</div>
+</body>
+</html>

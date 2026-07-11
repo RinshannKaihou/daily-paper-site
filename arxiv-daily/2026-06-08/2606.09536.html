@@ -40,68 +40,77 @@ hr { border:none; border-top:1px solid var(--line); margin:1.5rem 0; }
 <p class="authors">[&quot;Lucas Görnhardt&quot;, &quot;Timo Bartels&quot;, &quot;Niklas Schwarz&quot;, &quot;Tim Fingscheidt&quot;]</p>
 <p class="meta">arXiv: 2606.09536</p>
 <p class="meta">Date: 2026-06-08</p>
-<p class="meta">Tags: [&quot;Adversarial-Robustness&quot;, &quot;Object-Detection&quot;, &quot;Semantic-Segmentation&quot;, &quot;Reliability&quot;]</p>
+<p class="meta">Tags: [&quot;Adversarial-Robustness&quot;, &quot;Object-Detection&quot;, &quot;Semantic-Segmentation&quot;, &quot;Reliability&quot;, &quot;Perturbation-Detection&quot;]</p>
 <p class="meta"><a href="https://arxiv.org/abs/2606.09536">https://arxiv.org/abs/2606.09536</a></p>
-<p>⚠️ Abstract-only summary</p>
-<blockquote><strong>一句话总结：</strong> HadamardNet 将 Hadamard 编码引入目标检测和语义分割的输出表示，利用码字冗余实现单次前向传播中的对抗攻击/扰动检测，同时保持干净数据上的参考性能。</blockquote>
-<blockquote><strong>TL;DR:</strong> Introduces Hadamard-coded output representations for object detection and semantic segmentation, deriving optimal decoding via probability simplex projection and exploiting codeword inconsistency for single-pass adversarial/disturbance detection at SOTA performance.</blockquote>
+<blockquote><strong>一句话总结：</strong> HadamardNet 把 Hadamard 码作为语义分割与目标检测的输出表示，通过向概率单纯形投影解码出最优类概率与误差向量，再用误差向量作为异常分数，在单次前向传播内实现 SOTA 级别的对抗攻击/扰动检测，且干净数据上的 mIoU/AP 几乎无损。</blockquote>
+<blockquote><strong>TL;DR:</strong> On Cityscapes/BDD100K semantic segmentation (SegFormer MiT-B0, DeepLabv3+) and Pascal VOC/BDD100K object detection (Faster R-CNN, DETR), HadamardNet's quantile detector reaches 80.2% global AuROC for single-pass perturbation detection on Cityscapes validation — statistically equivalent to the 3-pass Xu et al. baseline (80.7%) — while matching one-hot mIoU within confidence intervals; for object detection the regression detector reaches 74.4% global AuROC on Pascal VOC, beating the strongest single-pass baseline (max-posterior 61.2%) and even the multi-pass Xu et al. (69.8%).</blockquote>
 <h2>核心贡献</h2>
 <ul>
-<li>首次将 Hadamard 编码输出表示应用于目标检测和语义分割</li>
-<li>推导出基于概率单纯形投影的最优类概率解码过程</li>
-<li>利用码字不一致性作为对抗攻击和扰动检测信号</li>
-<li>单次前向传播即可实现检测，无需额外推理步骤</li>
+<li>首次将 Hadamard 编码输出表示应用于目标检测（Faster R-CNN、DETR），并系统性地重新评估语义分割（SegFormer、DeepLabv3+）场景</li>
+<li>推导出基于概率单纯形投影（Michelot 算法）的最优类概率解码过程，同时得到最小化 L2 范数的误差向量 e* 作为预测不一致性度量</li>
+<li>首次把码字冗余/不一致性转化为对抗攻击与扰动检测信号，提出三种异常分数（误差 L1 范数、回归、85% 分位数回归）</li>
+<li>单次前向传播即可检测，无需对抗训练数据、无需多趟前向、模型与任务无关</li>
+<li>在 4 种网络结构、5 个数据集、多种攻击（FGSM/PGD/Metzen/TOG）与扰动（高斯、椒盐）上做了综合评估</li>
 </ul>
 <h2>Key Contributions</h2>
 <ul>
-<li>First application of Hadamard codes to object detection and semantic segmentation output representations</li>
-<li>Novel optimal decoding via projection onto probability simplex</li>
-<li>Exploits intrinsic codeword redundancy for adversarial attack and disturbance detection</li>
-<li>Single detection pass — no additional inference overhead</li>
-<li>HadamardNet framework supporting both tasks</li>
+<li>First application of Hadamard-coded output representations to object detection (Faster R-CNN, DETR), and a rigorous re-evaluation for semantic segmentation (SegFormer, DeepLabv3+)</li>
+<li>A novel probabilistic decoding procedure that solves a constrained optimization by projecting onto the probability simplex, yielding both optimal class posteriors P<em> and a minimal-norm error vector e</em></li>
+<li>First to exploit intrinsic Hadamard codeword redundancy for adversarial-attack and disturbance detection, via three anomaly scores (error-L1, regression, 85%-quantile regression)</li>
+<li>Single-pass detection with no adversarial training data, no multi-pass inference, and architecture/task-agnostic design</li>
+<li>Comprehensive evaluation across 4 architectures, 5 datasets, FGSM/PGD/Metzen (segmentation) and TOG (detection) attacks plus Gaussian / salt-&-pepper disturbances</li>
 </ul>
 <h2>Methodology</h2>
-<p>The authors replace standard one-hot output encodings with Hadamard codes. They derive a novel decoding procedure that projects onto the probability simplex for optimal class-wise probabilities. The intrinsic redundancy of Hadamard codewords provides a measure of prediction inconsistency, which is exploited for detecting adversarial perturbations and disturbances in a single forward pass.</p>
+<p><strong>Hadamard encoding.</strong> HadamardNet replaces the standard one-hot classifier head with a sigmoid head predicting a length-L soft codeword h (L = 2^k ≥ S classes), where the target codewords are columns of the unipolar Hadamard matrix H ∈ {0,1}^{L×S} (Eq. 3). Hadamard codes have constant pairwise Hamming distance 2^{k−1}, which is the source of redundancy exploited for detection.</p>
+<p><strong>Hadamard decoder (the core derivation).</strong> Given a predicted soft codeword h_i, the ideal error-free codeword satisfies the linear equation system H · P_i = h<em>_i. Real predictions are inconsistent, so the authors introduce an error vector ě_i and solve H · P_i = h_i + ě_i (Eq. 13) subject to the stochastic constraints Σ_s P_{i,s}=1, P_{i,s}≥0. Rearranging gives P_i = P̃_i + e_i with P̃_i = (1/L) Ĥ^T ȟ_i. The authors prove (Supplement D) that minimizing ‖ě_i‖_2² is equivalent to minimizing ‖e_i‖_2², whose solution is the projection of P̃_i onto the probability simplex (Michelot's algorithm, Eq. 15). The resulting minimal error vector e</em>_i = P*_i − P̃_i (Eq. 16) is the inconsistency signal.</p>
+<p><strong>Three anomaly scores.</strong> (1) Error score δ(x) = mean_i ‖e<em>_i‖_1 (Eq. 17). (2) Regression score: a regression network F predicts the expected ‖e</em>_i‖_1 from the max posterior and entropy; the anomaly score is the deviation of the per-image prediction error from the clean-training mean (Eq. 18). (3) Quantile score: F predicts the conditional 85% quantile of ‖e*_i‖_1; δ(x) is the fraction of pixels/objects whose error norm exceeds this quantile (Eq. 19). An image is flagged adversarial if δ(x) ≥ θ.</p>
+<p><strong>Training.</strong> The detector regression network F is trained in a second stage on clean data only (20 epochs, AdamW), after the base model is trained. The classification loss J^cls = α J^ENC + β J^DEC + γ J^error combines an encoded-Hadamard-space loss (BCE/MSE/MAE; MSE chosen by ablation), a decoded one-hot loss (CE + MAE), and the L2 error-vector penalty. For detection, Hadamard encodings apply only to the classification branch; box regression uses standard losses.</p>
+<p><strong>Setup values.</strong> SegFormer MiT-B0 is the main study model; DeepLabv3+ also reported. Datasets: Cityscapes, BDD100K, ADE20K (segmentation); Pascal VOC 2007+2012, BDD100K, COCO (detection). Attacks: FGSM/PGD/Metzen for segmentation (PGD 10 iterations step αϵ=ϵ/4; Metzen 60 iterations, step 1/255); TOG untargeted/fabrication/vanishing/mislabeling for detection. Strengths ϵ ∈ {1,2,4,8,16} (segmentation), {0.25,…,16} (detection). Detection metric: global AuROC (single threshold across all perturbations/strengths). 95% CIs over 3 seeds.</p>
 <h2>Results & Highlights</h2>
 <ul>
-<li>State-of-the-art perturbation detection for both object detection and semantic segmentation</li>
-<li>Single detection pass (no additional inference)</li>
-<li>Equivalent or close-by reference performance on clean data</li>
-<li>Addresses both adversarial attacks and natural disturbances</li>
+<li><strong>Semantic segmentation, Cityscapes val, SegFormer MiT-B0 (Table 1):</strong> the proposed quantile detector (19) achieves <strong>80.2% global AuROC</strong> across all perturbations and strengths, statistically equivalent to the 3-pass Xu et al. baseline (<strong>80.7%</strong>) at ~3× fewer GFLOPs (122 vs 366). It beats single-pass baselines entropy (<strong>71.6%</strong>) and max-posterior (<strong>71.4%</strong>), and Maag et al. (<strong>74.8%</strong>). On the hard Metzen attack it scores <strong>75.9%</strong> vs entropy's 45.0%.</li>
+<li><strong>Clean-data mIoU preserved (Table 2):</strong> HadamardNet matches one-hot within confidence intervals — SegFormer MiT-B0 on Cityscapes <strong>76.5% vs 76.4% mIoU</strong>, DeepLabv3+ on Cityscapes <strong>80.1% vs 80.2% mIoU</strong> — at essentially identical model size (43.6M) and +1 GFLOPs.</li>
+<li><strong>Object detection, Pascal VOC val, Faster R-CNN (Table 3):</strong> the regression detector (18) reaches <strong>74.4% global AuROC</strong>, the best single-pass result and better than the multi-pass Xu et al. (<strong>69.8%</strong>) and the strongest single-pass baseline max-posterior (<strong>61.2%</strong>). On the vanishing attack it scores <strong>70.6%</strong> vs max-posterior's 5.4%.</li>
+<li><strong>Clean-data AP preserved (Table 4):</strong> Faster R-CNN HadamardNet AP is <strong>40.4% vs 41.0%</strong> (one-hot) on VOC and <strong>32.3% vs 32.8%</strong> on BDD100K — close-by, with DETR essentially equivalent (46.9% vs 47.5%).</li>
+<li><strong>Detection task finding:</strong> the quantile score (best for segmentation) performs poorly for detection because of the small number of objects vs pixels; the regression score (18) is instead best — the authors explicitly map each detector to the task where it works.</li>
 </ul>
 <h2>Authors & Credibility</h2>
 <ul>
-<li>Lucas Görnhardt, Timo Bartels, Niklas Schwarz, Tim Fingscheidt — technical university researchers</li>
-<li>Comprehensive evaluation on both disturbances and adversarial attacks</li>
+<li>All four authors (Lucas Görnhardt<em>, Timo Bartels</em>, Niklas Schwarz, Tim Fingscheidt; * equal contribution) are at <strong>Technische Universität Braunschweig, Germany</strong>.</li>
+<li>Funded by the German Federal Ministry for Economic Affairs and Energy project "Safe AI Engineering".</li>
+<li>No venue stated in the PDF (arXiv preprint, v1, 8 Jun 2026); no public code link given in the extracted text.</li>
 </ul>
 <h2>Critical Assessment</h2>
 <ul>
-<li><strong>Novelty</strong>: High — first application to detection/segmentation, novel decoding procedure</li>
-<li><strong>Rigor</strong>: Strong — comprehensive evaluation on both tasks, both attack types</li>
-<li><strong>Reproducibility</strong>: Good if framework is released</li>
-<li><strong>Significance</strong>: Important for deploying vision models in safety-critical settings</li>
-<li><strong>Red flags</strong>: Previous attempts at Hadamard codes for segmentation hurt mIoU — need to verify this is resolved</li>
+<li><strong>Weak-baseline caveat:</strong> the headline "single-pass matches multi-pass" comparison rests on Xu et al. (feature squeezing) being run at 3 passes/366 GFLOPs; the entropy [37] and max-posterior [13] single-pass baselines are deliberately simple, so the gap partly reflects baseline choice rather than detector sophistication.</li>
+<li><strong>Detection-side failure mode:</strong> the quantile detector (19), the best segmentation score, collapses on object detection (54.3% global AuROC with ±17% variance, Table 3) — detection has too few objects for a stable pixel-fraction statistic. This means no single score is universal; the "framework" is really two task-specific detectors.</li>
+<li><strong>Clean-AP regression:</strong> Faster R-CNN HadamardNet loses ~0.6 AP on VOC and ~0.5 AP on BDD100K clean data (Table 4) — small but consistently below one-hot, contradicting a strict "equivalent" claim for detection.</li>
+<li><strong>Vanishing-attack anomaly:</strong> entropy/max-posterior baselines score ~5–9% AuROC on the vanishing attack (Table 3) — near-random — suggesting these baselines were not tuned for that regime, which inflates the relative win.</li>
+<li><strong>Generalization across perturbations</strong> is enforced via a single global threshold, which is realistic but penalizes methods specialized to one attack (e.g., Maag et al. on FGSM).</li>
 </ul>
 <h2>Strengths</h2>
 <ul>
-<li>Zero-overhead detection (single forward pass)</li>
-<li>Unified framework for detection and segmentation</li>
-<li>Solves codeword inconsistency that prior work left unaddressed</li>
+<li>Mathematically rigorous decoding (simplex projection with an equivalence proof in Supplement D) — not a heuristic</li>
+<li>Genuine zero-overhead-on-inference detection: a single forward pass, no adversarial training data, task- and architecture-agnostic (works on both CNN Faster R-CNN and transformer DETR)</li>
+<li>Clean-data task performance is essentially preserved on segmentation (mIoU within CI)</li>
+<li>Broad evaluation: 4 architectures, 5 datasets, 6+ attack/disturbance types, with 95% CIs over 3 seeds and per-perturbation + global AuROC reporting</li>
 </ul>
 <h2>Limitations</h2>
 <ul>
-<li>Previous attempts at Hadamard codes for segmentation hurt mIoU — must verify this is resolved</li>
-<li>Computational overhead of Hadamard decoding not discussed in abstract</li>
+<li>No single detector generalizes across tasks: quantile wins segmentation but fails detection; regression wins detection — practitioners must pick per task</li>
+<li>Consistent small clean-AP loss on object detection (~0.5–0.6 AP)</li>
+<li>Strongest baseline for detection (max-posterior) is near-random on the vanishing attack, so part of the AuROC margin is baseline weakness</li>
+<li>No code release stated in the PDF; reproducibility of the second-stage regression network F depends on Supplement G details</li>
+<li>Hadamard code length L must be a power of two ≥ S; for very large label spaces the codeword/head width grows, though model size (M) is reported unchanged</li>
 </ul>
 <h2>Relevance</h2>
-<ul>
-<li>相关性评分：5/5</li>
-<li>直接涉及模型鲁棒性和可靠性，与计算可靠性（量化/对抗攻击检测）高度相关</li>
-</ul>
+<p>映射到研究兴趣 <strong>#4 Computation Reliability & Precision Errors</strong> 与 <strong>#7 ML Reliability & Mathematical Foundations</strong>：本文本质是给感知模型加冗余编码以检测对抗/扰动错误，核心贡献是一个有严格数学推导（概率单纯形投影、误差向量最小化）的可靠性机制，正是"计算/模型可靠性 + 数学基础"的交叉点。</p>
 <h2>Questions for Further Exploration</h2>
 <ul>
-<li>What is the computational overhead of Hadamard decoding vs standard softmax?</li>
-<li>How does the approach scale to very large label spaces?</li>
+<li>Could the error-vector signal e*_i double as a calibration or selective-prediction signal (the paper cites Verma et al. [40] on calibration but does not report ECE here)?</li>
+<li>The 85% quantile is fixed; is there a principled (e.g., per-image adaptive) choice, especially given the quantile score's instability on the sparse object-detection regime?</li>
+<li>The vanishing attack exposes a striking baseline failure (max-posterior ~5% AuROC) — is there an attack-agnostic explanation, or is this an artifact of the TOG attack definition the paper cites [5]?</li>
+<li>The simplex-projection decoding assumes the error vector is minimized in L2; does an L1 or Huber projection change the detection AUROC under sparse-perturbation attacks like Metzen?</li>
 </ul>
 <p class="note">Generated from Markdown summary. Full paper: <a href="https://arxiv.org/abs/2606.09536">arXiv:2606.09536</a></p>
 </div>

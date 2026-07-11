@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Avoiding Unsafe Sets When Training with Langevin Dynamics</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#eceeeb;
+    --bg-card:#fcfdfb;
+    --bg-sunken:#e0e3dd;
+    --ink:#15160f;
+    --ink-2:#45473c;
+    --ink-3:#888a7c;
+    --rule:#d2d5cb;
+    --rule-strong:#b3b8a8;
+    --accent:#4a5d3a;
+    --accent-2:#333f27;
+    --accent-soft:#dde5d2;
+    --crit:#8a4a1c;
+    --crit-bg:#f4ebe0;
+    --crit-rule:#e0cdb2;
+    --maxw:min(95vw,1100px);
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    background:var(--bg);color:var(--ink);
+    font-family:'IBM Plex Sans',-apple-system,system-ui,sans-serif;
+    font-size:16px;line-height:1.55;
+    -webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;
+    background-image:radial-gradient(circle at 1px 1px, rgba(21,22,15,0.025) 1px, transparent 0);
+    background-size:22px 22px;
+  }
+  ::selection{background:var(--accent);color:#fff}
+  .topnav{position:fixed;top:0;left:0;right:0;z-index:50;display:flex;align-items:center;justify-content:space-between;padding:14px 22px;background:rgba(236,238,235,0.86);backdrop-filter:saturate(140%) blur(8px);-webkit-backdrop-filter:saturate(140%) blur(8px);border-bottom:1px solid var(--rule)}
+  .topnav .brand{font-family:'Fraunces',serif;font-weight:600;font-size:15px;letter-spacing:-0.01em;color:var(--ink);text-decoration:none;display:flex;align-items:center;gap:8px}
+  .topnav .brand .dot{width:8px;height:8px;background:var(--accent);border-radius:2px;display:inline-block}
+  .topnav .meta{font-family:'IBM Plex Mono',monospace;font-size:11.5px;color:var(--ink-3);letter-spacing:0.02em}
+  .wrap{max-width:var(--maxw);margin:0 auto;padding:84px 28px 60px}
+  .hero{padding:8px 0 26px;border-bottom:1px solid var(--rule-strong);position:relative}
+  .chips{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:18px}
+  .chip{font-family:'IBM Plex Mono',monospace;font-size:10.5px;letter-spacing:0.04em;text-transform:uppercase;padding:4px 9px;border:1px solid var(--rule-strong);border-radius:2px;color:var(--ink-2);background:var(--bg-card)}
+  .chip.accent{border-color:var(--accent);color:var(--accent-2);background:var(--accent-soft)}
+  .hero .eyebrow{font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:0.14em;text-transform:uppercase;color:var(--accent);margin-bottom:14px;font-weight:500}
+  .hero .eyebrow .sep{color:var(--ink-3);margin:0 8px}
+  .finding{font-family:'Fraunces',serif;font-weight:500;font-size:clamp(1.85rem,5vw,3.5rem);line-height:1.06;letter-spacing:-0.025em;margin:0 0 22px;max-width:20ch;color:var(--ink)}
+  .finding em{font-style:italic;font-weight:500;color:var(--accent);font-variation-settings:"SOFT" 80}
+  .finding .hl{background:linear-gradient(180deg,transparent 62%,var(--accent-soft) 62%);padding:0 2px}
+  .title-block{display:flex;flex-direction:column;gap:6px;border-left:3px solid var(--accent);padding-left:14px}
+  .title-block .ptitle{font-family:'Fraunces',serif;font-weight:600;font-size:18px;line-height:1.3;letter-spacing:-0.01em}
+  .title-block .ptitle a{color:var(--ink);text-decoration:none;border-bottom:1px solid var(--rule-strong)}
+  .title-block .ptitle a:hover{color:var(--accent);border-color:var(--accent)}
+  .title-block .authors{font-size:13.5px;color:var(--ink-2)}
+  .title-block .authors em{font-style:italic;color:var(--ink-3);font-size:12px}
+  .title-block .submeta{font-family:'IBM Plex Mono',monospace;font-size:11.5px;color:var(--ink-3);margin-top:2px;letter-spacing:0.01em}
+  .assets{display:grid;grid-template-columns:1.15fr 1fr 1fr;gap:0;margin-top:26px;border:1px solid var(--rule-strong);border-radius:3px;overflow:hidden;background:var(--bg-card)}
+  .asset{padding:22px 22px 24px;position:relative}
+  .asset + .asset{border-left:1px solid var(--rule)}
+  .asset .label{font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:0.16em;text-transform:uppercase;color:var(--ink-3);margin-bottom:14px;display:flex;align-items:center;gap:8px}
+  .asset .label .sq{width:7px;height:7px;background:var(--accent);display:inline-block;border-radius:1px}
+  .asset.crit .label .sq{background:var(--crit)}
+  .asset.matter .label .sq{background:var(--ink-2)}
+  .metric .figure{font-family:'IBM Plex Mono',monospace;font-weight:600;font-size:clamp(2.6rem,6vw,4.2rem);line-height:0.9;letter-spacing:-0.04em;color:var(--accent-2);display:flex;align-items:baseline;gap:4px}
+  .metric .figure .unit{font-size:0.5em;font-weight:500;color:var(--accent);letter-spacing:0}
+  .metric .figcap{font-size:13px;color:var(--ink-2);margin-top:12px;line-height:1.45}
+  .metric .range{margin-top:10px;font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--ink-3);letter-spacing:0.02em;padding-top:10px;border-top:1px dashed var(--rule)}
+  .matter .body{font-family:'Fraunces',serif;font-weight:400;font-size:19px;line-height:1.4;letter-spacing:-0.01em;color:var(--ink)}
+  .matter .body strong{color:var(--accent-2);font-weight:600}
+  .asset.crit{background:var(--crit-bg)}
+  .asset.crit .body{font-family:'Fraunces',serif;font-size:17.5px;line-height:1.4;letter-spacing:-0.01em;color:#4f2a13}
+  .asset.crit .body strong{font-weight:600;color:var(--crit)}
+  .asset.crit .tag{margin-top:12px;font-family:'IBM Plex Mono',monospace;font-size:10.5px;color:var(--crit);letter-spacing:0.08em;text-transform:uppercase}
+  .body-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:42px}
+  .card{background:var(--bg-card);border:1px solid var(--rule-strong);border-radius:3px;padding:24px 24px 26px}
+  .card.full{grid-column:1 / -1}
+  .card h3{font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:0.16em;text-transform:uppercase;color:var(--accent);margin:0 0 16px;font-weight:500;display:flex;align-items:center;gap:10px}
+  .card h3 .num{font-family:'Fraunces',serif;font-style:italic;font-weight:500;font-size:14px;color:var(--ink-3);letter-spacing:0;text-transform:none}
+  .card h2{font-family:'Fraunces',serif;font-weight:600;font-size:22px;line-height:1.2;letter-spacing:-0.015em;margin:0 0 12px;color:var(--ink)}
+  .card p{margin:0 0 10px;color:var(--ink-2);font-size:14.5px}
+  .card p:last-child{margin-bottom:0}
+  .card .lead{font-family:'Fraunces',serif;font-size:16px;color:var(--ink);line-height:1.45}
+  code.i{font-family:'IBM Plex Mono',monospace;font-size:12.5px;background:var(--bg-sunken);padding:1px 5px;border-radius:2px;color:var(--accent-2)}
+  .formula{font-family:'IBM Plex Mono',monospace;font-size:14px;background:var(--bg-sunken);padding:12px 14px;border-radius:3px;color:var(--ink);border-left:3px solid var(--accent);margin:12px 0;overflow-x:auto;line-height:1.6}
+  ul.clean{list-style:none;padding:0;margin:0}
+  ul.clean li{position:relative;padding:6px 0 6px 22px;font-size:14px;color:var(--ink-2);border-bottom:1px solid var(--rule)}
+  ul.clean li:last-child{border-bottom:none}
+  ul.clean li::before{content:"";position:absolute;left:2px;top:14px;width:10px;height:1px;background:var(--accent)}
+  ul.clean li strong{color:var(--ink);font-weight:600}
+  .duo{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+  .duo .card{padding:22px}
+  .card.lim{border-color:var(--crit-rule)}
+  .card.lim h3{color:var(--crit)}
+  .card.lim ul.clean li::before{background:var(--crit)}
+
+  /* taxonomy of failure geometries */
+  .taxonomy{display:grid;grid-template-columns:repeat(3,1fr);gap:0;margin-top:14px;border:1px solid var(--rule);border-radius:3px;overflow:hidden}
+  .taxonomy .geo{padding:14px;background:var(--bg-sunken);position:relative}
+  .taxonomy .geo + .geo{border-left:1px solid var(--rule)}
+  .taxonomy .geo .k{font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:0.1em;text-transform:uppercase;color:var(--accent);font-weight:600}
+  .taxonomy .geo .n{font-family:'Fraunces',serif;font-size:15px;color:var(--ink);margin-top:4px;font-weight:600}
+  .taxonomy .geo.bad .k{color:var(--crit)}
+  .taxonomy .geo .d{font-size:12px;color:var(--ink-3);margin-top:5px;line-height:1.35}
+  .taxonomy .geo .rate{font-family:'IBM Plex Mono',monospace;font-size:11.5px;color:var(--ink);margin-top:8px;padding-top:6px;border-top:1px dashed var(--rule)}
+  .taxonomy .geo .rate strong{color:var(--accent-2)}
+  .taxonomy .geo.bad .rate strong{color:var(--crit)}
+
+  /* OU swelling comparison */
+  .swell{display:grid;grid-template-columns:1fr 1fr;gap:0;margin-top:14px;border:1px solid var(--rule);border-radius:3px;overflow:hidden}
+  .swell .col{padding:16px}
+  .swell .col + .col{border-left:1px solid var(--rule);background:var(--bg-sunken)}
+  .swell .col .lab{font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:0.1em;text-transform:uppercase;color:var(--ink-3);margin-bottom:8px}
+  .swell .col .big{font-family:'IBM Plex Mono',monospace;font-size:26px;font-weight:600;color:var(--accent-2);letter-spacing:-0.02em}
+  .swell .col.bad .big{color:var(--crit)}
+  .swell .col .desc{font-size:12.5px;color:var(--ink-2);margin-top:6px;line-height:1.4}
+
+  .kv{display:grid;grid-template-columns:auto 1fr;gap:6px 16px;margin-top:14px;font-size:13.5px}
+  .kv dt{font-family:'IBM Plex Mono',monospace;font-size:11.5px;color:var(--ink-3);letter-spacing:0.02em}
+  .kv dd{margin:0;color:var(--ink-2)}
+  .kv dd strong{color:var(--ink);font-weight:600}
+
+  .q-list{counter-reset:q;display:flex;flex-direction:column;gap:0}
+  .q-list .q{counter-increment:q;position:relative;padding:14px 0 14px 42px;border-bottom:1px solid var(--rule);font-family:'Fraunces',serif;font-size:16px;line-height:1.4;color:var(--ink);letter-spacing:-0.005em}
+  .q-list .q:last-child{border-bottom:none}
+  .q-list .q::before{content:counter(q,decimal-leading-zero);position:absolute;left:0;top:14px;font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:600;color:var(--accent);letter-spacing:0.04em}
+  .q-list .q em{font-style:italic;color:var(--ink-2)}
+
+  .foot{max-width:var(--maxw);margin:48px auto 0;padding:22px 28px 40px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;border-top:1px solid var(--rule-strong);font-family:'IBM Plex Mono',monospace;font-size:11.5px;color:var(--ink-3);letter-spacing:0.02em}
+  .foot a{color:var(--accent-2);text-decoration:none;border-bottom:1px solid var(--rule-strong)}
+  .foot a:hover{border-color:var(--accent)}
+
+  .reveal{opacity:0;transform:translateY(10px);animation:rv .7s cubic-bezier(.2,.7,.2,1) forwards}
+  @keyframes rv{to{opacity:1;transform:none}}
+  .d1{animation-delay:.05s}.d2{animation-delay:.13s}.d3{animation-delay:.21s}.d4{animation-delay:.32s}.d5{animation-delay:.42s}.d6{animation-delay:.52s}
+
+  @media (max-width:860px){
+    .assets{grid-template-columns:1fr}
+    .asset + .asset{border-left:none;border-top:1px solid var(--rule)}
+    .body-grid{grid-template-columns:1fr}
+    .duo{grid-template-columns:1fr}
+    .taxonomy{grid-template-columns:1fr}
+    .taxonomy .geo + .geo{border-left:none;border-top:1px solid var(--rule)}
+    .swell{grid-template-columns:1fr}
+    .swell .col + .col{border-left:none;border-top:1px solid var(--rule)}
+  }
+  @media (max-width:560px){
+    .wrap{padding:74px 16px 40px}
+    .finding{max-width:none}
+    .topnav .meta{display:none}
+  }
+  @media (prefers-reduced-motion:reduce){.reveal{opacity:1;transform:none;animation:none}}
+</style>
+</head>
+<body>
+
+<nav class="topnav">
+  <a class="brand" href="./index.html"><span class="dot"></span>↩ Today's digest</a>
+  <span class="meta">arXiv:2607.07538 · 2026-07-08 · pure theory (probability / PDE)</span>
+</nav>
+
+<main class="wrap">
+
+  <!-- ================= HERO ================= -->
+  <header class="hero">
+    <div class="chips reveal d1">
+      <span class="chip accent">AI safety</span>
+      <span class="chip">Langevin dynamics</span>
+      <span class="chip">concentration of measure</span>
+      <span class="chip">training dynamics</span>
+      <span class="chip">safety bounds</span>
+    </div>
+
+    <div class="eyebrow reveal d1">Key Finding<span class="sep">/</span>Set-Specific Safety Bounds for Noisy SGD</div>
+
+    <h1 class="finding reveal d2">
+      Global divergence bounds <em>cannot</em> control set-mass — but a local relaxation rate <span class="hl">bounds unsafe-set occupancy</span> uniformly in time.
+    </h1>
+
+    <div class="title-block reveal d3">
+      <div class="ptitle">
+        <a href="https://arxiv.org/abs/2607.07538" target="_blank" rel="noopener">Avoiding Unsafe Sets When Training with Langevin Dynamics</a>
+      </div>
+      <div class="authors">Adam Oberman <em>(LawZero · Mila · McGill) — single-author theory paper</em></div>
+      <div class="submeta">Overdamped Langevin SDE on strongly-convex L-smooth loss &nbsp;·&nbsp; 2026-07-08 &nbsp;·&nbsp; grounds the Scientist-AI Predictor safety case [BRG+26]</div>
+    </div>
+  </header>
+
+  <!-- ================= ASSET ROW ================= -->
+  <section class="assets reveal d3">
+
+    <div class="asset metric">
+      <div class="label"><span class="sq"></span>Key Metric</div>
+      <div class="figure">~10<sup style="font-size:0.5em">5</sup></div>
+      <div class="figcap"><strong>Transient swelling factor</strong> of the unsafe-set mass above equilibrium in the OU benchmark — while global divergences stay small.</div>
+      <div class="range">π(A_H) ≈ 3×10⁻⁵ &nbsp;·&nbsp; ν_t(A_H) ≈ 0.75 at t*=log 2 &nbsp;·&nbsp; proves global bounds provably miss local bulges</div>
+    </div>
+
+    <div class="asset matter">
+      <div class="label"><span class="sq"></span>Why This Matters</div>
+      <p class="body">A rare paper giving a <strong>set-specific, dimension-explicit bound</strong> on training-time occupancy of a bad region — and identifying <strong>geometry, not just mass</strong>, as the deciding factor.</p>
+    </div>
+
+    <div class="asset crit">
+      <div class="label"><span class="sq"></span>Critical Edge</div>
+      <p class="body">The uniform-in-time cap needs both <strong>flux-isolation and a bounded M</strong> — conditions that <strong>fail exactly in the swelling example</strong> used to motivate the paper.</p>
+      <div class="tag">Protective hypotheses fail in the dangerous case</div>
+    </div>
+
+  </section>
+
+  <!-- ================= BODY GRID ================= -->
+  <section class="body-grid">
+
+    <!-- METHODOLOGY -->
+    <article class="card full reveal d4">
+      <h3>Methodology <span class="num">— self-contained probability/PDE derivation</span></h3>
+      <h2>Why KL/χ²/Wasserstein convergence can't bound the probability of being unsafe</h2>
+      <p class="lead">Training is idealized as the overdamped Langevin SDE <code class="i">dQ_t = −∇J(Q_t)dt + σdW_t</code> on a loss <code class="i">J ∈ C²(ℝᵈ)</code> with two-sided Hessian envelope <code class="i">mI ⪯ ∇²J ⪯ LI</code>. The unsafe set <code class="i">A_H = {Q : a_H(Q) &gt; α}</code> triggers an alarm that costs at least <code class="i">ψ(α)</code> in loss. The stationary law is the Gibbs measure <code class="i">π ∝ e⁻²ᴶᐟσ²</code>.</p>
+      <p>The argument chain: the density ratio solves the backward Kolmogorov equation under the Langevin generator; Brascamp-Lieb / Bakry-Émery gives the Poincaré constant <code class="i">m</code>, yielding <code class="i">L²(π)</code> contraction. The key trick is <strong>centering the indicator</strong> <code class="i">1_A − π(A)</code> so the Cauchy-Schwarz second factor drops from second moment <code class="i">π(A)</code> to variance <code class="i">π(A)(1−π(A))</code> — exactly why the bound is informative for rare sets.</p>
+      <div class="formula">ν_t(A_H) ≤ π(A_H)(1 + √(χ²₀/π(A_H))·e⁻ᵐᵗ) &nbsp;⟶&nbsp; 2π(A_H) after O(d) burn-in<br>π(A_H) ≤ K·e⁻ᴬᵈᐟ² &nbsp;(A = log(πσ²/L), &nbsp;static dimensional decay)</div>
+      <p>A <strong>maximum-principle ceiling</strong> <code class="i">ν_t(A_H) ≤ M·π(A_H)</code> sandwiches the bound when <code class="i">M = ‖ν₀/π‖_∞ &lt; ∞</code>. For geometrically isolated sets, a local relaxation rate <code class="i">λ_A_H ≥ m</code> (defined via the spectral measure of the centered indicator, sidestepping the +∞ Dirichlet energy of an indicator) shrinks the burn-in by <code class="i">m/λ_A_H</code> and combines with the ceiling into a uniform-in-time bound. Sharpness is checked on the exactly solvable Ornstein-Uhlenbeck process.</p>
+    </article>
+
+    <!-- OU counterexample -->
+    <article class="card full reveal d4">
+      <h3>The Central Counterexample <span class="num">— 1-D Ornstein-Uhlenbeck</span></h3>
+      <h2>Small global divergence, huge local swelling — simultaneously</h2>
+      <div class="swell">
+        <div class="col">
+          <div class="lab">At equilibrium</div>
+          <div class="big">≈ 3×10⁻⁵</div>
+          <div class="desc">π(A_H) for A_H=[4,6] under N(0,1). The probability mass the trajectory is supposed to carry <em>most</em> of the time.</div>
+        </div>
+        <div class="col bad">
+          <div class="lab">At t* = log 2 (start δ₁₀)</div>
+          <div class="big">≈ 0.75</div>
+          <div class="desc">ν_t(A_H) — the law is N(5, 3/4), sitting squarely on the unsafe interval. KL/χ²/Wasserstein stay small throughout; none forbids this bulge.</div>
+        </div>
+      </div>
+      <p style="margin-top:12px;font-size:13px;color:var(--ink-3)">This single example is the paper's strongest evidence that prior global-divergence analyses provably cannot certify set-mass safety.</p>
+    </article>
+
+    <!-- TAXONOMY -->
+    <article class="card full reveal d5">
+      <h3>The High-Dimensional Taxonomy <span class="num">— three failure geometries on a thin shell</span></h3>
+      <h2>Where in parameter space is an unsafe set tolerable?</h2>
+      <div class="taxonomy">
+        <div class="geo">
+          <div class="k">Geometry A</div>
+          <div class="n">Off-shell ball (at the mode)</div>
+          <div class="d">Surrounded by an "entropic moat" — mass must concentrate to reach it.</div>
+          <div class="rate">local rate <strong>λ_A_H ≥ 2m</strong> — geometry doubles the relaxation</div>
+        </div>
+        <div class="geo">
+          <div class="k">Geometry B</div>
+          <div class="n">Far-tail ball</div>
+          <div class="d">Guarded by an Arrhenius / Eyring-Kramers energy barrier against the drift.</div>
+          <div class="rate">barrier <strong>exp[−2(m/L)ψ(α)/σ²]</strong> in small-noise regime</div>
+        </div>
+        <div class="geo bad">
+          <div class="k">Geometry C — worst sweller</div>
+          <div class="n">Shell-slice (along the shell)</div>
+          <div class="d">Free transport along the thin shell; the local rate collapses.</div>
+          <div class="rate">local rate <strong>λ_A_H → 0</strong> — only the ceiling survives</div>
+        </div>
+      </div>
+      <p style="margin-top:12px;font-size:13px;color:var(--ink-2)">The shell-slice gives transient overshoot <code class="i">C_bad = exp[(d/2)·φ(u)]</code> with φ(u)=u−1−log u ≥ 0 — proving the gap between shape-free and shape-aware bounds is real and <strong>exponential in d</strong>.</p>
+    </article>
+
+    <!-- RESULTS side facts -->
+    <article class="card reveal d5">
+      <h3>Results <span class="num">— the five quantitative claims</span></h3>
+      <h2>Theorems and worked examples, not benchmarks</h2>
+      <dl class="kv">
+        <dt>Static decay</dt><dd>π(A_H) ≤ <strong>K·e⁻ᴬᵈᐟ²</strong>, A = log(πσ²/L); prior global bounds gave no comparable set-specific rate.</dd>
+        <dt>Burn-in</dt><dd>t⋆ = (1/2m)·log(χ²₀/π(A_H)) + (A/4m)·d — <strong>linear in d</strong>; combined bound P(Q_t∈A_H) ≤ 2π(A_H).</dd>
+        <dt>Ceiling</dt><dd>When <code class="i">M &lt; ∞</code>: <strong>ν_t(A_H) ≤ M·π(A_H)</strong>, uniform in time.</dd>
+        <dt>Off-shell rate</dt><dd>Symmetry gives <strong>λ_A_H ≥ 2m</strong> — a concrete factor-2 saving from geometry.</dd>
+        <dt>Shell overshoot</dt><dd>Angular amplification <strong>ν_t ≤ R_shell·Kᵈᐟ²</strong>; R_shell must beat (1/2)log K.</dd>
+      </dl>
+    </article>
+
+    <!-- STRENGTHS / LIMITATIONS -->
+    <div class="duo reveal d6" style="grid-column:1 / -1">
+      <article class="card str">
+        <h3>Strengths</h3>
+        <ul class="clean">
+          <li><strong>Isolates the right object</strong> — set-mass ν_t(A_H) — and proves global divergences provably cannot control it</li>
+          <li><strong>Two-grade structure</strong> makes the "cost of geometric ignorance" explicit and quantitative</li>
+          <li><strong>Technically careful</strong> — λ_A_H via spectral measure of the centered indicator is the correct fix for indicator functions</li>
+          <li><strong>Immediately usable taxonomy</strong> for <em>where</em> in parameter space an unsafe set is tolerable</li>
+          <li><strong>Honest positioning</strong> against [BRG+26] — supplies dynamics the Scientist-AI safety case assumed abstractly</li>
+        </ul>
+      </article>
+      <article class="card lim">
+        <h3>Limitations</h3>
+        <ul class="clean">
+          <li><strong>Convexity regime only</strong> — needs global m-strong convexity, L-smoothness; not real deep-network losses</li>
+          <li><strong>Continuous-time, isotropic idealization</strong> — discretization and anisotropic minibatch covariance out of scope</li>
+          <li><strong>Uniform cap needs M &lt; ∞</strong>, which fails for point-mass (deterministic) initialization — the common SGD case</li>
+          <li><strong>No universal Cheeger lower bound</strong> on λ_A_H — must verify per family, limiting black-box use</li>
+          <li><strong>No empirical/numerical validation</strong> — not even a finite-d OU simulation confirms the predicted burn-in</li>
+          <li><strong>Static bound only informative when πσ² &gt; L</strong></li>
+        </ul>
+      </article>
+    </div>
+
+    <!-- QUESTIONS -->
+    <article class="card full reveal d6">
+      <h3>Open Questions <span class="num">— for further exploration</span></h3>
+      <div class="q-list">
+        <div class="q">Can λ_A_H be lower-bounded from conductance by a <em>universal Cheeger-type inequality</em> (λ_A_H ≥ c·h²_A), so flux-isolation becomes checkable rather than per-family?</div>
+        <div class="q">What survives under <em>discrete-time SGLD with anisotropic minibatch covariance</em> — does the centered-indicator conversion still go through, and at what step-size-dependent rate?</div>
+        <div class="q">How does the picture change when strong convexity is dropped (<em>non-convex multi-basin</em>) — can Theorem 6.1 be restated with a basin-dependent Eyring-Kramers escape rate?</div>
+        <div class="q">Is the warm-start requirement <em>M &lt; ∞</em> removable via a short-time smoothing argument, so point-mass SGD init still gets a uniform cap after regularization?</div>
+        <div class="q">Can the framework be instantiated on the <em>Scientist-AI Predictor's C_bad·R_shell bound</em> to give a numerical, dimension-explicit safety budget rather than a structural one?</div>
+      </div>
+    </article>
+
+  </section>
+</main>
+
+<footer class="foot">
+  <span>Positions the Scientist-AI safety case [BRG+26, arXiv:2606.29657] theoretically</span>
+  <a href="2607.07538.html">↗ Markdown source</a>
+</footer>
+
+</body>
+</html>

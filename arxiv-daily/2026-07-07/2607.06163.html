@@ -1,0 +1,993 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>X-FEMR — Token-level Explainability for EHR Foundation Models</title>
+<style>
+  :root {
+    --bg: #fbfaf6;
+    --ink: #16140f;
+    --muted: #6e6a60;
+    --faint: #9a958a;
+    --rule: #e4dfd2;
+    --rule-strong: #d3ccba;
+    --card: #ffffff;
+    --accent: #0b6b5e;
+    --accent-deep: #084e44;
+    --accent-soft: #e7efed;
+    --accent-line: #b9d4ce;
+    --maxw: min(95vw, 1100px);
+  }
+
+  * { box-sizing: border-box; }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    font-size: 16px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  .serif {
+    font-family: ui-serif, "Iowan Old Style", "Apple Garamond", Georgia, Cambria, "Times New Roman", serif;
+  }
+
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; text-underline-offset: 3px; }
+
+  /* ---------- Fixed nav ---------- */
+  .digest-nav {
+    position: fixed;
+    top: 16px;
+    left: 16px;
+    z-index: 50;
+    background: var(--card);
+    border: 1px solid var(--rule);
+    border-radius: 999px;
+    padding: 7px 14px;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--ink);
+    box-shadow: 0 1px 2px rgba(20,20,15,0.04);
+    transition: border-color .2s, color .2s;
+  }
+  .digest-nav:hover { border-color: var(--accent); color: var(--accent); text-decoration: none; }
+
+  /* ---------- Layout shell ---------- */
+  .shell {
+    max-width: var(--maxw);
+    margin: 0 auto;
+    padding: 56px 28px 24px;
+  }
+
+  /* ---------- Section index (sticky, desktop) ---------- */
+  .index-bar {
+    position: sticky;
+    top: 0;
+    background: linear-gradient(var(--bg), transparent); /* hairline, not marketing */
+    background: var(--bg);
+    border-bottom: 1px solid var(--rule);
+    margin: 0 -28px 40px;
+    padding: 14px 28px;
+    display: flex;
+    gap: 22px;
+    font-size: 13px;
+    overflow-x: auto;
+    z-index: 20;
+  }
+  .index-bar a {
+    color: var(--muted);
+    white-space: nowrap;
+    padding-bottom: 12px;
+    margin-bottom: -15px;
+    border-bottom: 2px solid transparent;
+    letter-spacing: .01em;
+  }
+  .index-bar a:hover { color: var(--accent); text-decoration: none; }
+  .index-bar a.active { color: var(--ink); border-bottom-color: var(--accent); }
+  .index-bar .idx-num {
+    color: var(--faint);
+    font-variant-numeric: tabular-nums;
+    margin-right: 6px;
+  }
+
+  /* ---------- Hero band ---------- */
+  .hero { margin-bottom: 44px; }
+
+  .eyebrow {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 26px;
+    font-size: 12px;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .eyebrow .sep { color: var(--rule-strong); }
+  .eyebrow .arxid { font-variant-numeric: tabular-nums; }
+
+  .chips { display: inline-flex; flex-wrap: wrap; gap: 6px; }
+  .chip {
+    border: 1px solid var(--rule-strong);
+    color: var(--ink);
+    background: transparent;
+    padding: 3px 9px;
+    border-radius: 4px;
+    font-size: 11px;
+    letter-spacing: .03em;
+    text-transform: uppercase;
+    font-weight: 500;
+  }
+
+  .key-finding {
+    font-size: clamp(1.85rem, 4.6vw, 3.25rem);
+    line-height: 1.08;
+    letter-spacing: -0.018em;
+    margin: 0 0 30px;
+    color: var(--ink);
+    font-weight: 500;
+    max-width: 18ch;
+  }
+  .key-finding em {
+    font-style: italic;
+    color: var(--accent);
+  }
+  .key-finding .mark {
+    background: linear-gradient(transparent 62%, var(--accent-soft) 62%);
+    padding: 0 2px;
+  }
+
+  .paper-title {
+    font-size: 15px;
+    color: var(--muted);
+    margin: 0 0 6px;
+    font-weight: 500;
+  }
+  .paper-title a { color: var(--ink); border-bottom: 1px solid var(--rule-strong); }
+  .paper-title a:hover { border-bottom-color: var(--accent); text-decoration: none; }
+
+  .authors {
+    font-size: 14px;
+    color: var(--muted);
+    margin: 0;
+  }
+  .authors .aff { color: var(--faint); }
+
+  /* ---------- Stat strip ---------- */
+  .stats {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 0;
+    border-top: 1px solid var(--rule);
+    border-bottom: 1px solid var(--rule);
+    margin-top: 30px;
+  }
+  .stat {
+    padding: 16px 18px;
+    border-right: 1px solid var(--rule);
+  }
+  .stat:last-child { border-right: none; }
+  .stat .n {
+    font-size: 1.5rem;
+    font-weight: 600;
+    color: var(--ink);
+    font-variant-numeric: tabular-nums;
+    line-height: 1;
+    letter-spacing: -0.01em;
+  }
+  .stat .l {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: .05em;
+    color: var(--faint);
+    margin-top: 7px;
+  }
+
+  /* ---------- Asset row ---------- */
+  .assets {
+    display: grid;
+    grid-template-columns: 1.25fr 1fr 1fr;
+    gap: 18px;
+    margin-bottom: 64px;
+  }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--rule);
+    border-radius: 10px;
+    padding: 24px;
+    position: relative;
+  }
+  .card-label {
+    font-size: 11px;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    font-weight: 600;
+    color: var(--faint);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 16px;
+  }
+  .card-label .dot {
+    width: 7px; height: 7px; border-radius: 50%;
+    background: var(--accent);
+    display: inline-block;
+  }
+
+  .card-metric {
+    background: var(--accent);
+    color: #fff;
+    border-color: var(--accent);
+  }
+  .card-metric .card-label { color: rgba(255,255,255,0.7); }
+  .card-metric .card-label .dot { background: #fff; }
+  .card-metric .big {
+    font-size: 2.6rem;
+    font-weight: 600;
+    line-height: 1;
+    letter-spacing: -0.02em;
+    font-variant-numeric: tabular-nums;
+  }
+  .card-metric .big .vs {
+    font-size: 1rem;
+    font-weight: 400;
+    color: rgba(255,255,255,0.75);
+    margin-left: 6px;
+  }
+  .card-metric .delta {
+    display: inline-block;
+    margin-top: 12px;
+    font-size: 12px;
+    font-weight: 600;
+    background: rgba(255,255,255,0.16);
+    padding: 3px 9px;
+    border-radius: 999px;
+    letter-spacing: .02em;
+  }
+  .card-metric .desc {
+    margin-top: 16px;
+    font-size: 13.5px;
+    color: rgba(255,255,255,0.92);
+    line-height: 1.45;
+  }
+
+  .card-why .body { font-size: 15px; line-height: 1.5; color: var(--ink); }
+
+  .card-edge {
+    border-left: 4px solid var(--accent);
+  }
+  .card-edge .flag {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 14px;
+  }
+  .card-edge .body {
+    font-size: 14.5px;
+    line-height: 1.5;
+    color: var(--ink);
+  }
+  .card-edge .body strong { font-weight: 600; }
+
+  /* ---------- Body sections ---------- */
+  section.block { margin-bottom: 64px; scroll-margin-top: 70px; }
+
+  .sec-head {
+    display: flex;
+    align-items: baseline;
+    gap: 14px;
+    margin-bottom: 22px;
+    border-bottom: 1px solid var(--rule);
+    padding-bottom: 12px;
+  }
+  .sec-num {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--accent);
+    font-variant-numeric: tabular-nums;
+    letter-spacing: .04em;
+  }
+  .sec-title {
+    font-size: 1.6rem;
+    font-weight: 600;
+    margin: 0;
+    letter-spacing: -0.01em;
+  }
+
+  /* Methodology */
+  .method-grid {
+    display: grid;
+    grid-template-columns: 1.4fr 1fr;
+    gap: 36px;
+  }
+  .method-text p { margin: 0 0 14px; font-size: 15px; line-height: 1.6; color: var(--ink); }
+  .method-text .lead { font-size: 16px; }
+  .pipeline {
+    background: var(--card);
+    border: 1px solid var(--rule);
+    border-radius: 10px;
+    padding: 22px;
+  }
+  .pipeline h4 {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: .08em;
+    color: var(--faint);
+    margin: 0 0 16px;
+    font-weight: 600;
+  }
+  .stage {
+    display: flex;
+    gap: 12px;
+    padding: 12px 0;
+    border-bottom: 1px dashed var(--rule);
+  }
+  .stage:last-child { border-bottom: none; padding-bottom: 0; }
+  .stage:first-child { padding-top: 0; }
+  .stage .step {
+    flex-shrink: 0;
+    width: 26px; height: 26px;
+    border-radius: 50%;
+    background: var(--accent-soft);
+    color: var(--accent-deep);
+    font-size: 12px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-variant-numeric: tabular-nums;
+  }
+  .stage .st-body { font-size: 13.5px; line-height: 1.45; }
+  .stage .st-body b { font-weight: 600; display: block; margin-bottom: 3px; color: var(--ink); }
+  .stage .st-body span { color: var(--muted); }
+
+  code.inline {
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 0.88em;
+    background: var(--accent-soft);
+    color: var(--accent-deep);
+    padding: 1px 6px;
+    border-radius: 4px;
+  }
+
+  /* ---------- Results tabs ---------- */
+  .tabs {
+    display: flex;
+    gap: 4px;
+    margin-bottom: 22px;
+    border-bottom: 1px solid var(--rule);
+  }
+  .tab {
+    appearance: none;
+    background: none;
+    border: none;
+    font: inherit;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--muted);
+    padding: 10px 16px;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+    letter-spacing: .02em;
+  }
+  .tab:hover { color: var(--ink); }
+  .tab.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
+
+  .tab-panel { display: none; }
+  .tab-panel.active { display: block; animation: fade .25s ease; }
+  @keyframes fade { from { opacity: 0; transform: translateY(4px);} to {opacity:1; transform:none;} }
+
+  /* Tables */
+  .table-wrap {
+    border: 1px solid var(--rule);
+    border-radius: 10px;
+    overflow: hidden;
+    background: var(--card);
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13.5px;
+    font-variant-numeric: tabular-nums;
+  }
+  thead th {
+    text-align: left;
+    background: #f4f1e9;
+    color: var(--muted);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: .05em;
+    font-weight: 600;
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--rule-strong);
+    white-space: nowrap;
+  }
+  tbody td {
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--rule);
+    color: var(--ink);
+  }
+  tbody tr:last-child td { border-bottom: none; }
+  tbody tr.femr { background: #fbfaf6; }
+  tbody tr.surr td { font-weight: 600; }
+  tbody tr.surr .tag {
+    font-size: 10px;
+    background: var(--accent);
+    color: #fff;
+    padding: 2px 7px;
+    border-radius: 4px;
+    margin-left: 8px;
+    letter-spacing: .03em;
+    text-transform: uppercase;
+    font-weight: 700;
+  }
+  tbody tr.degen td { color: var(--faint); }
+  tbody tr.degen .tag {
+    font-size: 10px;
+    background: #e8e3d6;
+    color: var(--muted);
+    padding: 2px 7px;
+    border-radius: 4px;
+    margin-left: 8px;
+    letter-spacing: .03em;
+    text-transform: uppercase;
+    font-weight: 700;
+  }
+  td .loinc { color: var(--faint); font-size: 12px; }
+  td .pos { color: var(--accent); font-weight: 600; }
+
+  .bar-row {
+    display: grid;
+    grid-template-columns: 150px 1fr 70px;
+    gap: 12px;
+    align-items: center;
+    padding: 8px 0;
+    font-size: 13px;
+  }
+  .bar-row .lbl { color: var(--muted); }
+  .bar-row .val { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
+  .bar-track {
+    height: 14px;
+    background: #f0ece1;
+    border-radius: 3px;
+    overflow: hidden;
+    position: relative;
+  }
+  .bar-fill {
+    height: 100%;
+    background: var(--accent-line);
+    border-radius: 3px;
+  }
+  .bar-fill.femr { background: var(--rule-strong); }
+  .bar-fill.surr { background: var(--accent); }
+  .bar-legend {
+    display: flex;
+    gap: 18px;
+    font-size: 12px;
+    color: var(--muted);
+    margin-bottom: 14px;
+  }
+  .bar-legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .bar-legend i {
+    display: inline-block; width: 12px; height: 8px; border-radius: 2px;
+  }
+
+  .results-note {
+    font-size: 12.5px;
+    color: var(--muted);
+    margin-top: 14px;
+    line-height: 1.5;
+  }
+
+  /* ---------- Strengths / Limitations ---------- */
+  .two-col {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 22px;
+  }
+  .panel {
+    background: var(--card);
+    border: 1px solid var(--rule);
+    border-radius: 10px;
+    padding: 26px;
+  }
+  .panel h3 {
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: .08em;
+    margin: 0 0 18px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .panel.pros h3 { color: var(--accent); }
+  .panel.cons h3 { color: var(--ink); }
+  .panel h3 .glyph {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 20px; height: 20px; border-radius: 4px;
+    background: var(--accent-soft); color: var(--accent);
+    font-size: 13px; font-weight: 700;
+  }
+  .panel.cons h3 .glyph { background: #efece3; color: var(--ink); }
+  .panel ul { margin: 0; padding: 0; list-style: none; }
+  .panel li {
+    padding: 11px 0 11px 22px;
+    border-bottom: 1px solid var(--rule);
+    font-size: 14px;
+    line-height: 1.5;
+    color: var(--ink);
+    position: relative;
+  }
+  .panel li:last-child { border-bottom: none; padding-bottom: 0; }
+  .panel li:first-child { padding-top: 0; }
+  .panel.pros li::before {
+    content: "+";
+    position: absolute; left: 0; top: 11px;
+    color: var(--accent); font-weight: 700;
+  }
+  .panel.pros li:first-child::before { top: 0; }
+  .panel.cons li::before {
+    content: "–";
+    position: absolute; left: 0; top: 11px;
+    color: var(--muted); font-weight: 700;
+  }
+  .panel.cons li:first-child::before { top: 0; }
+  .panel li b { font-weight: 600; }
+
+  /* ---------- Questions ---------- */
+  .qlist {
+    counter-reset: q;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+  }
+  .q {
+    background: var(--card);
+    border: 1px solid var(--rule);
+    border-radius: 10px;
+    padding: 20px 22px;
+    counter-increment: q;
+    position: relative;
+  }
+  .q::before {
+    content: "Q" counter(q);
+    position: absolute;
+    top: 18px; right: 18px;
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--accent);
+    background: var(--accent-soft);
+    padding: 2px 7px;
+    border-radius: 4px;
+    letter-spacing: .04em;
+  }
+  .q p {
+    margin: 0;
+    font-size: 14px;
+    line-height: 1.5;
+    padding-right: 36px;
+    color: var(--ink);
+  }
+  .q .tag-r {
+    display: inline-block;
+    margin-top: 12px;
+    font-size: 11px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: .05em;
+  }
+
+  /* ---------- Footer ---------- */
+  footer.foot {
+    border-top: 1px solid var(--rule);
+    margin-top: 40px;
+    padding: 26px 0 8px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 12px;
+    font-size: 13px;
+    color: var(--muted);
+  }
+  footer.foot .src {
+    color: var(--ink);
+    border: 1px solid var(--rule-strong);
+    padding: 7px 14px;
+    border-radius: 999px;
+    transition: border-color .2s, color .2s;
+  }
+  footer.foot .src:hover { border-color: var(--accent); color: var(--accent); text-decoration: none; }
+  footer.foot .nb { color: var(--faint); font-size: 12px; }
+
+  /* ---------- Load reveal ---------- */
+  @keyframes rise {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: none; }
+  }
+  .rise { animation: rise .55s cubic-bezier(.2,.7,.2,1) both; }
+
+  /* ---------- Responsive ---------- */
+  @media (max-width: 900px) {
+    .assets { grid-template-columns: 1fr; }
+    .method-grid { grid-template-columns: 1fr; gap: 28px; }
+    .two-col { grid-template-columns: 1fr; }
+    .qlist { grid-template-columns: 1fr; }
+    .stats { grid-template-columns: repeat(2, 1fr); }
+    .stat:nth-child(2) { border-right: none; }
+    .stat:nth-child(1), .stat:nth-child(2) { border-bottom: 1px solid var(--rule); }
+  }
+  @media (max-width: 720px) {
+    .shell { padding: 52px 18px 20px; }
+    .index-bar { margin: 0 -18px 30px; padding: 12px 18px; }
+    .key-finding { max-width: none; }
+    .stats { grid-template-columns: 1fr 1fr; }
+    .bar-row { grid-template-columns: 110px 1fr 60px; gap: 8px; font-size: 12px; }
+    .digest-nav { font-size: 12px; padding: 6px 11px; top: 10px; left: 10px; }
+    footer.foot { flex-direction: column; align-items: flex-start; }
+  }
+  @media (max-width: 480px) {
+    .stats { grid-template-columns: 1fr; }
+    .stat { border-right: none !important; border-bottom: 1px solid var(--rule); }
+    .stat:last-child { border-bottom: none; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .rise, .tab-panel.active { animation: none !important; }
+    html { scroll-behavior: auto; }
+  }
+</style>
+</head>
+<body>
+
+<a class="digest-nav" href="./index.html" aria-label="Back to today's digest">↩ Today's digest</a>
+
+<div class="shell">
+
+  <!-- Section index -->
+  <nav class="index-bar" aria-label="Section index">
+    <a href="#top"><span class="idx-num">00</span>Overview</a>
+    <a href="#method"><span class="idx-num">01</span>Method</a>
+    <a href="#results"><span class="idx-num">02</span>Results</a>
+    <a href="#assessment"><span class="idx-num">03</span>Assessment</a>
+    <a href="#questions"><span class="idx-num">04</span>Open Questions</a>
+  </nav>
+
+  <!-- HERO -->
+  <header class="hero" id="top">
+    <div class="eyebrow rise" style="animation-delay:.02s">
+      <span class="chips">
+        <span class="chip">Foundation Models</span>
+        <span class="chip">EHR</span>
+        <span class="chip">Explainable AI</span>
+        <span class="chip">Surrogate</span>
+        <span class="chip">Clinical Prediction</span>
+      </span>
+      <span class="sep">/</span>
+      <span>2026-07-07</span>
+      <span class="sep">/</span>
+      <span class="arxid">arXiv:2607.06163</span>
+    </div>
+
+    <h1 class="serif key-finding rise" style="animation-delay:.08s">
+      First <em>token-level explainability</em> for EHR foundation models: a Transformer surrogate plus SHAP attributes FEMR predictions to <span class="mark">clinical event tokens</span>.
+    </h1>
+
+    <p class="paper-title rise" style="animation-delay:.16s">
+      <a href="https://arxiv.org/abs/2607.06163" target="_blank" rel="noopener">X-FEMR: A Token-level Explainable Approach for Electronic Health Records Foundation Models using Transformer-based Models&nbsp;↗</a>
+    </p>
+    <p class="authors rise" style="animation-delay:.2s">
+      Jie Huang &middot; Pengfei Yin &middot; Zihan Xu &middot; Daniel Capurro &middot; Mike Conway &middot; <strong style="color:var(--ink);font-weight:600">Ting Dang</strong>
+      <span class="aff">— School of Computing &amp; Information Systems, University of Melbourne</span>
+    </p>
+
+    <div class="stats rise" style="animation-delay:.26s">
+      <div class="stat"><div class="n">141M</div><div class="l">FEMR params (CLMBR-T-Base)</div></div>
+      <div class="stat"><div class="n">2.57M</div><div class="l">EHR trajectories (EHRSHOT)</div></div>
+      <div class="stat"><div class="n">2</div><div class="l">Clinical tasks: LOS / ICU</div></div>
+      <div class="stat"><div class="n">0.31</div><div class="l">Clinical alignment R (LOS)</div></div>
+    </div>
+  </header>
+
+  <!-- ASSET ROW -->
+  <div class="assets">
+
+    <div class="card card-metric rise" style="animation-delay:.32s">
+      <div class="card-label"><span class="dot"></span>Key metric</div>
+      <div class="big">0.2701<span class="vs">vs 0.1592</span></div>
+      <span class="delta">+70% AUPRC</span>
+      <div class="desc">ICU-transfer AUPRC, hard-label surrogate vs CLMBR-T-Base — the surrogate <em>exceeds</em> the 141M-param FEMR it is built to explain.</div>
+    </div>
+
+    <div class="card card-why rise" style="animation-delay:.38s">
+      <div class="card-label"><span class="dot"></span>Why this matters</div>
+      <p class="body">First token-level XAI for EHR foundation models, with a clinician-legible alignment metric for trustworthy deployment and audit of clinical AI.</p>
+    </div>
+
+    <div class="card card-edge rise" style="animation-delay:.44s">
+      <div class="card-label"><span class="dot"></span>Critical edge</div>
+      <div class="flag">▲ Fidelity red flag</div>
+      <p class="body">The surrogate <strong>outperforms the FEMR it explains</strong> — so the SHAP tokens describe a better-but-different model, not necessarily the FEMR. No fidelity/agreement metrics are reported.</p>
+    </div>
+
+  </div>
+
+  <!-- METHODOLOGY -->
+  <section class="block" id="method">
+    <div class="sec-head">
+      <span class="sec-num">01</span>
+      <h2 class="sec-title serif">Methodology</h2>
+    </div>
+
+    <div class="method-grid">
+      <div class="method-text">
+        <p class="lead">X-FEMR targets <strong>CLMBR-T-Base</strong>, a 141M-parameter autoregressive FEMR pretrained on 2.57M Stanford EHRSHOT records under OMOP-CDM. Each clinical event carries four channels — code, numeric value, text, and timestamp.</p>
+        <p>The explainability pipeline fixes a prediction time <code class="inline">T</code>, records the FEMR's hard (0.5-threshold) and soft (probability) outputs, then trains a lightweight <strong>3-layer Transformer surrogate</strong> (hidden 128, 4 heads, FFN 256, max length 2048, Adam 1e-4, batch 16) to imitate those input–output pairs.</p>
+        <p>Each event token is encoded as <code class="inline">e = E_code + E_text + g(·)⊙(W·n) + W·∆t + E_pos</code>, where <code class="inline">∆t</code> is log-transformed time-to-prediction in hours and the numeric channel is content-gated. <strong>SHAP</strong> then attributes per-token importance, and the novel <strong>Clinical Validated Events Ratio</strong> scores how often the top tokens fall inside validated feature sets (NEWS2 vitals, ICD-10 frailty/comorbidity).</p>
+      </div>
+
+      <aside class="pipeline">
+        <h4>Three-stage pipeline</h4>
+        <div class="stage">
+          <div class="step">1</div>
+          <div class="st-body"><b>Collect I/O pairs</b><span>Fix prediction time Tᵢ; record FEMR hard-label (0.5 threshold) and soft-label (probability) outputs on patient history.</span></div>
+        </div>
+        <div class="stage">
+          <div class="step">2</div>
+          <div class="st-body"><b>Train Transformer surrogate</b><span>Event token = code + text + gated-numeric + log-∆t + position. Train under hard- and soft-label supervision separately.</span></div>
+        </div>
+        <div class="stage">
+          <div class="step">3</div>
+          <div class="st-body"><b>SHAP + clinical alignment</b><span>Attribute per-token scores; compute R = validated-token mass ÷ total attributed mass against NEWS2 / ICD-10 feature sets.</span></div>
+        </div>
+      </aside>
+    </div>
+  </section>
+
+  <!-- RESULTS -->
+  <section class="block" id="results">
+    <div class="sec-head">
+      <span class="sec-num">02</span>
+      <h2 class="sec-title serif">Results &amp; Highlights</h2>
+    </div>
+
+    <div class="tabs" role="tablist">
+      <button class="tab active" data-tab="perf" role="tab" aria-selected="true">Surrogate vs FEMR</button>
+      <button class="tab" data-tab="tokens" role="tab">Top attributed tokens</button>
+      <button class="tab" data-tab="ratio" role="tab">Clinical alignment (R)</button>
+    </div>
+
+    <!-- Performance -->
+    <div class="tab-panel active" id="perf">
+      <div class="bar-legend">
+        <span><i style="background:var(--rule-strong)"></i>CLMBR-T-Base (FEMR)</span>
+        <span><i style="background:var(--accent)"></i>Hard-label surrogate</span>
+      </div>
+
+      <div class="bar-row">
+        <span class="lbl">LOS · AUPRC</span>
+        <span class="bar-track"><span class="bar-fill femr" style="width:55.6%"></span></span>
+        <span class="val">0.4173</span>
+      </div>
+      <div class="bar-row">
+        <span class="lbl">&nbsp;</span>
+        <span class="bar-track"><span class="bar-fill surr" style="width:59.1%"></span></span>
+        <span class="val pos">0.4434</span>
+      </div>
+
+      <div class="bar-row">
+        <span class="lbl">ICU · AUPRC</span>
+        <span class="bar-track"><span class="bar-fill femr" style="width:21.2%"></span></span>
+        <span class="val">0.1592</span>
+      </div>
+      <div class="bar-row">
+        <span class="lbl">&nbsp;</span>
+        <span class="bar-track"><span class="bar-fill surr" style="width:36.0%"></span></span>
+        <span class="val pos">0.2701</span>
+      </div>
+
+      <div class="table-wrap" style="margin-top:24px">
+        <table>
+          <thead>
+            <tr>
+              <th>Task / Model</th>
+              <th>AUROC</th>
+              <th>AUPRC</th>
+              <th>Precision</th>
+              <th>Recall</th>
+              <th>F1</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr class="femr">
+              <td>LOS — CLMBR-T-Base <span class="tag" style="background:#e8e3d6;color:var(--muted)">FEMR</span></td>
+              <td>0.7046</td><td>0.4173</td><td>0.4556</td><td>0.3140</td><td>0.3717</td>
+            </tr>
+            <tr class="surr">
+              <td>LOS — Hard-label surrogate<span class="tag">Surrogate</span></td>
+              <td>—</td><td>0.4434</td><td>—</td><td>—</td><td>0.4889</td>
+            </tr>
+            <tr class="femr">
+              <td>ICU — CLMBR-T-Base <span class="tag" style="background:#e8e3d6;color:var(--muted)">FEMR</span></td>
+              <td>0.7282</td><td>0.1592</td><td>—</td><td>0.0704</td><td>0.1149</td>
+            </tr>
+            <tr class="surr">
+              <td>ICU — Hard-label surrogate<span class="tag">Surrogate</span></td>
+              <td>—</td><td>0.2701</td><td>1.0000</td><td>0.2500</td><td>0.4000</td>
+            </tr>
+            <tr class="degen">
+              <td>ICU — Soft-label surrogate<span class="tag">Degenerate</span></td>
+              <td>0.9351</td><td>—</td><td>0.0000</td><td>0.0000</td><td>0.0000</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="results-note">LOS cohort: 1,274 positives / 5,257 records (24.2% prevalence). ICU cohort: 213 positives / 4,868 records (4.4% prevalence). The soft-label ICU surrogate collapses to all-negative predictions despite a high AUROC — the authors adopt the hard-label surrogate for all downstream explainability.</p>
+    </div>
+
+    <!-- Top tokens -->
+    <div class="tab-panel" id="tokens">
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Rank</th>
+              <th>Attributed token</th>
+              <th>NEWS2 vital</th>
+              <th>LOS count</th>
+              <th>ICU count</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td>1</td><td>Heart rate <span class="loinc">LOINC 8867-4</span></td><td class="pos">Yes</td><td>806</td><td>581</td></tr>
+            <tr><td>2</td><td>Systolic BP <span class="loinc">LOINC 8480-6</span></td><td class="pos">Yes</td><td>412</td><td>314</td></tr>
+            <tr><td>3</td><td>Body temperature <span class="loinc">LOINC 8310-5</span></td><td class="pos">Yes</td><td>325</td><td>405</td></tr>
+            <tr><td>4</td><td>Diastolic BP <span class="loinc">LOINC 8462-4</span></td><td class="pos">Yes</td><td>308</td><td>272</td></tr>
+            <tr><td>5</td><td>Respiratory rate <span class="loinc">LOINC 9279-1</span></td><td class="pos">Yes</td><td>258</td><td>—</td></tr>
+            <tr><td>5*</td><td>Oxygen saturation <span class="loinc">LP21258-6</span></td><td class="pos">Yes</td><td>—</td><td>214</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="results-note">The top-5 attributed codes are exactly the physiological parameters aggregated by the NEWS2 early-warning score — independent clinical validation that the FEMR's decisions are grounded in known predictors. Numeric values and the time-delta ∆t contributed most across channels; text and code embeddings contributed least.</p>
+    </div>
+
+    <!-- Alignment ratio -->
+    <div class="tab-panel" id="ratio">
+      <div class="two-col" style="margin-bottom:8px">
+        <div class="card" style="border-left:4px solid var(--accent)">
+          <div class="card-label"><span class="dot"></span>LOS — length of stay</div>
+          <div style="font-size:2.4rem;font-weight:600;line-height:1;color:var(--accent);font-variant-numeric:tabular-nums;letter-spacing:-.02em">0.3093</div>
+          <p style="margin:12px 0 0;font-size:14px;color:var(--muted)">2,257 clinically validated events out of 7,296 attributed. Top-5 tokens account for <strong style="color:var(--ink)">29%</strong> of all attribution mass.</p>
+        </div>
+        <div class="card" style="border-left:4px solid var(--accent)">
+          <div class="card-label"><span class="dot"></span>ICU transfer</div>
+          <div style="font-size:2.4rem;font-weight:600;line-height:1;color:var(--accent);font-variant-numeric:tabular-nums;letter-spacing:-.02em">0.2717</div>
+          <p style="margin:12px 0 0;font-size:14px;color:var(--muted)">1,985 clinically validated events out of 7,305 attributed. Top-5 tokens account for <strong style="color:var(--ink)">24%</strong> of all attribution mass.</p>
+        </div>
+      </div>
+      <p class="results-note">R = Σ c(fⱼ∈Fc) ÷ Σ c(fⱼ∈F), where Fc is the clinically validated subset (NEWS2 vitals for ICU; NEWS2 + ICD-10 frailty/comorbidity for LOS). Caveat: Fc is curated from the same clinical knowledge used to define these tasks, so a model that merely learns "vitals matter" scores high by construction — no null/random-token control is reported.</p>
+    </div>
+  </section>
+
+  <!-- ASSESSMENT -->
+  <section class="block" id="assessment">
+    <div class="sec-head">
+      <span class="sec-num">03</span>
+      <h2 class="sec-title serif">Critical Assessment</h2>
+    </div>
+
+    <div class="two-col">
+      <div class="panel pros">
+        <h3><span class="glyph">+</span>Strengths</h3>
+        <ul>
+          <li><b>First end-to-end token-level XAI</b> purpose-built for longitudinal structured EHR foundation models — a genuine literature gap.</li>
+          <li><b>Time-aware event encoding</b> (log-∆t, gated numeric injection) is lightweight and well-justified for irregular EHR sequences.</li>
+          <li><b>Clinical Validated Events Ratio</b> turns SHAP into a clinician-legible, auditable scalar — practical for clinical AI governance.</li>
+          <li><b>Honest reporting</b> of the degenerate soft-label ICU result and the FEMR's weak recall, rather than hiding behind AUROC.</li>
+          <li><b>Reproducible</b>: only public FEMR + public EHRSHOT, with explicit hyperparameters and externally grounded feature lists (NEWS2, Hospital Frailty Risk Score).</li>
+        </ul>
+      </div>
+      <div class="panel cons">
+        <h3><span class="glyph">–</span>Limitations</h3>
+        <ul>
+          <li><b>Surrogate–FEMR fidelity never measured.</b> The surrogate exceeds the FEMR, weakening the "we explain the FEMR" claim; no agreement/fidelity curves.</li>
+          <li><b>Single FEMR, single institution, two binary tasks</b> — generalization to ETHOS/Med-BERT, other sites, or continuous outcomes is unverified.</li>
+          <li><b>Severe-imbalance failure:</b> soft-label ICU surrogate collapses to all-negative predictions.</li>
+          <li><b>Circularity in R:</b> validated features are the same ones used to define the tasks; no negative/null Fc control.</li>
+          <li><b>No XAI baselines</b> (IG, LIME, attention rollout, direct SHAP, linear surrogates) — the superiority claim is asserted, not demonstrated.</li>
+          <li><b>Coarse tokenization</b> conflates channels; numeric/time dominate, possibly an artifact. Cohort-size reporting is internally inconsistent across §4.1 and §5.1.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- QUESTIONS -->
+  <section class="block" id="questions">
+    <div class="sec-head">
+      <span class="sec-num">04</span>
+      <h2 class="sec-title serif">Questions for Further Exploration</h2>
+    </div>
+
+    <div class="qlist">
+      <div class="q">
+        <p>What is the direct surrogate→FEMR fidelity (prediction-agreement rate, fidelity-AUC, KL divergence), and does the hard-label surrogate that <em>exceeds</em> CLMBR-T-Base actually explain the FEMR — or a better-but-different classifier?</p>
+        <span class="tag-r">Fidelity · Core validity</span>
+      </div>
+      <div class="q">
+        <p>How does X-FEMR compare to attributions computed directly on the FEMR (gradient SHAP, Integrated Gradients, attention rollout) and to simpler transparent surrogates on the same R metric?</p>
+        <span class="tag-r">XAI baselines</span>
+      </div>
+      <div class="q">
+        <p>Does R still discriminate when evaluated against an Fc of <em>clinically irrelevant</em> codes or random token sets — i.e., is it a meaningful null-beating signal?</p>
+        <span class="tag-r">Metric circularity</span>
+      </div>
+      <div class="q">
+        <p>Can the framework handle continuous / multiclass outcomes and trajectories longer than 2048 events (EHRSHOT's max is 199,913) without truncation — e.g., via hierarchical encoders?</p>
+        <span class="tag-r">Scale &amp; scope</span>
+      </div>
+      <div class="q">
+        <p>Do explanations and R transfer across FEMRs (ETHOS, Med-BERT) and institutions — are NEWS2 vitals universally dominant, or do practice patterns shift attribution?</p>
+        <span class="tag-r">Generalization</span>
+      </div>
+      <div class="q">
+        <p>Why does the soft-label ICU surrogate collapse to majority-class predictions while hard-label succeeds — would focal/Tversky losses or calibrated/temperature-scaled logits recover soft-label fidelity?</p>
+        <span class="tag-r">Class imbalance</span>
+      </div>
+    </div>
+  </section>
+
+  <footer class="foot">
+    <span class="nb">Dashboard generated from source markdown · single accent, system fonts, CSS-grid layout.</span>
+    <a class="src" href="2607.06163.html">↗ Markdown source</a>
+  </footer>
+
+</div>
+
+<script>
+  // Tab switching
+  const tabs = document.querySelectorAll('.tab');
+  const panels = document.querySelectorAll('.tab-panel');
+  tabs.forEach(t => {
+    t.addEventListener('click', () => {
+      tabs.forEach(x => { x.classList.remove('active'); x.setAttribute('aria-selected','false'); });
+      panels.forEach(x => x.classList.remove('active'));
+      t.classList.add('active');
+      t.setAttribute('aria-selected','true');
+      document.getElementById(t.dataset.tab).classList.add('active');
+    });
+  });
+
+  // Active section in index bar
+  const links = Array.from(document.querySelectorAll('.index-bar a'));
+  const map = {};
+  links.forEach(a => { const id = a.getAttribute('href').slice(1); const el = document.getElementById(id); if (el) map[id] = a; });
+  const ids = Object.keys(map);
+  if (ids.length && 'IntersectionObserver' in window) {
+    const obs = new IntersectionObserver((entries) => {
+      entries.forEach(e => {
+        if (e.isIntersecting) {
+          links.forEach(l => l.classList.remove('active'));
+          const a = map[e.target.id];
+          if (a) a.classList.add('active');
+        }
+      });
+    }, { rootMargin: '-45% 0px -50% 0px', threshold: 0 });
+    ids.forEach(id => obs.observe(document.getElementById(id)));
+  }
+</script>
+
+</body>
+</html>
