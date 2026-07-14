@@ -1,0 +1,230 @@
+### 2026-06-15 (50)
+
+- [[2506.17255]] Quant — UltraSketchLLM 用低估型 AbsMaxMin 多行数据草图把 LLM 权重压到 0.5 bit；矩阵算子重写实现 14.9× 解压加速 / Sub-1-bit LLM compression with matrix-form sketch operator.
+- [[2601.12913]] Interp — 用四条对称性公理化"可解释性"，统一对齐/干预/反事实推理为贝叶斯反演 / Four-symmetry axiomatization of interpretability; alignment/intervention/counterfactual as Bayesian inversion.
+- [[2601.16407]] Interp — Jacobian Scopes 在单次反向传播中产出 Semantic/Fisher/Temperature 三种 token 级因果归因 / Vector-Jacobian-product attribution with three principled projection directions.
+- [[2601.22436]] Agents — 智能体高度忠实于原始轨迹但对压缩经验基本不忠实（4 框架 × 10 骨干 × 9 环境因果干预）/ Agents faithful to raw experience but unfaithful to condensed experience.
+- [[2602.03120]] Quant — QES 在量化离散权重空间内做零阶微调，Delta-Sigma 调制使优化器状态 ≈29.7 KB，匹配低精度推理显存 / Zeroth-order finetuning with Delta-Sigma error feedback.
+- [[2603.05167]] Eval — C2-Faith 基准：CoT 忠实性分为因果性 + 覆盖度，揭示"检测易、归因难"且覆盖度被系统性高估 / CoT faithfulness benchmark: detection easy, attribution hard, coverage overestimated.
+- [[2603.10444]] Quant — Averis 诊断 FP4 训练中激活极端值根因为"秩一均值偏置"，均值-残差分解独立量化把 NVFP4 loss gap 从 Hadamard 2.05% 降到 1.19% / Rank-one mean bias diagnosis for FP4 outliers.
+- [[2605.07984]] Interp — 只有 Gemma-3-27B 真正把押韵对偶补全的因果规划位点从押韵词迁移到换行符；5 个注意力头承担此"表征接力" / Latent planning handoff localized to 5 attention heads in Gemma-3-27B.
+- [[2605.16077]] Other — ⚠️ Tangential — LLM 数据增强用于日语小样本 HDS 量表回归 / LLM data augmentation for clinical speech assessment.
+- [[2605.23277]] Other — ⚠️ Out of scope — 海洋环流诊断（平流-晃动-跨等密度面三分量分解）/ Ocean overturning diagnostic.
+- [[2606.00947]] Eval — 命名 FedFMP 中的"沉默失败"——六类失败由 FL 隐私架构结构性不可观测 / "Silent Failures" in FedFMP: six modes structurally invisible to current FL evaluators.
+- [[2606.03085]] Interp — PGB-CT 用软干预 + 度量变换 + 调度惩罚把多组件因果追踪松弛为连续优化，229× 加速 greedy / Multi-component causal tracing relaxed to continuous optimization.
+- [[2606.03108]] Agents — EvoTrainer 把训练侧诊断脚手架作为可进化对象；SWE-rebench-9B 38.16% BC%（+4.39 over 人类调参 RL）/ Co-evolution of policy and training-side diagnostic harness.
+- [[2606.12280]] Quant — Ideogram 4.0 INT8 W8A8 PTQ + SmoothQuant + 选择性 bf16 保护（17 层 ≈ 8% linears）；CLIP/PickScore 与 FP8 不可区分 / INT8 W8A8 PTQ for 9.3B DiT on consumer GPU.
+- [[2606.12360]] Other — SAE/探针驱动的 post-training pipeline：四种 "explain away" 干预统一为贝叶斯反演 / Interpretability-driven post-training: four "explain-away" interventions.
+- [[2606.13054]] Quant — TWLA：E2M-ATQ + KOTMS + ILA-AMP 在 W1.58A4 上 3.64× over FP16、1.3× over QuaRot W2A4 / First PTQ route to W1.58A4.
+- [[2606.13221]] Eval — SoftElo 在 BT 拟合中用 LLM-judge 软胜率 + split conformal 给出覆盖区间；LMArena 55 holdout MAE 17.9 / Conformal SoftElo for LLM-judge Elo.
+- [[2606.13300]] Quant — TQS 将 PTQ 重新建模为离散时间动力系统稳定性问题；时序基础模型的 I/O 边界比 FFN-down 更敏感 / PTQ as discrete-time dynamical-system stability.
+- [[2606.13392]] Eval — MSA：GQA block-sparse 注意力 + Index/Main Branch；1M 上下文 28.4× 注意力压缩、14.2× prefill / 7.6× decoding / Block-sparse attention at 1M context.
+- [[2606.13662]] Agents — EurekAgent 把瓶颈从工作流设计转向环境工程；3/3 数学 SOTA + TriMul kernel SOTA，单题 <$11 / Environment engineering replaces workflow design.
+- [[2606.13685]] Eval — 10,080 判定重复试验：13.6% 翻转率、72% 首位置偏好、$\kappa=0.51$；11 次重复恢复 50 次参考 95% 保真度 / Four-layer LLM-judge reliability framework.
+- [[2606.13705]] Interp — Gemma 4 最小时仅翻转 1 个 MLP 神经元符号即可消除"重复循环"，但对"doom loop"只能缓解 / 1-neuron sign-flip eliminates repetition loops.
+- [[2606.13710]] Agents — HOTE 双模式 GRPO 协同进化提议者/求解者/评判者；8B 59.1 avg，仍在 1500 步上升 / Hybrid Open-Ended Tri-Evolution with GRPO.
+- [[2606.13720]] Interp — INLP $\alpha=2$（反事实翻转）与 DiM 方向消融相当；$\alpha=1$（零空间投影）偏弱；几何上把激活压到聚类之间 vs 推入对立聚类 / INLP vs DiM on refusal.
+- [[2606.13732]] Other — 数据孤岛下样本选择从防坍缩变成加速坍缩，以幂律速率抹去多样性；Wasserstein 测地 + 重心作缓解 / Siloed selection drives model collapse.
+- [[2606.13796]] Other — 递归训练扩散模型因反向 SDE 提前截断几何收敛到唯一闭式极限分布，Hermite 谱下低通滤波 / Asymptotic fixed point of recursive diffusion collapse.
+- [[2606.13862]] Other — SuperThoughts 融合相邻 CoT token 对为单一潜在向量 + MTP 解码两个 token；20–35% 链长压缩、wall-clock 节省 21–28% / Compresses CoT token pairs.
+- [[2606.13867]] Train — Muon$^p$ 用分数次谱幂 $US^pV^\top$（$p=1/3$）推广 Muon；微调一致优于 Muon 与 AdamW，但**对预训练反而不利** / Muon with fractional spectral powers.
+- [[2606.13870]] Eval — Mirage Probes 揭示 VLM "无图也能答"行为在两开源 VLM 上线性可解码；PHI 区分"虚假图像"与"文本偏置"两机制 / VLM "answer without image" is linearly decodable.
+- [[2606.14117]] Eval — IAT 改造为 JSON 强制选择 + 两阶段贝叶斯模型；联想干扰是**模型特异**而非 LLM 普遍属性 / Forced-choice IAT + two-stage Bayesian model.
+- [[2606.14187]] Train — Zeta 在 Muon 的 Newton–Schulz 之前先做坐标白化，理论严格降低正交化误差 / Coordinate whitening before spectral whitening.
+- [[2606.14202]] Agents — MeEvo 双层 AHD：自然进化 + 元认知进化交替；7/8 Mann-Whitney U 检验显著，ACS/WSN 相对 MeLA +1.79–16.87% / Dual-layer AHD with natural + metacognitive evolution.
+- [[2606.14368]] Agents — OPCoD 双向互教 + cognizance gating + feedback anchoring；SciKnowEval 三组配对任务全部 mutual Pareto 改进 / Bidirectional on-policy co-distillation.
+- [[2606.14398]] Other — 离散语言模型下严格证明单层 MoE 可把不同任务路由到唯一任务专属专家；专家容量只取决于任务本身大小 / MoE task routing theory.
+- [[2606.14470]] Agents — GitOfThoughts 把推理树保存为 git 仓库；预注册实验显示记忆仅在 cos ≥ 0.85 "copyability threshold" 以上通过答案检索带来收益 / Git-as-substrate for reasoning tree.
+- [[2606.14476]] Agents — "GNN 复读机"：ReAct 智能体与冻结 GCN 输出一致率 0.976–0.992；能力越强顺从越多 / LLM agent defers to GNN tool 97.6–99.2%.
+- [[2606.14502]] Agents — 综述：LLM 演进的"认知核心 × 工具执行"二维框架；"Workspace + Skill"是持久数字同事核心 / Two-dimensional framework of LLM evolution.
+- [[2606.14516]] Eval — EEE：首个社区治理的 AI 评测 JSON Schema，覆盖 22,235 模型 × 2,273 基准 × 31 种格式 / Community-governed AI eval JSON schema.
+- [[2606.14530]] Interp ★ — 配对正/负结果：代码正确性预生成可线性解码（AUC 0.931）但 failed→repair 方向在条件残差化后消失 / Paired positive/negative results on pre-generation probe + repair direction. ⭐
+- [[2606.14533]] Other — PCA "Risk Shadow"：保留 > 99.9999% 方差时完全擦除稀有事件信号；exp2PCA 在 10 真实数据集上 4–13× 降尾部风险 / Variance-based DR blind to rare events.
+- [[2606.14560]] Train ★ — Muon 在重尾 $p\in(1,2]$ 下的最优样本复杂度（核范数 stationarity），省去欧氏方法 $\min\{m,n\}^{(3p-2)/(2(p-1))-1}$ 维因子 / First-order optimal sample complexity for Muon. ⭐
+- [[2606.14574]] Agents — SIMMER：符号厨房世界模型揭示 LLM 规划"潜在失败"；< 17% 计划无错、29–56% 含潜在失败 / Symbolic kitchen world model for latent failures.
+- [[2606.14581]] Agents — CARE 把 LLM 限定为挑战者策略提议者，公开证据门决定是否覆盖传统 BO；Minerva 80.0→88.5、ChemLex 83.9→92.1 / Auditable controller with public-evidence gate.
+- [[2606.14589]] Eval ★ — 22 起生产沉默失败事件 → 机制导向五类分类法 + *fail-plausible*；70%/0%/13h–60d 三个反直觉量化发现 / Five-class taxonomy with *fail-plausible* coined. ⭐
+- [[2606.14598]] Quant — 诊断并修复"假 INT8"：融合 Triton `int8×int8→int32` GEMM 在 RTX 3090 上 2.8–4.2× over bf16、1024px 单卡 156.49s 出图 / Diagnoses fake-quant INT8, ships fused Triton kernel.
+- [[2606.14629]] Eval — 验证器驱动的 VLM 自 DPO 在目标 rubric 次阈值区间静默反向优化学生（−3.4 到 −10.9 pp）；越自信越错伤害越大 / Verifier-driven self-DPO silent regression.
+- [[2606.14673]] Interp — Braun et al. (2025) 的"压缩计算"玩具模型等价于训练 `y=ReLU(x)+Mx` 的单层 MLP；超额性能随 $
+- [[2606.14674]] Agents — AgentSpec：具身智能体的带类型接口模块化规范；性能由 scaffold 兼容性与模块交互主导；RL 训练需与部署 scaffold 一致 / Modular spec for embodied agents.
+- [[2606.14688]] Other — 把"生成有价值的数学"建模为嵌套 LGitL；证明核对器**无法替代品味**；trivia 计数相变 $\alpha/2$ vs $1-\alpha/2$ / Verification is not taste.
+- [[2606.14703]] Interp — 100/1152（8.7%）VLM 注意力头逐 token 跟踪当前描述的图像区域；单一注意力遮罩干预在无重训练下以 83.1% 准确率重定向生成 / Gaze heads steer VLM without retraining.
+
+### 2026-06-16 (50)
+
+- [[2606.17389]] *Visuals Lie, Consistency Speaks (VRP)* — 机理可解释性 / Mechanistic Interpretability
+- [[2606.17399]] *Discrete-Log Clock* — 理论与数学基础 / Theory
+- [[2606.17410]] *VLM-Human Attention Alignment* — 多模态 / Multimodal
+- [[2606.17417]] *LALM Temporal Failure Modes* — 评估基准 / Evaluation
+- [[2606.17426]] *Bounded Difference Concentration* — 理论与数学基础 / Theory
+- [[2606.17467]] *PARSE* — 安全 / Safety
+- [[2606.17478]] *StateWitness* ⭐ — 安全 / Safety ⭐
+- [[2606.17506]] *Second-Order Bias (SOB)* — 评估 / Evaluation
+- [[2606.17522]] *Bounded-Depth CFG Transformers* — 训练优化 / Training Optimization
+- [[2606.17524]] *ReLAR* — 推理与后训练 / Reasoning & Post-Training
+- [[2606.17526]] *MGUP* — 训练优化 / Training Optimization
+- [[2606.17529]] *DVG-MET* — 专业方法 / Specialized
+- [[2606.17541]] *Offline Preference Trajectory Evaluation* — 评估 / Evaluation
+- [[2606.17546]] *SEAGym* — 自演化 Agent / Self-Evolving Agents
+- [[2606.17588]] *Title-Abstract Screening* — 评估 / Evaluation
+- [[2606.17591]] *Verbal RL Insight Governance* — 推理与后训练 / Reasoning & Post-Training
+- [[2606.17603]] *SPHERE-JEPA Family* — 多模态 / Multimodal
+- [[2606.17628]] *OPD-Evolver* — 推理与后训练 / Reasoning & Post-Training
+- [[2606.17648]] *From Brewing to Resolution* — 机理可解释性 / Mechanistic Interpretability
+- [[2606.17649]] *Risk Decomposition for Fine-Tuning* — 评估 / Evaluation
+- [[2606.17660]] *TuneAhead* — 评估 / Evaluation
+- [[2606.17682]] *LLM-as-Environment-Engineer* — 推理与后训练 / Reasoning & Post-Training
+- [[2606.17710]] *Chest X-ray VLM Grounding* — 多模态 / Multimodal
+- [[2606.17803]] *ELM* — 自演化 Agent / Self-Evolving Agents
+- [[2606.17816]] *Conservation Laws for Architectures* — 训练优化 / Training Optimization
+- [[2606.17824]] *3D Asset Segmentation* — 多模态 / Multimodal
+- [[2606.17830]] *Functional Equivalence in Attention* ⭐ — 理论与数学基础 / Theory ⭐
+- [[2606.17832]] *Drift to Coherence (Martingale)* — 机理可解释性 / Mechanistic Interpretability
+- [[2606.17872]] *AnchorKV* — 安全 / Safety
+- [[2606.17890]] *DRE* — 推理与后训练 / Reasoning & Post-Training
+- [[2606.17930]] *Inference Compute Evaluation* — 评估 / Evaluation
+- [[2606.17945]] *Small Initialization* — 训练优化 / Training Optimization
+- [[2606.17953]] *Late-Layer Textual Override (CALRD)* — 机理可解释性 / Mechanistic Interpretability
+- [[2606.17961]] *simPE Rotation Robustness* — 多模态 / Multimodal
+- [[2606.18037]] *ProvenanceGuard* — 安全 / Safety
+- [[2606.18043]] *UQ-VLA (SAVE)* — 机器人 / Robotics
+- [[2606.18060]] *PseudoBench* — 安全 / Safety
+- [[2606.18062]] *WildChat S&P Prompts* — 安全 / Safety
+- [[2606.18080]] *Edge Flow* — 训练优化 / Training Optimization
+- [[2606.18089]] *Compositional Generalization in Reasoning* ⭐ — 推理与后训练 / Reasoning & Post-Training ⭐
+- [[2606.18114]] *Ternary Mamba* — 训练优化 / Training Optimization
+- [[2606.18120]] *Handlebars Structural Role Injection* — 安全 / Safety
+- [[2606.18122]] *Embedded ML (TinyML)* — 专业方法 / Specialized
+- [[2606.18124]] *Geographic Conditioning* — 多模态 / Multimodal
+- [[2606.18144]] *Memory as a Wasting Asset* — 自演化 Agent / Self-Evolving Agents
+- [[2606.18186]] *Kolmogorov Regression* — 机器人 / Robotics
+- [[2606.18193]] *Red-Team Fable 5 & Opus 4.8* — 安全 / Safety
+- [[2606.18208]] *Looped World Models* — 机器人 / Robotics
+- [[2606.18216]] *ZPPO* — 推理与后训练 / Reasoning & Post-Training
+- [[2606.18218]] *Finite-Time Queue Peak Laws* — 理论与数学基础 / Theory
+
+### 2026-06-17 (48)
+
+- [[2606.18627]] PACT: Preserving Anchored Cores in Task-vectors for Model Merging — PACT challenges the unspoken premise of Task Arithmetic–style model merging — th…
+- [[2606.18650]] BLADE: Scalable Bi-level Adaptive Data Selection for LLM Training — BLADE bridges influence-based and excess-loss data selection by reformulating th…
+- [[2606.18656]] The Wrong Kind of Right: Quantifying and Localizing Misfired Alignment — This paper formalizes "misfired alignment" — the failure mode where safety-align… ⭐
+- [[2606.18663]] RegMix-D: Dynamic Data Mixing via Proxy Training Trajectories — RegMix-D extends RegMix to dynamic data mixing by training a regression model on…
+- [[2606.18694]] Attention as Frustrated Synchronization — Joshua Nunley (Indiana University Bloomington) reframes attention as frustrated …
+- [[2606.18697]] Stealthy World Model Manipulation via Data Poisoning — SWAAP is a two-stage data poisoning attack on learned world models used for plan…
+- [[2606.18709]] LLMs Struggle to Measure What Distinguishes Students of Different Prof — This paper systematically evaluates 42 LLMs on **item discrimination** — the psy…
+- [[2606.18746]] What Must Generalist Agents Remember? — A theoretical paper that asks *what* memory must encode for generalist agents th…
+- [[2606.18747]] Generating Natural and Expressive Robot Gestures through Iterative Rei — This paper deploys GPT-4.1 as a runtime gesture-code generator for the SoftBank …
+- [[2606.18767]] Output Vector Editing for Memorization Mitigation in Large Language Mo — Output Vector Editing (OVE) is a constrained-optimization weight edit that locat…
+- [[2606.18790]] Closing the Loop: PID Feedback Control for Interpretable Activation St — The paper adapts PID feedback control to inference-time activation steering on t…
+- [[2606.18810]] Learning from Own Solutions: Self-Conditioned Credit Assignment for Re — SC-GRPO is a drop-in modification of GRPO that uses the model's own verified rol…
+- [[2606.18811]] Rescaling MLM-Head for Neural Sparse Retrieval — This paper shows that under the standard SPLADE recipe, swapping BERT for strong…
+- [[2606.18831]] Beyond Reward Engineering: A Data Recipe for Long-Context Reinforcemen — A data-centric long-context RL recipe that decomposes long-context reasoning int…
+- [[2606.18837]] Skill-MAS: Evolving Meta-Skill for Automatic Multi-Agent Systems — Skill-MAS reformulates automatic Multi-Agent System (MAS) generation as **evolvi…
+- [[2606.18847]] WorldLines: Benchmarking and Modeling Long-Horizon Stateful Embodied A — WorldLines is a project-driven benchmark for long-horizon embodied household ass…
+- [[2606.18874]] Externalizing Research Synthesis and Validation in AI Scientists throu — Xcientist is a research-harness framework that turns the normally opaque chain (… ⭐
+- [[2606.18897]] SAERec: Constructing Fine-grained Interpretable Intents Priors via Spa — SAERec constructs a large over-complete intent dictionary from user-review text …
+- [[2606.18902]] SAGE: Stochastic Prompt Optimization via Agent-Guided Exploration — SPO formalizes automatic prompt optimization as noisy black-box stochastic searc…
+- [[2606.18910]] REVES: REvision and VErification--Augmented Training for Test-Time Sca — REVES reframes test-time scaling as a meta-RL problem, proves that improving one…
+- [[2606.18918]] Some Complexity Results for Robustness Verification of Binarized Neura — A short (~8-page) theoretical paper from IIT Goa studying two verification probl…
+- [[2606.18947]] Decoupling Search from Reasoning: A Vendor-Agnostic Grounding Architec — DSG is a vendor-agnostic MCP-compatible grounding gateway that externalizes retr…
+- [[2606.18950]] RTSGameBench: An RTS Benchmark for Strategic Reasoning by Vision-Langu — RTSGameBench is a holistic, diagnostic, and extensible VLM benchmark built on th…
+- [[2606.18967]] EfficientRollout: System-Aware Self-Speculative Decoding for RL Rollou — EfficientRollout is a system-aware self-speculative decoding framework for on-po…
+- [[2606.18989]] G-IdiomAlign: A Gloss-Pivoted Benchmark for Cross-Lingual Idiom Alignm — G-IdiomAlign is a gloss-pivoted, precision-first benchmark of 18,785 idiom pairs…
+- [[2606.18993]] Sequential Kernel-based Conditional Independence Testing via Adaptive — SKCI is a sequential kernel-based CI test that combines testing-by-betting with …
+- [[2606.19004]] Spotlight: Synergizing Seed Exploration and Spot GPUs for DiT RL Post- — Spotlight is a systems contribution that makes Diffusion Transformer RL post-tra…
+- [[2606.19025]] FoMoE: Breaking the Full-Replica Barrier with a Federation of MoEs — FoMoE targets geo-distributed LLM pre-training of MoE models by partitioning exp…
+- [[2606.19036]] Geometric and Stochastic Analysis of Discontinuities in Sparse Mixture — The paper provides a rigorous geometric and stochastic theory for the discontinu…
+- [[2606.19057]] Quantifying and Auditing LLM Evaluation via Positive--Unlabeled Learni — PUAUDIT treats selective human supervision in LLM-as-a-Judge as a Positive–Unlab…
+- [[2606.19084]] Optimal score function estimation via derivatives constraints — The paper studies empirical-risk-minimization (ERM) estimators of the score func…
+- [[2606.19105]] Smoothness-Based Derandomization of PAC-Bayes Bounds — This paper develops a **smoothness-based derandomization of PAC-Bayes** generali…
+- [[2606.19119]] PuDGhost: Experimental Analysis of Computation Result Corruption in Pr — This paper experimentally reveals "PuDGhost," a previously unstudied interferenc…
+- [[2606.19121]] Written by AI, Managed by AI: Semantic Space Control and Index Sicknes — A single-project action-research report (~1 month, 391 sessions, ~80K LOC refact…
+- [[2606.19135]] A Technical Taxonomy of LLM Agent Communication Protocols — This paper builds a 5-dimension technical taxonomy of LLM agent communication pr…
+- [[2606.19147]] On Local Population-Risk Certificates — This paper builds finite-sample *local* certificates for the population-risk inc…
+- [[2606.19157]] IndicContextEval: A Benchmark for Evaluating Context Utilisation in Au — IndicContextEval (55.93 hours, 555 speakers, 8 Indic languages, 23 professional …
+- [[2606.19183]] Language Models as Interfaces, Not Oracles: A Hybrid LLM–ML System for — ClaMPAPP decouples language understanding from clinical prediction: an LLM (Llam…
+- [[2606.19212]] Generalised Eigenvalue Geometry of Semantic Adversarial Attacks — The paper models semantic paraphrase attacks as a *two-embedder* problem: a prox…
+- [[2606.19218]] RECOM: A Validity–Discrimination Tradeoff in Automatic Metrics for Ope — RECOM is a 15,000-question, contamination-free r/AskReddit evaluation set (Sept …
+- [[2606.19222]] Mechanism-Guided Selective Unlearning for RLVR-Induced Reasoning — MAST diagnoses the SFT-to-RLVR increment as direction-specific and off-principal…
+- [[2606.19236]] STARE: Surprisal-Guided Token-Level Advantage Reweighting for Policy E — STARE is a minimally intrusive, token-level credit-rebalancing scheme that mitig… ⭐
+- [[2606.19249]] Transformer Geometry Observatory TGO-I: Spectral Geometry Observatory — TGO-I is the first installment of a "Transformer Geometry Observatory" framework…
+- [[2606.19262]] Detecting Hidden ML Training With Zero-Overhead Telemetry — The authors build and stress-test a privacy-preserving classifier that detects M…
+- [[2606.19264]] Structured Inference with Large Language Gibbs — Large Language Gibbs (LL-Gibbs) casts an LLM's next-token conditionals as the tr…
+- [[2606.19270]] Beyond Algorithms: Conceptual Innovation in Medical Imaging AI — A Perspective in medical imaging AI that draws a sharp, operational distinction …
+- [[2606.19317]] Explaining Attention with Program Synthesis — The authors turn transformer attention heads into compact, human-readable Python…
+- [[2606.19325]] Reference-Driven Multi-Speaker Audio Scene Generation from In-the-Wild — ScenA removes the structured supervision (per-turn tags, multi-stream transcript…
+
+### 2026-06-18 (50)
+
+- [[2606.19667]] CacheWeaver: Cache-Aware Evidence Ordering for Efficient Grounded RAG Inference — 3
+- [[2606.19668]] Code-Switching Reveals Language Anchoring in Multilingual LLMs — 3
+- [[2606.19679]] LOKI: Memory-Free Null-Space Constrained Lifelong Knowledge Editing — 3 ↻06-19
+- [[2606.19683]] Exit-and-Join Dynamics for Decentralized Coalition Formation — 3
+- [[2606.19697]] Efficiently Representing Algorithms With Chain-of-Thought Transformers — 3 ↻06-19
+- [[2606.19704]] Beyond Static Leaderboards: Predictive Validity for the Evaluation of LLM Agents — 3 ↻06-19
+- [[2606.19714]] AURA: Adaptive Uncertainty-aware Refinement for LLM-as-a-Judge Auditing — 3
+- [[2606.19721]] OnDeFog: Online Decision Transformer under Frame Dropping — 3
+- [[2606.19735]] GLARE: A Natural Language Interface for Querying Global Explanations — 3
+- [[2606.19744]] Beyond Uniform Forgetting: Sequential Direct Preference Optimization Across Preference Settings — 3 ↻06-19
+- [[2606.19749]] Benchmarking Agentic Review Systems — 3 ↻06-19
+- [[2606.19750]] Manifold Bandits: Bayesian Curriculum Learning over the Latent Geometry of Large Language Models — 3 ↻06-19
+- [[2606.19753]] Grounded Inference: Principles for Deterministically Encapsulated Generative Models — 3 ↻06-19
+- [[2606.19755]] SafeSpec: Fast and Safe LLM via Dynamic Reflective Sampling — 3
+- [[2606.19771]] Beyond Entropy: Learning from Token-Level Distributional Deviations for LLM Reasoning — 3 ↻06-19
+- [[2606.19787]] ORAgentBench: Can LLM Agents Solve Challenging Operations Research Tasks End to End? — 3
+- [[2606.19799]] The Hidden Environmental Cost of Poor Coding Practices in TensorFlow and Keras Applications — 3
+- [[2606.19818]] Uncertainty-Aware Reward Modeling for Stable RLHF — 3 ↻06-19
+- [[2606.19831]] Leverage Is Not Reach: A Control-Window Law for Single-Neuron Steering in Language Models — 5 ↻06-19
+- [[2606.19847]] AtomMem: Building Simple and Effective Memory System for LLM Agents via Atomic Facts — 3
+- [[2606.19868]] A Systematic Evaluation of Black-Box Uncertainty Estimation Methods for Large Language Models — 3 ↻06-19
+- [[2606.19899]] Measuring Biological Capabilities and Risks of AI Agents — 5 ↻06-19
+- [[2606.19911]] Multi-Agent Transactive Memory — 3
+- [[2606.19946]] GEMS: Geometric Constraints Enable Multi-Semantic Superposition in LLMs — 5 ↻06-19
+- [[2606.19980]] ENPIRE: Agentic Robot Policy Self-Improvement in the Real World — 3 ↻06-19
+- [[2606.19989]] Online Dynamic Batching with Formal Guarantees for LLM Training — 3 ↻06-19
+- [[2606.19993]] Activation- and Influence-Aware Ranks (AIR): Function-Preserving SVD Compression for LLMs — 3
+- [[2606.20002]] Connect the Dots: Training LLMs for Long-Lifecycle Agents with Cross-Domain Generalization Via RL — 5 ↻06-19
+- [[2606.20075]] What Makes Effective Supervision in Latent Chain-of-Thought: An Information-Theoretic Analysis — 3 ⭐ ↻06-19
+- [[2606.20077]] The Hidden Evolution of Disguised Visual Context inside the VLM — 3 ↻06-19
+- [[2606.20097]] HydraHead: From Head-Level Functional Heterogeneity to Specialized Attention Hybridization — 3 ↻06-19
+- [[2606.20122]] ScaffoldAgent: Utility-Guided Dynamic Outline Optimization for Open-Ended Deep Research — 3 ↻06-19
+- [[2606.20128]] The Correctness Illusion in LLM-Generated GPU Kernels — 5 ⭐ ↻06-19
+- [[2606.20152]] From Texts to Scores: Tracing the Emergence of Essay Quality Representations in LLMs — 5 ↻06-19
+- [[2606.20155]] NAMESAKES: Probing Identity Memorization in Text-to-Image Models — 3 ↻06-19
+- [[2606.20195]] Randomized Sketching is Robust to Low-Precision Rounding on GPUs — 5 ↻06-19
+- [[2606.20225]] Actionable Activation Directions for Detecting and Mitigating Emergent Misalignment Across Language Model Families — 5 ↻06-19
+- [[2606.20295]] Token-Operations-Oriented Inference Optimization Techniques for Large Models — 3
+- [[2606.20300]] CMDS-AD: Cross-Modal Dual-Stream Decoupling for Few-Shot Anomaly Detection — 3
+- [[2606.20347]] Critical Percolation as a Synthetic Data Model for Interpretability — 3 ↻06-19
+- [[2606.20381]] Rethinking Shrinkage Bias in LLM FP4 Pretraining: Geometric Origin, Systemic Impact, and UFP4 Recipe — 5 ⭐ ↻06-19
+- [[2606.20408]] LLM agent safety, multi-turn red-teaming, jailbreak benchmarks, adversarial robustness — 3
+- [[2606.20431]] Sparsity, Superposition, and Forgetting: A Mechanistic Study of Representation Retention in Continual Learning — 5 ↻06-19
+- [[2606.20474]] UltraQuant: 4-bit KV Caching for Context-Heavy Agents — 5 ↻06-19
+- [[2606.20475]] Marginal Advantage Accumulation for Memory-Driven Agent Self-Evolution — 5 ↻06-19
+- [[2606.20508]] What Do Safety-Aligned LLMs Learn From Mixed Compliance Demonstrations? — 3
+- [[2606.20515]] S-Agent: Spatial Tool-Use Elicits Reasoning for Spatial Intelligence — 3
+- [[2606.20532]] How Do Instructions Shape Speech? Cross-Attention Attribution for Style-Captioned Text-to-Speech — 3
+- [[2606.20536]] The FID Lottery: Quantifying Hidden Randomness in Generative Model Evaluation — 5 ↻06-19
+- [[2606.20537]] Execution-State Capsules: Graph-Bound Checkpoint and Restore for Low-Latency On-Device Physical-AI Serving — 3 ↻06-19
+
+### 2026-06-19 (18)
+
+- [[2606.19741]] EPB — NCO 策略蒸馏为可读程序揭示瓶颈 / Distill NCO into readable programs, reveal bottlenecks.
+- [[2606.19876]] Reverse Fisher SM — 反向 Fisher score matching 高斯混合全局收敛 / Reverse-Fisher SM global convergence for GMM.
+- [[2606.19878]] PPI-GD — 插值梯度下降数据维条件放宽到 d=O(log^γ n) / Interpolation-GD dimension condition relaxed.
+- [[2606.19893]] MetaResearcher — 四维协同自研究框架，无真实实验 / 4-axis self-research framework, no real experiments.
+- [[2606.19924]] Autotelic AI — 自生目的 AI 统一框架，嵌入性必要非充分 / Autotelic AI framework; embeddedness necessary.
+- [[2606.19941]] Compositionality — 组合性只在狭窄连接-深度甜区涌现 / Compositionality in narrow depth-connectivity sweet spot.
+- [[2606.19990]] Reward-as-Agent — 代理式奖励 + 动态随机 rollout 改进具身 RL / Agentic reward + dynamic rollout for embodied RL.
+- [[2606.19998]] Tri-Info — 三信息信号 + 共形预测在线检测 VLA 失败 / Three info signals + conformal VLA failure detection.
+- [[2606.20008]] VIMPO — 隐式价值函数无 critic 的 LLM 策略优化 / Critic-free value-implicit LLM policy optimization.
+- [[2606.20068]] Lean-Process-RL — Lean 过程级奖励融入 GRPO 定理证明 / Lean process rewards into GRPO for theorem proving.
+- [[2606.20205]] LLM Psychometry — LLM 心理画像 81-90% 是测量伪影 / LLM psych profiles 81-90% measurement artifact.
+- [[2606.20299]] Training Stats Review — 物理视角综述训练与泛化统计特性 / Physics review of training & generalization stats.
+- [[2606.20312]] RPC Calibration — 后处理分数校准提升视频异常 AUROC / Post-hoc calibration boosts video-anomaly AUROC.
+- [[2606.20451]] SSH-Net — 结构化分段危险率网络预测 GPU 失效时间 / Structured piecewise-hazard net for GPU failure time.
+- [[2606.20469]] Fisher Sharpness — Fisher 几何尖锐度重标定不变，SGD 偏平坦 / Fisher-geometric sharpness reparam-invariant; SGD favors flat.
+- [[2606.20502]] Vuln Detection — 微调漏洞检测是"校准而无理解" / Fine-tuned vuln detection is "calibration w/o comprehension".
+- [[2606.20510]] Probabilistic Verify — DRO+SDP 松弛给 Agent 违反概率 sound 上界 / DRO+SDP sound bound on agent violation prob.
+- [[2606.20560]] DiffusionGemma — top-k/p 瓶颈把扩散 LM 不透明深度压到 1.1x / Top-k/p bottleneck cuts diffusion-LM opacity to 1.1x.

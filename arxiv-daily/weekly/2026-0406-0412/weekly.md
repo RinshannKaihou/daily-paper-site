@@ -1,0 +1,150 @@
+---
+title: "Weekly arXiv Digest — 2026-04-08–2026-04-11"
+week: 2026-0406-0412
+date_range: ["2026-04-08", "2026-04-11"]
+tags: [可解释性与机制分析, 推理效率与压缩, 训练与优化, 其他前沿]
+papers: 50
+---
+
+> 本周共收录 **50** 篇精选论文，来自 2 个工作日的每日精选。 / **50** curated papers this week, rolled up from 2 daily digests.
+
+## 本周必读 / Must Read This Week
+
+> 如果你只读几篇 — 看这些。优先挑选了跨天复现或被每日必读的论文。 / If you read nothing else, read these. Prioritizes papers recurring across days or picked as daily must-reads.
+
+### [[2604.07306]] Beyond Loss Values
+
+- AlignPrune uses Dynamic Alignment Score (loss trajectory Pearson correlation) to replace loss-value ranking for robust pruning under noisy labels 
+- _Topic: Training Stability & Observability_
+
+### [[2604.07328]] How to sketch a learning algorithm
+
+- Data deletion via Taylor expansion sketches using forward-mode AD, poly(1/epsilon) overhead under stability assumption 
+- _Topic: ML Mathematical Foundations_
+
+### [[2604.07343]] Personalized RewardBench
+
+- Personalized RewardBench reveals SOTA reward models peak at 75.94% on personalization, with 0.92 NDCG correlation to downstream BoN/PPO performance 
+- _Topic: LLM Inference Evaluation_
+
+### [[2604.07405]] Conservation Laws
+
+- 守恒律破缺的精确谱公式。Exact spectral formulas for conservation law breaking. 
+- _Topic: Quantization & Compression (8 papers)_
+
+### [[2604.07615]] ADAG
+
+- 首个全自动归因图描述管道。First automated attribution graph pipeline. 
+- _Topic: Interpretability & Representations (18 papers)_
+
+### [[2604.07886]] Hierarchical Concepts
+
+- 层级关系线性表示编码。Linear encoding of hierarchical relations. 
+- _Topic: Interpretability & Representations (18 papers)_
+
+### [[2604.08510]] Implicit Curriculum
+
+- 预训练技能涌现可预测。Predictable skill emergence in pretraining. 
+- _Topic: Interpretability & Representations (18 papers)_
+
+### [[2604.08524]] Steering Refusal
+
+- 引导向量通过OV电路工作。Steering vectors act via OV circuit. 
+- _Topic: Interpretability & Representations (18 papers)_
+
+## 本周主题脉络 / Themes This Week
+
+### Interpretability & Mechanistic Analysis / 可解释性与机制分析
+
+本周该方向共 **18** 篇论文。 / **18** papers this week on this line.
+
+代表论文 / Highlights: [[2604.07363]] · [[2604.07382]] · [[2604.07402]] · [[2604.07569]] · [[2604.07615]] · [[2604.07766]]
+
+### Inference Efficiency & Compression / 推理效率与压缩
+
+本周该方向共 **11** 篇论文。 / **11** papers this week on this line.
+
+代表论文 / Highlights: [[2604.07380]] · [[2604.07405]] · [[2604.07603]] · [[2604.07853]] · [[2604.07888]] · [[2604.07955]]
+
+### Training & Optimization / 训练与优化
+
+本周该方向共 **11** 篇论文。 / **11** papers this week on this line.
+
+代表论文 / Highlights: [[2604.07397]] · [[2604.07658]] · [[2604.07663]] · [[2604.07808]] · [[2604.07822]] · [[2604.07963]]
+
+### Other Frontiers / 其他前沿
+
+本周该方向共 **7** 篇论文。 / **7** papers this week on this line.
+
+代表论文 / Highlights: [[2604.07323]] · [[2604.07325]] · [[2604.07328]] · [[2604.07349]] · [[2604.07527]] · [[2604.07855]]
+
+### Safety, Alignment & Evaluation / 安全、对齐与评估
+
+本周该方向共 **3** 篇论文。 / **3** papers this week on this line.
+
+代表论文 / Highlights: [[2604.07393]] · [[2604.07737]] · [[2604.07801]]
+
+## 全部论文 / All Papers
+
+### 2026-04-10 (11)
+
+- [[2604.07306]] Beyond Loss Values — AlignPrune uses Dynamic Alignment Score (loss trajectory Pearson correlation) to replace loss-value ranking for robust pruning under noisy labels ⭐
+- [[2604.07316]] SL-FAC — DCT-based frequency decomposition + adaptive quantization for split learning communication compression
+- [[2604.07320]] Evaluating In-Context Translation with Synchronous C... — LLM in-context translation accuracy degrades sharply with grammar size; BLEU/chrF++ overestimate true quality by ~2x
+- [[2604.07321]] Syntax Is Easy, Semantics Is Hard — LLMs produce syntactically valid LTL but only ~24% semantic equivalence; Python AST reformulation boosts to 61%+
+- [[2604.07323]] Gaussian Approximation for Asynchronous Q-learning — High-dimensional CLT for async Q-learning Polyak-Ruppert averages at rate n^{-1/6} log^4(nSA)
+- [[2604.07325]] Conformal Prediction with Time-Series Data via Seque... — SCDR: doubly robust conformal prediction for time series with asymptotic conditional coverage guarantees
+- [[2604.07328]] How to sketch a learning algorithm — Data deletion via Taylor expansion sketches using forward-mode AD, poly(1/epsilon) overhead under stability assumption ⭐
+- [[2604.07343]] Personalized RewardBench — Personalized RewardBench reveals SOTA reward models peak at 75.94% on personalization, with 0.92 NDCG correlation to downstream BoN/PPO performance ⭐
+- [[2604.07345]] Measurement of Generative AI Workload Power Profiles... — Public 0.1s-resolution H100 power profiles for AI training/inference + DIPLOEE facility-level energy simulation framework
+- [[2604.07349]] Toward a Tractability Frontier for Exact Relevance C... — Meta-impossibility theorem: no closure-invariant structural predicate can exactly characterize the tractability frontier for relevance certification
+- [[2604.07350]] Fast Spatial Memory with Elastic Test-Time Training — Elastic TTT applies Fisher-weighted EWC-inspired priors to stabilize fast-weight updates against catastrophic forgetting in multi-chunk test-time training
+
+### 2026-04-11 (39)
+
+- [[2604.07363]] Benchmark Shadows — 基准测试中的数据对齐问题。Data alignment issues in benchmarks.
+- [[2604.07380]] Spectral Edge — Grokking中谱边缘两阶段生命周期。Two-phase spectral edge lifecycle in grokking.
+- [[2604.07382]] Affective Reps — LLM情感表示与心理学模型对齐。Affective representations align with psychology.
+- [[2604.07393]] DSPR — 双流物理残差网络。Dual-stream physics-residual networks.
+- [[2604.07397]] Data Warmup — 复杂度感知课程学习。Complexity-aware curriculum learning.
+- [[2604.07402]] Video Gen Training — 视频生成模型训练加速。Training acceleration for video generation.
+- [[2604.07405]] Conservation Laws — 守恒律破缺的精确谱公式。Exact spectral formulas for conservation law breaking. ⭐
+- [[2604.07527]] OPD Demystified — LLM输出长度膨胀分析。Length inflation analysis in LLMs.
+- [[2604.07569]] Learning=Forgetting — LLM训练即有损压缩。LLM training as lossy compression.
+- [[2604.07603]] Implicit Regularization — 过参数化网络隐式正则化。Implicit regularization in overparameterized networks.
+- [[2604.07615]] ADAG — 首个全自动归因图描述管道。First automated attribution graph pipeline. ⭐
+- [[2604.07658]] Linear Recurrences — 线性递归最优衰减谱。Optimal decay spectra for linear recurrences.
+- [[2604.07663]] SAGE — 符号自适应梯度优化。Sign-adaptive gradient optimization.
+- [[2604.07737]] SepSeq — 无训练长数值序列处理。Training-free long numerical sequence processing.
+- [[2604.07766]] GQA Co-Localization — 任务敏感层与位置编码层反局部化。Anti-localization of task and positional layers.
+- [[2604.07801]] TEMPER — 情感扰动量化推理测试。Emotional perturbation in quantitative reasoning.
+- [[2604.07808]] GRASS — 梯度自适应逐层采样。Gradient-based adaptive layer-wise sampling.
+- [[2604.07822]] Loop Think — 循环深度Transformer隐式推理。Implicit reasoning in recurrent-depth transformers.
+- [[2604.07853]] QaRL — 对齐量化感知RL。Rollout-aligned quantization-aware RL.
+- [[2604.07855]] Hidden Biases — 自回归模型条件化偏差。Hidden biases in autoregressive conditioning.
+- [[2604.07886]] Hierarchical Concepts — 层级关系线性表示编码。Linear encoding of hierarchical relations. ⭐
+- [[2604.07888]] Bit-by-Bit — 渐进式QAT配合异常通道分裂。Progressive QAT with outlier channel splitting.
+- [[2604.07925]] Sinkhorn Attention — 双随机注意力秩衰减。Rank decay in doubly stochastic attention.
+- [[2604.07931]] Robust Length — 重尾分布下鲁棒长度预测。Robust length prediction under heavy tails.
+- [[2604.07955]] Rethinking Residual — 补偿式量化残差误差再思考。Rethinking residual errors in compensation quantization.
+- [[2604.07963]] Data Mixing — 从LLM视角重新思考数据混合。Rethinking data mixing from LLM perspective.
+- [[2604.08039]] LINE — LLM驱动的神经元解释。LLM-based neuron explanations.
+- [[2604.08075]] Dual-Pool Routing — 双池token预算路由。Dual-pool token-budget routing.
+- [[2604.08118]] Codebook Init — 初始化决定量化盆地。Initialisation determines quantization basin.
+- [[2604.08192]] Inside-Out ViT — ViT内部工作机制测量泛化。Measuring ViT generalization via inner workings.
+- [[2604.08271]] Illusion Unlearning — 机器遗忘或为表象。Unlearning may be superficial.
+- [[2604.08284]] Rule Editing — 规则级知识多层编辑。Multi-layer editing for rule-level knowledge.
+- [[2604.08333]] Lost in the Hype — 医疗LLM性能退化问题。Medical LLM performance degradation.
+- [[2604.08335]] Dead Weights — 冻结LLM间前馈图。Feedforward graphs of frozen LLMs.
+- [[2604.08357]] PDE Bias-Constrained — PDE仿真偏差约束调度。Bias-constrained PDE emulation schedules.
+- [[2604.08474]] FL Quantization — 联邦学习中量化影响。Quantization impact in federated learning.
+- [[2604.08492]] Node Embedding Stability — 维度对嵌入稳定性影响。Dimensionality impact on embedding stability.
+- [[2604.08510]] Implicit Curriculum — 预训练技能涌现可预测。Predictable skill emergence in pretraining. ⭐
+- [[2604.08524]] Steering Refusal — 引导向量通过OV电路工作。Steering vectors act via OV circuit. ⭐
+
+
+---
+
+_本周报由每日 digest 汇总而成。/ This weekly digest is a rollup of the daily digests._
+
+**每日入口 / Daily entries:** [2026-04-08](../../2026-04-08/overview.md) · [2026-04-11](../../2026-04-11/overview.md)

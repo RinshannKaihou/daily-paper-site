@@ -1,0 +1,310 @@
+---
+title: "Weekly arXiv Digest — 2026-05-12–2026-05-17"
+week: 2026-0511-0517
+date_range: ["2026-05-12", "2026-05-17"]
+tags: [推理效率与压缩, 其他前沿, 训练与优化, 可解释性与机制分析]
+papers: 189
+---
+
+> 本周共收录 **189** 篇精选论文，来自 2 个工作日的每日精选。 / **189** curated papers this week, rolled up from 2 daily digests.
+
+## 本周必读 / Must Read This Week
+
+> 如果你只读几篇 — 看这些。优先挑选了跨天复现或被每日必读的论文。 / If you read nothing else, read these. Prioritizes papers recurring across days or picked as daily must-reads.
+
+### [[2605.11887]] Qwen-Scope: SAE as Development Tools
+
+- **推荐理由：** 开源14组SAE，展示6个开发工具方向 （2 天复现 / 2 days）
+- **Why read:** Open-sources 14 SAE groups with 6 development applications （2 天复现 / 2 days）
+- _Topic: Mechanistic Interpretability & SAE_
+
+### [[2605.12199]] Overtrained, Not Misaligned
+
+- **推荐理由：** EM是过度训练副产物，早停可消除 （2 天复现 / 2 days）
+- **Why read:** EM is overtraining artifact; early stopping eliminates it （2 天复现 / 2 days）
+- _Topic: LLM Evaluation & Safety_
+
+### [[2605.12426]] Geometric Factual Recall in Transformers
+
+- **推荐理由：** 线性叠加实现O(R log N)维事实记忆 （2 天复现 / 2 days）
+- **Why read:** Linear superposition achieves O(R log N) fact memorization （2 天复现 / 2 days）
+- _Topic: Mechanistic Interpretability & SAE_
+
+### [[2605.11181]] Muon is Not That Special (Freon/Kaon)
+
+- Muon is Not That Special (Freon/Kaon) 
+- _Topic: 优化器与训练理论_
+
+### [[2605.11775]] PAPO: Entropy Polarity in RLVR
+
+- PAPO: Entropy Polarity in RLVR 
+- _Topic: 强化学习与策略优化_
+
+### [[2605.12474]] Reward Hacking in Rubric-Based RL
+
+- **推荐理由：** 奖励作弊分解+无评委诊断指标 
+- **Why read:** Reward hacking decomposition + verifier-free diagnostic 
+- _Topic: 未分类_
+
+### [[2605.14220]] Diagnosing Training Inference Mismatch in LLM Reinforcement Learning
+
+- **推荐理由：** 揭示 LLM 强化学习中 rollout 与策略优化间的数值不一致可独立导致训练崩溃 
+- **Why read:** Reveals numerical mismatch between rollout and policy optimization in LLM RL causing training instability 
+- _Topic: LLM训练与对齐_
+
+### [[2605.14588]] Silent Collapse in Recursive Learning Systems
+
+- **推荐理由：** 发现递归学习中内部分布在表面指标正常时持续收缩，对 AI 自我改进提出安全警示 
+- **Why read:** Silent internal distribution collapse during recursive learning while surface metrics remain healthy 
+- _Topic: 推理与推理扩展_
+
+## 本周主题脉络 / Themes This Week
+
+### Inference Efficiency & Compression / 推理效率与压缩
+
+本周该方向共 **43** 篇论文。 / **43** papers this week on this line.
+
+代表论文 / Highlights: [[2605.14217]] · [[2605.14249]] · [[2605.14292]] · [[2605.14841]] · [[2605.14844]] · [[2605.14929]]
+
+### Other Frontiers / 其他前沿
+
+本周该方向共 **39** 篇论文。 / **39** papers this week on this line.
+
+代表论文 / Highlights: [[2605.12171]] · [[2605.12190]] · [[2605.12308]] · [[2605.12316]] · [[2605.12412]] · [[2605.11845]]
+
+### Training & Optimization / 训练与优化
+
+本周该方向共 **35** 篇论文。 / **35** papers this week on this line.
+
+代表论文 / Highlights: [[2605.11491]] · [[2605.11570]] · [[2605.11838]] · [[2605.12070]] · [[2605.12380]] · [[2605.12394]]
+
+### Interpretability & Mechanistic Analysis / 可解释性与机制分析
+
+本周该方向共 **27** 篇论文。 / **27** papers this week on this line.
+
+代表论文 / Highlights: [[2605.10971]] · [[2605.11093]] · [[2605.11161]] · [[2605.11203]] · [[2605.11392]] · [[2605.11426]]
+
+### Safety, Alignment & Evaluation / 安全、对齐与评估
+
+本周该方向共 **22** 篇论文。 / **22** papers this week on this line.
+
+代表论文 / Highlights: [[2605.11496]] · [[2605.11574]] · [[2605.11599]] · [[2605.12022]] · [[2605.12199]] · [[2605.12264]]
+
+### Multimodal & Generation / 多模态与生成
+
+本周该方向共 **7** 篇论文。 / **7** papers this week on this line.
+
+代表论文 / Highlights: [[2605.14305]] · [[2605.14368]] · [[2605.14530]] · [[2605.14570]] · [[2605.14819]] · [[2605.17179]]
+
+## 全部论文 / All Papers
+
+### 2026-05-12 (50)
+
+- [[2605.11478]] FibQuant: Universal Vector Quantization for KV-Cache — 亚比特向量量化KV缓存压缩，最高34x / Sub-one-bit VQ for KV-cache up to 34x compression ↻05-13
+- [[2605.11491]] OPEFO: Entropy Flow Optimization for RLVR — 熵流视角分析RLVR熵坍塌，自适应平衡梯度 / Entropy flow analysis of RLVR collapse with adaptive balancing ↻05-13
+- [[2605.11496]] The Evaluation Differential — 标准评估无法发现模型在评估与部署下的行为差异 / Marginal scores cannot detect context-dependent behavior shifts
+- [[2605.11570]] OUI as a Structural Observable — OUI是训练中激活结构的实用可观测信号 / OUI as practical observable of activation structure during training ↻05-13
+- [[2605.11574]] Three Regimes of Context-Parametric Conflict — 三体制框架统一解释上下文-参数冲突行为 / Three-regime framework unifies context-parametric conflict behaviors
+- [[2605.11599]] CAPS Audit Protocol for LLM Reasoning — 审计约束测试协议，CAPS未优于均匀采样 / Audit-constrained protocol; CAPS doesn't beat uniform sampling
+- [[2605.11601]] DiffScore: Text Evaluation via Masked Diffusion — 掩码扩散文本评估，持续超越BARTScore / Masked diffusion evaluation consistently beats BARTScore
+- [[2605.11608]] PRISM: Geometric Risk Bound for LLM Variants — LLM变体退化分解为尺度/形状/头部三轴 / Decomposes LLM variant drift into scale, shape, head axes
+- [[2605.11800]] ROMER: Robust MoE on Analog CIM — MoE在模拟存算硬件上的免训练鲁棒性恢复 / Training-free MoE robustness on analog compute-in-memory ↻05-13
+- [[2605.11836]] StableEdit: Lifelong Normalization Theory — 终身归一化理论揭示自增强稳定性循环 / Theory reveals self-reinforcing stability loop in lifelong editing ↻05-13
+- [[2605.11838]] Spectral Clipping for Matrix Parameters — SVD后裁剪奇异值达最优收敛速率 / Clipping singular values achieves optimal convergence rate ↻05-13
+- [[2605.11845]] Probabilistic Calibration Is Trainable — 微调可使LLM学会按指定概率分布采样 / Fine-tuning makes LLMs sample from specified distributions
+- [[2605.11887]] Qwen-Scope: SAE as Development Tools — 开源14组SAE，展示6个开发工具方向 / Open-sources 14 SAE groups with 6 development applications ⭐ ↻05-13
+- [[2605.11920]] Domain Restriction via SAE Transitions — SAE特征层间转移实现域外检测 / OOD detection via SAE layer-to-layer feature transitions ↻05-13
+- [[2605.11999]] Power Capping Illusion in LLM Decode — 功耗上限对解码无效，时钟锁定可省32%能耗 / Power capping inert for decode; clock locking saves 32% energy ↻05-13
+- [[2605.12022]] SAGE: Robustness Augmentation for Eval — 微调0.6B模型构建鲁棒性基准，成本降25x / 0.6B model builds robustness benchmarks at 25x lower cost
+- [[2605.12055]] Linguistic Constraint Violations in LLMs — LLM缺乏统一的语法违规检测器 / LLMs lack unified grammatical violation detectors
+- [[2605.12070]] Missing Old Logits in Async Agentic RL — 异步RL中旧logit缺失破坏PPO校正语义 / Missing old logits break PPO correction semantics in async RL
+- [[2605.12129]] Harness Design for SLM Stability — 管线设计比模型规模更能决定SLM操作稳定性 / Harness design matters more than size for SLM stability
+- [[2605.12171]] Parity Lower Bounds for Transformers — 单层Transformer计算奇偶性需hp≥n/4 / Single-layer transformer needs hp≥n/4 for parity
+- [[2605.12177]] Selection Bias in LLM Feedback — 层级贝叶斯校正LLM用户反馈偏差 / Hierarchical Bayesian correction of LLM feedback bias
+- [[2605.12185]] DCRD: Dynamic Cognitive Reconciliation — 注意力图预测冲突+动态对比解码 / Attention-map conflict prediction + dynamic contrastive decoding
+- [[2605.12190]] IT Bounds for Sequential Decision Making — CMI泛化界推广到序列决策场景 / CMI bounds extended to sequential decision-making ↻05-13
+- [[2605.12195]] FaReG: Fair Conformal Classification — 表征学习发现非线性不公平群体 / Representation learning discovers nonlinear unfair groups
+- [[2605.12199]] Overtrained, Not Misaligned — EM是过度训练副产物，早停可消除 / EM is overtraining artifact; early stopping eliminates it ⭐ ↻05-13
+- [[2605.12201]] RisCoSet: UQ for Code Generation — LTT构建代码生成风险可控预测集 / LTT builds risk-controlling prediction sets for code
+- [[2605.12225]] SAE for ASR Models (Whisper) — SAE发现Whisper跨语言语义特征 / SAE discovers cross-lingual semantic features in Whisper ↻05-13
+- [[2605.12245]] SOAR: NVFP4 Scale Optimization — 闭式联合尺度优化的NVFP4量化 / Closed-form joint scale optimization for NVFP4 ↻05-13
+- [[2605.12264]] PII Reconstruction from SFT Models — SFT模型可从用户名重构15%邮箱 / SFT models reconstruct ~15% emails from name
+- [[2605.12265]] Cross-Domain Monitor Training — 分类微调可部分泛化到未见监控任务 / Classification fine-tuning partially generalizes to unseen monitoring
+- [[2605.12290]] CNA: Contrastive Neuron Attribution — 0.1%神经元构成拒绝电路，消融降拒绝50%+ / 0.1% neurons form refusal circuit; ablation reduces refusal 50%+ ↻05-13
+- [[2605.12299]] GKnow: Gender Bias & Knowledge — 性别偏见与事实知识在电路层面严重纠缠 / Gender bias and factual knowledge severely entangled at circuit level
+- [[2605.12308]] TipPFN: Tipping Points via ICL — PFN零样本推断临界转变距离 / PFN zero-shot predicts tipping point proximity
+- [[2605.12316]] Autoregressive Learning in Joint KL — 近似误差O(1)，估计误差Ω(H)不可避免 / Approximation O(1); estimation Ω(H) unavoidable
+- [[2605.12327]] Grid Games: Multi-Grid Quantization — 多网格自适应4-bit量化，97.85%恢复率 / Multi-grid adaptive 4-bit quantization at 97.85% recovery ↻05-13
+- [[2605.12341]] MCP: Multi-Variable Conformal Prediction — 场景优化消除保形预测的数据划分 / Scenario optimization eliminates data splitting in CP
+- [[2605.12366]] Classifier Context Rot — 长上下文使安全监控漏检率增2-30倍 / Long context increases monitor miss rate 2-30x
+- [[2605.12380]] P3O: Trust the Batch — ESS替代固定裁剪，零超参数匹配GRPO / ESS replaces fixed clip; zero hyperparameters matches GRPO
+- [[2605.12394]] Correlation Traps (RMT Anti-Grokking) — 随机矩阵理论检测anti-grokking过拟合 / RMT detects anti-grokking overfitting without data ↻05-13
+- [[2605.12406]] Semantic Reward Collapse (SRC) — RLHF标量奖励的语义坍缩假说 / Semantic reward collapse hypothesis in RLHF
+- [[2605.12412]] Stories in Space: ICL Belief Trajectories — 上下文学习在低维信念空间中的贝叶斯轨迹 / ICL as Bayesian trajectories in low-dimensional belief space
+- [[2605.12421]] Formalize, Don't Optimize — LLM组合优化应形式化而非启发式优化 / LLM combinatorial solvers should formalize not optimize
+- [[2605.12426]] Geometric Factual Recall in Transformers — 线性叠加实现O(R log N)维事实记忆 / Linear superposition achieves O(R log N) fact memorization ⭐ ↻05-13
+- [[2605.12446]] ORCE: Order-Aware Verbalized Confidence — 解耦式排序感知置信度对齐 / Decoupled order-aware confidence alignment
+- [[2605.12464]] ScaleSearch: BFP Scale Optimization — 搜索NVFP4最优尺度，MATH-500+15分 / Searches optimal NVFP4 scales; +15 pts on MATH-500 ↻05-13
+- [[2605.12466]] Attractor Models (Fixed-Point LM) — 不动点求解框架，常数训练内存 / Fixed-point framework with constant training memory ↻05-13
+- [[2605.12474]] Reward Hacking in Rubric-Based RL — 奖励作弊分解+无评委诊断指标 / Reward hacking decomposition + verifier-free diagnostic ⭐
+- [[2605.12476]] Router-Expert Geometric Coupling in SMoE — MoE路由器与专家几何耦合，均衡损失破坏特化 / Geometric coupling in SMoE; balancing losses break specialization ↻05-13
+- [[2605.12484]] Fast-Slow Training (FST) — RL+提示进化联合优化，3x样本效率 / Joint RL + prompt evolution; 3x sample efficiency
+- [[2605.12492]] Pion: Spectrum-Preserving Optimizer — 保谱正交变换优化器，可训练无归一化层LLM / Spectrum-preserving optimizer; trains normalization-free LLMs ↻05-13
+
+### 2026-05-13 (29)
+
+- [[2605.10959]] QuIDE: Mastering the Quantized Intelligence Trade-off — QuIDE: Quantized Intelligence Trade-off
+- [[2605.10971]] Steering Without Breaking: Discrete Diffusion Steering — Steering Discrete Diffusion via SAE
+- [[2605.10974]] Vertex-Softmax: Tight Transformer Verification — Vertex-Softmax: Exact Softmax Optimization
+- [[2605.11005]] DisagMoE: Disaggregated MoE Training — DisagMoE: Disaggregated AF-Pipe Parallelism
+- [[2605.11059]] Uniform Scaling Limits in AdamW Transformers — Uniform Scaling Limits in AdamW Transformers
+- [[2605.11093]] DMI-Lib: Model-Internal Observability — DMI-Lib: Model-Internal Observability
+- [[2605.11161]] Interpretability Can Be Actionable — Interpretability Can Be Actionable
+- [[2605.11167]] Bicameral Model: Bidirectional Hidden-State Coupling — Bicameral Model: Bidirectional Hidden-State Coupling
+- [[2605.11172]] SODA: Optimistic Dual Averaging Unifies Optimizers — SODA: Optimistic Dual Averaging Unifies Modern Optimizers
+- [[2605.11181]] Muon is Not That Special (Freon/Kaon) — Muon is Not That Special (Freon/Kaon) ⭐
+- [[2605.11196]] Variational Linear Attention (VLA) — Variational Linear Attention (VLA)
+- [[2605.11203]] FeatMap: Feature Space Geometry — FeatMap: Feature Space Geometry
+- [[2605.11205]] Scaling Law of Evaluation Failure — Scaling Law of Evaluation Failure
+- [[2605.11209]] Five-Nines Reliability — Five-Nines Reliability
+- [[2605.11222]] ADMM-Q: Hessian-based Weight Quantizer — ADMM-Q: Hessian-based Weight Quantizer
+- [[2605.11316]] Error Whitening: Why Gauss-Newton Outperforms Newton — Error Whitening: Why Gauss-Newton Outperforms Newton
+- [[2605.11333]] MLCommons Chakra — MLCommons Chakra
+- [[2605.11392]] Transformer Interpretability (Attention+Gradient) — Transformer Interpretability (Attention+Gradient)
+- [[2605.11396]] MuonQ: 4-bit Muon Quantization — MuonQ: 4-bit Muon Quantization
+- [[2605.11426]] Mechanistic Investigation of SFT — Mechanistic Investigation of SFT
+- [[2605.11448]] Deep Minds and Shallow Probes — Deep Minds and Shallow Probes
+- [[2605.11513]] Hidden Layer Distillation for LLM Pre-Training — Hidden Layer Distillation for LLM Pre-Training
+- [[2605.11525]] OverNaN: NaN-Aware Oversampling — OverNaN: NaN-Aware Oversampling
+- [[2605.11547]] SharpEuler: Sharpness-Aware Flow Sampling — SharpEuler: Sharpness-Aware Flow Sampling
+- [[2605.11684]] Byzantine Federated Conformal Prediction — Byzantine Federated Conformal Prediction
+- [[2605.11775]] PAPO: Entropy Polarity in RLVR — PAPO: Entropy Polarity in RLVR ⭐
+- [[2605.11855]] CMRU: Parallelizable RNN for Ultra-Low Power — CMRU: Parallelizable RNN for Ultra-Low Power
+- [[2605.11908]] Delightful Policy Gradient — Delightful Policy Gradient
+- [[2605.11974]] DGAO: Dual Group Advantage Optimization — DGAO: Dual Group Advantage Optimization
+
+### 2026-05-14 (50)
+
+- [[2605.14217]] PreFT: Prefill-only finetuning for efficient inference — 仅在 prefill 阶段应用适配器，decode 阶段丢弃，512 适配器同时服务 Llama 3.1 70B 时实现 1.9x 吞吐提升 / Applies LoRA/ReFT adapters only during prefill; discards at decode, achieving 1.9x throughput with 512 adapters on Llama 3.1 70B
+- [[2605.14220]] Diagnosing Training Inference Mismatch in LLM Reinforcement Learning — 揭示 LLM 强化学习中 rollout 与策略优化间的数值不一致可独立导致训练崩溃 / Reveals numerical mismatch between rollout and policy optimization in LLM RL causing training instability ⭐
+- [[2605.14249]] EnergyLens: Predictive Energy-Aware Exploration for Multi-GPU LLM Inference Optimization — 基于 einsum 接口的端到端框架，无需 GPU 即可预测多卡 LLM 推理的能耗与延迟 / End-to-end framework predicting multi-GPU LLM inference energy and latency from einsum specs without GPU access
+- [[2605.14258]] Dynamics of the Transformer Residual Stream: Coupling Spectral Geometry to Network Topology — 对三个生产级 LLM 完整雅可比矩阵特征分解，发现训练安装了从旋转主导到近对称的单调梯度 / Full Jacobian eigendecomposition reveals learned monotonic non-normality gradient through depth
+- [[2605.14292]] Minimal-Intervention KV Retention: A Design-Space Study and a Diversity-Penalty Survivor — 系统研究 KV-cache 压缩的七种机制，提出基于多样性惩罚的保留评分器 / Rigorous study of seven KV-cache compression mechanisms; proposes diversity-penalized retention scorer
+- [[2605.14294]] Precise Verification of Transformers through ReLU-Catalyzed Abstraction Refinement — 通过 ReLU 函数融合自注意力层点积的双互补平面界限，收紧 Transformer 鲁棒性验证 / Fuses dual planar bounds for attention dot products as ReLU expressions; tightens Transformer robustness verification
+- [[2605.14305]] Factorization-Error-Free Discrete Diffusion Language Model via Speculative Decoding — 通过前缀条件化精确后验消除离散扩散语言模型的因式分解误差，推测解码加速推理 / Eliminates factorization error in discrete diffusion LMs via prefix-conditioned exact posterior; speculative decoding
+- [[2605.14347]] Exemplar Partitioning for Mechanistic Interpretability — 无需训练的激活空间聚类方法，以约 1000 倍低于 SAE 的计算成本实现可解释特征字典 / Training-free activation clustering via streaming leader-clustering; ~1000x cheaper than SAE
+- [[2605.14358]] Uncovering the Representation Geometry of Minimal Cores in Overcomplete Reasoning Traces — 提出"最小核心"概念，从 CoT 中提取最少必要步骤，发现 46% 的步骤可被移除 / Introduces minimal cores — smallest CoT subsets preserving answers; 46% of steps are removable
+- [[2605.14359]] RQ-MoE: Residual Quantization via Mixture of Experts for Efficient Input-Dependent Vector Compression — 将残差量化与 MoE 结合，双流量化实现输入相关动态码本，解码速度提升 6-17x / Combines residual quantization with MoE for input-dependent dynamic codebooks; 6-17x faster decoding
+- [[2605.14362]] Correctness-Aware Repository Filtering Under Maximum Effective Context Window Constraints — 基于文件大小的预执行启发式过滤框架，利用 OS 级元数据在 token 化前移除大型非代码产物 / Pre-execution size-based filtering removing non-code artifacts before tokenization using OS-level stat() metadata
+- [[2605.14368]] Where Should Diffusion Enter a Language Model? Geometry-Guided Hidden-State Replacement — 利用几何代理指标定位 Transformer 中对扩散最友好的隐藏空间层，用条件扩散桥替换前缀 / Geometry-guided identification of diffusion-friendly layers; replaces lower prefix with conditional diffusion bridge
+- [[2605.14413]] MahaVar: OOD Detection via Class-wise Mahalanobis Distance Variance under Neural Collapse — 在马氏距离基础上引入类间距离方差项，利用 Neural Collapse 几何结构区分 OOD / Augments Mahalanobis distance with class-wise variance term under Neural Collapse for OOD detection
+- [[2605.14489]] A Novel Schur-Decomposition-Based Weight Projection Method for Stable State-Space Neural-Network Architectures — 基于 Schur 分解的状态矩阵投影保证离散时间状态空间层的渐近稳定性 / Schur-decomposition-based projection enforcing asymptotic stability in state-space neural network layers
+- [[2605.14517]] Dimension-Level Intent Fidelity Evaluation for Large Language Models: Evidence from Structured Prompt Ablation — 通过 5W3H 结构化提示消融实验提出维度级意图保真度评估框架 / Dimension-level intent fidelity evaluation via 5W3H structured prompt ablation across 2,880 outputs
+- [[2605.14521]] Enjoy Your Layer Normalization with the Computational Efficiency of RMSNorm — 通过列中心约束将 LayerNorm 的中心化操作折叠进上游线性层，实现 LN 到 RMSNorm 的精确替换 / Exactly replaces LayerNorm with computationally cheaper RMSNorm by folding centering into upstream linear layers
+- [[2605.14530]] Mitigating Mask Prior Drift and Positional Attention Collapse in Large Diffusion Vision-Language Models — 揭示大型扩散视觉语言模型存在掩码先验漂移和位置注意力坍塌，提出两种无需训练的修复方法 / Identifies mask prior drift and positional attention collapse in large diffusion VLMs; training-free fixes
+- [[2605.14535]] Exploring Geographic Relative Space in Large Language Models through Activation Patching — 使用激活补丁探究 LLM 如何处理地理相对空间概念，发现多尺度距离编码 / Activation patching reveals multi-scale numerical distance encoding in LLM geographic reasoning
+- [[2605.14546]] Discovering Physical Directions in Weight Space: Composing Neural PDE Experts — 发现从同一基座微调的 PDE 专家在权重空间形成可校准的物理方向，提出校准条件合并方法 / PDE fine-tuned experts define calibratable physical directions in weight space; proposes Calibration-Conditioned Merge
+- [[2605.14567]] Scaling Laws from Sequential Feature Recovery: A Solvable Hierarchical Model — 通过可求解层次化模型证明 scaling law 从逐层特征学习的级联相变中涌现 / Proves scaling laws emerge from cascade of sharp feature-learning transitions in solvable hierarchical model
+- [[2605.14570]] Uncertainty Quantification for Large Language Diffusion Models — 首次系统研究大型语言扩散模型的不确定性量化，提出基于去噪轨迹语义不稳定性的 D-CoCoA / First systematic UQ study for large language diffusion models; D-CoCoA via denoising trajectory semantics
+- [[2605.14588]] Silent Collapse in Recursive Learning Systems — 发现递归学习中内部分布在表面指标正常时持续收缩，对 AI 自我改进提出安全警示 / Silent internal distribution collapse during recursive learning while surface metrics remain healthy ⭐
+- [[2605.14619]] SliceGraph: Mapping Process Isomers in Multi-Run Chain-of-Thought Reasoning — 通过稀疏激活键构建 mutual-kNN 图分析多次 CoT 推理结构，发现 85.5% 的问题存在过程同分异构体 / Builds activation-key overlap graphs for multi-run CoT; 85.5% of problems contain process isomers
+- [[2605.14643]] Unbiased and Second-Order-Free Training for High-Dimensional PDEs — 分析 BSDE 方法中 Euler-Maruyama 离散化引入的偏差，提出无需二阶导数的无偏训练框架 / Corrects Euler-Maruyama bias in BSDE-based deep learning; proposes unbiased training without second-order derivatives
+- [[2605.14659]] Slower Generalization, Faster Memorization: A Sweet Spot in Algorithmic Learning — 发现小 Transformer 学习结构化输出时验证集收敛最快的数据集大小为中间值而非最大值 / Small Transformers learn structured output fastest at intermediate dataset sizes, not the largest
+- [[2605.14663]] Optimal Asymptotic Rates for (Stochastic) Gradient Descent under the Local PL-Condition: A Geometric Approach — 利用微分几何证明局部 PL 条件下梯度下降的渐近收敛速率与强凸最优速率一致 / Proves GD asymptotic rate under local PL matches optimal strongly convex rate via differential geometry
+- [[2605.14666]] Monitoring Data-aware Temporal Properties (Extended Version) — 首个基于有限迹线性时序逻辑的预期性监控框架，结合自动机理论与 SMT 求解 / First anticipatory monitoring framework for data-aware temporal properties via LTLfMT with automata + SMT
+- [[2605.14685]] Spontaneous Symmetry Breaking and Goldstone Modes for Deep Information Propagation — 借鉴物理学证明深层等变网络中自发对称性破缺产生的 Goldstone 模式可实现深层信息传播 / Spontaneous symmetry breaking yields Goldstone-like modes enabling deep information propagation without residuals
+- [[2605.14694]] The Rate-Distortion-Polysemanticity Tradeoff in SAEs — 信息论证明 SAE 中重建质量、编码效率与单义性存在根本三方权衡 / Proves fundamental Rate-Distortion-Polysemanticity tradeoff in SAEs via information theory ⭐
+- [[2605.14749]] Non-linear Interventions on Large Language Models — 用可逆非线性特征映射替代线性干预方法，在拒绝绕过任务上以两个数量级更低误差实现目标行为 / Replaces linear interventions with invertible non-linear feature maps; 100x lower error on refusal bypass
+- [[2605.14758]] Probabilistic Verification of Recurrent Neural Networks for Single and Multi-Agent Reinforcement Learning — 通过策略驱动采样和统计误差边界对 RNN 强化学习策略进行概率性验证 / Probabilistic verification of RNN-based RL policies via policy-driven sampling with statistical error bounds
+- [[2605.14785]] Understanding Imbalanced Forgetting in Rehearsal-Based Class-Incremental Learning — 揭示回放式类增量学习中不同类别遗忘程度差异显著且普遍，推导三个最后一层梯度因子 / Demonstrates systematic imbalanced forgetting across classes despite equal rehearsal; derives gradient factors
+- [[2605.14819]] The Velocity Deficit: Initial Energy Injection for Flow Matching — 发现 Flow Matching 中 MSE 损失导致速度场系统性低估速度幅值，提出一行无训练修复 / Identifies systematic velocity underestimation in Flow Matching MSE; proposes one-line training-free fix
+- [[2605.14841]] GPart: End-to-End Isometric Fine-Tuning via Global Parameter Partitioning — 用随机稀疏等距分区矩阵替代 LoRA 双线性低秩分解，实现端到端直接维度微调 / Replaces LoRA's bilinear low-rank structure with isometric random partition matrix for end-to-end fine-tuning
+- [[2605.14844]] XFP: Quality-Targeted Adaptive Codebook Quantization with Sparse Outlier Separation for LLM Inference — 质量驱动的自适应码本量化，通过稀疏离群值分离和余弦相似度自动选择机制 / Quality-targeted adaptive codebook quantization with sparse outlier separation and auto channel selection
+- [[2605.14865]] Holistic Evaluation and Failure Diagnosis of AI Agents — 结合自顶向下 agent 级和自底向上 span 级评估的整体框架，实现可扩展的 AI Agent 故障定位与分类 / Holistic agent evaluation combining agent-level diagnosis with span-level decomposition; SOTA on TRAIL
+- [[2605.14893]] Your CLIP has 164 dimensions of noise: Exploring the embeddings covariance eigenspectrum of contrastively pretrained vision-language transformers — 发现 CLIP/SigLIP 嵌入中存在大量共享噪声维度（如 ViT-L/14 有 164 维），剪除后性能不降反升 / Reveals shared noise subspace in CLIP/SigLIP embeddings (164/768 dims); pruning improves performance
+- [[2605.14929]] A Hardware-Aware, Per-Layer Methodology for Post-Training Quantization of Large Language Models — 硬件感知的逐层 PTQ 方法，结合码本搜索、带符号缩放和背包分配 / Hardware-aware per-layer PTQ combining codebook search, signed scaling, and knapsack allocation
+- [[2605.14938]] Octopus: History-Free Gradient Orthogonalization for Continual Learning in Multimodal Large Language Models — 无需历史数据的梯度正交化两阶段持续学习框架，在多模态大模型上达到 SOTA / History-free gradient orthogonalization for MLLM continual learning; SOTA on UCIT benchmark
+- [[2605.14967]] InfoSFT: Learn More and Forget Less with Information-Aware Token Weighting — 在 SFT 中对 token 损失按信息量加权，聚焦中等置信度 token，持续改善数学/代码/推理 / Token-weighting scheme for SFT focusing on medium-confidence tokens; improves math/code/reasoning tasks
+- [[2605.14978]] Performance-Driven Policy Optimization for Speculative Decoding with Adaptive Windowing — 用强化学习将推测解码的草稿模型优化从 token 级提升到窗口级 / Reframes speculative decoding drafter training from token-level to window-level RL optimization
+- [[2605.15051]] An Interpretable Latency Model for Speculative Decoding in LLM Serving — 基于 Little's Law 推导可解释的投机解码延迟模型，分解为预填充、草稿生成和验证三组件 / Derives closed-form interpretable latency model for speculative decoding via Little's Law decomposition
+- [[2605.15053]] TFGN: Task-Free, Replay-Free Continual Pre-Training Without Catastrophic Forgetting at LLM Scale — 架构级覆盖层通过读/写分解使跨域梯度更新保持 ≥99.59% 正交，实现近零灾难性遗忘 / Architectural overlay achieving near-zero catastrophic forgetting (BWT=-0.007) via Read/Write decomposition
+- [[2605.15100]] Dual-Dimensional Consistency: Balancing Budget and Quality in Adaptive Inference-Time Scaling — 联合优化采样宽度与推理路径深度的自适应推理扩展框架，10x token 效率提升 / Unifies inter-path early stopping with intra-path pruning for 10x token efficiency in inference scaling
+- [[2605.15134]] Training ML Models with Predictable Failures — 提出"可预测性损失"使模型失效尾部分布更易用极值理论外推预测 / Proposes forecastability loss making model failure tails predictable via extreme value theory extrapolation
+- [[2605.15138]] Forgetting That Sticks: Quantization-Permanent Unlearning via Circuit Attribution — 揭示现有遗忘方法在 4-bit 量化后知识恢复的原因，提出基于因果电路归因的量化永久遗忘 / Existing unlearning fails under 4-bit quantization; MANSU achieves quantization-permanent unlearning via circuit attribution
+- [[2605.15152]] Widening the Gap: Exploiting LLM Quantization via Outlier Injection — 首个量化条件攻击，通过注入权重异常值使 AWQ/GPTQ/GGUF 等方法目标权重坍塌 / First quantization-conditioned attack exploiting AWQ/GPTQ/GGUF via outlier-induced weight collapse
+- [[2605.15154]] RoSHAP: A Distributional Framework and Robust Metric for Stable Feature Attribution — 通过 Bootstrap 重采样估计 SHAP 特征归因分布，构建基于活跃度、强度和稳定性的稳健排序 / Models SHAP attribution distributions via bootstrap resampling; robust ranking across activity/intensity/stability
+- [[2605.15164]] Position: Behavioural Assurance Cannot Verify the Safety Claims Governance Now Demands — 系统论证行为评估方法在认知论上无法验证高风险安全性声明（如无隐藏目标、无欺骗性对齐）/ Argues behavioural assurance is epistemically insufficient for verifying high-consequence AI safety claims
+- [[2605.15183]] When Are Two Networks the Same? Tensor Similarity for Mechanistic Interpretability — 提出基于权重空间且排列不变的张量相似度度量，通过极化同构高效计算功能等价性 / Closed-form symmetry-invariant weight-based metric for comparing multilinear networks via polarization
+
+### 2026-05-16 (32)
+
+- [[2605.16732]] DiRotQ: Rotation-Aware Quantization for DiT — quantization, diffusion-models
+- [[2605.16746]] State Contamination in Memory-Augmented LLM Agents — llm-safety, multi-agent-systems
+- [[2605.16787]] Unlearnability Phenomenon in RLVR — RLVR, training-dynamics, reasoning ⭐
+- [[2605.16824]] Confidence Geometry in LLM Reasoning — llm-reasoning, confidence-estimation
+- [[2605.16874]] Reasoning Restored by Decision Tokens — reasoning-models, token-level-analysis
+- [[2605.16882]] E-PMQ: Expert-Guided Post-Merge Quantization — model-merging, quantization
+- [[2605.16901]] CAR-SAM: Cross-Attention Reconstruction for SAM — model-quantization, segment-anything
+- [[2605.16913]] Fourier Perspective on NN Learning Dynamics — neural-network-dynamics, fourier-analysis
+- [[2605.16928]] RTPurbo: Full Attention Strikes Back — sparse-attention, long-context, LLM-optimization ⭐
+- [[2605.16949]] sREPA: Structural Representation Alignment for DiT — diffusion-transformers, training-acceleration
+- [[2605.16993]] Adversarial Fragility in Clinical AI — clinical-ai, adversarial-robustness, cross-lingual-NLP
+- [[2605.17026]] Forks in the Road: Coverage Shrinkage in Reasoning — reasoning-models, coverage-shrinkage, data-centric-ai
+- [[2605.17028]] PARALLAX: Hallucination Detection Benchmark Artifacts — hallucination-detection, benchmark-artifacts ⭐
+- [[2605.17036]] Autonomous AI Agents in Supply Chain — llm-agents, supply-chain, reinforcement-learning
+- [[2605.17084]] Scale Determines Representation Geometry — representation-geometry, scaling-laws
+- [[2605.17088]] ACIL: Auto Chain of Thoughts for ICL — chain-of-thought, in-context-learning
+- [[2605.17093]] HEED: Density-Weighted Residual Alignment for VLM — knowledge-distillation, vision-language-models
+- [[2605.17109]] DynMuon: Dynamic Spectral Shaping of Muon — optimization, muon, llm-training
+- [[2605.17126]] MTLR: Multi-task Linear Regression without Eigenvalue Bounds — multi-task-learning, robust-statistics
+- [[2605.17144]] COAST: Conceptor Activation Steering for VLA — vision-language-action, activation-steering, robot-learning
+- [[2605.17153]] VeriStress-GT: Stress-Testing NN Verifiers — neural-network-verification, benchmarking
+- [[2605.17158]] SPARK: Near-Cache ILP Accelerator — ILP-solver, near-memory-computing
+- [[2605.17160]] Counterfactual-Faithful Quantization (CFQ) — model-quantization, algorithmic-recourse, fairness
+- [[2605.17164]] Charon: Unified LLM Training & Inference Simulator — llm-simulation, distributed-training
+- [[2605.17170]] TriAxialKV: Extreme Low-Precision KV-Cache Quantization — kv-cache-quantization, llm-inference, agentic-ai
+- [[2605.17177]] High-dim SGD for Diagonal Linear Networks — SGD-theory, high-dimensional-limits
+- [[2605.17179]] iMiGUE-3K: Large-Scale Micro-Gesture Benchmark — micro-gesture, self-supervised-learning, affective-computing
+- [[2605.17180]] Geometry of Projection Heads in SSL — self-supervised-learning, representation-learning
+- [[2605.17182]] Workload-Aware Early-Stage PDN Optimization — power-delivery-network, EDA
+- [[2605.18883]] Prediction Is Not Physics: Conservation in Neural Simulators — neural-simulation, hamiltonian-systems
+- [[2605.28850]] Representation Signatures in LLM Trading Agents — llm-agents, financial-trading, risk-alignment
+- [[2605.28854]] LLM Representational Geometry in In-Context Learning — in-context-learning, representational-geometry
+
+### 2026-05-17 (28)
+
+- [[2605.17204]] Event-Grounded Sparse Autoencoders for VLA Policies — mechanistic-interpretability, SAE, robot-learning
+- [[2605.17231]] FishBack: Pullback Fisher Geometry for Activation Steering — activation-steering, Fisher-information, interpretability
+- [[2605.17288]] When Efficiency Backfires: Cascade Failure under Adversarial Attack — LLM-cascade, adversarial-attack, system-security
+- [[2605.17289]] LEAP: Learnable End-to-End Adaptive Pruning of LLMs — llm-pruning, unstructured-sparsity, model-compression
+- [[2605.17295]] DISA: Offline Importance Sampling for Distribution-Matching LLM-RL — reinforcement-learning, distribution-matching, LLM-reasoning ⭐
+- [[2605.17329]] LPG: Latent Policy Guardrails — LLM-safety, latent-reasoning, guardrails
+- [[2605.17342]] Transitivity Meets Cyclicity: HRC-DSPPO — RLHF, preference-modeling, game-theory
+- [[2605.17413]] Ablating Safety: Mechanisms for Removing Alignment — llm-safety, mechanistic-interpretability, representation-engineering
+- [[2605.17432]] DP-SelFT: Differentially Private Selective Fine-Tuning — differential-privacy, LLM-fine-tuning, privacy-utility-tradeoff
+- [[2605.17471]] WinQ: Accelerating QAT Around Saddle Points — quantization-aware-training, Hessian-analysis, LLM-compression
+- [[2605.17482]] Residual Semantic Decomposition of Word Embeddings — word-embeddings, semantic-decomposition, interpretability
+- [[2605.17493]] KAN-SAE: Climate Features in AI Weather Models — mechanistic-interpretability, SAE, weather-prediction
+- [[2605.17497]] SSOPD: Self-Supervised On-Policy Distillation for Reasoning LMs — RLVR, knowledge-distillation, mathematical-reasoning
+- [[2605.17504]] KL-Minimal Visual Mechanistic Interpretability — mechanistic-interpretability, vision-models, diffusion-models
+- [[2605.17524]] Coordinate Heterogeneity Governs Binary Quantization — binary-quantization, contrastive-learning, vector-search
+- [[2605.17552]] Q-LocalAdam: Memory-Efficient FL Optimization — federated-learning, optimization, quantization
+- [[2605.17562]] Beyond Accuracy: EEG Foundation Models — EEG, foundation-models, robustness, interpretability
+- [[2605.17570]] μ-GRPO: How Off-Policy Can GRPO Be? — reinforcement-learning, GRPO, RLVR, training-efficiency
+- [[2605.17598]] MoE for Low-Resource LLMs — mixture-of-experts, multilingual-LLM, routing-dynamics
+- [[2605.17606]] NTK for Classification — neural-tangent-kernel, classification-theory, generalization
+- [[2605.17613]] VeriCache: Lossless KV Cache Inference — kv-cache, lossless-inference, speculative-decoding, llm-serving ⭐
+- [[2605.17633]] SparseSAM: Structured Sparsification of SAM — model-compression, segmentation, efficient-inference
+- [[2605.17658]] When a Zero-Shooter Cheats: Age Estimation via Activation Steering — vlm-robustness, activation-steering, interpretability
+- [[2605.17659]] Bug or Feature²: Weight Drift, Activation Sparsity, and Spikes — optimization, activation-functions, training-dynamics
+- [[2605.17660]] Training Infinitely Deep and Wide Transformers — neural-pde, mean-field-theory, transformer-theory
+- [[2605.17672]] PUMA: Semantic-Preserving Early Exit for Reasoning Models — early-exit, chain-of-thought, reasoning-efficiency ⭐
+- [[2605.17683]] μ-ORCA: Microsecond DNN Inference on ACAP — hardware-accelerator, ultra-low-latency-inference, heterogeneous-computing
+- [[2605.17692]] Exact Convex Reformulations via Completely Positive Lifting — convex-optimization, linear-neural-networks, optimization-theory
+
+
+---
+
+_本周报由每日 digest 汇总而成。/ This weekly digest is a rollup of the daily digests._
+
+**每日入口 / Daily entries:** [2026-05-12](../../2026-05-12/overview.md) · [2026-05-17](../../2026-05-17/overview.md)

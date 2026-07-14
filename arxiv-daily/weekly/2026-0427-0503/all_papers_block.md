@@ -1,0 +1,43 @@
+### 2026-04-30 (41)
+
+- [[2604.26779]] Accelerating RL Post-Training Rollouts via Speculative Decoding — RL for LLMs
+- [[2604.26821]] Voxel: 3D-Stacked AI Chip Architecture — Hardware
+- [[2604.26837]] SPIN: Sparse Attention with Hierarchical Memory — Inference & Serving
+- [[2604.26866]] MoRFI: Monotonic Sparse Autoencoder Feature Identification — Interpretability
+- [[2604.26889]] Revealing NVIDIA Closed-Source Driver Command Streams — Hardware
+- [[2604.26898]] Stochastic Scaling Limits in Deep Transformers — Math Foundations
+- [[2604.27019]] Dynamic Adversarial Fine-Tuning Reorganizes Refusal Geometry — Interpretability
+- [[2604.27063]] FADE: Continual Learning with Adaptive Weight Decay — Optimization
+- [[2604.27077]] νGPT: Learning Rate Transfer in Normalized Transformers — Optimization
+- [[2604.27085]] RoundPipe: Efficient Training on Consumer GPUs — Distributed Training
+- [[2604.27089]] AutoSP: Compiler-Based Sequence Parallelism — Distributed Training
+- [[2604.27115]] Task-Specific Neuron Pruning and Recovery — Compression
+- [[2604.27149]] ConformaDecompose: Explaining Uncertainty via Calibration — Evaluation
+- [[2604.27169]] Semantic Structure of Feature Space in LLMs — Interpretability
+- [[2604.27201]] Path-Lock Expert: Hybrid Thinking via Architecture Separation — Interpretability
+- [[2604.27295]] DALS: Learning Rate Engineering — Optimization
+- [[2604.27396]] VitaLLM: Ternary LLM Accelerator — Hardware
+- [[2604.27398]] Why Mean Pooling Works: Second-Order Collapse in Text Embeddings — Interpretability
+- [[2604.27401]] Perturbation Probing: FFN Behavioral Circuits in Aligned LLMs — Interpretability ⭐
+- [[2604.27405]] Beyond the Mean: RCI for LLM Evaluation — Evaluation
+- [[2604.27495]] CIRM: Debiasing Reward Models via Causal Intervention — Safety & Alignment
+- [[2604.27536]] VEROIC: Belief-Guided Inference Control — Inference & Serving
+- [[2604.27551]] Beyond the Training Distribution: Program Synthesis Generalization — Math Foundations
+- [[2604.27656]] When Does Structure Matter in Continual Learning? — Optimization
+- [[2604.27789]] Test Before You Deploy: LLM Supply Chain Governance — Evaluation
+- [[2604.27844]] ZipCCL: Lossless Compression for LLM Training — Distributed Training ⭐
+- [[2604.27883]] Decoupled Descent: Exact Test Error Tracking via AMP — Optimization
+- [[2604.27911]] Physical Foundation Models — Hardware
+- [[2604.27914]] Geometry-Calibrated Conformal Abstention for Language Models — Interpretability
+- [[2604.27929]] DPN-LE: Dual Personality Neuron Localization and Editing — Interpretability
+- [[2604.27987]] DSGD: Dynamic Scaled Gradient Descent — Optimization
+- [[2604.27998]] Latent-GRPO: Group Relative Policy Optimization for Latent Reasoning — RL for LLMs
+- [[2604.28005]] KAE: Kernelized Advantage Estimation for LLM Reasoning — RL for LLMs
+- [[2604.28082]] Emergent Misalignment Persona Consistency — Safety & Alignment
+- [[2604.28109]] Auto-FlexSwitch: Dynamic Model Merging via Task Vector Compression — Compression
+- [[2604.28118]] DEFault++: Transformer Fault Diagnosis — Evaluation
+- [[2604.28119]] Do Sparse Autoencoders Capture Concept Manifolds? — Interpretability ⭐
+- [[2604.28122]] S²VAE: Beyond Gaussian Bottlenecks for ViT Features — Interpretability
+- [[2604.28129]] Latent Adversarial Detection for Multi-Turn Attacks — Safety & Alignment
+- [[2604.28175]] Strait: Priority-Aware ML Inference Serving — Inference & Serving
+- [[2604.28182]] Exploration Hacking: Can LLMs Resist RL Training? — Safety & Alignment

@@ -1,0 +1,507 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>2607.11368 — Runtime vs Kernel Decomposition (A5000)</title>
+<style>
+  :root{
+    --ink:#15171a;
+    --ink-soft:#4a4f57;
+    --ink-faint:#7a808a;
+    --paper:#f6f3ec;
+    --paper-card:#fbf9f4;
+    --rule:#d9d3c6;
+    --rule-soft:#e7e1d4;
+    --accent:#0e6e5d;          /* single accent: deep teal */
+    --accent-ink:#0a4d42;
+    --accent-tint:#e2efe9;
+    --edge:#8a2a1c;            /* critical-edge treatment (oxide red, used sparingly) */
+    --edge-tint:#f3e3df;
+    --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
+    --sans:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    --maxw:min(95vw,1100px);
+  }
+
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    background:var(--paper);
+    color:var(--ink);
+    font-family:var(--sans);
+    font-size:16px;
+    line-height:1.55;
+    -webkit-font-smoothing:antialiased;
+    text-rendering:optimizeLegibility;
+  }
+  a{color:var(--accent-ink);text-decoration:none;border-bottom:1px solid color-mix(in srgb,var(--accent) 35%,transparent)}
+  a:hover{border-bottom-color:var(--accent)}
+  .mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+
+  /* ---------- layout shell ---------- */
+  .wrap{width:var(--maxw);margin:0 auto;padding:0 22px}
+
+  /* ---------- top nav ---------- */
+  .topnav{
+    display:flex;align-items:center;justify-content:space-between;
+    padding:16px 0 14px;
+    border-bottom:1px solid var(--rule);
+  }
+  .topnav a{border-bottom:none}
+  .back{
+    font-size:13.5px;font-weight:600;letter-spacing:.01em;
+    color:var(--ink-soft);
+  }
+  .back:hover{color:var(--accent-ink)}
+  .paperid{font-family:var(--mono);font-size:12.5px;color:var(--ink-faint);letter-spacing:.04em}
+
+  /* ---------- hero band ---------- */
+  .hero{padding:46px 0 30px;border-bottom:1px solid var(--rule)}
+  .kicker{
+    font-family:var(--mono);font-size:11.5px;letter-spacing:.18em;
+    text-transform:uppercase;color:var(--accent-ink);margin:0 0 18px;
+  }
+  .finding{
+    font-size:clamp(1.7rem,4.4vw,2.85rem);
+    line-height:1.14;font-weight:800;letter-spacing:-.018em;
+    margin:0 0 26px;max-width:24ch;color:var(--ink);
+  }
+  .finding em{font-style:normal;color:var(--accent-ink)}
+  .titlelink{
+    display:block;font-size:1.06rem;font-weight:650;line-height:1.4;
+    color:var(--ink);margin:0 0 12px;max-width:62ch;
+  }
+  .byline{font-size:13.5px;color:var(--ink-soft);margin:0 0 18px}
+  .byline .au{color:var(--ink);font-weight:600}
+  .byline .sep{color:var(--ink-faint);margin:0 8px}
+  .chips{display:flex;flex-wrap:wrap;gap:7px}
+  .chip{
+    font-family:var(--mono);font-size:11px;letter-spacing:.02em;
+    padding:4px 9px;border:1px solid var(--rule);border-radius:999px;
+    background:var(--paper-card);color:var(--ink-soft);
+  }
+
+  /* ---------- asset row ---------- */
+  .assets{
+    display:grid;
+    grid-template-columns:1.15fr 1fr 1fr;
+    gap:14px;
+    padding:26px 0;
+    border-bottom:1px solid var(--rule);
+  }
+  .card{
+    background:var(--paper-card);
+    border:1px solid var(--rule);
+    border-radius:6px;
+    padding:18px 18px 20px;
+    position:relative;
+  }
+  .card .label{
+    font-family:var(--mono);font-size:10.5px;letter-spacing:.16em;
+    text-transform:uppercase;color:var(--ink-faint);margin:0 0 10px;
+    display:flex;align-items:center;gap:8px;
+  }
+  .card .label .dot{width:7px;height:7px;border-radius:2px;background:var(--accent);display:inline-block}
+
+  .metric .bignum{
+    font-family:var(--mono);font-weight:700;
+    font-size:clamp(2.6rem,7vw,3.9rem);
+    line-height:.95;letter-spacing:-.03em;color:var(--accent-ink);
+    margin:2px 0 6px;
+  }
+  .metric .sub{font-size:13px;color:var(--ink-soft);margin:0}
+  .metric .sub b{color:var(--ink)}
+  .splitbar{display:flex;height:9px;border-radius:3px;overflow:hidden;margin:14px 0 10px;border:1px solid var(--rule)}
+  .splitbar .rt{background:var(--accent);flex:67.9}
+  .splitbar .kq{background:color-mix(in srgb,var(--accent) 22%,#bbb);flex:32.1}
+  .splitlegend{display:flex;justify-content:space-between;font-family:var(--mono);font-size:10.5px;color:var(--ink-faint)}
+
+  .why p{margin:0;font-size:14px;line-height:1.5;color:var(--ink)}
+  .why p .hl{color:var(--accent-ink);font-weight:600}
+
+  .edge{border-color:color-mix(in srgb,var(--edge) 45%,var(--rule));background:var(--edge-tint)}
+  .edge .label .dot{background:var(--edge)}
+  .edge p{margin:0;font-size:13.5px;line-height:1.5}
+  .edge .tag{
+    font-family:var(--mono);font-size:10.5px;color:var(--edge);
+    letter-spacing:.04em;display:block;margin-top:10px;
+  }
+
+  /* ---------- body grid ---------- */
+  .body{padding:30px 0 10px;display:grid;grid-template-columns:1fr;gap:30px}
+  .sec-head{
+    display:flex;align-items:baseline;gap:14px;margin:0 0 16px;
+  }
+  .sec-num{
+    font-family:var(--mono);font-size:12px;color:var(--accent-ink);
+    letter-spacing:.1em;border:1px solid var(--accent-tint);background:var(--accent-tint);
+    padding:2px 8px;border-radius:4px;
+  }
+  .sec-title{font-size:1.18rem;font-weight:700;letter-spacing:-.01em;margin:0}
+
+  /* methodology */
+  .meth{
+    display:grid;grid-template-columns:repeat(3,1fr);gap:14px;
+  }
+  .meth .m{
+    border:1px solid var(--rule);border-radius:6px;padding:15px 16px;background:var(--paper-card);
+  }
+  .meth .m h4{margin:0 0 7px;font-size:12.5px;letter-spacing:.04em;text-transform:uppercase;color:var(--accent-ink);font-family:var(--mono);font-weight:600}
+  .meth .m p{margin:0;font-size:13.5px;color:var(--ink-soft);line-height:1.5}
+  .meth .m p b{color:var(--ink)}
+  .identity{
+    grid-column:1/-1;border-style:dashed;
+    display:flex;align-items:center;gap:18px;flex-wrap:wrap;
+  }
+  .identity .eq{font-family:var(--mono);font-size:13.5px;color:var(--ink);letter-spacing:.01em}
+  .identity .eq span{color:var(--accent-ink);font-weight:700}
+  .identity small{font-family:var(--sans);color:var(--ink-faint);font-size:12px}
+
+  /* results tables */
+  .results-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+  .panel{border:1px solid var(--rule);border-radius:6px;background:var(--paper-card);overflow:hidden}
+  .panel .ph{
+    padding:11px 15px;border-bottom:1px solid var(--rule);
+    display:flex;justify-content:space-between;align-items:baseline;gap:10px;
+    background:color-mix(in srgb,var(--accent-tint) 50%,var(--paper-card));
+  }
+  .panel .ph h4{margin:0;font-size:13px;font-weight:700;letter-spacing:.005em}
+  .panel .ph .tag{font-family:var(--mono);font-size:10.5px;color:var(--ink-faint);letter-spacing:.03em;white-space:nowrap}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th,td{padding:8px 15px;text-align:left;vertical-align:top}
+  thead th{
+    font-family:var(--mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;
+    color:var(--ink-faint);font-weight:600;border-bottom:1px solid var(--rule);
+  }
+  tbody tr{border-bottom:1px solid var(--rule-soft)}
+  tbody tr:last-child{border-bottom:none}
+  td.num,th.num{text-align:right;font-family:var(--mono);font-variant-numeric:tabular-nums}
+  td .pill{
+    font-family:var(--mono);font-size:10.5px;padding:1px 6px;border-radius:3px;
+    background:var(--accent-tint);color:var(--accent-ink);
+  }
+  td .pill.warn{background:var(--edge-tint);color:var(--edge)}
+  td .pill.dim{background:var(--rule-soft);color:var(--ink-soft)}
+  tr.hl td{background:color-mix(in srgb,var(--accent-tint) 35%,transparent)}
+  .tnote{padding:9px 15px;font-size:11.5px;color:var(--ink-faint);border-top:1px solid var(--rule-soft);font-family:var(--mono);letter-spacing:.01em}
+
+  .full{grid-column:1/-1}
+
+  /* TP stacking mini-viz */
+  .tpviz{padding:14px 15px;border-top:1px solid var(--rule-soft)}
+  .tpviz .scale{
+    position:relative;height:46px;margin:6px 0 4px;
+  }
+  .tpviz .axis{position:absolute;left:0;right:0;top:23px;height:1px;background:var(--rule)}
+  .tpviz .bar{position:absolute;top:8px;height:16px;border-radius:2px;display:flex;align-items:center;padding-right:6px;justify-content:flex-end;font-family:var(--mono);font-size:10.5px;color:#fff;font-weight:600}
+  .tpviz .bar.ach{left:0;background:var(--accent)}
+  .tpviz .bar.pra{left:0;background:color-mix(in srgb,var(--accent) 45%,#999)}
+  .tpviz .bar.ide{left:0;background:var(--edge)}
+  .tpviz .ticks{display:flex;justify-content:space-between;font-family:var(--mono);font-size:10px;color:var(--ink-faint);margin-top:2px}
+  .tpviz .legend{display:flex;gap:14px;font-family:var(--mono);font-size:10.5px;color:var(--ink-soft);margin-top:8px;flex-wrap:wrap}
+  .tpviz .legend i{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:5px;vertical-align:middle}
+
+  /* sign reversal */
+  .reversal{display:flex;gap:12px;align-items:stretch}
+  .reversal .blk{flex:1;border:1px solid var(--rule);border-radius:6px;padding:13px 15px;background:var(--paper-card)}
+  .reversal .blk h5{margin:0 0 5px;font-family:var(--mono);font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-faint)}
+  .reversal .blk .v{font-family:var(--mono);font-weight:700;font-size:1.25rem;color:var(--accent-ink);margin:0 0 4px}
+  .reversal .blk.win .v{color:var(--accent-ink)}
+  .reversal .blk p{margin:0;font-size:12.5px;color:var(--ink-soft)}
+  .reversal .arrow{align-self:center;font-family:var(--mono);font-size:20px;color:var(--edge);font-weight:700}
+
+  /* strengths / limitations */
+  .proscons{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+  .proscons .col{border:1px solid var(--rule);border-radius:6px;background:var(--paper-card);padding:6px 18px 10px}
+  .proscons .col h4{
+    font-family:var(--mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;
+    margin:12px 0 8px;padding-bottom:7px;border-bottom:1px solid var(--rule);
+  }
+  .proscons .col.pro h4{color:var(--accent-ink)}
+  .proscons .col.con h4{color:var(--edge)}
+  .proscons ul{margin:0;padding:0;list-style:none}
+  .proscons li{
+    font-size:13px;line-height:1.48;color:var(--ink-soft);
+    padding:7px 0 7px 20px;border-bottom:1px solid var(--rule-soft);position:relative;
+  }
+  .proscons li:last-child{border-bottom:none}
+  .proscons li::before{
+    position:absolute;left:0;top:7px;font-family:var(--mono);font-size:11px;font-weight:700;
+  }
+  .proscons .pro li::before{content:"+";color:var(--accent)}
+  .proscons .con li::before{content:"!";color:var(--edge)}
+  .proscons li b{color:var(--ink)}
+
+  /* questions */
+  .qlist{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  .qlist .q{
+    border-left:3px solid var(--accent);padding:11px 14px;background:var(--paper-card);
+    border-radius:0 4px 4px 0;
+  }
+  .qlist .q .qn{font-family:var(--mono);font-size:10.5px;color:var(--accent-ink);letter-spacing:.06em;display:block;margin-bottom:4px}
+  .qlist .q p{margin:0;font-size:13px;line-height:1.46;color:var(--ink-soft)}
+
+  /* footer */
+  footer{
+    margin-top:34px;padding:20px 0 40px;border-top:1px solid var(--rule);
+    display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap;
+  }
+  footer .src{font-family:var(--mono);font-size:13px;font-weight:600;color:var(--accent-ink)}
+  footer .meta{font-family:var(--mono);font-size:11px;color:var(--ink-faint);letter-spacing:.02em}
+
+  /* responsive */
+  @media (max-width:860px){
+    .assets{grid-template-columns:1fr}
+    .meth{grid-template-columns:1fr}
+    .results-grid{grid-template-columns:1fr}
+    .proscons{grid-template-columns:1fr}
+    .qlist{grid-template-columns:1fr}
+    .reversal{flex-direction:column}
+    .reversal .arrow{transform:rotate(90deg);text-align:center}
+    .hero{padding:32px 0 22px}
+    th,td{padding:7px 10px}
+  }
+  @media (max-width:520px){
+    body{font-size:15px}
+    .wrap{padding:0 16px}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- TOP NAV -->
+  <nav class="topnav">
+    <a class="back" href="./index.html">↩ Today's digest</a>
+    <span class="paperid">arXiv:2607.11368 · 2026-07-13</span>
+  </nav>
+
+  <!-- HERO BAND -->
+  <header class="hero">
+    <p class="kicker">Attribution study · 4× NVIDIA RTX A5000 · NVLink-paired</p>
+    <h1 class="finding">A matched FP16 baseline decomposes the HF→vLLM-Marlin serving speedup, revealing the <em>runtime alone carries ~2/3 of the gain.</em></h1>
+    <a class="titlelink" href="https://arxiv.org/abs/2607.11368" target="_blank" rel="noopener">Decomposing Runtime, Kernel, and Quantization Speedups via a Matched FP16 Intermediate: A Hardware-Conditioned Case Study on Four NVIDIA RTX A5000 GPUs ↗</a>
+    <p class="byline"><span class="au">Weijia Han</span><span class="sep">·</span><span class="au">Lisha Qu</span><span class="sep">·</span>University of Washington<span class="sep">·</span>2026-07-13</p>
+    <div class="chips">
+      <span class="chip">llm-serving</span>
+      <span class="chip">quantization</span>
+      <span class="chip">vLLM</span>
+      <span class="chip">tensor-parallelism</span>
+      <span class="chip">inference-benchmarking</span>
+    </div>
+  </header>
+
+  <!-- ASSET ROW -->
+  <section class="assets">
+    <div class="card metric">
+      <p class="label"><span class="dot"></span>Key metric — runtime log-share</p>
+      <div class="bignum">67.9%</div>
+      <p class="sub">of the controlled gain at <b>c=64</b> sits in the <b>runtime arm</b> (2.58× overall: 1.90× runtime × 1.36× kernel+quant). The operational single-run swap reports a conflated <b>10.62×</b>.</p>
+      <div class="splitbar"><div class="rt"></div><div class="kq"></div></div>
+      <div class="splitlegend"><span>Runtime 67.9%</span><span>Kernel+quant 32.1%</span></div>
+    </div>
+
+    <div class="card why">
+      <p class="label"><span class="dot"></span>Why this matters</p>
+      <p>A <span class="hl">reusable matched-baseline template</span> for decomposing whole-stack speedups; PCIe-mid-range <span class="hl">TP-barely-stacks</span> and an <span class="hl">8B/70B routing reversal</span> directly guide deployment.</p>
+    </div>
+
+    <div class="card edge">
+      <p class="label"><span class="dot"></span>Critical edge</p>
+      <p>The headline <b>10.62×</b> operational figure is <b>n=1</b>, conflates two confounds (batch ceiling + sampling mode), and the authors never run the factorial ablation that would separate them.</p>
+      <span class="tag">largest single number · partially unattributed</span>
+    </div>
+  </section>
+
+  <!-- BODY -->
+  <main class="body">
+
+    <!-- METHODOLOGY -->
+    <section>
+      <div class="sec-head"><span class="sec-num">01</span><h2 class="sec-title">Methodology — the bookkeeping device</h2></div>
+      <div class="meth">
+        <div class="m">
+          <h4>Hardware</h4>
+          <p>One host, <b>4× A5000 (24 GiB)</b> in two NVLink pairs; cross-pair traffic crosses PCIe gen4. CUDA 12.4.</p>
+        </div>
+        <div class="m">
+          <h4>Two regimes</h4>
+          <p><b>Operational</b> single-run (SwiftServe HTTP, batch≤8, ancestral sampling) vs. <b>controlled</b> matched-greedy (in-process, batch 64, T=0, n=3).</p>
+        </div>
+        <div class="m">
+          <h4>Models</h4>
+          <p>Llama-3.1-8B FP16 (~16 GiB) + GPTQ-INT4 (~5.7 GiB); 70B GPTQ-INT4 for the larger comparison. A fixed <b>10-prompt</b> synthetic pool (~12 tok mean).</p>
+        </div>
+        <div class="m identity">
+          <span class="eq">overall = <span>runtime</span> × <span>kernel+quant</span></span>
+          <small>A vLLM-FP16 intermediate cancels exactly (Eq. 5). Log-share (Eq. 6) composes to 1. Authors explicitly disclaim causal independence.</small>
+        </div>
+      </div>
+    </section>
+
+    <!-- RESULTS -->
+    <section>
+      <div class="sec-head"><span class="sec-num">02</span><h2 class="sec-title">Results — what the numbers say</h2></div>
+      <div class="results-grid">
+
+        <!-- attribution table -->
+        <div class="panel">
+          <div class="ph"><h4>Controlled attribution (c=64, T=256, n=3)</h4><span class="tag">Table 5</span></div>
+          <table>
+            <thead><tr><th>Backend</th><th class="num">tok/s</th><th class="num">factor</th></tr></thead>
+            <tbody>
+              <tr><td>HF-FP16 <span class="pill dim">baseline</span></td><td class="num">997.52</td><td class="num">1.00×</td></tr>
+              <tr><td>vLLM-FP16</td><td class="num">1,897.96</td><td class="num">1.90× <span class="pill">runtime</span></td></tr>
+              <tr class="hl"><td>vLLM-Marlin INT4</td><td class="num">2,573.96</td><td class="num">2.58× <span class="pill">overall</span></td></tr>
+            </tbody>
+          </table>
+          <div class="tnote">Operational single-run: 7.56× runtime / 10.62× overall (86% log-share) — ~4× inflation from batch-ceiling + sampling confounds.</div>
+        </div>
+
+        <!-- cross-model stability -->
+        <div class="panel">
+          <div class="ph"><h4>Kernel+quant factor, cross-model (n=3)</h4><span class="tag">Table 7</span></div>
+          <table>
+            <thead><tr><th>Model</th><th class="num">K+Q factor</th><th class="num">Δ vs Llama</th></tr></thead>
+            <tbody>
+              <tr><td>Llama-3.1-8B</td><td class="num">1.356</td><td class="num">—</td></tr>
+              <tr><td>Mistral-7B-v0.3</td><td class="num">1.370</td><td class="num">+1.03%</td></tr>
+              <tr><td>Qwen2.5-7B</td><td class="num">1.376</td><td class="num">+1.46%</td></tr>
+            </tbody>
+          </table>
+          <div class="tnote">Max pairwise spread 1.46% across three GQA 7–8B models → factor is stable on this hardware class.</div>
+        </div>
+
+        <!-- TP stacking with viz -->
+        <div class="panel full">
+          <div class="ph"><h4>TP=4 sharding barely stacks (n=5, 7-cell sweep)</h4><span class="tag">Table 8</span></div>
+          <div class="tpviz">
+            <div class="scale">
+              <div class="axis"></div>
+              <div class="bar ach" style="width:37.25%">1.49×</div>
+              <div class="bar pra" style="width:50%">2.00×</div>
+              <div class="bar ide" style="width:100%">4.00×</div>
+            </div>
+            <div class="ticks"><span>0×</span><span>1×</span><span>2×</span><span>3×</span><span>4×</span></div>
+            <div class="legend">
+              <span><i style="background:var(--accent)"></i>Achieved geomean (range 1.37–1.58×)</span>
+              <span><i style="background:color-mix(in srgb,var(--accent) 45%,#999)"></i>Practical threshold (2×)</span>
+              <span><i style="background:var(--edge)"></i>Ideal (4×)</span>
+            </div>
+          </div>
+          <div class="tnote">Profiler trace attributes ~80% of the per-token gap to shard coordination; NVLink-vs-PCIe control shows 0.95× realized-bandwidth ratio → not a link-bandwidth bottleneck.</div>
+        </div>
+
+        <!-- 8B multi-instance -->
+        <div class="panel">
+          <div class="ph"><h4>8B: multi-instance vs TP=4 (n=5)</h4><span class="tag">Table 9</span></div>
+          <table>
+            <thead><tr><th>Concurrency</th><th class="num">4× multi</th><th class="num">TP=4</th></tr></thead>
+            <tbody>
+              <tr><td>c=64</td><td class="num">5,442.78</td><td class="num">3,735.41 <span class="pill">×1.46</span></td></tr>
+              <tr><td>c=128</td><td class="num">7,243.57</td><td class="num">OOM <span class="pill warn">only multi</span></td></tr>
+            </tbody>
+          </table>
+          <div class="tnote">Multi-instance wins from c=32 onward; at c=128 the shard OOMs and multi-instance is the sole viable backend.</div>
+        </div>
+
+        <!-- coordination calls -->
+        <div class="panel">
+          <div class="ph"><h4>70B coordination cost (wide-batch)</h4><span class="tag">Table 17</span></div>
+          <table>
+            <thead><tr><th>Layout</th><th class="num">allreduce calls</th><th class="num">NCCL%</th></tr></thead>
+            <tbody>
+              <tr><td>1× TP=4 shard</td><td class="num">494,592</td><td class="num">82.0%</td></tr>
+              <tr class="hl"><td>2× paired (TP=2)</td><td class="num">2,576</td><td class="num">1.7%</td></tr>
+            </tbody>
+          </table>
+          <div class="tnote">~200× call-count reduction → two paired instances beat one shard on every 70B workload (1.05–1.17×).</div>
+        </div>
+
+        <!-- sign reversal block -->
+        <div class="panel full">
+          <div class="ph"><h4>Routing verdict sign-reverses with model size</h4><span class="tag">Tables 9 & 10</span></div>
+          <div class="reversal">
+            <div class="blk win">
+              <h5>8B — workload-conditional</h5>
+              <div class="v">TP=4 ⟷ multi</div>
+              <p>TP=4 wins <b>long-output</b> cells; <b>multi-instance</b> wins wide-batch (and is the only survivor at c=128).</p>
+            </div>
+            <div class="arrow">⇄</div>
+            <div class="blk win">
+              <h5>70B — paired always wins</h5>
+              <div class="v">2× paired &gt; 1× shard</div>
+              <p>Two TP=2 instances beat one TP=4 shard on <b>every</b> workload, <b>+7%</b> avg on NVLink, +5% on slower PCIe control.</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- capacity cliff -->
+        <div class="panel full">
+          <div class="ph"><h4>Capacity cliff — INT4 extends sustainable concurrency ~4×</h4><span class="tag">Tables 12–13</span></div>
+          <table>
+            <thead><tr><th>Backend</th><th class="num">c=96</th><th class="num">c=256</th><th class="num">utility score</th></tr></thead>
+            <tbody>
+              <tr><td>HF-FP16</td><td class="num">576/576 fail <span class="pill warn">OOM</span></td><td class="num">—</td><td class="num">1.00×</td></tr>
+              <tr><td>HF-GPTQ (default INT4 kernel)</td><td class="num">ok</td><td class="num">0/1,536 fail</td><td class="num">3.41×</td></tr>
+              <tr class="hl"><td>vLLM-Marlin</td><td class="num">ok</td><td class="num">2,667.71 tok/s · 0 fail</td><td class="num">44.30×</td></tr>
+            </tbody>
+          </table>
+          <div class="tnote">Utility = throughput × concurrency (authors caveat: not a throughput improvement). FP16 cliff reproduces at c=96 (3/3 runs OOM).</div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- STRENGTHS / LIMITATIONS -->
+    <section>
+      <div class="sec-head"><span class="sec-num">03</span><h2 class="sec-title">Strengths &amp; limitations — side by side</h2></div>
+      <div class="proscons">
+        <div class="col pro">
+          <h4>Strengths</h4>
+          <ul>
+            <li><b>Honest about what decomposition can/can't attribute</b> — explicitly states the identity is definitional, not evidence of factor independence (§3.9).</li>
+            <li><b>Dual reporting</b> of operational + controlled figures answers two distinct deployment questions without overclaiming either.</li>
+            <li><b>Direct mechanism evidence</b> — profiler traces, allreduce-call counts, NVLink-vs-PCIe control — backs qualitative conclusions.</li>
+            <li><b>Cross-model replication</b> bounds the kernel+quant factor's model-axis variance to ≤1.46%.</li>
+            <li><b>Self-corrects</b> an earlier overstated 70B advantage (~15% → ~7%) via a matched re-measurement.</li>
+          </ul>
+        </div>
+        <div class="col con">
+          <h4>Limitations</h4>
+          <ul>
+            <li><b>Single hardware config</b> (4× A5000, pairwise NVLink) — no four-card switch fabric, no newer GPU generations.</li>
+            <li><b>Single quantization method</b> (GPTQ-INT4 via Marlin); AWQ / MXFP / INT8 untested.</li>
+            <li><b>10-prompt synthetic pool</b> (~12 tok mean) is far from realistic serving distributions; prompt-conditional effects unbounded.</li>
+            <li><b>No factorial ablation</b> separating batch-ceiling from sampling effects on the operational-vs-controlled gap.</li>
+            <li><b>Only two runtimes measured</b>; two more were blocked by infrastructure incompatibilities (Appendix F).</li>
+            <li><b>Clocks unpinned</b>, thermal state uncontrolled, idle time not enforced; no external reproduction.</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- QUESTIONS -->
+    <section>
+      <div class="sec-head"><span class="sec-num">04</span><h2 class="sec-title">Open questions for further exploration</h2></div>
+      <div class="qlist">
+        <div class="q"><span class="qn">Q1 · distribution</span><p>Does the runtime-vs-kernel split change on realistic prompts (ShareGPT, LMSys Chat 1M) with longer, more variable prefill?</p></div>
+        <div class="q"><span class="qn">Q2 · confound</span><p>Would 10.62× survive a factorial ablation isolating batch-ceiling (8→64) from sampling (greedy vs ancestral) — and which dominates?</p></div>
+        <div class="q"><span class="qn">Q3 · hardware</span><p>Does the negative TP=4 verdict reverse on a shared switch fabric, or on H100 SXM / B200 where launch overhead is a smaller fraction?</p></div>
+        <div class="q"><span class="qn">Q4 · generalization</span><p>Does the ≤1.46% kernel+quant stability hold beyond 7–8B GQA, and across AWQ / INT8 / FP8 / MXFP fused kernels?</p></div>
+        <div class="q"><span class="qn">Q5 · latency</span><p>For latency-sensitive single-request serving, at what concurrency does the shard's lower per-token latency lose to multi-instance aggregate throughput?</p></div>
+        <div class="q"><span class="qn">Q6 · method</span><p>Can the matched-intermediate method extend to SGLang / TensorRT-LLM / TGI to build a cross-runtime attribution table?</p></div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- FOOTER -->
+  <footer>
+    <a class="src" href="./2607.11368.md">↗ Markdown source</a>
+    <span class="meta">generated 2026-07-14 · single-accent dashboard · not browser-verified</span>
+  </footer>
+
+</div>
+</body>
+</html>
