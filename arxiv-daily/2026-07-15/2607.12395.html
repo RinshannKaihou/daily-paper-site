@@ -1,0 +1,849 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Ring-Zero · Scaling Zero RL to a Trillion Parameters</title>
+<style>
+  :root {
+    /* topic-derived accent: "deep RL signal" amber on near-black industrial slate */
+    --bg: #0e1116;
+    --bg-elev: #161b22;
+    --bg-elev-2: #1d242e;
+    --rule: #2a323d;
+    --ink: #e6edf3;
+    --ink-mute: #8b949e;
+    --ink-dim: #6e7681;
+    --accent: #e8a33d;        /* amber */
+    --accent-soft: #e8a33d22;
+    --accent-deep: #c47a14;
+    --pos: #4cc38a;
+    --neg: #ff6b6b;
+    --warn: #e8a33d;
+    --grid-col: minmax(0, 1fr);
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code", Menlo, Consolas, monospace;
+    font-size: 15px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* subtle scanline-grain atmosphere */
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 0;
+    background:
+      repeating-linear-gradient(
+        0deg,
+        rgba(255,255,255,0.012) 0px,
+        rgba(255,255,255,0.012) 1px,
+        transparent 1px,
+        transparent 3px
+      );
+    mix-blend-mode: overlay;
+    opacity: 0.6;
+  }
+
+  .wrap {
+    position: relative;
+    z-index: 1;
+    max-width: min(95vw, 1100px);
+    margin: 0 auto;
+    padding: 0 24px 96px;
+  }
+
+  /* ---------- top-left fixed back link ---------- */
+  .back-link {
+    position: fixed;
+    top: 18px;
+    left: 22px;
+    z-index: 50;
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 12px;
+    letter-spacing: 0.02em;
+    color: var(--ink-mute);
+    background: rgba(14, 17, 22, 0.85);
+    backdrop-filter: blur(8px);
+    border: 1px solid var(--rule);
+    padding: 8px 12px;
+    text-decoration: none;
+    transition: color 120ms ease, border-color 120ms ease;
+  }
+  .back-link:hover { color: var(--accent); border-color: var(--accent); }
+
+  /* ---------- meta strip ---------- */
+  .meta-strip {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 8px 14px;
+    padding: 56px 0 14px;
+    border-bottom: 1px solid var(--rule);
+    font-size: 11.5px;
+    letter-spacing: 0.06em;
+    color: var(--ink-dim);
+    text-transform: uppercase;
+  }
+  .meta-strip .id { color: var(--accent); font-weight: 700; }
+  .meta-strip .dot { color: var(--rule); }
+  .meta-strip .arxiv-link {
+    color: var(--ink-mute);
+    text-decoration: none;
+    border-bottom: 1px dotted var(--ink-dim);
+  }
+  .meta-strip .arxiv-link:hover { color: var(--accent); border-color: var(--accent); }
+
+  /* ---------- HERO BAND ---------- */
+  .hero {
+    padding: 48px 0 40px;
+    border-bottom: 1px solid var(--rule);
+  }
+  .eyebrow {
+    display: inline-block;
+    font-size: 11px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 22px;
+    padding-left: 14px;
+    border-left: 2px solid var(--accent);
+  }
+  .hero h1 {
+    font-family: "Georgia", "Times New Roman", ui-serif, serif;
+    font-weight: 700;
+    font-size: clamp(30px, 5.4vw, 56px);
+    line-height: 1.06;
+    letter-spacing: -0.02em;
+    margin: 0 0 20px;
+    color: var(--ink);
+    max-width: 22ch;
+  }
+  .hero h1 .accent { color: var(--accent); font-style: italic; }
+  .hero .finding {
+    font-family: "Georgia", serif;
+    font-size: clamp(17px, 2.1vw, 21px);
+    line-height: 1.45;
+    color: var(--ink);
+    max-width: 62ch;
+    margin: 0 0 26px;
+    border-left: 3px solid var(--accent);
+    padding: 4px 0 4px 18px;
+  }
+  .hero .byline {
+    font-size: 12.5px;
+    color: var(--ink-mute);
+    max-width: 70ch;
+  }
+  .hero .byline strong { color: var(--ink); font-weight: 600; }
+
+  /* ---------- ASSET ROW ---------- */
+  .asset-row {
+    display: grid;
+    grid-template-columns: 1.15fr 1fr 1fr;
+    gap: 14px;
+    margin-top: 30px;
+  }
+  .card {
+    background: var(--bg-elev);
+    border: 1px solid var(--rule);
+    padding: 22px 22px 20px;
+    position: relative;
+    transition: border-color 140ms ease, transform 140ms ease;
+  }
+  .card:hover { border-color: var(--accent); }
+  .card .label {
+    font-size: 10.5px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--ink-dim);
+    margin-bottom: 14px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .card .label .tick {
+    width: 6px; height: 6px;
+    background: var(--accent);
+    display: inline-block;
+  }
+  .card .label.crit .tick { background: var(--neg); }
+
+  /* KEY METRIC card */
+  .card.metric .metric-val {
+    font-family: "Georgia", serif;
+    font-weight: 700;
+    font-size: clamp(54px, 8.4vw, 88px);
+    line-height: 0.95;
+    letter-spacing: -0.04em;
+    color: var(--accent);
+    margin: -4px 0 6px;
+  }
+  .card.metric .metric-unit {
+    font-size: 13px;
+    color: var(--ink);
+    margin-bottom: 6px;
+  }
+  .card.metric .metric-sub {
+    font-size: 12px;
+    color: var(--ink-mute);
+    line-height: 1.5;
+  }
+  .card.metric .metric-sub b { color: var(--pos); font-weight: 600; }
+
+  /* WHY / CRIT cards */
+  .card .copy {
+    font-size: 14.5px;
+    line-height: 1.55;
+    color: var(--ink);
+  }
+  .card.crit .copy {
+    color: var(--ink);
+    border-left: 2px solid var(--neg);
+    padding-left: 12px;
+    margin-left: -2px;
+  }
+  .card .footnote {
+    margin-top: 12px;
+    font-size: 11.5px;
+    color: var(--ink-dim);
+    font-style: italic;
+  }
+
+  /* ---------- SECTION SHELL ---------- */
+  section.body-section {
+    padding: 44px 0 8px;
+    border-bottom: 1px solid var(--rule);
+  }
+  .sec-head {
+    display: flex;
+    align-items: baseline;
+    gap: 14px;
+    margin-bottom: 24px;
+  }
+  .sec-head .num {
+    font-family: "Georgia", serif;
+    font-size: 13px;
+    color: var(--accent);
+    letter-spacing: 0.1em;
+    border: 1px solid var(--accent);
+    padding: 3px 8px;
+    flex: 0 0 auto;
+  }
+  .sec-head h2 {
+    font-family: "Georgia", serif;
+    font-weight: 700;
+    font-size: clamp(22px, 3vw, 28px);
+    letter-spacing: -0.01em;
+    margin: 0;
+    color: var(--ink);
+  }
+
+  /* ---------- METHODOLOGY (pipeline ladder) ---------- */
+  .pipeline {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+    margin-bottom: 26px;
+  }
+  .stage {
+    background: var(--bg-elev);
+    border: 1px solid var(--rule);
+    border-top: 3px solid var(--accent-deep);
+    padding: 16px 16px 18px;
+    position: relative;
+  }
+  .stage .step {
+    font-size: 10.5px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 8px;
+  }
+  .stage h3 {
+    font-family: "Georgia", serif;
+    font-size: 15.5px;
+    margin: 0 0 10px;
+    color: var(--ink);
+    font-weight: 700;
+  }
+  .stage p {
+    font-size: 12.5px;
+    line-height: 1.55;
+    color: var(--ink-mute);
+    margin: 0;
+  }
+  .stage .keyval {
+    margin-top: 10px;
+    font-size: 11.5px;
+    color: var(--ink);
+  }
+  .stage .keyval span { color: var(--accent); }
+
+  .infra-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+  }
+  .infra-card {
+    background: var(--bg-elev);
+    border: 1px solid var(--rule);
+    padding: 16px 18px;
+  }
+  .infra-card h4 {
+    margin: 0 0 6px;
+    font-size: 13px;
+    color: var(--accent);
+    letter-spacing: 0.04em;
+  }
+  .infra-card p {
+    margin: 0;
+    font-size: 12.5px;
+    line-height: 1.55;
+    color: var(--ink-mute);
+  }
+  .infra-card p code, .stage code, .copy code {
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 11.5px;
+    background: var(--bg-elev-2);
+    padding: 1px 5px;
+    border: 1px solid var(--rule);
+    color: var(--ink);
+  }
+
+  /* ---------- RESULTS (benchmark bars + stat grid) ---------- */
+  .bench {
+    background: var(--bg-elev);
+    border: 1px solid var(--rule);
+    padding: 20px 22px;
+    margin-bottom: 18px;
+  }
+  .bench-title {
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--ink-dim);
+    margin-bottom: 16px;
+  }
+  .bar-row {
+    display: grid;
+    grid-template-columns: 130px 1fr 56px;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 9px;
+  }
+  .bar-row .name { font-size: 12.5px; color: var(--ink); }
+  .bar-row .name.frontier { color: var(--ink-mute); }
+  .bar-row .track {
+    height: 12px;
+    background: var(--bg-elev-2);
+    border: 1px solid var(--rule);
+    position: relative;
+    overflow: hidden;
+  }
+  .bar-row .fill {
+    height: 100%;
+    background: var(--accent);
+    width: 0;
+    transition: width 900ms cubic-bezier(0.2, 0.7, 0.2, 1);
+  }
+  .bar-row.self .fill { background: var(--pos); }
+  .bar-row .val {
+    font-size: 12.5px;
+    color: var(--ink);
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+  .bar-row.self .val { color: var(--pos); font-weight: 700; }
+
+  .stat-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+  }
+  .stat {
+    background: var(--bg-elev);
+    border: 1px solid var(--rule);
+    padding: 16px 18px;
+  }
+  .stat .n {
+    font-family: "Georgia", serif;
+    font-weight: 700;
+    font-size: clamp(26px, 3.4vw, 34px);
+    line-height: 1;
+    color: var(--accent);
+    margin-bottom: 6px;
+    letter-spacing: -0.02em;
+  }
+  .stat .desc {
+    font-size: 12px;
+    color: var(--ink-mute);
+    line-height: 1.45;
+  }
+
+  /* progression ladder */
+  .progression {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 8px;
+    align-items: end;
+    margin-top: 6px;
+  }
+  .prog-step {
+    background: var(--bg-elev);
+    border: 1px solid var(--rule);
+    padding: 12px 12px 14px;
+    text-align: center;
+  }
+  .prog-step .h {
+    height: 60px;
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+    margin-bottom: 8px;
+  }
+  .prog-step .h .bar {
+    width: 70%;
+    background: linear-gradient(180deg, var(--accent), var(--accent-deep));
+  }
+  .prog-step .v {
+    font-family: "Georgia", serif;
+    font-size: 19px;
+    font-weight: 700;
+    color: var(--accent);
+    margin-bottom: 2px;
+  }
+  .prog-step .l {
+    font-size: 10.5px;
+    color: var(--ink-mute);
+    line-height: 1.3;
+  }
+
+  /* ---------- STRENGTHS / LIMITATIONS split ---------- */
+  .split {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+  }
+  .panel {
+    background: var(--bg-elev);
+    border: 1px solid var(--rule);
+    padding: 22px 22px 18px;
+  }
+  .panel.pro { border-top: 3px solid var(--pos); }
+  .panel.con { border-top: 3px solid var(--neg); }
+  .panel h3 {
+    font-family: "Georgia", serif;
+    font-size: 16px;
+    margin: 0 0 14px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .panel.pro h3 { color: var(--pos); }
+  .panel.con h3 { color: var(--neg); }
+  .panel ul {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .panel li {
+    font-size: 12.8px;
+    line-height: 1.55;
+    color: var(--ink-mute);
+    padding: 8px 0 8px 20px;
+    border-bottom: 1px dashed var(--rule);
+    position: relative;
+  }
+  .panel li:last-child { border-bottom: none; }
+  .panel li::before {
+    content: "+";
+    position: absolute;
+    left: 0;
+    top: 8px;
+    color: var(--pos);
+    font-weight: 700;
+  }
+  .panel.con li::before { content: "−"; color: var(--neg); }
+  .panel li b { color: var(--ink); font-weight: 600; }
+
+  /* ---------- QUESTIONS ---------- */
+  .q-list {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+  .q-item {
+    background: var(--bg-elev);
+    border: 1px solid var(--rule);
+    border-left: 3px solid var(--accent);
+    padding: 14px 16px;
+    font-size: 12.8px;
+    line-height: 1.5;
+    color: var(--ink-mute);
+    transition: color 140ms ease;
+  }
+  .q-item:hover { color: var(--ink); }
+  .q-item .qid {
+    font-family: "Georgia", serif;
+    color: var(--accent);
+    font-weight: 700;
+    margin-right: 6px;
+  }
+
+  /* ---------- emergent behaviors chips ---------- */
+  .behaviors {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin: 8px 0 4px;
+  }
+  .chip {
+    font-size: 11.5px;
+    letter-spacing: 0.03em;
+    color: var(--ink);
+    background: var(--bg-elev-2);
+    border: 1px solid var(--rule);
+    padding: 6px 11px;
+  }
+  .chip .dot {
+    display: inline-block;
+    width: 6px; height: 6px;
+    background: var(--accent);
+    margin-right: 7px;
+    vertical-align: middle;
+  }
+
+  /* ---------- bottom source link ---------- */
+  .footer {
+    margin-top: 56px;
+    padding-top: 22px;
+    border-top: 1px solid var(--rule);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+    font-size: 12px;
+    color: var(--ink-dim);
+  }
+  .footer a {
+    color: var(--accent);
+    text-decoration: none;
+    border-bottom: 1px dotted var(--accent-deep);
+  }
+  .footer a:hover { color: var(--ink); }
+
+  /* ---------- staggered load animation ---------- */
+  .reveal {
+    opacity: 0;
+    transform: translateY(14px);
+    animation: rise 700ms cubic-bezier(0.2, 0.7, 0.2, 1) forwards;
+  }
+  @keyframes rise {
+    to { opacity: 1; transform: translateY(0); }
+  }
+  .d1 { animation-delay: 60ms; }
+  .d2 { animation-delay: 140ms; }
+  .d3 { animation-delay: 220ms; }
+  .d4 { animation-delay: 300ms; }
+  .d5 { animation-delay: 380ms; }
+  .d6 { animation-delay: 460ms; }
+
+  /* ---------- RESPONSIVE ---------- */
+  @media (max-width: 860px) {
+    .asset-row { grid-template-columns: 1fr; }
+    .pipeline { grid-template-columns: 1fr 1fr; }
+    .stat-grid { grid-template-columns: 1fr; }
+    .progression { grid-template-columns: 1fr 1fr; }
+    .split { grid-template-columns: 1fr; }
+    .q-list { grid-template-columns: 1fr; }
+    .infra-grid { grid-template-columns: 1fr; }
+    .bar-row { grid-template-columns: 110px 1fr 48px; }
+  }
+  @media (max-width: 520px) {
+    .wrap { padding: 0 16px 72px; }
+    .back-link { top: 12px; left: 12px; padding: 6px 9px; }
+    .pipeline { grid-template-columns: 1fr; }
+    .progression { grid-template-columns: 1fr; }
+    .hero { padding: 36px 0 28px; }
+    .meta-strip { padding-top: 64px; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .reveal { animation: none; opacity: 1; transform: none; }
+    .bar-row .fill { transition: none; }
+  }
+</style>
+</head>
+<body>
+
+<a class="back-link" href="./index.html">↩ Today's digest</a>
+
+<div class="wrap">
+
+  <!-- ===== META STRIP ===== -->
+  <div class="meta-strip reveal d1">
+    <span class="id">arXiv 2607.12395</span>
+    <span class="dot">/</span>
+    <span>2026-07-14</span>
+    <span class="dot">/</span>
+    <span>Zero-RL · MoE · Reinforcement Learning</span>
+    <span class="dot">/</span>
+    <a class="arxiv-link" href="https://arxiv.org/abs/2607.12395" target="_blank" rel="noopener">arxiv.org/abs/2607.12395 ↗</a>
+  </div>
+
+  <!-- ===== HERO BAND ===== -->
+  <header class="hero">
+    <span class="eyebrow reveal d1">Paper Dashboard · 1T-scale RLVR</span>
+    <h1 class="reveal d2">Ring-Zero: scaling <span class="accent">Zero RL</span> to a trillion parameters</h1>
+    <p class="finding reveal d3">
+      A 1-trillion-parameter MoE base, trained with reinforcement learning from scratch — no SFT data — needs only a handful of "minimal" engineering fixes to stay stable, and then spontaneously develops structured, self-verifying reasoning.
+    </p>
+    <p class="byline reveal d4">
+      <strong>Xinyu Tang, Gangqiang Cao</strong> et al. · Gaoling School of AI, Renmin University of China · Ant Group · Tsinghua · Zhejiang U · 16 authors · builds on the authors' own Ling-2.5-1T-Base (1T total / 63B activated).
+    </p>
+
+    <!-- ===== ASSET ROW ===== -->
+    <div class="asset-row">
+      <div class="card metric reveal d4">
+        <div class="label"><span class="tick"></span> Key Metric</div>
+        <div class="metric-val">93.2<span style="font-size:0.4em;vertical-align:0.6em;color:var(--ink-mute);">%</span></div>
+        <div class="metric-unit">AIME 2026 pass@1 · Second-Stage RL (Yarn=2)</div>
+        <div class="metric-sub">
+          First-Stage-only Zero RL already hits <b>84.2%</b> · CoT averages <b>6,368 tokens</b> — less than half of GLM-5.1, Kimi K2.6, Qwen3.5-397B.
+        </div>
+      </div>
+
+      <div class="card reveal d5">
+        <div class="label"><span class="tick"></span> Why This Matters</div>
+        <p class="copy">
+          First credible empirical map of Zero-RL dynamics at 1-trillion-parameter scale — a simple, well-motivated stabilization recipe that other teams can transfer directly to proprietary trillion-param bases.
+        </p>
+        <p class="footnote">Bitter lesson, empirically staged: scale + minimal fixes beat engineered heuristics.</p>
+      </div>
+
+      <div class="card crit reveal d6">
+        <div class="label crit"><span class="tick"></span> Critical Edge</div>
+        <p class="copy">
+          Every ablation runs only on the 104B sibling — "due to computational resource constraints" — so the central claim that these fixes are what keep 1T stable rests on analogy, not direct evidence.
+        </p>
+        <p class="footnote">No weights, data, or code released; reproduction essentially impossible.</p>
+      </div>
+    </div>
+  </header>
+
+  <!-- ===== METHODOLOGY ===== -->
+  <section class="body-section">
+    <div class="sec-head">
+      <span class="num">01</span>
+      <h2>Methodology — a four-stage minimalist pipeline</h2>
+    </div>
+
+    <div class="pipeline">
+      <div class="stage reveal d1">
+        <div class="step">Stage I</div>
+        <h3>Reasoning Elicitation</h3>
+        <p>Clipped importance sampling (CISPO) keeps gradients alive for low-prob reasoning tokens. <b>Token-level loss</b> + KL anchor force long chains; window grows 4k→64k.</p>
+        <div class="keyval"><code>ε_high=5.0</code> · <code>β=1e-4</code> · K3 divergence</div>
+      </div>
+      <div class="stage reveal d2">
+        <div class="step">Stage II</div>
+        <h3>Self-Distillation</h3>
+        <p>Sample many rollouts, keep the shortest correct trace, prompt self-pruning. Fine-tune the base on the compressed corpus to kill accumulated train↔inference numerical drift.</p>
+        <div class="keyval"><span>3 epochs</span> · seq 64k · lr 7e-5</div>
+      </div>
+      <div class="stage reveal d3">
+        <div class="step">Stage III</div>
+        <h3>Sustained Optimization</h3>
+        <p>Same clipped IS + ratio correction, but switches to <b>sample-level loss</b> (length-normalized) to stop unbounded growth, and <b>removes KL</b> — the distilled checkpoint is already a strong anchor.</p>
+      </div>
+      <div class="stage reveal d4">
+        <div class="step">Stage IV</div>
+        <h3>Adaptive Depth</h3>
+        <p>Tier-based training on Low / Medium / High difficulty prompts with budgets <code>4k / 16k / 64k</code>, teaching the model to allocate compute per problem.</p>
+        <div class="keyval"><span>tier-conditioned rollout</span></div>
+      </div>
+    </div>
+
+    <div class="infra-grid reveal d4">
+      <div class="infra-card">
+        <h4>Train / Inference ratio correction</h4>
+        <p>Numerator uses <b>Megatron training logits</b>, denominator uses <b>SGLang rollout logits</b> — kills the logit mismatch that collapses baseline training at ~800 steps and lets IcePop survive only to ~2700; the corrected ratio is stable past 3000.</p>
+      </div>
+      <div class="infra-card">
+        <h4>Mixed precision &amp; context parallelism</h4>
+        <p>Body in BF16, but <b>attention softmax + LM head in FP32</b> — because the importance ratio exponentiates logits, rounding error there blows up. MLA layers use all-to-all CP; Lightning Attention uses AllGather CP — mathematically equivalent, lower latency.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== RESULTS ===== -->
+  <section class="body-section">
+    <div class="sec-head">
+      <span class="num">02</span>
+      <h2>Results &amp; dynamics</h2>
+    </div>
+
+    <div class="bench reveal d1">
+      <div class="bench-title">AIME 2026 pass@1 · self vs. frontier (larger is better)</div>
+      <div id="benchRows">
+        <div class="bar-row frontier"><span class="name">GPT-5.5</span><div class="track"><div class="fill" data-pct="98.3"></div></div><span class="val">98.3</span></div>
+        <div class="bar-row frontier"><span class="name">Gemini 3.1 Pro</span><div class="track"><div class="fill" data-pct="98.2"></div></div><span class="val">98.2</span></div>
+        <div class="bar-row frontier"><span class="name">Qwen3.7-Plus</span><div class="track"><div class="fill" data-pct="97.0"></div></div><span class="val">97.0</span></div>
+        <div class="bar-row frontier"><span class="name">Kimi K2.6</span><div class="track"><div class="fill" data-pct="96.4"></div></div><span class="val">96.4</span></div>
+        <div class="bar-row frontier"><span class="name">Claude Opus 4.8</span><div class="track"><div class="fill" data-pct="95.7"></div></div><span class="val">95.7</span></div>
+        <div class="bar-row frontier"><span class="name">GLM-5.1</span><div class="track"><div class="fill" data-pct="95.3"></div></div><span class="val">95.3</span></div>
+        <div class="bar-row self"><span class="name">Ring-2.5-1T-Zero</span><div class="track"><div class="fill" data-pct="93.2"></div></div><span class="val">93.2</span></div>
+        <div class="bar-row"><span class="name">104B flash sibling</span><div class="track"><div class="fill" data-pct="65.3"></div></div><span class="val">65.3</span></div>
+      </div>
+      <p style="font-size:11.5px;color:var(--ink-dim);margin:14px 0 0;font-style:italic;">
+        Competitive but behind every frontier model that reports AIME 2026 — a ~5-point gap to GPT-5.5; the "comparable to frontier" framing oversells it.
+      </p>
+    </div>
+
+    <!-- progression ladder -->
+    <div class="bench reveal d2">
+      <div class="bench-title">Stage-by-stage gains · AIME 2026 pass@1</div>
+      <div class="progression">
+        <div class="prog-step">
+          <div class="h"><div class="bar" style="height:60%"></div></div>
+          <div class="v">84.2</div><div class="l">First-Stage RL</div>
+        </div>
+        <div class="prog-step">
+          <div class="h"><div class="bar" style="height:72%"></div></div>
+          <div class="v">88.1</div><div class="l">+ Self-Distillation</div>
+        </div>
+        <div class="prog-step">
+          <div class="h"><div class="bar" style="height:90%"></div></div>
+          <div class="v">92.5</div><div class="l">+ Second-Stage RL</div>
+        </div>
+        <div class="prog-step">
+          <div class="h"><div class="bar" style="height:96%"></div></div>
+          <div class="v">93.2</div><div class="l">+ Yarn=2</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="stat-grid reveal d3">
+      <div class="stat">
+        <div class="n">6,368</div>
+        <div class="desc">avg tokens per correct AIME solution — <b style="color:var(--pos)">less than half</b> of GLM-5.1 (17.2k), Qwen3.5-397B (14.1k), Kimi K2.6 (16.3k), MiniMax M2.7 (16.6k).</div>
+      </div>
+      <div class="stat">
+        <div class="n">100K</div>
+        <div class="desc">samples distilled into Qwen2.5-32B beats DeepSeek-R1's 800K by <b style="color:var(--pos)">+5.8 pts</b> (78.4 vs 72.6) — an 8× sample-efficiency win.</div>
+      </div>
+      <div class="stat">
+        <div class="n">18–28</div>
+        <div class="desc">point gap separating the 1T model from its 104B sibling on AIME 2024/25/26 — purely from parameter scaling under an identical pipeline.</div>
+      </div>
+    </div>
+
+    <!-- emergent behaviors -->
+    <div class="bench reveal d4" style="margin-top:14px;">
+      <div class="bench-title">Behaviors that emerge spontaneously at 1T (no reward shaping needed)</div>
+      <div class="behaviors">
+        <span class="chip"><span class="dot"></span>Structured formatting</span>
+        <span class="chip"><span class="dot"></span>Self-verification</span>
+        <span class="chip"><span class="dot"></span>Parallel reasoning</span>
+        <span class="chip"><span class="dot"></span>Anthropomorphic traces</span>
+        <span class="chip"><span class="dot"></span>"Context anxiety"</span>
+      </div>
+      <p style="font-size:11.5px;color:var(--ink-dim);margin:12px 0 0;font-style:italic;">
+        The same behaviors required hand-crafted reward shaping on the 104B sibling. Caveat: "anthropomorphism" is mostly pretraining-corpus leakage (profanity, forum slang), not a learned cognitive strategy.
+      </p>
+    </div>
+  </section>
+
+  <!-- ===== STRENGTHS / LIMITATIONS ===== -->
+  <section class="body-section">
+    <div class="sec-head">
+      <span class="num">03</span>
+      <h2>Strengths &amp; limitations, side by side</h2>
+    </div>
+
+    <div class="split">
+      <div class="panel pro reveal d1">
+        <h3>＋ Strengths</h3>
+        <ul>
+          <li><b>First credible empirical map</b> of Zero-RL dynamics at 1T — the pass@1024 vs pass@1 "discovery → sharpening" analysis is a clean, falsifiable contribution to a live debate.</li>
+          <li><b>Engineering recipe is simple and well-motivated</b> — each fix is tied to a specific failure mode (logit mismatch → ratio correction; exponentiation error → FP32; length inertia → token→sample loss switch).</li>
+          <li><b>CoT-quality framework</b> (Comprehensibility / Reproducibility / Efficiency) is reusable and goes beyond accuracy — 6,368 tokens and an 8× sample-efficiency win are striking.</li>
+          <li><b>Honest about weaknesses</b> — length inertia, negative transfer in tier training, long-tail data inefficiency, pretrained-prior ceiling are all acknowledged.</li>
+          <li><b>Rich qualitative case studies</b> of the five emergent behaviors give other researchers concrete phenomena to look for.</li>
+        </ul>
+      </div>
+
+      <div class="panel con reveal d2">
+        <h3>− Limitations</h3>
+        <ul>
+          <li><b>No ablations on the 1T model itself</b> — all ablations run on the 104B flash, so it is unproven that the same fixes are necessary (or sufficient) at 1T.</li>
+          <li><b>Proprietary base, data, weights</b> — none of Ling-2.5-1T-Base, the RL corpus, or the final checkpoint is released. Independent reproduction is essentially impossible.</li>
+          <li><b>Behind frontier on every comparable benchmark</b> (5.1 pts behind GPT-5.5 on AIME 2026); the "competitive" framing oversells the result.</li>
+          <li><b>Third-Stage RL (adaptive depth) regresses</b> vs the Second-Stage peak (91.4 vs 93.2) — the headline multi-stage contribution underperforms the simpler variant.</li>
+          <li><b>LLM-as-judge circularity</b> — reward uses a Qwen-family judge; CoT-quality baselines include Qwen3.5-397B. Bias is not controlled for.</li>
+          <li><b>Single domain (math)</b> — no code, science, or agentic benchmarks; the "bitter lesson" generalization is untested outside math.</li>
+          <li><b>Compute footprint of 320× H200</b> makes the recipe inaccessible to most academic groups, undercutting the "lowered barriers" conclusion.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== QUESTIONS ===== -->
+  <section class="body-section">
+    <div class="sec-head">
+      <span class="num">04</span>
+      <h2>Open questions for further work</h2>
+    </div>
+
+    <div class="q-list">
+      <div class="q-item reveal d1"><span class="qid">Q1.</span>Do the ratio-correction and FP32-at-softmax/LM-head fixes remain necessary at 1T, or does the 104B ablation overstate their importance? A direct 1T ablation is the obvious missing experiment.</div>
+      <div class="q-item reveal d2"><span class="qid">Q2.</span>The discovery→sharpening transition is tracked only via AIME 2024 pass@1024. Does the same two-phase pattern hold on code, science, or agentic tasks — or is it math-specific?</div>
+      <div class="q-item reveal d3"><span class="qid">Q3.</span>Third-Stage "High" regresses vs Second-Stage. Would a non-joint schedule (separate LoRA / experts per tier, or a router-gated MoE on top) avoid the negative transfer?</div>
+      <div class="q-item reveal d4"><span class="qid">Q4.</span>How much of the "anthropomorphism" / profanity is pretraining-corpus leakage that would vanish under a cleaner pretraining mix? Is it predictive of capability, or just noise?</div>
+      <div class="q-item reveal d5"><span class="qid">Q5.</span>The efficiency win is measured only on mutually-solved problems. Does the token advantage survive on problems only Ring solves, or only baselines solve?</div>
+      <div class="q-item reveal d6"><span class="qid">Q6.</span>pass@1024 saturates early — has RL truly hit a pretrained-prior ceiling, or would a longer context window (128k+) re-open the discovery phase?</div>
+    </div>
+  </section>
+
+  <!-- ===== FOOTER ===== -->
+  <div class="footer">
+    <span>Ring-Zero · arXiv 2607.12395 · dashboard rendered from source markdown</span>
+    <a href="./2607.12395.md">↗ Markdown source</a>
+  </div>
+
+</div>
+
+<script>
+  // Animate benchmark fill bars on first paint (and on scroll into view).
+  (function () {
+    var fills = document.querySelectorAll('.bar-row .fill[data-pct]');
+    function paint() {
+      fills.forEach(function (f) {
+        var rect = f.getBoundingClientRect();
+        if (rect.top < window.innerHeight + 40 && !f.dataset.done) {
+          f.style.width = f.getAttribute('data-pct') + '%';
+          f.dataset.done = '1';
+        }
+      });
+    }
+    window.addEventListener('load', paint);
+    window.addEventListener('scroll', paint, { passive: true });
+    window.addEventListener('resize', paint);
+    // also fire shortly after DOM parse in case load is delayed
+    setTimeout(paint, 250);
+  })();
+</script>
+
+</body>
+</html>

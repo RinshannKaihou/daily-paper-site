@@ -1,0 +1,479 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Bayesian Accuracy — Length Bias in MC Evaluation · 2607.12767</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..900;1,9..144,300..900&family=JetBrains+Mono:wght@400;600;800&family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --paper:#F2ECE0;          /* warm editorial off-white */
+    --paper-2:#EAE2D2;        /* slightly deeper panel */
+    --ink:#171411;            /* near-black warm ink */
+    --ink-2:#43403A;          /* soft ink */
+    --ink-3:#7A7367;          /* muted */
+    --rule:#D8CFBC;           /* hairline */
+    --accent:#C2362C;         /* single accent: cinnabar vermillion */
+    --accent-2:#7E2118;       /* deep accent */
+    --accent-soft:#EAD4CF;    /* accent tint */
+    --good:#2E6F4A;           /* used very sparingly for the zero target */
+    --maxw:min(95vw,1100px);
+    --display:"Fraunces",Georgia,serif;
+    --ui:"Space Grotesk",system-ui,sans-serif;
+    --mono:"JetBrains Mono",ui-monospace,monospace;
+  }
+  *,*::before,*::after{box-sizing:border-box}
+  html{ -webkit-text-size-adjust:100% }
+  body{
+    margin:0; background:var(--paper); color:var(--ink);
+    font-family:var(--ui); font-size:16px; line-height:1.55;
+    background-image:
+      radial-gradient(1200px 600px at 85% -8%, rgba(194,54,44,.05), transparent 60%),
+      radial-gradient(900px 500px at -5% 0%, rgba(0,0,0,.03), transparent 55%);
+    background-attachment:fixed;
+  }
+  /* faint grain for paper texture */
+  body::before{
+    content:""; position:fixed; inset:0; pointer-events:none; z-index:0; opacity:.35;
+    background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.09  0 0 0 0 0.08  0 0 0 0 0.07  0 0 0 .35 0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
+    mix-blend-mode:multiply;
+  }
+  a{color:var(--accent-2); text-decoration:none; border-bottom:1px solid rgba(194,54,44,.35)}
+  a:hover{ border-bottom-color:var(--accent) }
+
+  .wrap{ position:relative; z-index:1; max-width:var(--maxw); margin:0 auto; padding:0 clamp(16px,3.4vw,40px) 64px; }
+
+  /* ───── Top bar ───── */
+  .topbar{
+    display:flex; align-items:center; justify-content:space-between; gap:14px;
+    padding:18px 0 14px; border-bottom:1px solid var(--rule);
+    font-family:var(--mono); font-size:12px; letter-spacing:.02em; text-transform:uppercase;
+    color:var(--ink-2);
+  }
+  .topbar .digest{ display:inline-flex; align-items:center; gap:8px; color:var(--ink); border:none; }
+  .topbar .digest:hover{ color:var(--accent); }
+  .topbar .digest .arrow{ color:var(--accent); font-weight:800; }
+  .topbar .id{ display:inline-flex; align-items:baseline; gap:8px; }
+  .topbar .id b{ color:var(--ink); font-weight:800; }
+  .topbar .id span{ color:var(--ink-3); }
+
+  /* ───── Eyebrow ───── */
+  .eyebrow{
+    display:flex; align-items:center; gap:12px; margin:34px 0 14px;
+    font-family:var(--mono); font-size:11px; letter-spacing:.18em; text-transform:uppercase; color:var(--accent-2);
+  }
+  .eyebrow .dot{ width:9px; height:9px; background:var(--accent); border-radius:50%; box-shadow:0 0 0 4px rgba(194,54,44,.15); }
+  .eyebrow .rule{ flex:1; height:1px; background:var(--rule); }
+  .eyebrow .stamp{ color:var(--ink-3); }
+
+  /* ───── Hero finding (oversized) ───── */
+  .hero{ margin:0 0 12px; }
+  .finding{
+    font-family:var(--display); font-weight:560; line-height:1.02; letter-spacing:-.018em;
+    font-size:clamp(2.05rem,5.6vw,4.15rem); margin:0 0 22px; color:var(--ink);
+    text-wrap:balance; max-width:18ch;
+  }
+  .finding em{ font-style:italic; font-weight:560; }
+  .finding .hl{
+    color:var(--accent); font-style:italic; font-weight:640;
+    background:linear-gradient(180deg, transparent 62%, rgba(194,54,44,.14) 62%);
+    padding:0 .04em;
+  }
+  .paperline{ display:flex; flex-direction:column; gap:6px; margin-top:6px; }
+  .title{
+    font-family:var(--display); font-weight:620; font-size:clamp(1.15rem,2.2vw,1.5rem); line-height:1.25;
+    letter-spacing:-.01em; color:var(--ink); margin:0; max-width:46ch;
+  }
+  .arxiv-link{ font-family:var(--mono); font-size:12.5px; }
+  .meta{ display:flex; flex-wrap:wrap; gap:10px 18px; align-items:center; margin-top:10px; font-size:13.5px; color:var(--ink-2); }
+  .meta .who{ font-family:var(--ui); }
+  .meta .sep{ color:var(--ink-3); }
+
+  /* chips */
+  .chips{ display:flex; flex-wrap:wrap; gap:8px; margin-top:18px; }
+  .chip{
+    font-family:var(--mono); font-size:11px; letter-spacing:.04em;
+    padding:5px 10px; border:1px solid var(--rule); border-radius:999px; color:var(--ink-2);
+    background:rgba(255,255,255,.35);
+  }
+  .chip.accent{ border-color:rgba(194,54,44,.4); color:var(--accent-2); background:var(--accent-soft); }
+
+  /* ───── Asset row ───── */
+  .assets{
+    display:grid; grid-template-columns:1.05fr 1fr 1fr; gap:0;
+    margin:34px 0 0; border:1px solid var(--rule); border-radius:14px; overflow:hidden;
+    background:linear-gradient(180deg,#FBF7EE,#F4EEE0);
+    box-shadow:0 1px 0 rgba(0,0,0,.02), 0 18px 40px -28px rgba(0,0,0,.25);
+  }
+  .asset{ padding:22px 22px 24px; border-right:1px solid var(--rule); position:relative; }
+  .asset:last-child{ border-right:none; }
+  .asset .k{
+    font-family:var(--mono); font-size:10.5px; letter-spacing:.16em; text-transform:uppercase;
+    color:var(--ink-3); display:flex; align-items:center; gap:8px;
+  }
+  .asset .k i{ width:18px; height:2px; background:var(--accent); display:inline-block; }
+  .asset.metric .big{
+    font-family:var(--display); font-weight:760; font-size:clamp(2.8rem,7vw,4.4rem);
+    line-height:.95; letter-spacing:-.03em; color:var(--accent); margin:14px 0 4px;
+  }
+  .asset.metric .sub{ font-family:var(--mono); font-size:12.5px; color:var(--ink-2); line-height:1.5; }
+  .asset.metric .sub b{ color:var(--ink); font-weight:800; }
+  .asset .copy{ font-size:14.5px; line-height:1.5; color:var(--ink); margin:14px 0 0; }
+  .asset .copy.lead{ font-family:var(--display); font-weight:520; font-size:clamp(1.02rem,1.5vw,1.18rem); line-height:1.32; letter-spacing:-.005em; }
+  .asset.edge{ background:linear-gradient(180deg,#FBF7EE,#F6EFE1); }
+  .asset.edge .copy em{ color:var(--accent-2); font-style:italic; }
+
+  /* ───── Bias gauge (centerpiece visual) ───── */
+  .gauge-sec{ margin:40px 0 0; }
+  .gauge-head{ display:flex; align-items:baseline; justify-content:space-between; gap:14px; margin-bottom:6px; flex-wrap:wrap; }
+  .gauge-head h2{ font-family:var(--display); font-weight:560; font-size:clamp(1.25rem,2.4vw,1.6rem); margin:0; letter-spacing:-.01em; }
+  .gauge-head .cap{ font-family:var(--mono); font-size:11px; color:var(--ink-3); letter-spacing:.05em; text-transform:uppercase; }
+  .gauge{
+    border:1px solid var(--rule); border-radius:14px; background:linear-gradient(180deg,#FBF7EE,#F3ECDD);
+    padding:14px clamp(10px,2vw,24px) 18px;
+  }
+  .gauge svg{ width:100%; height:auto; display:block; }
+
+  /* ───── Body grid ───── */
+  .bodygrid{ display:grid; grid-template-columns:1fr 1fr; gap:26px; margin-top:40px; }
+  .block{ }
+  .block.full{ grid-column:1 / -1; }
+  .b-head{
+    display:flex; align-items:center; gap:10px; margin:0 0 12px;
+    font-family:var(--mono); font-size:11px; letter-spacing:.16em; text-transform:uppercase; color:var(--accent-2);
+  }
+  .b-head .n{ font-weight:800; color:var(--accent); border:1px solid rgba(194,54,44,.4); border-radius:6px; padding:1px 7px; }
+  .b-head .rule{ flex:1; height:1px; background:var(--rule); }
+  .block h3{ font-family:var(--display); font-weight:560; font-size:clamp(1.2rem,2vw,1.5rem); margin:0 0 10px; letter-spacing:-.01em; line-height:1.2; }
+
+  .lede{ font-family:var(--display); font-weight:480; font-size:1.12rem; line-height:1.4; color:var(--ink); margin:0 0 14px; }
+  .lede em{ color:var(--accent-2); font-style:italic; }
+  ul.dense{ list-style:none; padding:0; margin:0; display:grid; gap:10px; }
+  ul.dense li{
+    position:relative; padding-left:20px; font-size:14.5px; line-height:1.5; color:var(--ink-2);
+  }
+  ul.dense li::before{
+    content:""; position:absolute; left:2px; top:.62em; width:8px; height:8px;
+    background:var(--accent); transform:rotate(45deg);
+  }
+  ul.dense li b{ color:var(--ink); font-weight:700; }
+  ul.dense li code{ font-family:var(--mono); font-size:12.5px; background:rgba(194,54,44,.08); padding:1px 5px; border-radius:4px; color:var(--accent-2); }
+
+  /* formula card */
+  .formula{
+    font-family:var(--mono); background:#171411; color:#F4EEE0; border-radius:10px;
+    padding:14px 16px; margin:14px 0 4px; font-size:13.5px; line-height:1.7; overflow-x:auto;
+    border:1px solid #2a2520;
+  }
+  .formula .lbl{ color:#C2362C; font-weight:800; letter-spacing:.06em; }
+  .formula .var{ color:#E9C46A; }
+  .formula .cmt{ color:#8a8275; }
+
+  /* side-by-side strengths / limitations */
+  .pair{ display:grid; grid-template-columns:1fr 1fr; gap:0; border:1px solid var(--rule); border-radius:14px; overflow:hidden; }
+  .pair .col{ padding:20px 20px 22px; border-right:1px solid var(--rule); }
+  .pair .col:last-child{ border-right:none; background:linear-gradient(180deg,#FBF7EE,#F4EEE0); }
+  .pair .col h4{
+    font-family:var(--mono); font-size:11px; letter-spacing:.14em; text-transform:uppercase; margin:0 0 12px;
+    display:flex; align-items:center; gap:8px;
+  }
+  .pair .s h4{ color:var(--good); }
+  .pair .l h4{ color:var(--accent-2); }
+  .pair .col h4 i{ width:18px; height:2px; display:inline-block; }
+  .pair .s h4 i{ background:var(--good); }
+  .pair .l h4 i{ background:var(--accent); }
+
+  /* results comparison table */
+  .cmp{ width:100%; border-collapse:collapse; font-size:13.5px; margin-top:8px; }
+  .cmp th,.cmp td{ text-align:left; padding:9px 10px; border-bottom:1px solid var(--rule); }
+  .cmp th{ font-family:var(--mono); font-size:10.5px; letter-spacing:.08em; text-transform:uppercase; color:var(--ink-3); font-weight:600; }
+  .cmp td{ color:var(--ink-2); }
+  .cmp td .tau{ font-family:var(--mono); font-weight:700; color:var(--ink); }
+  .cmp td .tau.neg{ color:#3a6ea5; }
+  .cmp td .tau.pos{ color:var(--accent); }
+  .cmp td .tau.win{ color:var(--good); background:rgba(46,111,74,.12); padding:2px 8px; border-radius:6px; }
+  .cmp tr:last-child td{ border-bottom:none; }
+  .cmp .bestrow td{ background:rgba(46,111,74,.05); }
+
+  /* questions */
+  .qlist{ display:grid; gap:12px; counter-reset:q; }
+  .q{ counter-increment:q; display:flex; gap:14px; align-items:flex-start; padding:14px 16px; border:1px solid var(--rule); border-radius:10px; background:rgba(255,255,255,.4); transition:transform .18s ease, border-color .18s ease, box-shadow .18s ease; }
+  .q:hover{ transform:translateY(-2px); border-color:rgba(194,54,44,.4); box-shadow:0 12px 26px -20px rgba(0,0,0,.4); }
+  .q::before{
+    content:counter(q,decimal-leading-zero);
+    font-family:var(--mono); font-size:12px; font-weight:800; color:var(--accent);
+    padding-top:1px; min-width:26px;
+  }
+  .q .t{ font-size:14.5px; line-height:1.5; color:var(--ink-2); }
+  .q .t b{ color:var(--ink); font-weight:700; }
+
+  /* footer */
+  footer{
+    margin-top:54px; padding-top:18px; border-top:1px solid var(--rule);
+    display:flex; align-items:center; justify-content:space-between; gap:14px; flex-wrap:wrap;
+    font-family:var(--mono); font-size:12px; letter-spacing:.02em; color:var(--ink-3);
+  }
+  footer a{ border:none; display:inline-flex; align-items:center; gap:8px; color:var(--ink); }
+  footer a:hover{ color:var(--accent); }
+  footer a .arrow{ color:var(--accent); font-weight:800; }
+
+  /* ───── load animation ───── */
+  @keyframes rise{ from{ opacity:0; transform:translateY(14px) } to{ opacity:1; transform:none } }
+  .reveal{ opacity:0; animation:rise .7s cubic-bezier(.2,.7,.2,1) forwards; }
+  .d1{animation-delay:.04s}.d2{animation-delay:.10s}.d3{animation-delay:.16s}.d4{animation-delay:.22s}
+  .d5{animation-delay:.30s}.d6{animation-delay:.38s}.d7{animation-delay:.46s}.d8{animation-delay:.54s}
+  .d9{animation-delay:.62s}.d10{animation-delay:.70s}
+  @media (prefers-reduced-motion: reduce){
+    .reveal{ animation:none; opacity:1; }
+  }
+
+  /* ───── responsive ───── */
+  @media (max-width:880px){
+    .assets{ grid-template-columns:1fr; }
+    .asset{ border-right:none; border-bottom:1px solid var(--rule); }
+    .asset:last-child{ border-bottom:none; }
+    .bodygrid{ grid-template-columns:1fr; gap:30px; }
+    .pair{ grid-template-columns:1fr; }
+    .pair .col{ border-right:none; border-bottom:1px solid var(--rule); }
+    .pair .col:last-child{ border-bottom:none; }
+    .finding{ font-size:clamp(1.85rem,8.5vw,3rem); }
+  }
+  @media (max-width:520px){
+    .topbar{ font-size:10.5px; }
+    .meta{ font-size:12.5px; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- ───────────── Top bar ───────────── -->
+  <div class="topbar reveal d1">
+    <a class="digest" href="./index.html"><span class="arrow">↩</span> Today's digest</a>
+    <span class="id"><span>arXiv</span> <b>2607.12767</b> <span>· 2026-07-14</span></span>
+  </div>
+
+  <!-- ───────────── Eyebrow ───────────── -->
+  <div class="eyebrow reveal d2">
+    <span class="dot"></span>
+    <span>Paper dashboard · LLM evaluation</span>
+    <span class="rule"></span>
+    <span class="stamp">ICML submission · single author</span>
+  </div>
+
+  <!-- ───────────── Hero ───────────── -->
+  <section class="hero reveal d3">
+    <h1 class="finding">
+      Standard accuracy <em>under-rewards</em> long answers;
+      <span class="hl">Bayesian accuracy</span> subtracts the length trend and
+      <span class="hl">cuts bias 4×–8×</span> — no extra forward passes.
+    </h1>
+    <div class="paperline">
+      <h2 class="title">Accuracy and Normalized Accuracy under Length Bias: Analysis, Guidelines, and a Bayesian Alternative</h2>
+      <a class="arxiv-link" href="https://arxiv.org/abs/2607.12767">arxiv.org/abs/2607.12767 ↗</a>
+      <div class="meta">
+        <span class="who">Anonymous <span class="sep">(ICML submission; HTML unsigned — acknowledges Tom Burns)</span></span>
+      </div>
+    </div>
+    <div class="chips">
+      <span class="chip accent">length bias</span>
+      <span class="chip">log-likelihood scoring</span>
+      <span class="chip">multiple-choice benchmarks</span>
+      <span class="chip">Bayesian / length-debiased</span>
+      <span class="chip">LLaMA · Qwen · Mistral · Pythia · SmolLM</span>
+      <span class="chip">135M – 70B</span>
+    </div>
+  </section>
+
+  <!-- ───────────── Asset row ───────────── -->
+  <section class="assets reveal d4">
+    <div class="asset metric">
+      <div class="k"><i></i>Key metric</div>
+      <div class="big">4×–8×</div>
+      <div class="sub">reduction in mean absolute length bias<br><b>|τ̄| → 0.03–0.07</b> vs. normalized accuracy, across 7 benchmarks × 5 model families.</div>
+    </div>
+    <div class="asset">
+      <div class="k"><i></i>Why this matters</div>
+      <p class="copy lead">Applies directly to the <em>default scoring path</em> of MMLU, HellaSwag, ARC, WinoGrande — and eval frameworks like lm-eval-harness &amp; lighteval. Compresses a systematic error that can <em>reshape leaderboards</em>.</p>
+    </div>
+    <div class="asset edge">
+      <div class="k"><i></i>Critical edge</div>
+      <p class="copy">τ ≈ 0 <em>≠</em> a more faithful eval. No evidence it makes rankings fairer or closer to true capability — and it removes <em>only the linear</em> length effect, leaving content priors untouched.</p>
+    </div>
+  </section>
+
+  <!-- ───────────── Bias gauge (visual) ───────────── -->
+  <section class="gauge-sec reveal d5">
+    <div class="gauge-head">
+      <h2>The bias axis, visualized</h2>
+      <span class="cap">Kendall τ(length, score) · negative = short-bias · positive = long-bias</span>
+    </div>
+    <div class="gauge">
+      <svg viewBox="0 0 1000 300" role="img" aria-label="Length bias gauge comparing scoring rules">
+        <defs>
+          <linearGradient id="bandNeg" x1="0" x2="1" y1="0" y2="0">
+            <stop offset="0" stop-color="#3a6ea5" stop-opacity="0.16"/>
+            <stop offset="1" stop-color="#3a6ea5" stop-opacity="0.02"/>
+          </linearGradient>
+          <linearGradient id="bandPos" x1="0" x2="1" y1="0" y2="0">
+            <stop offset="0" stop-color="#C2362C" stop-opacity="0.02"/>
+            <stop offset="1" stop-color="#C2362C" stop-opacity="0.16"/>
+          </linearGradient>
+        </defs>
+
+        <!-- band tints: x from 60..940 ; zero at 500 -->
+        <rect x="60"  y="40" width="440" height="150" fill="url(#bandNeg)"/>
+        <rect x="500" y="40" width="440" height="150" fill="url(#bandPos)"/>
+
+        <!-- zone labels -->
+        <text x="120" y="60" font-family="JetBrains Mono, monospace" font-size="12" fill="#3a6ea5" letter-spacing="1.5">SHORT-BIAS ZONE</text>
+        <text x="880" y="60" font-family="JetBrains Mono, monospace" font-size="12" fill="#C2362C" text-anchor="end" letter-spacing="1.5">LONG-BIAS ZONE</text>
+
+        <!-- axis -->
+        <line x1="60" y1="190" x2="940" y2="190" stroke="#7A7367" stroke-width="1.2"/>
+
+        <!-- zero target line -->
+        <line x1="500" y1="34" x2="500" y2="196" stroke="#2E6F4A" stroke-width="2"/>
+        <circle cx="500" cy="190" r="5" fill="#2E6F4A"/>
+        <text x="500" y="24" font-family="Fraunces, serif" font-size="16" fill="#2E6F4A" text-anchor="middle" font-style="italic">target · τ = 0</text>
+
+        <!-- ticks -->
+        <g font-family="JetBrains Mono, monospace" font-size="11" fill="#7A7367">
+          <line x1="60"  y1="190" x2="60"  y2="198" stroke="#7A7367"/><text x="60"  y="214" text-anchor="middle">−0.25</text>
+          <line x1="236" y1="190" x2="236" y2="198" stroke="#7A7367"/><text x="236" y="214" text-anchor="middle">−0.15</text>
+          <line x1="324" y1="190" x2="324" y2="198" stroke="#7A7367"/><text x="324" y="214" text-anchor="middle">−0.10</text>
+          <line x1="412" y1="190" x2="412" y2="198" stroke="#7A7367"/><text x="500" y="214" text-anchor="middle" fill="#2E6F4A" font-weight="700">0</text>
+          <line x1="588" y1="190" x2="588" y2="198" stroke="#7A7367"/><text x="588" y="214" text-anchor="middle">+0.05</text>
+          <line x1="764" y1="190" x2="764" y2="198" stroke="#7A7367"/><text x="764" y="214" text-anchor="middle">+0.15</text>
+          <line x1="940" y1="190" x2="940" y2="198" stroke="#7A7367"/><text x="940" y="214" text-anchor="middle">+0.25</text>
+        </g>
+
+        <!-- markers -->
+        <!-- Standard accuracy  τ≈−0.10  (x = 500 + τ/0.25*440 = 500-176=324) -->
+        <g>
+          <line x1="324" y1="120" x2="324" y2="190" stroke="#3a6ea5" stroke-width="2"/>
+          <circle cx="324" cy="120" r="9" fill="#3a6ea5"/>
+          <text x="318" y="104" font-family="Space Grotesk, sans-serif" font-size="13" fill="#171411" text-anchor="end" font-weight="700">Standard accuracy</text>
+          <text x="318" y="120" font-family="JetBrains Mono, monospace" font-size="12" fill="#3a6ea5" text-anchor="end">τ ≈ −0.10 · short-bias</text>
+        </g>
+
+        <!-- Normalized accuracy  τ≈+0.18  (x=500+317=817) -->
+        <g>
+          <line x1="817" y1="120" x2="817" y2="190" stroke="#C2362C" stroke-width="2"/>
+          <circle cx="817" cy="120" r="9" fill="#C2362C"/>
+          <text x="823" y="104" font-family="Space Grotesk, sans-serif" font-size="13" fill="#171411" font-weight="700">Normalized accuracy</text>
+          <text x="823" y="120" font-family="JetBrains Mono, monospace" font-size="12" fill="#C2362C">τ ≈ +0.18 · over-corrects</text>
+        </g>
+
+        <!-- Bayesian accuracy  τ≈+0.05  (x=500+88=588) -->
+        <g>
+          <line x1="588" y1="150" x2="588" y2="190" stroke="#2E6F4A" stroke-width="2.4"/>
+          <circle cx="588" cy="150" r="10" fill="#2E6F4A" stroke="#FBF7EE" stroke-width="2"/>
+          <text x="594" y="158" font-family="Space Grotesk, sans-serif" font-size="13" fill="#171411" font-weight="700">Bayesian accuracy</text>
+          <text x="594" y="174" font-family="JetBrains Mono, monospace" font-size="12" fill="#2E6F4A">τ ≈ +0.05 · near target</text>
+        </g>
+
+        <!-- footnote -->
+        <text x="500" y="262" font-family="JetBrains Mono, monospace" font-size="11" fill="#7A7367" text-anchor="middle">
+          Representative values from Tables 2–4 · signs robust across model families; magnitudes vary by benchmark
+        </text>
+        <text x="500" y="282" font-family="Space Grotesk, sans-serif" font-size="11.5" fill="#43403A" text-anchor="middle" font-style="italic">
+          Log-likelihood falls roughly <tspan font-weight="700" fill="#171411">linearly</tspan> with length → naive ÷-by-length flips the bias sign.
+        </text>
+      </svg>
+    </div>
+  </section>
+
+  <!-- ───────────── Body grid ───────────── -->
+  <div class="bodygrid">
+
+    <!-- Methodology -->
+    <section class="block full reveal d6">
+      <div class="b-head"><span class="n">01</span><span>Methodology</span><span class="rule"></span></div>
+      <h3>A length prior, subtracted — not divided</h3>
+      <p class="lede">The insight is geometric: total log-likelihood is <em>affine</em> in answer length (positive intercept, negative slope). Dividing by length is the wrong transform; the correct one is to <em>remove the slope, keep the intercept</em>.</p>
+      <ul class="dense">
+        <li><b>Formal metric.</b> Length bias = mean within-question <b>Kendall τ</b> between candidate scores and byte-lengths — model- &amp; dataset-agnostic.</li>
+        <li><b>Generative model.</b> A hierarchical linear model per question yields a global trend <code>E[ℓ|n] = a + b·n</code>, with variance growing quadratically in length.</li>
+        <li><b>Bayesian correction.</b> An exponential length prior <code>P(n) ∝ exp(−b·n)</code> gives a drop-in score that needs only the conditional log-likelihood already computed.</li>
+        <li><b>Robust estimator.</b> Within-question centering estimates one <code>b̂</code> per (model, dataset, prompt) — free of difficulty confounds, in <b>O(M)</b> instead of O(M²).</li>
+      </ul>
+      <div class="formula">
+<span class="lbl">S_Bayes</span>(c | x; b)  ≡  <span class="var">ℓ_θ</span>(c | x)  −  b · n<span class="cmt">     // length-debiased score, no extra forward pass</span>
+      </div>
+    </section>
+
+    <!-- Results -->
+    <section class="block full reveal d7">
+      <div class="b-head"><span class="n">02</span><span>Results</span><span class="rule"></span></div>
+      <h3>Normalized accuracy is the worst offender</h3>
+      <ul class="dense">
+        <li><b>Standard accuracy → short-bias.</b> Significantly negative τ on HellaSwag &amp; ARC; near-zero on SciQ/WinoGrande; larger models shrink — but never erase — the bias.</li>
+        <li><b>Normalization → bigger positive bias.</b> τ(S_byte, D) is positive almost everywhere, often larger in magnitude than the short-bias it "fixes" — instruction-tuned models over-shoot most.</li>
+        <li><b>Bayesian → near zero.</b> Almost every Table 3 entry satisfies <code>|τ| ≤ 0.1</code>; best or near-best <code>|τ̄|</code> for every model, holding in zero- &amp; few-shot.</li>
+        <li><b>Half the cost of PMI/ANPMI.</b> Those need an extra unconditional forward pass per candidate; Bayesian reuses the conditional log-likelihood.</li>
+      </ul>
+      <table class="cmp" aria-label="Mean absolute bias by scoring rule">
+        <thead><tr><th>Scoring rule</th><th>Mean |τ̄|</th><th>Cost</th><th>Verdict</th></tr></thead>
+        <tbody>
+          <tr><td>Standard accuracy</td><td><span class="tau neg">≈ −0.10 signed</span></td><td>baseline</td><td>short-biased</td></tr>
+          <tr><td>Byte-normalized</td><td><span class="tau pos">largest</span></td><td>baseline</td><td>over-corrects → long-bias</td></tr>
+          <tr><td>PMI / ANPMI</td><td><span class="tau">residual</span></td><td>2× forward</td><td>improves, non-trivial left</td></tr>
+          <tr class="bestrow"><td>Bayesian accuracy</td><td><span class="tau win">0.03–0.07</span></td><td>baseline</td><td>best / near-best, drop-in</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- Strengths / Limitations side by side -->
+    <section class="block full reveal d8">
+      <div class="b-head"><span class="n">03</span><span>Strengths &amp; Limitations</span><span class="rule"></span></div>
+      <div class="pair">
+        <div class="col s">
+          <h4><i></i>Strengths</h4>
+          <ul class="dense">
+            <li>Tight theory↔empirics loop: affine observation → hierarchical model → closed-form score.</li>
+            <li>Dead-simple &amp; plug-in: one affine subtract, near-zero engineering cost.</li>
+            <li>Unified metric (Kendall τ) enables cross-benchmark, cross-model, cross-rule comparison.</li>
+            <li>Two crisp, usable "rule-of-thumb" boxes for when standard accuracy is safe.</li>
+            <li>Broad coverage: 7 benchmarks × 5 families × base/instruct × zero/few-shot.</li>
+          </ul>
+        </div>
+        <div class="col l">
+          <h4><i></i>Limitations</h4>
+          <ul class="dense">
+            <li><b>Only linear</b> length bias removed — non-linear effects &amp; non-length answer priors untouched.</li>
+            <li><b>No downstream validation</b>: lower τ ≠ fairer rankings or closer-to-true capability.</li>
+            <li><b>b̂ fragility</b> when candidate count M is small / within-question length variance is low; relies on held-out calibration &amp; shrinkage — no systematic ablation.</li>
+            <li>Limited to <b>likelihood-based MC scoring</b>; instruction-following &amp; generative evals out of scope.</li>
+            <li>Authorship unsigned in HTML — confirm against the camera-ready version.</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- Questions -->
+    <section class="block full reveal d9">
+      <div class="b-head"><span class="n">04</span><span>Open questions</span><span class="rule"></span></div>
+      <div class="qlist">
+        <div class="q"><div class="t">After lowering τ, how do MC <b>accuracy values &amp; model rankings</b> shift — are any benchmark/model pairs re-ranked materially?</div></div>
+        <div class="q"><div class="t">Does Bayesian accuracy correlate better with <b>generative evals / human judgment</b>, i.e. is it actually more faithful to capability?</div></div>
+        <div class="q"><div class="t">How much <b>non-linear</b> length effect (e.g. super-linear "fatigue" on long answers) survives — is a quadratic or piecewise term needed?</div></div>
+        <div class="q"><div class="t">Can one <b>b̂ calibrated on little data generalize</b> to new benchmarks / prompt templates and stay low-bias?</div></div>
+        <div class="q"><div class="t">Does it hold across <b>more languages &amp; tokenizers</b> (beyond German ARC), e.g. non-Latin scripts?</div></div>
+        <div class="q"><div class="t">Can the length prior be <b>orthogonally combined</b> with content-prior debiasers (PMI) into one unified score?</div></div>
+      </div>
+    </section>
+
+  </div>
+
+  <!-- ───────────── Footer ───────────── -->
+  <footer class="reveal d10">
+    <span>Bayesian Accuracy · 2607.12767 · dashboard rendering</span>
+    <a href="./2607.12767.md">↗ <span class="arrow">Markdown source</span></a>
+  </footer>
+
+</div>
+</body>
+</html>

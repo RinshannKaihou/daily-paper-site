@@ -1,0 +1,672 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>AMUSE — Anytime Muon with Stable Gradient Evaluation</title>
+<style>
+  /* ---------- Design tokens ---------- */
+  :root{
+    --paper:      #f4efe4;        /* warm off-white, cartographic paper */
+    --paper-2:    #ece5d3;
+    --ink:        #16181a;        /* near-black ink */
+    --ink-2:      #3a3d3f;
+    --ink-mute:   #6b6f72;
+    --rule:       #d8cfb9;        /* hairline rules */
+    --rule-2:     #c8bd9f;
+    --accent:     #0e6e6b;        /* river teal — single topic accent */
+    --accent-deep:#084a48;
+    --accent-soft:#dfdce6;
+    --warn:       #8a3a1c;        /* critical-edge rust */
+    --warn-soft:  #f0ddcf;
+    --ok:         #2f5d3a;
+    --serif: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Helvetica, Arial, sans-serif;
+    --mono: "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+    --maxw: min(95vw, 1100px);
+  }
+
+  *,*::before,*::after{ box-sizing:border-box; }
+  html{ scroll-behavior:smooth; scroll-padding-top:84px; }
+  body{
+    margin:0;
+    background:var(--paper);
+    color:var(--ink);
+    font-family:var(--sans);
+    font-size:16px;
+    line-height:1.6;
+    -webkit-font-smoothing:antialiased;
+    text-rendering:optimizeLegibility;
+    /* very subtle paper grain via layered radial gradients */
+    background-image:
+      radial-gradient(circle at 12% 8%, rgba(14,110,107,.04), transparent 38%),
+      radial-gradient(circle at 88% 92%, rgba(138,58,28,.035), transparent 42%);
+    background-attachment:fixed;
+  }
+  a{ color:var(--accent-deep); text-decoration:none; border-bottom:1px solid transparent; transition:border-color .15s; }
+  a:hover{ border-bottom-color:var(--accent-deep); }
+
+  /* ---------- Back link (fixed, top-left) ---------- */
+  .back-link{
+    position:fixed; top:14px; left:14px; z-index:50;
+    font-family:var(--sans); font-size:13px; font-weight:600;
+    letter-spacing:.02em;
+    color:var(--ink);
+    background:rgba(244,239,228,.92);
+    border:1px solid var(--rule);
+    padding:7px 11px; border-radius:2px;
+    backdrop-filter:saturate(140%) blur(4px);
+    -webkit-backdrop-filter:saturate(140%) blur(4px);
+  }
+  .back-link:hover{ border-color:var(--accent); color:var(--accent-deep); }
+
+  /* ---------- Layout shell ---------- */
+  .wrap{ width:var(--maxw); margin:0 auto; padding:0 22px; }
+
+  /* ---------- HERO BAND ---------- */
+  .hero{
+    position:relative;
+    padding:78px 0 34px;
+    border-bottom:1px solid var(--rule);
+  }
+  .kicker{
+    font-family:var(--sans);
+    font-size:11.5px; font-weight:700;
+    letter-spacing:.22em; text-transform:uppercase;
+    color:var(--accent-deep);
+    margin:0 0 18px;
+    display:flex; flex-wrap:wrap; gap:6px 14px; align-items:center;
+  }
+  .kicker .pip{ display:inline-block; width:6px; height:6px; background:var(--accent); border-radius:50%; }
+  .kicker .meta{ color:var(--ink-mute); font-weight:500; }
+  h1.title{
+    font-family:var(--serif);
+    font-weight:700;
+    font-size:clamp(54px, 11vw, 128px);
+    line-height:.92;
+    letter-spacing:-.025em;
+    margin:0 0 10px;
+    color:var(--ink);
+  }
+  h1.title .reg{
+    font-family:var(--mono); font-size:.22em; vertical-align:super;
+    color:var(--ink-mute); letter-spacing:0; margin-left:.18em; font-weight:500;
+  }
+  .subtitle{
+    font-family:var(--serif);
+    font-style:italic;
+    font-size:clamp(19px, 2.6vw, 26px);
+    color:var(--ink-2);
+    margin:0 0 36px;
+    max-width:42ch;
+  }
+  .finding{
+    position:relative;
+    font-family:var(--serif);
+    font-weight:600;
+    font-size:clamp(23px, 3.4vw, 36px);
+    line-height:1.22;
+    letter-spacing:-.012em;
+    color:var(--ink);
+    max-width:30ch;
+    margin:0;
+  }
+  .finding::before{
+    content:"KEY FINDING";
+    display:block;
+    font-family:var(--sans);
+    font-size:11px; font-weight:700; letter-spacing:.24em;
+    color:var(--accent);
+    margin-bottom:14px;
+  }
+  .finding .hl{ color:var(--accent-deep); }
+  .byline{
+    margin-top:34px;
+    display:flex; flex-wrap:wrap; gap:8px 18px;
+    font-size:13px; color:var(--ink-mute);
+    border-top:1px dashed var(--rule-2);
+    padding-top:16px;
+  }
+  .byline b{ color:var(--ink-2); font-weight:600; }
+
+  /* bilingual pull-quote (Chinese TL;DR) */
+  .tldr-zh{
+    margin-top:30px;
+    border-left:3px solid var(--accent);
+    background:var(--paper-2);
+    padding:16px 20px;
+    font-size:14.5px; line-height:1.7; color:var(--ink-2);
+    font-family:var(--serif);
+    border-radius:0 2px 2px 0;
+  }
+  .tldr-zh .lbl{
+    display:block; font-family:var(--sans); font-size:10.5px; font-weight:700;
+    letter-spacing:.2em; color:var(--accent); text-transform:uppercase; margin-bottom:6px;
+  }
+
+  /* ---------- Sticky section nav ---------- */
+  nav.toc{
+    position:sticky; top:0; z-index:30;
+    background:rgba(244,239,228,.94);
+    border-bottom:1px solid var(--rule);
+    backdrop-filter:saturate(140%) blur(6px);
+    -webkit-backdrop-filter:saturate(140%) blur(6px);
+  }
+  nav.toc ul{
+    list-style:none; margin:0; padding:9px 22px;
+    width:var(--maxw); margin:0 auto;
+    display:flex; flex-wrap:wrap; gap:4px 0;
+    font-size:12.5px;
+  }
+  nav.toc a{
+    color:var(--ink-2); border:none; border-bottom:2px solid transparent;
+    padding:6px 12px; font-weight:600; letter-spacing:.02em;
+    display:inline-block;
+  }
+  nav.toc a:hover{ color:var(--accent-deep); }
+  nav.toc a.active{ color:var(--accent-deep); border-bottom-color:var(--accent); }
+
+  /* ---------- Asset row ---------- */
+  .assets{
+    display:grid;
+    grid-template-columns: 1.15fr 1fr 1fr;
+    gap:0;
+    border-bottom:1px solid var(--rule);
+  }
+  .asset{
+    padding:30px 26px 34px;
+    border-right:1px solid var(--rule);
+    position:relative;
+  }
+  .asset:last-child{ border-right:none; }
+  .asset .lbl{
+    font-family:var(--sans); font-size:10.5px; font-weight:700;
+    letter-spacing:.22em; text-transform:uppercase; color:var(--ink-mute);
+    margin-bottom:14px;
+  }
+  /* metric card */
+  .asset.metric{ background:linear-gradient(180deg, var(--paper-2), transparent); }
+  .asset.metric .num{
+    font-family:var(--serif); font-weight:700;
+    font-size:clamp(72px, 13vw, 132px);
+    line-height:.85; letter-spacing:-.04em;
+    color:var(--accent-deep);
+    display:flex; align-items:flex-start; gap:4px;
+  }
+  .asset.metric .num .x{ font-size:.46em; color:var(--accent); margin-top:.18em; }
+  .asset.metric .num-sub{
+    font-size:14px; color:var(--ink-2); line-height:1.5; margin-top:12px; max-width:24ch;
+  }
+  .asset.metric .num-sub b{ color:var(--ink); }
+  .metric-trio{
+    margin-top:18px; display:flex; gap:14px; flex-wrap:wrap;
+    padding-top:14px; border-top:1px solid var(--rule);
+    font-size:12px; color:var(--ink-mute);
+  }
+  .metric-trio .t b{ display:block; font-family:var(--serif); font-size:20px; color:var(--ink); }
+  /* why card */
+  .asset.why p{
+    font-family:var(--serif); font-size:18px; line-height:1.45; color:var(--ink); margin:0;
+  }
+  .asset.why .src{
+    margin-top:16px; font-size:12px; color:var(--ink-mute);
+  }
+  /* edge card */
+  .asset.edge{ background:#f7ece3; border-right:none; }
+  .asset.edge::before{
+    content:""; position:absolute; left:0; top:0; bottom:0; width:3px; background:var(--warn);
+  }
+  .asset.edge p{
+    font-family:var(--serif); font-size:17px; line-height:1.45; color:var(--ink); margin:0;
+  }
+  .asset.edge .lbl{ color:var(--warn); }
+
+  /* ---------- At-a-glance facts strip ---------- */
+  .glance{
+    display:grid; grid-template-columns:repeat(4,1fr);
+    border-bottom:1px solid var(--rule);
+    background:var(--paper-2);
+  }
+  .glance .cell{ padding:18px 22px; border-right:1px solid var(--rule); }
+  .glance .cell:last-child{ border-right:none; }
+  .glance .k{ font-size:10.5px; font-weight:700; letter-spacing:.18em; text-transform:uppercase; color:var(--ink-mute); margin-bottom:6px; }
+  .glance .v{ font-family:var(--serif); font-size:18px; color:var(--ink); line-height:1.25; }
+  .glance .v small{ font-family:var(--sans); font-size:12px; color:var(--ink-mute); display:block; margin-top:2px; }
+
+  /* ---------- Body sections ---------- */
+  section.body{ padding:46px 0 18px; }
+  .sec{ padding:34px 0; border-bottom:1px dashed var(--rule-2); }
+  .sec:last-child{ border-bottom:none; }
+  .sec-head{
+    display:flex; align-items:baseline; gap:14px; margin-bottom:18px;
+  }
+  .sec-no{
+    font-family:var(--mono); font-size:12px; color:var(--accent);
+    letter-spacing:.05em; flex-shrink:0;
+  }
+  .sec-head h2{
+    font-family:var(--serif); font-weight:700; font-size:30px;
+    margin:0; letter-spacing:-.012em; line-height:1.1;
+  }
+
+  .prose p{ margin:0 0 14px; color:var(--ink-2); font-size:15.5px; }
+  .prose p:last-child{ margin-bottom:0; }
+  .prose strong{ color:var(--ink); font-weight:600; }
+  .prose code{
+    font-family:var(--mono); font-size:13px; background:var(--paper-2);
+    padding:1px 5px; border-radius:2px; color:var(--accent-deep);
+  }
+
+  /* equation block */
+  .eq{
+    background:#fbf7ec; border:1px solid var(--rule);
+    padding:18px 22px; margin:18px 0; border-radius:3px;
+    font-family:var(--mono); font-size:13.5px; line-height:1.9;
+    color:var(--ink-2); overflow-x:auto;
+  }
+  .eq .cmt{ color:var(--ink-mute); }
+  .eq b{ color:var(--accent-deep); font-weight:600; }
+
+  ul.tight{ margin:8px 0 0; padding-left:1.2em; }
+  ul.tight li{ margin-bottom:8px; color:var(--ink-2); font-size:15px; }
+  ul.tight li::marker{ color:var(--accent); }
+  ul.tight li b{ color:var(--ink); }
+
+  /* Methodology 2-col */
+  .method-grid{
+    display:grid; grid-template-columns:1fr 1fr; gap:30px;
+  }
+  .method-grid h3{
+    font-family:var(--sans); font-size:12px; font-weight:700;
+    letter-spacing:.16em; text-transform:uppercase; color:var(--accent-deep);
+    margin:0 0 10px;
+  }
+
+  /* Results list with metric chips */
+  .results-grid{ display:grid; grid-template-columns:1fr 1fr; gap:16px 30px; margin-top:8px; }
+  .result{
+    padding:14px 0; border-top:1px solid var(--rule);
+  }
+  .result .r-num{
+    font-family:var(--serif); font-size:24px; color:var(--accent-deep); font-weight:700; line-height:1;
+  }
+  .result .r-txt{ font-size:14px; color:var(--ink-2); margin-top:5px; line-height:1.45; }
+  .result .r-txt b{ color:var(--ink); }
+
+  /* Strengths/Limitations side-by-side */
+  .duo{ display:grid; grid-template-columns:1fr 1fr; gap:0; border:1px solid var(--rule); border-radius:3px; overflow:hidden; }
+  .duo > div{ padding:22px 24px; }
+  .duo .pos{ background:#eef3ec; border-right:1px solid var(--rule); }
+  .duo .neg{ background:#f7ece3; }
+  .duo h3{
+    font-family:var(--sans); font-size:11.5px; font-weight:700; letter-spacing:.2em;
+    text-transform:uppercase; margin:0 0 14px;
+  }
+  .duo .pos h3{ color:var(--ok); }
+  .duo .neg h3{ color:var(--warn); }
+  .duo ul{ margin:0; padding-left:1.1em; }
+  .duo li{ font-size:14px; color:var(--ink-2); margin-bottom:9px; line-height:1.45; }
+  .duo li::marker{ color:var(--ink-mute); }
+  .duo li b{ color:var(--ink); }
+
+  /* Questions */
+  .q-grid{ display:grid; grid-template-columns:1fr 1fr; gap:14px 28px; }
+  .q-card{
+    padding:16px 18px; border-left:3px solid var(--rule-2); background:var(--paper-2);
+  }
+  .q-card .qq{ font-family:var(--serif); font-size:15.5px; color:var(--ink); margin:0; line-height:1.4; }
+  .q-card .tag{ font-family:var(--sans); font-size:10.5px; font-weight:700; letter-spacing:.14em; text-transform:uppercase; color:var(--accent); margin-bottom:6px; display:block; }
+
+  /* Credibility strip */
+  .cred{
+    display:grid; grid-template-columns:1.4fr 1fr; gap:28px; align-items:start;
+    padding:24px 0;
+  }
+  .cred .who{ font-size:14.5px; color:var(--ink-2); }
+  .cred .who b{ color:var(--ink); }
+  .cred .chips{ display:flex; flex-wrap:wrap; gap:8px; }
+  .chip{
+    font-family:var(--mono); font-size:11.5px; padding:5px 9px;
+    background:var(--paper-2); border:1px solid var(--rule); color:var(--ink-2);
+    border-radius:2px;
+  }
+
+  /* footer */
+  footer{
+    border-top:2px solid var(--ink);
+    padding:28px 0 60px; margin-top:18px;
+    display:flex; justify-content:space-between; align-items:center;
+    flex-wrap:wrap; gap:12px;
+  }
+  footer .src-link{
+    font-family:var(--sans); font-size:13.5px; font-weight:600;
+    color:var(--accent-deep);
+  }
+  footer .meta-foot{ font-size:12px; color:var(--ink-mute); }
+
+  /* ---------- Load reveal ---------- */
+  .reveal{ opacity:0; transform:translateY(10px); animation:rv .55s cubic-bezier(.2,.7,.2,1) forwards; }
+  @keyframes rv{ to{ opacity:1; transform:none; } }
+  .d1{ animation-delay:.04s; } .d2{ animation-delay:.10s; }
+  .d3{ animation-delay:.16s; } .d4{ animation-delay:.22s; }
+  .d5{ animation-delay:.30s; } .d6{ animation-delay:.38s; }
+
+  /* ---------- Responsive ---------- */
+  @media (max-width: 880px){
+    .assets{ grid-template-columns:1fr; }
+    .asset{ border-right:none; border-bottom:1px solid var(--rule); }
+    .asset.edge::before{ top:0; bottom:auto; right:0; left:0; width:auto; height:3px; }
+    .glance{ grid-template-columns:1fr 1fr; }
+    .glance .cell:nth-child(2n){ border-right:none; }
+    .glance .cell{ border-bottom:1px solid var(--rule); }
+    .method-grid, .results-grid, .q-grid{ grid-template-columns:1fr; }
+    .duo{ grid-template-columns:1fr; }
+    .duo .pos{ border-right:none; border-bottom:1px solid var(--rule); }
+    .cred{ grid-template-columns:1fr; }
+    h1.title{ font-size:clamp(48px, 16vw, 88px); }
+    nav.toc ul{ overflow-x:auto; flex-wrap:nowrap; white-space:nowrap; }
+    nav.toc a{ padding:6px 10px; }
+  }
+  @media (max-width: 520px){
+    .wrap{ padding:0 16px; }
+    .hero{ padding:64px 0 26px; }
+  }
+
+  /* reduced motion */
+  @media (prefers-reduced-motion: reduce){
+    .reveal{ animation:none; opacity:1; transform:none; }
+    html{ scroll-behavior:auto; }
+  }
+</style>
+</head>
+<body>
+
+<a class="back-link" href="./index.html" title="Back to digest">↩ Today's digest</a>
+
+<!-- ================= HERO ================= -->
+<header class="hero">
+  <div class="wrap">
+    <p class="kicker reveal d1">
+      <span class="pip"></span> OPTIMIZATION
+      <span class="meta">·</span> MUON
+      <span class="meta">·</span> SCHEDULE-FREE
+      <span class="meta">·</span> LLM PRETRAINING
+      <span class="meta">·</span> <span style="font-family:var(--mono)">arXiv:2605.22432</span>
+      <span class="meta">·</span> v2 · 14 Jul 2026
+    </p>
+
+    <h1 class="title reveal d2">AMUSE<span class="reg">v2</span></h1>
+    <p class="subtitle reveal d3">Anytime Muon with Stable Gradient Evaluation</p>
+
+    <p class="finding reveal d4">
+      Embeds Muon inside the <span class="hl">Schedule-Free</span> framework with a
+      <span class="hl">time-varying interpolation coefficient β<sub>t</sub></span> —
+      stabilizing Muon's valley-wall oscillations so it trains
+      <span class="hl">anytime, with no learning-rate schedule.</span>
+    </p>
+
+    <div class="tldr-zh reveal d5">
+      <span class="lbl">一句话总结 / Chinese TL;DR</span>
+      从 river-valley 损失景观视角解释 Muon（正交化加速 bulk/river 方向，但放大 dominant/valley-wall 噪声导致振荡），并提出 AMUSE：将 Muon 嵌入 Schedule-Free 框架，用随时间增大的插值系数 β<sub>t</sub> 在快速序列与平均序列之间渐变，免学习率调度、支持 anytime 训练。
+    </div>
+
+    <div class="byline reveal d6">
+      <span><b>Jueun Kim*</b>, <b>Baekrok Shin*</b> (KAIST, co-first)</span>
+      <span>Jihun Yun</span>
+      <span>Beomhan Baek (SNU &amp; KRAFTON)</span>
+      <span>Minhak Song (KAIST &amp; KRAFTON)</span>
+      <span><b>Chulhee Yun</b> (KAIST, senior)</span>
+      <span class="meta">· code: github.com/kjeiun/amuse</span>
+    </div>
+  </div>
+</header>
+
+<!-- ================= TOC ================= -->
+<nav class="toc" aria-label="Section navigation">
+  <ul>
+    <li><a href="#assets">At a glance</a></li>
+    <li><a href="#method">Methodology</a></li>
+    <li><a href="#results">Results</a></li>
+    <li><a href="#duo">Strengths / Limits</a></li>
+    <li><a href="#questions">Open questions</a></li>
+    <li><a href="#cred">Authors</a></li>
+  </ul>
+</nav>
+
+<!-- ================= ASSET ROW ================= -->
+<section id="assets" class="assets">
+
+  <!-- KEY METRIC -->
+  <div class="asset metric">
+    <div class="lbl">Key Metric · Step Efficiency</div>
+    <div class="num">1.51<span class="x">×</span></div>
+    <p class="num-sub">
+      <b>fewer steps</b> to reach Muon's final performance —
+      on <b>720M Llama</b> pretraining over FineWeb.
+    </p>
+    <div class="metric-trio">
+      <div class="t"><b>1.34×</b><span>fewer steps, ImageNet / ResNet-50</span></div>
+      <div class="t"><b>2.57×</b><span>fewer steps, ImageNet ViT-B/16 fine-tune</span></div>
+    </div>
+  </div>
+
+  <!-- WHY THIS MATTERS -->
+  <div class="asset why">
+    <div class="lbl">Why this matters</div>
+    <p>
+      A drop-in, <b style="color:var(--accent-deep)">schedule-free, anytime Muon</b> for production LLM pretraining — where Muon is already adopted in Kimi-K2, GLM-5, and DeepSeek-V4.
+    </p>
+    <p class="src">Distilled from Relevance &amp; TL;DR.</p>
+  </div>
+
+  <!-- CRITICAL EDGE -->
+  <div class="asset edge">
+    <div class="lbl">⚠ Critical edge</div>
+    <p>
+      Largest model is <b>1.3B on ~26B tokens</b>; LLM evaluation is <b>perplexity-only</b> — no downstream capability benchmarks confirm the gains transfer.
+    </p>
+    <p class="src">From Critical Assessment &amp; Limitations.</p>
+  </div>
+
+</section>
+
+<!-- ================= AT-A-GLANCE ================= -->
+<div class="glance">
+  <div class="cell">
+    <div class="k">Wall-clock cost</div>
+    <div class="v">1.067× <small>per-iteration vs AdamW (124M Llama, 0.719 s vs 0.674 s)</small></div>
+  </div>
+  <div class="cell">
+    <div class="k">Scales tested</div>
+    <div class="v">124M / 720M / 1.3B <small>FineWeb Llama-style pretraining</small></div>
+  </div>
+  <div class="cell">
+    <div class="k">Extra memory</div>
+    <div class="v">+1 state copy <small>z<sub>t</sub> vs vanilla Muon; matches AdamW</small></div>
+  </div>
+  <div class="cell">
+    <div class="k">New hyperparams</div>
+    <div class="v">β<sub>init</sub>, ρ <small>only one extra tuned knob; µ fixed at 0.95</small></div>
+  </div>
+</div>
+
+<!-- ================= BODY ================= -->
+<section class="body wrap">
+
+  <!-- METHODOLOGY -->
+  <div id="method" class="sec">
+    <div class="sec-head"><span class="sec-no">01 /</span><h2>Methodology</h2></div>
+
+    <div class="method-grid">
+      <div>
+        <h3>River-valley diagnosis</h3>
+        <div class="prose">
+          <p>Following the <strong>river-valley decomposition</strong> (Song et al., 2025a), parameter space is split via the top-k Hessian eigenspace (k = #classes, Neural Collapse motivated): the <strong>dominant subspace S<sub>k</sub></strong> (steep valley walls, high curvature) and its flat orthogonal complement S<sub>k</sub><sup>⊥</sup> (the river, bulk of parameters).</p>
+          <p>On a 5k MNIST + 3-layer MLP probe, Muon's update has a <strong>much smaller dominant ratio</strong> than SGD/AdamW — orthogonalization redirects the update into the bulk/river, explaining its fast progress. But the normalization is <strong>non-selective</strong>, so residual dominant components survive and get amplified into <strong>valley-wall oscillations</strong> (Appendix A: a 2D matrix-quadratic "bouncing" toy).</p>
+        </div>
+      </div>
+      <div>
+        <h3>The AMUSE update</h3>
+        <div class="prose">
+          <p>Muon is dropped into the Schedule-Free three-sequence formulation. A <strong>time-varying β<sub>t</sub></strong> shifts gradient evaluation from the fast base sequence z<sub>t</sub> toward the averaged x<sub>t</sub>:</p>
+        </div>
+        <div class="eq">
+Y<sub>t</sub> = (1−β<sub>t</sub>)Z<sub>t</sub> + β<sub>t</sub>X<sub>t</sub><br>
+M<sub>t</sub> = µM<sub>t−1</sub> + (1−µ)∇L(Y<sub>t</sub>)<br>
+Z<sub>t+1</sub> = Z<sub>t</sub> − η·<b>T(M<sub>t</sub>)</b><br>
+X<sub>t+1</sub> = (1−c<sub>t+1</sub>)X<sub>t</sub> + c<sub>t+1</sub>Z<sub>t+1</sub><br>
+<span class="cmt">% after warmup T₀:</span><br>
+<b>β<sub>t</sub> = 1 − (T₀/t)<sup>ρ</sup>·(1−β<sub>init</sub>)</b>, &nbsp; ρ ∈ [0,1]
+        </div>
+        <div class="prose">
+          <p>Small early β<sub>t</sub> → fast adaptation near z<sub>t</sub>; growing β<sub>t</sub> → stable averaging near x<sub>t</sub> before orthogonalization. The schedule is <strong>horizon-independent</strong>, so it removes LR decay and is anytime-compatible. ρ=0 recovers fixed-β SF-Muon.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="prose" style="margin-top:20px;">
+      <p><strong>Why it works.</strong> Post-hoc EWA and LR-decay applied to AMUSE's x<sub>t</sub> trajectory yield <em>almost no further loss reduction</em> (Fig. 6) — AMUSE already tracks the river. Constant-LR Muon benefits substantially from both, confirming it oscillates. AMUSE also shows higher cosine similarity between consecutive Δx<sub>t</sub> updates, consistent with smoother river progress.</p>
+    </div>
+  </div>
+
+  <!-- RESULTS -->
+  <div id="results" class="sec">
+    <div class="sec-head"><span class="sec-no">02 /</span><h2>Results &amp; Highlights</h2></div>
+    <p class="prose" style="margin-top:0;margin-bottom:18px;">
+      Across <strong>6 image setups (5 seeds)</strong> and <strong>3 LLM scales</strong>, AMUSE consistently beats (Schedule-Free) AdamW and Muon — and on 124M Llama also beats AdEMAMix, ADOPT, Signum, Prodigy, MARS, Lion, Sophia, and SOAP (all with tuned cosine schedules).
+    </p>
+
+    <div class="results-grid">
+      <div class="result">
+        <div class="r-num">1.51× / 1.34× / 2.57×</div>
+        <div class="r-txt">Fewer steps to reach Muon's final performance on <b>720M Llama</b>, <b>ImageNet ResNet-50</b>, and <b>ImageNet ViT-B/16 fine-tune</b> respectively.</div>
+      </div>
+      <div class="result">
+        <div class="r-num">Lowest PPL, 124M → 1.3B</div>
+        <div class="r-txt">AMUSE achieves the lowest validation perplexity <b>throughout training</b> at all three Llama scales on FineWeb.</div>
+      </div>
+      <div class="result">
+        <div class="r-num">Beats 10 optimizers</div>
+        <div class="r-txt">On 124M Llama (Fig. 17): AdEMAMix, ADOPT, Signum, Prodigy, MARS, Lion, Sophia, SOAP — all cosine-scheduled.</div>
+      </div>
+      <div class="result">
+        <div class="r-num">Rescues Muon on fine-tuning</div>
+        <div class="r-txt">Works on <b>AdamW-pretrained MAE ViT</b> fine-tuning, where vanilla Muon <b>fails due to optimizer mismatch</b>.</div>
+      </div>
+      <div class="result">
+        <div class="r-num">182,298 tok/s</div>
+        <div class="r-txt">Throughput at 124M Llama vs <b>194,469 tok/s</b> for AdamW — a <b>~6.7% per-step penalty</b> (Table 18).</div>
+      </div>
+      <div class="result">
+        <div class="r-num">≠ post-hoc averaging</div>
+        <div class="r-txt">Adding EWA or WSD-decay to tuned constant-LR Muon <b>improves it but never matches AMUSE</b> (App. F.2, Fig. 19).</div>
+      </div>
+    </div>
+
+    <ul class="tight" style="margin-top:22px;">
+      <li><b>Image-domain sweep (5 seeds):</b> highest test accuracy on CIFAR-10 (Wide-ResNet-16-8), CIFAR-100 (DenseNet), SVHN (ResNet-3-96), ImageNet-1k (ResNet-50), ISIC 2018 segmentation (U-Net), and MAE ViT-B/16 fine-tuning.</li>
+      <li><b>Ablation — cap β<sub>t</sub> at 0.95 (Fig. 25):</b> a clipped schedule underperforms unconstrained AMUSE, with the gap widening late — benefit comes from <em>continuously</em> shifting evaluation toward x<sub>t</sub>.</li>
+      <li><b>Ablation — drop Muon momentum (Fig. 26):</b> removing the pre-orthogonalization momentum buffer causes a large drop for both AMUSE and SF-Muon; momentum is essential for smoothing stochastic noise.</li>
+      <li><b>Large-batch scaling:</b> SF-AdamW struggles with the large batches typical of modern LLMs (Morwani et al., 2025); AMUSE scales effectively to 720M (batch 1984) and 1.3B (batch 2048).</li>
+    </ul>
+  </div>
+
+  <!-- STRENGTHS / LIMITATIONS -->
+  <div id="duo" class="sec">
+    <div class="sec-head"><span class="sec-no">03 /</span><h2>Strengths &amp; Limitations</h2></div>
+    <div class="duo">
+      <div class="pos">
+        <h3>+ Strengths</h3>
+        <ul>
+          <li><b>Clean theory-to-method story:</b> the same river-valley lens diagnoses Muon's weakness and prescribes the SF averaging fix.</li>
+          <li><b>Horizon-independent closed form</b> for β<sub>t</sub> elegantly resolves the early-adaptation vs. late-stability tradeoff that fixed-β SF-Muon cannot (Figs. 5, 23, 25).</li>
+          <li><b>Broad coverage:</b> 6 image setups (5 seeds) + 3 LLM scales + a 10-optimizer comparison on 124M Llama.</li>
+          <li><b>Rescues fine-tuning</b> of AdamW-pretrained checkpoints (MAE ViT) where vanilla Muon fails — a real deployment pain point.</li>
+          <li><b>Low marginal cost:</b> one extra state copy, ~1.067× AdamW wall-clock, one extra hyperparameter.</li>
+          <li><b>Honest ablations</b> (cap β<sub>t</sub>; drop momentum; EWA/WSD on Muon) that isolate <em>why</em> it works, not just that it does.</li>
+        </ul>
+      </div>
+      <div class="neg">
+        <h3>− Limitations</h3>
+        <ul>
+          <li><b>Scale.</b> Largest LLM is 1.3B on ~26B tokens; behavior at 7B+ and multi-trillion-token regimes is unverified.</li>
+          <li><b>Evaluation depth.</b> LLM results are perplexity-only — no downstream, zero-shot, or long-context benchmarks.</li>
+          <li><b>Diagnostic-vs-deployment gap.</b> Mechanistic river-valley claims are shown at MLP/MNIST scale; at LLM scale they rest on indirect proxies (‖Δx<sub>t</sub>‖, EWA insensitivity, cosine similarity).</li>
+          <li><b>Extra memory</b> (one full z<sub>t</sub> copy) vs vanilla Muon — non-trivial where optimizer state dominates.</li>
+          <li><b>Hyperparameter sensitivity</b> studied only on 124M Llama over a small grid; aggressive ρ or long T<sub>0</sub> not characterized.</li>
+          <li><b>No head-to-head</b> with the concurrent schedule-free spectral optimizer of Apte et al. (2605.23061), targeting the same niche.</li>
+          <li><b>µ pinned at 0.95</b> without tuning — reported gaps may slightly flatter AMUSE.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- QUESTIONS -->
+  <div id="questions" class="sec">
+    <div class="sec-head"><span class="sec-no">04 /</span><h2>Open Questions</h2></div>
+    <div class="q-grid">
+      <div class="q-card"><span class="tag">Scaling</span><p class="qq">Does the perplexity advantage at 124M–1.3B persist at 7B–70B and multi-trillion-token budgets — and translate into downstream/zero-shot gains?</p></div>
+      <div class="q-card"><span class="tag">Memory</span><p class="qq">Can the extra z<sub>t</sub> copy be avoided via in-place momentum reuse or a low-rank averaged-sequence approximation?</p></div>
+      <div class="q-card"><span class="tag">Systems</span><p class="qq">How does AMUSE interact with gradient accumulation, ZeRO sharding, and tensor parallelism — does z<sub>t</sub> complicate sharding vs AdamW?</p></div>
+      <div class="q-card"><span class="tag">Adaptive β</span><p class="qq">Is the fixed (T₀/t)<sup>ρ</sup> schedule optimal, or could an online dominant-ratio / sharpness-driven β<sub>t</sub> beat it?</p></div>
+      <div class="q-card"><span class="tag">Concurrent work</span><p class="qq">A direct comparison with Apte et al. (2605.23061, schedule-free spectral) on identical compute — which stabilization mechanism generalizes better?</p></div>
+      <div class="q-card"><span class="tag">Beyond Transformers</span><p class="qq">Does the river-valley diagnosis carry to SSMs, MoE experts, or diffusion U-Nets where Hessian spectral structure differs?</p></div>
+    </div>
+  </div>
+
+  <!-- CREDIBILITY -->
+  <div id="cred" class="sec">
+    <div class="sec-head"><span class="sec-no">05 /</span><h2>Authors &amp; Credibility</h2></div>
+    <div class="cred">
+      <div class="who">
+        <p>The same KAIST group authored the river-valley <em>"Does SGD really happen in tiny subspaces?"</em> line and the Schedule-Free river analysis (Song et al., 2025a,b) that AMUSE directly builds on — <strong>strong provenance on this exact problem</strong>. Code is public; LLM setup follows the public Semenov et al. (2026) optimizer-benchmarking protocol. Coverage spans MLP, Wide-ResNet, DenseNet, ResNet, U-Net, ViT, and Llama-style Transformers at three scales, with baselines tuned from prior work rather than strawmen.</p>
+      </div>
+      <div class="chips">
+        <span class="chip">KAIST</span>
+        <span class="chip">KRAFTON</span>
+        <span class="chip">SNU</span>
+        <span class="chip">code: public</span>
+        <span class="chip">v2 · 14 Jul 2026</span>
+        <span class="chip">Algo 1 pseudocode</span>
+      </div>
+    </div>
+  </div>
+
+</section>
+
+<!-- ================= FOOTER ================= -->
+<footer class="wrap">
+  <a class="src-link" href="./2605.22432.md">↗ Markdown source</a>
+  <span class="meta-foot">Dashboard generated from source markdown · arXiv:2605.22432 · AMUSE</span>
+</footer>
+
+<script>
+  /* Active-section highlight in sticky TOC */
+  (function(){
+    var links = Array.prototype.slice.call(document.querySelectorAll('nav.toc a'));
+    var map = {};
+    links.forEach(function(a){
+      var id = a.getAttribute('href').slice(1);
+      var el = document.getElementById(id);
+      if(el) map[id] = { a:a, el:el };
+    });
+    var ids = Object.keys(map);
+    function onScroll(){
+      var pos = window.scrollY + 120, current = null;
+      ids.forEach(function(id){
+        if(map[id].el.offsetTop <= pos) current = id;
+      });
+      ids.forEach(function(id){
+        map[id].a.classList.toggle('active', id === current);
+      });
+    }
+    var ticking = false;
+    window.addEventListener('scroll', function(){
+      if(!ticking){ window.requestAnimationFrame(function(){ onScroll(); ticking=false; }); ticking=true; }
+    }, { passive:true });
+    onScroll();
+  })();
+</script>
+
+</body>
+</html>

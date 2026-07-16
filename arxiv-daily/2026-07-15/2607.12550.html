@@ -1,0 +1,1101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>JoLT — Near-Lossless KV Cache Compression · arXiv 2607.12550</title>
+<style>
+  /* ============================================================
+     Aesthetic: data-dense editorial / industrial.
+     One topic-derived accent (terracotta) on warm paper neutrals.
+     System fonts only: serif display + system sans body + mono.
+     ============================================================ */
+  :root {
+    --paper:    #f4efe5;
+    --paper-2:  #ece4d3;
+    --paper-3:  #e2d8c2;
+    --ink:      #181613;
+    --ink-2:    #463e33;
+    --ink-3:    #7a7062;
+    --rule:     #d6cab1;
+    --rule-2:   #c4b693;
+    --accent:   #b8442d;
+    --accent-d: #8d2f1d;
+    --accent-l: #d96a4f;
+    --maxw: min(95vw, 1100px);
+    --serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, "Times New Roman", serif;
+    --sans:  -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, system-ui, "Helvetica Neue", Arial, sans-serif;
+    --mono:  ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  }
+
+  * { box-sizing: border-box; }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    /* faint paper grain via layered radial gradients */
+    background-image:
+      radial-gradient(circle at 12% 8%, rgba(184,68,45,0.04), transparent 38%),
+      radial-gradient(circle at 92% 0%, rgba(24,22,19,0.03), transparent 42%);
+    background-attachment: fixed;
+  }
+
+  /* ---------- Fixed back link ---------- */
+  .back-link {
+    position: fixed;
+    top: 14px;
+    left: 14px;
+    z-index: 100;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 7px 12px 7px 10px;
+    background: var(--ink);
+    color: var(--paper);
+    text-decoration: none;
+    font-family: var(--mono);
+    font-size: 11.5px;
+    letter-spacing: 0.04em;
+    border-radius: 2px;
+    box-shadow: 0 6px 20px -8px rgba(24,22,19,0.5);
+    transition: background 0.15s ease, transform 0.15s ease;
+  }
+  .back-link:hover { background: var(--accent-d); transform: translateY(-1px); }
+
+  .wrap { width: var(--maxw); margin: 0 auto; padding: 0 22px; }
+
+  /* ---------- Load animation ---------- */
+  @keyframes rise {
+    from { opacity: 0; transform: translateY(10px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  .rise { animation: rise 0.6s cubic-bezier(0.2,0.7,0.2,1) both; }
+
+  /* ---------- Hero ---------- */
+  header.hero {
+    padding: 88px 0 26px;
+    border-bottom: 1px solid var(--rule);
+  }
+  .meta-line {
+    font-family: var(--mono);
+    font-size: 11.5px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    margin: 0 0 22px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 14px;
+    align-items: center;
+  }
+  .meta-line .tag-accent {
+    color: var(--accent-d);
+    border: 1px solid var(--accent-l);
+    padding: 2px 7px;
+    border-radius: 2px;
+    background: rgba(184,68,45,0.06);
+  }
+  .meta-line .sep { color: var(--rule-2); }
+
+  h1.title {
+    font-family: var(--serif);
+    font-weight: 600;
+    font-size: clamp(30px, 4.6vw, 50px);
+    line-height: 1.06;
+    letter-spacing: -0.015em;
+    margin: 0 0 14px;
+    color: var(--ink);
+    max-width: 18ch;
+  }
+  h1.title em {
+    font-style: italic;
+    color: var(--accent-d);
+    font-weight: 600;
+  }
+
+  .authors {
+    font-size: 14px;
+    color: var(--ink-2);
+    margin: 0 0 34px;
+  }
+  .authors .who { color: var(--ink); font-weight: 600; }
+  .authors .aff { color: var(--ink-3); }
+
+  /* KEY FINDING — hero claim, largest editorial unit */
+  .key-finding {
+    position: relative;
+    padding: 22px 0 6px 26px;
+    border-left: 3px solid var(--accent);
+    margin-bottom: 8px;
+  }
+  .key-finding .label {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--accent-d);
+    display: block;
+    margin-bottom: 10px;
+  }
+  .key-finding .claim {
+    font-family: var(--serif);
+    font-size: clamp(20px, 2.5vw, 27px);
+    line-height: 1.32;
+    font-weight: 500;
+    color: var(--ink);
+    letter-spacing: -0.005em;
+    margin: 0;
+    max-width: 44ch;
+  }
+  .key-finding .claim b {
+    font-weight: 700;
+    color: var(--accent-d);
+  }
+
+  /* ---------- Asset row ---------- */
+  .assets {
+    display: grid;
+    grid-template-columns: 1.15fr 1fr 1fr;
+    gap: 16px;
+    padding: 30px 0 40px;
+    border-bottom: 1px solid var(--rule);
+  }
+  .card {
+    background: var(--paper-2);
+    border: 1px solid var(--rule);
+    padding: 22px 22px 24px;
+    border-radius: 3px;
+    position: relative;
+    overflow: hidden;
+  }
+  .card .label {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    margin: 0 0 14px;
+    display: block;
+  }
+
+  /* KEY METRIC card */
+  .card.metric { background: #181613; color: var(--paper); border-color: #181613; }
+  .card.metric .label { color: var(--accent-l); }
+  .metric .number {
+    font-family: var(--serif);
+    font-size: clamp(58px, 9vw, 96px);
+    font-weight: 700;
+    line-height: 0.95;
+    letter-spacing: -0.04em;
+    color: var(--paper);
+    margin: 2px 0 6px;
+  }
+  .metric .number .dot { color: var(--accent-l); }
+  .metric .unit {
+    font-family: var(--mono);
+    font-size: 11.5px;
+    color: #b8aea0;
+    margin: 0 0 16px;
+    line-height: 1.4;
+  }
+  .metric .compare {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 4px 10px;
+    font-family: var(--mono);
+    font-size: 11.5px;
+    color: #c9bfae;
+    border-top: 1px solid #2e2a25;
+    padding-top: 12px;
+  }
+  .metric .compare .k { color: #8d8273; }
+  .metric .compare .v { color: var(--paper); text-align: right; }
+  .metric .compare .v.bad { color: var(--accent-l); }
+
+  /* WHY THIS MATTERS card */
+  .card.matters .body {
+    font-family: var(--serif);
+    font-size: 17.5px;
+    line-height: 1.42;
+    color: var(--ink);
+    margin: 0;
+    font-weight: 500;
+  }
+
+  /* CRITICAL EDGE card — accent inverted */
+  .card.edge {
+    background: var(--accent);
+    color: #fbf3ee;
+    border-color: var(--accent-d);
+  }
+  .card.edge .label { color: #f3d6cc; }
+  .card.edge .body {
+    font-family: var(--serif);
+    font-size: 16.5px;
+    line-height: 1.42;
+    margin: 0;
+    font-weight: 500;
+  }
+  .card.edge .body b { background: #fbf3ee; color: var(--accent-d); padding: 0 3px; font-weight: 700; }
+
+  /* ---------- Section primitives ---------- */
+  section { padding: 46px 0; border-bottom: 1px solid var(--rule); }
+  .sec-head {
+    display: flex;
+    align-items: baseline;
+    gap: 14px;
+    margin: 0 0 26px;
+  }
+  .sec-num {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    color: var(--accent-d);
+    border: 1px solid var(--accent-l);
+    padding: 3px 7px;
+    border-radius: 2px;
+    background: rgba(184,68,45,0.06);
+    flex-shrink: 0;
+  }
+  .sec-title {
+    font-family: var(--serif);
+    font-size: clamp(22px, 3vw, 30px);
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    color: var(--ink);
+    margin: 0;
+    line-height: 1.1;
+  }
+
+  /* ---------- Reconstruction comparison chart ---------- */
+  .chart-block { margin-top: 6px; }
+  .chart-legend {
+    display: flex;
+    gap: 18px;
+    flex-wrap: wrap;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--ink-2);
+    margin-bottom: 18px;
+    letter-spacing: 0.03em;
+  }
+  .chart-legend .sw {
+    display: inline-block; width: 12px; height: 10px; margin-right: 6px;
+    vertical-align: middle; border-radius: 1px;
+  }
+  .sw.jolt { background: var(--accent); }
+  .sw.int4 { background: var(--ink-3); }
+  .sw.xkv  { background: var(--rule-2); border: 1px solid var(--ink-3); }
+
+  .bars { display: flex; flex-direction: column; gap: 22px; }
+  .bar-group {}
+  .bar-group .axis-label {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    margin-bottom: 8px;
+    display: flex;
+    justify-content: space-between;
+  }
+  .bar-group .axis-label .smaller { color: var(--ink-3); font-size: 10px; }
+  .bar-row {
+    display: grid;
+    grid-template-columns: 56px 1fr 70px;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 7px;
+    font-family: var(--mono);
+    font-size: 12px;
+  }
+  .bar-row .name { color: var(--ink-2); }
+  .bar-row .track {
+    height: 16px;
+    background: var(--paper-3);
+    border-radius: 1px;
+    position: relative;
+    overflow: hidden;
+  }
+  .bar-row .fill {
+    height: 100%;
+    background: var(--ink-3);
+    border-radius: 1px;
+    transition: width 0.8s cubic-bezier(0.2,0.7,0.2,1);
+  }
+  .bar-row .fill.jolt { background: var(--accent); }
+  .bar-row .val { text-align: right; color: var(--ink); font-weight: 600; }
+  .bar-row .val.win { color: var(--accent-d); }
+  .chart-caption {
+    font-size: 12.5px;
+    color: var(--ink-3);
+    margin: 18px 0 0;
+    font-style: italic;
+    line-height: 1.45;
+  }
+
+  /* ---------- Methodology + sidebar grid ---------- */
+  .body-grid {
+    display: grid;
+    grid-template-columns: 1.7fr 1fr;
+    gap: 40px;
+    align-items: start;
+  }
+  .method-list { list-style: none; padding: 0; margin: 0; }
+  .method-list li {
+    padding: 16px 0 18px;
+    border-top: 1px dashed var(--rule-2);
+  }
+  .method-list li:first-child { border-top: none; padding-top: 4px; }
+  .method-list .step {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: 0.1em;
+    color: var(--accent-d);
+    text-transform: uppercase;
+    display: block;
+    margin-bottom: 5px;
+  }
+  .method-list h3 {
+    font-family: var(--serif);
+    font-size: 18px;
+    font-weight: 600;
+    margin: 0 0 6px;
+    color: var(--ink);
+  }
+  .method-list p {
+    margin: 0;
+    font-size: 14.5px;
+    line-height: 1.5;
+    color: var(--ink-2);
+  }
+  .method-list code {
+    font-family: var(--mono);
+    font-size: 12.5px;
+    background: var(--paper-3);
+    padding: 1px 5px;
+    border-radius: 2px;
+    color: var(--ink);
+  }
+
+  /* sidebar */
+  .sidebar { position: sticky; top: 20px; }
+  .side-block {
+    background: var(--paper-2);
+    border: 1px solid var(--rule);
+    padding: 18px 20px;
+    border-radius: 3px;
+    margin-bottom: 14px;
+  }
+  .side-block .h {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    margin: 0 0 10px;
+  }
+  .side-block dl { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; }
+  .side-block dt { font-family: var(--mono); font-size: 11.5px; color: var(--ink-3); }
+  .side-block dd { margin: 0; font-size: 13px; color: var(--ink); font-weight: 500; }
+  .side-block .stat-row {
+    display: flex; justify-content: space-between; align-items: baseline;
+    padding: 7px 0; border-bottom: 1px dotted var(--rule-2);
+  }
+  .side-block .stat-row:last-child { border-bottom: none; }
+  .side-block .stat-row .k { font-size: 12.5px; color: var(--ink-2); }
+  .side-block .stat-row .v {
+    font-family: var(--serif); font-size: 19px; font-weight: 700; color: var(--accent-d);
+    letter-spacing: -0.01em;
+  }
+  .side-block .stat-row .v .sub {
+    font-family: var(--mono); font-size: 11px; color: var(--ink-3); font-weight: 400; margin-left: 3px;
+  }
+
+  /* ---------- Results cards ---------- */
+  .result-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 14px;
+  }
+  .result {
+    background: var(--paper-2);
+    border: 1px solid var(--rule);
+    padding: 18px 20px;
+    border-radius: 3px;
+    border-left: 3px solid var(--accent);
+  }
+  .result .h {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--accent-d);
+    margin: 0 0 8px;
+  }
+  .result .v {
+    font-family: var(--serif);
+    font-size: 22px;
+    font-weight: 700;
+    color: var(--ink);
+    line-height: 1.15;
+    letter-spacing: -0.01em;
+    margin: 0 0 6px;
+  }
+  .result .v .mono { font-family: var(--mono); font-size: 18px; }
+  .result .d { font-size: 13px; color: var(--ink-2); margin: 0; line-height: 1.45; }
+  .result .d code { font-family: var(--mono); font-size: 12px; background: var(--paper-3); padding: 0 4px; border-radius: 2px; }
+
+  /* ---------- Architecture split panel ---------- */
+  .split-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 18px;
+  }
+  .arch {
+    border: 1px solid var(--rule);
+    padding: 22px 24px;
+    border-radius: 3px;
+    position: relative;
+  }
+  .arch.gqa { background: var(--paper-2); border-top: 3px solid #2d5e3e; }
+  .arch.mha { background: #181613; color: var(--paper); border-top: 3px solid var(--accent-l); }
+  .arch .kind {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    margin: 0 0 4px;
+  }
+  .arch.gqa .kind { color: #2d5e3e; }
+  .arch.mha .kind { color: var(--accent-l); }
+  .arch h4 {
+    font-family: var(--serif);
+    font-size: 20px;
+    margin: 0 0 14px;
+    font-weight: 600;
+  }
+  .arch.gqa h4 { color: var(--ink); }
+  .arch.mha h4 { color: var(--paper); }
+  .arch .verdict {
+    font-size: 14.5px;
+    line-height: 1.5;
+    margin: 0 0 14px;
+  }
+  .arch.gqa .verdict { color: var(--ink-2); }
+  .arch.mha .verdict { color: #d8cebf; }
+  .arch .ladder {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 8px;
+    margin-top: 10px;
+  }
+  .arch .step {
+    padding: 8px 8px 9px;
+    border-radius: 2px;
+    text-align: center;
+  }
+  .arch.gqa .step { background: var(--paper-3); }
+  .arch.mha .step { background: #2a2622; }
+  .arch .step .r {
+    font-family: var(--mono); font-size: 10.5px; display: block; margin-bottom: 2px;
+  }
+  .arch.gqa .step .r { color: var(--ink-3); }
+  .arch.mha .step .r { color: #9a8f7e; }
+  .arch .step .ppl {
+    font-family: var(--serif); font-weight: 700; font-size: 16px; letter-spacing: -0.01em;
+  }
+  .arch.gqa .step .ppl { color: var(--ink); }
+  .arch.mha .step .ppl { color: var(--paper); }
+  .arch.mha .step.collapse .ppl { color: var(--accent-l); }
+  .arch .step .delta {
+    font-family: var(--mono); font-size: 10px; display: block; margin-top: 1px;
+  }
+  .arch.gqa .step .delta { color: var(--ink-3); }
+  .arch.mha .step .delta { color: #9a8f7e; }
+  .arch.mha .step.collapse .delta { color: var(--accent-l); }
+
+  /* ---------- Strengths / Limitations ---------- */
+  .duo {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0;
+    border: 1px solid var(--rule);
+    border-radius: 3px;
+    overflow: hidden;
+  }
+  .duo > div { padding: 26px 28px; }
+  .duo .pros { background: var(--paper-2); border-right: 1px solid var(--rule); }
+  .duo .cons { background: #f0e9da; }
+  .duo h3 {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    margin: 0 0 16px;
+  }
+  .duo .pros h3 { color: #2d5e3e; }
+  .duo .cons h3 { color: var(--accent-d); }
+  .duo ul { list-style: none; padding: 0; margin: 0; }
+  .duo li {
+    padding: 9px 0 9px 20px;
+    position: relative;
+    font-size: 14px;
+    line-height: 1.5;
+    color: var(--ink-2);
+    border-top: 1px dashed var(--rule-2);
+  }
+  .duo li:first-child { border-top: none; padding-top: 2px; }
+  .duo .pros li::before {
+    content: "+";
+    position: absolute; left: 0; top: 9px;
+    color: #2d5e3e; font-weight: 700; font-family: var(--mono);
+  }
+  .duo .pros li:first-child::before { top: 2px; }
+  .duo .cons li::before {
+    content: "—";
+    position: absolute; left: 0; top: 9px;
+    color: var(--accent-d); font-weight: 700; font-family: var(--mono);
+  }
+  .duo .cons li:first-child::before { top: 2px; }
+  .duo li b { color: var(--ink); font-weight: 700; }
+
+  /* ---------- Questions ---------- */
+  .q-list { list-style: none; padding: 0; margin: 0; counter-reset: q; }
+  .q-list li {
+    counter-increment: q;
+    padding: 16px 0 16px 48px;
+    position: relative;
+    border-top: 1px solid var(--rule);
+    font-family: var(--serif);
+    font-size: 17px;
+    line-height: 1.42;
+    color: var(--ink);
+  }
+  .q-list li:first-child { border-top: none; }
+  .q-list li::before {
+    content: counter(q, decimal-leading-zero);
+    position: absolute; left: 0; top: 16px;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--accent-d);
+    letter-spacing: 0.04em;
+    font-weight: 600;
+  }
+  .q-list li:first-child::before { top: 0; }
+
+  /* ---------- Credibility strip ---------- */
+  .cred {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 26px;
+    align-items: start;
+    padding: 24px 26px;
+    background: var(--paper-2);
+    border: 1px solid var(--rule);
+    border-left: 3px solid var(--ink);
+    border-radius: 3px;
+  }
+  .cred .who-col {}
+  .cred .names {
+    font-family: var(--serif);
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--ink);
+    margin: 0 0 2px;
+  }
+  .cred .aff-small { font-size: 12.5px; color: var(--ink-3); margin: 0; }
+  .cred .note {
+    font-size: 13.5px;
+    color: var(--ink-2);
+    margin: 0;
+    line-height: 1.5;
+  }
+
+  /* ---------- Footer ---------- */
+  footer.foot {
+    padding: 30px 0 60px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+  .foot .src {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--ink-2);
+    text-decoration: none;
+    border-bottom: 1px solid var(--rule-2);
+    padding-bottom: 2px;
+    transition: color 0.15s ease, border-color 0.15s ease;
+  }
+  .foot .src:hover { color: var(--accent-d); border-color: var(--accent); }
+  .foot .arxiv {
+    font-family: var(--mono);
+    font-size: 11.5px;
+    color: var(--ink-3);
+    text-decoration: none;
+  }
+  .foot .arxiv:hover { color: var(--accent-d); }
+
+  /* ---------- Responsive ---------- */
+  @media (max-width: 880px) {
+    .assets { grid-template-columns: 1fr; }
+    .body-grid { grid-template-columns: 1fr; gap: 26px; }
+    .sidebar { position: static; }
+    .result-grid { grid-template-columns: 1fr; }
+    .split-grid { grid-template-columns: 1fr; }
+    .duo { grid-template-columns: 1fr; }
+    .duo .pros { border-right: none; border-bottom: 1px solid var(--rule); }
+    header.hero { padding-top: 72px; }
+    .cred { grid-template-columns: 1fr; gap: 14px; }
+  }
+  @media (max-width: 520px) {
+    body { font-size: 15px; }
+    .wrap { padding: 0 16px; }
+    .arch .ladder { grid-template-columns: repeat(2, 1fr); }
+  }
+</style>
+</head>
+<body>
+
+  <a class="back-link" href="./index.html" title="Back to today's digest">↩ Today's digest</a>
+
+  <!-- ================= HERO ================= -->
+  <header class="hero">
+    <div class="wrap">
+      <p class="meta-line rise" style="animation-delay:0.02s">
+        <span>arXiv 2607.12550</span>
+        <span class="sep">/</span>
+        <span>2026-07-15</span>
+        <span class="sep">/</span>
+        <span class="tag-accent">kv-cache-compression</span>
+        <span class="tag-accent">tensor-decomposition</span>
+        <span class="tag-accent">llm-inference</span>
+      </p>
+
+      <h1 class="title rise" style="animation-delay:0.06s">
+        A <em>JoLT</em> for the KV Cache
+      </h1>
+
+      <p class="authors rise" style="animation-delay:0.10s">
+        <span class="who">Rahul Krishnan</span> &nbsp;·&nbsp;
+        <span class="who">Volker Schulz</span>
+        &nbsp;—&nbsp; <span class="aff">Universität Trier, Fachbereich IV — Mathematik</span>
+      </p>
+
+      <div class="key-finding rise" style="animation-delay:0.16s">
+        <span class="label">Key finding</span>
+        <p class="claim">
+          <b>JoLT delivers near-lossless 2–3× KV cache compression</b> via a partial Tucker
+          decomposition on the two genuinely redundant axes, restored by a JL-rotated low-bit
+          residual, with ranks and bits jointly allocated by one Lagrangian dual.
+        </p>
+      </div>
+    </div>
+  </header>
+
+  <!-- ================= ASSET ROW ================= -->
+  <section style="padding-top:34px;">
+    <div class="wrap">
+      <div class="assets">
+
+        <!-- KEY METRIC -->
+        <div class="card metric rise" style="animation-delay:0.22s">
+          <span class="label">Key metric · reconstruction @ 2×</span>
+          <div class="number">0<span class="dot">.</span>006</div>
+          <p class="unit">relative Frobenius error · V cache · Mistral-7B &amp; LLaMA-2-13B</p>
+          <div class="compare">
+            <span class="k">int4 per-token (V)</span>   <span class="v bad">0.131</span>
+            <span class="k">xKV cross-layer SVD (V)</span> <span class="v bad">0.237</span>
+            <span class="k">JoLT (this work, V)</span>  <span class="v">0.006</span>
+          </div>
+        </div>
+
+        <!-- WHY THIS MATTERS -->
+        <div class="card matters rise" style="animation-delay:0.28s">
+          <span class="label">Why this matters</span>
+          <p class="body">
+            A new tensor-decomposition route for near-lossless KV cache compression that directly
+            relieves GPU memory pressure in long-context and prompt-caching deployments.
+          </p>
+        </div>
+
+        <!-- CRITICAL EDGE -->
+        <div class="card edge rise" style="animation-delay:0.34s">
+          <span class="label">Critical edge</span>
+          <p class="body">
+            The win is <b>storage-only</b>. Decode reconstructs the cache from Tucker factors every
+            step because current attention kernels cannot absorb the arithmetic — no decode-time
+            throughput gain yet.
+          </p>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= RECONSTRUCTION CHART ================= -->
+  <section>
+    <div class="wrap">
+      <div class="sec-head">
+        <span class="sec-num">01 · EVIDENCE</span>
+        <h2 class="sec-title">An order-of-magnitude cleaner reconstruction</h2>
+      </div>
+
+      <div class="chart-block">
+        <div class="chart-legend">
+          <span><span class="sw jolt"></span>JoLT (this work)</span>
+          <span><span class="sw int4"></span>int4 per-token quant</span>
+          <span><span class="sw xkv"></span>xKV cross-layer SVD</span>
+        </div>
+
+        <div class="bars">
+          <!-- KEY axis, normalized to max = 0.237 -->
+          <div class="bar-group">
+            <div class="axis-label">
+              <span>Key cache · relative Frobenius error @ 2×</span>
+              <span class="smaller">Mistral-7B-v0.3 · T=1024</span>
+            </div>
+            <div class="bar-row">
+              <span class="name">JoLT</span>
+              <span class="track"><span class="fill jolt" style="width:3.8%"></span></span>
+              <span class="val win">0.009</span>
+            </div>
+            <div class="bar-row">
+              <span class="name">int4</span>
+              <span class="track"><span class="fill" style="width:33.8%"></span></span>
+              <span class="val">0.080</span>
+            </div>
+            <div class="bar-row">
+              <span class="name">xKV</span>
+              <span class="track"><span class="fill" style="width:32.5%"></span></span>
+              <span class="val">0.077</span>
+            </div>
+          </div>
+
+          <!-- VALUE axis -->
+          <div class="bar-group">
+            <div class="axis-label">
+              <span>Value cache · relative Frobenius error @ 2×</span>
+              <span class="smaller">Mistral-7B-v0.3 · T=1024</span>
+            </div>
+            <div class="bar-row">
+              <span class="name">JoLT</span>
+              <span class="track"><span class="fill jolt" style="width:2.5%"></span></span>
+              <span class="val win">0.006</span>
+            </div>
+            <div class="bar-row">
+              <span class="name">int4</span>
+              <span class="track"><span class="fill" style="width:55.3%"></span></span>
+              <span class="val">0.131</span>
+            </div>
+            <div class="bar-row">
+              <span class="name">xKV</span>
+              <span class="track"><span class="fill" style="width:100%"></span></span>
+              <span class="val">0.237</span>
+            </div>
+          </div>
+        </div>
+
+        <p class="chart-caption">
+          Lower is better. JoLT lands roughly an order of magnitude below the strongest baselines
+          on both axes — the joint Lagrangian allocation is what turns a lossy Tucker backbone
+          into a near-lossless one in the 2–3× free zone.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= METHODOLOGY + SIDEBAR ================= -->
+  <section>
+    <div class="wrap">
+      <div class="sec-head">
+        <span class="sec-num">02 · METHOD</span>
+        <h2 class="sec-title">How JoLT is built</h2>
+      </div>
+
+      <div class="body-grid">
+        <!-- LEFT: method narrative distilled into scannable steps -->
+        <ol class="method-list">
+          <li>
+            <span class="step">Step 1 · Tensor view</span>
+            <h3>The cache is a third-order tensor</h3>
+            <p>
+              A layer's KV cache becomes <code>K_l ∈ ℝ^(n_h × T × d_h)</code> — heads, tokens,
+              features — three axes that carry very different amounts of redundancy.
+            </p>
+          </li>
+          <li>
+            <span class="step">Step 2 · Spectral motivation</span>
+            <h3>Locate the compressible structure</h3>
+            <p>
+              Mode-k SVD on a real cache (Mistral layer 15, T=1024) shows the head axis is
+              incompressible (σ₁/σ_min ≈ 1.5), token &amp; feature axes hold the redundancy, and
+              <b style="color:var(--accent-d)">values are 2–3× harder than keys</b> (token-axis rank
+              228 for K vs 563 for V at 10% error). Keys concentrate energy in few softmax-deciding
+              directions; values spread it flat to preserve content.
+            </p>
+          </li>
+          <li>
+            <span class="step">Step 3 · Partial Tucker backbone</span>
+            <h3>Truncate only the two redundant modes</h3>
+            <p>
+              ST-HOSVD truncates token mode to rank <code>r_T</code> and feature mode to
+              <code>r_d</code>; identity factors are pinned on head and layer modes. A full
+              four-mode allocator, given freedom, drives head/layer ranks back to full and produces
+              byte-identical output (Appendix B.2). Partial form runs 2.4–3.0× faster than full HOOI.
+            </p>
+          </li>
+          <li>
+            <span class="step">Step 4 · JL residual</span>
+            <h3>Restore truncation energy with a JL rotation</h3>
+            <p>
+              The residual <code>R = X − X̃(r_T, r_d)</code> gets a Johnson–Lindenstrauss random
+              rotation and is quantized at <code>b ∈ {0,2,4,8}</code> bits. This is the lever that
+              makes the backbone near-lossless — especially on values, whose flat spectrum makes
+              residual bits more productive than extra rank.
+            </p>
+          </li>
+          <li>
+            <span class="step">Step 5 · Joint Lagrangian allocation</span>
+            <h3>One dual, free to move bytes across K/V and rank/residual</h3>
+            <p>
+              Each cell <code>(layer-group, K/V)</code> picks <code>(r_T, r_d, b)</code> to minimize
+              error at a cost; a single bisection on λ drives total cost to the global byte budget
+              <code>B</code>. Meets each target ratio to three decimals in the free zone.
+            </p>
+          </li>
+          <li>
+            <span class="step">Step 6 · FlashJoLT</span>
+            <h3>Randomized SVD + tail-mass accounting</h3>
+            <p>
+              Replaces exact token-mode SVD with randomized SVD on top-<code>q_cap</code>
+              directions; the omitted Frobenius mass is added back as one synthetic singular value
+              so the allocator is not misled. Cap policy <code>min(max(q_min, ⌈T/32⌉), 512)</code>
+              keeps <code>|ΔK|,|ΔV| ≤ 0.0033</code> vs exact while cutting time 5.25–13.57×.
+            </p>
+          </li>
+        </ol>
+
+        <!-- RIGHT: sidebar at-a-glance -->
+        <aside class="sidebar">
+          <div class="side-block">
+            <p class="h">Free zone · perplexity</p>
+            <div class="stat-row">
+              <span class="k">Mistral-7B baseline</span>
+              <span class="v">6.28</span>
+            </div>
+            <div class="stat-row">
+              <span class="k">…at 2× / 3×</span>
+              <span class="v">6.28 / 6.29 <span class="sub">±0.009</span></span>
+            </div>
+            <div class="stat-row">
+              <span class="k">LLaMA-2-13B at 2× / 3×</span>
+              <span class="v">5.39 / 5.39</span>
+            </div>
+          </div>
+
+          <div class="side-block">
+            <p class="h">FlashJoLT speedup</p>
+            <div class="stat-row">
+              <span class="k">vs exact, Mistral</span>
+              <span class="v">9.30× <span class="sub">@ R=3</span></span>
+            </div>
+            <div class="stat-row">
+              <span class="k">range</span>
+              <span class="v">5.25–13.57×</span>
+            </div>
+          </div>
+
+          <div class="side-block">
+            <p class="h">Evaluation setup</p>
+            <dl>
+              <dt>Models</dt><dd>Mistral-7B-v0.3 (GQA), LLaMA-2-13B (MHA)</dd>
+              <dt>Hardware</dt><dd>single A100-40GB</dd>
+              <dt>Numerics</dt><dd>bf16 weights, float32 decomp.</dd>
+              <dt>Calibration</dt><dd>WikiText-2 + C4</dd>
+              <dt>Seeds</dt><dd>{0,1,2}, std ≤ 0.009 PPL</dd>
+            </dl>
+          </div>
+
+          <div class="side-block">
+            <p class="h">Memory · Mistral ctx-2048</p>
+            <div class="stat-row">
+              <span class="k">Baseline → 2× → 3×</span>
+              <span class="v">268 → 135 → 90 <span class="sub">MB</span></span>
+            </div>
+            <div class="stat-row">
+              <span class="k">4× → 8×</span>
+              <span class="v">67 → 34 <span class="sub">MB</span></span>
+            </div>
+          </div>
+        </aside>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= RESULTS CARDS ================= -->
+  <section>
+    <div class="wrap">
+      <div class="sec-head">
+        <span class="sec-num">03 · RESULTS</span>
+        <h2 class="sec-title">Inside the free zone</h2>
+      </div>
+
+      <div class="result-grid">
+        <div class="result">
+          <p class="h">GSM8K · 8-shot CoT</p>
+          <p class="v">39.04% <span class="mono">@ 2×</span></p>
+          <p class="d">Mistral holds within Wilson 95% CI of its 40.56% baseline; LLaMA stays at 29.04% (2×) from 28.13% — both inside noise.</p>
+        </div>
+
+        <div class="result">
+          <p class="h">RULER · single-needle retrieval</p>
+          <p class="v">100% <span class="mono">@ 2× &amp; 3×</span></p>
+          <p class="d">Mistral stays exactly at ceiling on both ratios; holds 100% at 8K context and 99.2% at 16K (the 0.8pp dip is also in baseline).</p>
+        </div>
+
+        <div class="result">
+          <p class="h">Ablation · residual necessity</p>
+          <p class="v">7.27 vs 6.54 <span class="mono">PPL</span></p>
+          <p class="d">Removing the residual (rank-only) costs 0.4–1.0 PPL at 2×. Joint allocation beats greedy and uniform at every cell.</p>
+        </div>
+
+        <div class="result">
+          <p class="h">Ablation · residual bit-width</p>
+          <p class="v">4 bits saturate</p>
+          <p class="d">6.537 vs 6.536 PPL at 4 vs 8 bits — no benefit from going beyond 4-bit residual, confirming the allocator's bit grid.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= ARCHITECTURE SPLIT ================= -->
+  <section>
+    <div class="wrap">
+      <div class="sec-head">
+        <span class="sec-num">04 · THE SPLIT</span>
+        <h2 class="sec-title">Beyond 3×: graceful degrade vs cliff</h2>
+      </div>
+
+      <div class="split-grid">
+        <!-- GQA: graceful -->
+        <div class="arch gqa">
+          <p class="kind">GQA · Mistral-7B-v0.3</p>
+          <h4>Degrades gracefully</h4>
+          <p class="verdict">
+            ~4% perplexity per integer step past the free zone. Predictable, monotone, recoverable
+            — the model-agnostic recommendation holds with margin.
+          </p>
+          <div class="ladder">
+            <div class="step"><span class="r">2×</span><span class="ppl">6.28</span><span class="delta">−0.02%</span></div>
+            <div class="step"><span class="r">3×</span><span class="ppl">6.29</span><span class="delta">+0.04%</span></div>
+            <div class="step"><span class="r">4×</span><span class="ppl">6.63</span><span class="delta">+5.58%</span></div>
+            <div class="step"><span class="r">5×</span><span class="ppl">7.00</span><span class="delta">+11.56%</span></div>
+          </div>
+        </div>
+
+        <!-- MHA: cliff -->
+        <div class="arch mha">
+          <p class="kind">MHA · LLaMA-2-13B</p>
+          <h4>Collapses between 4× and 5×</h4>
+          <p class="verdict">
+            A sharp, non-monotonic cliff. GSM8K falls from 29.04% (2×) to 18.5% (4×) to 1.5% (8×).
+            Plain MHA cannot safely push beyond the 2–3× band.
+          </p>
+          <div class="ladder">
+            <div class="step"><span class="r">2×</span><span class="ppl">5.39</span><span class="delta">−0.01%</span></div>
+            <div class="step"><span class="r">3×</span><span class="ppl">5.39</span><span class="delta">−0.01%</span></div>
+            <div class="step collapse"><span class="r">4×</span><span class="ppl">6.86</span><span class="delta">+27.28%</span></div>
+            <div class="step collapse"><span class="r">5×</span><span class="ppl">9.07</span><span class="delta">+68.30%</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= STRENGTHS / LIMITATIONS ================= -->
+  <section>
+    <div class="wrap">
+      <div class="sec-head">
+        <span class="sec-num">05 · ASSESSMENT</span>
+        <h2 class="sec-title">Strengths &amp; limitations</h2>
+      </div>
+
+      <div class="duo">
+        <div class="pros">
+          <h3>+ Strengths</h3>
+          <ul>
+            <li><b>Principled tensor view</b> that follows directly from an empirical spectral analysis, not an a priori structural assumption.</li>
+            <li><b>Joint Lagrangian allocation</b> is elegant and provably budget-exact — meets each target ratio to three decimals, and ablation confirms it beats greedy and rank-only.</li>
+            <li><b>Order-of-magnitude reconstruction-error reduction</b> over the strongest baselines at 2× — a concrete, repeatable representation-level win.</li>
+            <li><b>FlashJoLT makes it practical:</b> 5–13× compression-time speedup at matched quality, with a context-aware cap that is a no-op below T=1024.</li>
+            <li><b>Intellectual honesty</b> about boundaries: the MHA cliff, the fp16-vs-bit-packed byte convention, the missing fused kernel, the single-GPU scope are all stated directly.</li>
+          </ul>
+        </div>
+        <div class="cons">
+          <h3>— Limitations</h3>
+          <ul>
+            <li><b>Decode-time efficiency is absent.</b> The win is storage-only; decode reconstructs from factors each step and current attention kernels cannot absorb the arithmetic. A fused kernel is future work.</li>
+            <li><b>MHA architecture cliff.</b> Beyond 3×, multi-head attention collapses sharply (LLaMA +68% PPL at 5×, GSM8K to 1.5% at 8×), confining the model-agnostic recommendation to 2–3×.</li>
+            <li><b>Narrow evaluation.</b> Two models, single A100-40GB, single-needle RULER only, long-context cap validated only to 8192 tokens. No larger models, no multi-needle regime.</li>
+            <li><b>Convention-based byte accounting.</b> fp16-serialized JoLT factors vs idealized bit-packed bytes for quant baselines means cross-class rankings are convention-dependent.</li>
+            <li><b>KIVI 2-bit</b> baseline discussed but not quantitatively compared in reconstruction tables; <b>no code release mentioned.</b></li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="cred" style="margin-top:22px;">
+        <div class="who-col">
+          <p class="names">Rahul Krishnan · Volker Schulz</p>
+          <p class="aff-small">Universität Trier — Fachbereich IV, Mathematik</p>
+        </div>
+        <p class="note">
+          Schulz is an established numerical-analysis / applied-math professor, which shows in the
+          rigorous treatment: a proper Lagrangian-dual allocation with provable budget satisfaction,
+          a calibrated ε²(b) error model, and careful ablation grids. The work sits at the
+          intersection of classical multilinear algebra and modern LLM systems.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= QUESTIONS ================= -->
+  <section>
+    <div class="wrap">
+      <div class="sec-head">
+        <span class="sec-num">06 · OPEN</span>
+        <h2 class="sec-title">Questions for further exploration</h2>
+      </div>
+
+      <ol class="q-list">
+        <li>Can a fused reconstruction-and-attention kernel — the authors' stated main future-work direction — actually deliver decode-time throughput parity, and at what latency overhead per decode step?</li>
+        <li>Why does MHA collapse between 4× and 5× while GQA degrades gracefully? Is it the larger head count diluting per-head Tucker rank, or a fundamental property of the value spectrum under MHA?</li>
+        <li>How does JoLT compose with orthogonal eviction methods (H2O, StreamingLLM, SnapKV) that already prune low-importance tokens — does the residual still saturate quality on a pruned token set?</li>
+        <li>Does the 2–3× free zone survive the multi-needle and harder long-context reasoning regimes, given only single-needle RULER is tested?</li>
+        <li>How does JoLT behave on newer architectures (Mistral-Nemo, LLaMA-3, Qwen-2.5 with GQA/MQA) and at much larger scale (70B+), where the cache bottleneck is most acute?</li>
+        <li>What is the sensitivity of the joint allocator to the calibration corpus mix, given the authors flag cross-domain robustness as work in progress?</li>
+      </ol>
+    </div>
+  </section>
+
+  <!-- ================= FOOTER ================= -->
+  <footer class="foot">
+    <div class="wrap" style="display:flex; justify-content:space-between; align-items:center; width:100%; flex-wrap:wrap; gap:12px;">
+      <a class="src" href="./2607.12550.md">↗ Markdown source</a>
+      <a class="arxiv" href="https://arxiv.org/abs/2607.12550" target="_blank" rel="noopener">arxiv.org/abs/2607.12550</a>
+    </div>
+  </footer>
+
+</body>
+</html>

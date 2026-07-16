@@ -1,0 +1,630 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>GUARD-IT — Inference-Time Machine Unlearning via Gated Activation Redirection</title>
+<style>
+  /* ---------- Tokens: ONE accent hue (guard-teal) + neutrals ---------- */
+  :root{
+    --accent:#0e7c66;
+    --accent-deep:#0a5447;
+    --accent-soft:#e7f1ed;
+    --accent-line:#bcdcd3;
+    --ink:#15201d;
+    --ink-soft:#33433e;
+    --muted:#5d6b66;
+    --paper:#f6f5f0;
+    --card:#fffefb;
+    --rule:#dad6cb;
+    --rule-soft:#ece9e0;
+    --warn-bg:#15201d;        /* critical edge uses inverted ink, not a second hue */
+    --maxw:min(95vw,1100px);
+    --display:Georgia,"Iowan Old Style","Palatino Linotype","Book Antiqua",serif;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI","Helvetica Neue",Arial,sans-serif;
+    --mono:ui-monospace,"SF Mono",SFMono-Regular,Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{
+    margin:0;
+    background:var(--paper);
+    color:var(--ink);
+    font-family:var(--sans);
+    font-size:16px;
+    line-height:1.55;
+    -webkit-font-smoothing:antialiased;
+    text-rendering:optimizeLegibility;
+  }
+  /* subtle paper grain via repeating gradient — atmosphere, not decoration */
+  body::before{
+    content:"";
+    position:fixed;inset:0;
+    background-image:radial-gradient(rgba(21,32,29,0.025) 1px,transparent 1px);
+    background-size:3px 3px;
+    pointer-events:none;z-index:0;
+  }
+  a{color:var(--accent-deep);text-decoration:none}
+  a:hover{text-decoration:underline;text-underline-offset:3px}
+
+  .wrap{max-width:var(--maxw);margin:0 auto;padding:0 22px;position:relative;z-index:1}
+
+  /* ---------- Fixed digest link ---------- */
+  .digest-link{
+    position:fixed;top:14px;left:14px;z-index:50;
+    font-family:var(--mono);font-size:12px;letter-spacing:.02em;
+    background:var(--ink);color:var(--paper);
+    padding:7px 11px;border-radius:3px;
+    box-shadow:0 4px 14px rgba(21,32,29,.18);
+  }
+  .digest-link:hover{background:var(--accent-deep);text-decoration:none}
+
+  /* ---------- Sticky section nav ---------- */
+  .nav{
+    position:sticky;top:0;z-index:40;
+    background:rgba(246,245,240,.86);
+    backdrop-filter:saturate(140%) blur(8px);
+    border-bottom:1px solid var(--rule);
+  }
+  .nav-inner{
+    max-width:var(--maxw);margin:0 auto;padding:10px 22px;
+    display:flex;align-items:center;gap:18px;flex-wrap:wrap;
+  }
+  .nav-brand{
+    font-family:var(--mono);font-size:11px;letter-spacing:.14em;
+    text-transform:uppercase;color:var(--muted);
+    border-right:1px solid var(--rule);padding-right:16px;
+  }
+  .nav-brand b{color:var(--accent-deep)}
+  .nav-links{display:flex;gap:4px;flex-wrap:wrap;margin-left:auto}
+  .nav-links a{
+    font-family:var(--mono);font-size:12px;letter-spacing:.02em;
+    color:var(--ink-soft);padding:6px 10px;border-radius:3px;
+    transition:background .15s,color .15s;
+  }
+  .nav-links a:hover{background:var(--accent-soft);color:var(--accent-deep);text-decoration:none}
+  .nav-links a.active{background:var(--ink);color:var(--paper)}
+
+  /* ---------- Hero band ---------- */
+  .hero{padding:58px 0 40px;border-bottom:1px solid var(--rule)}
+  .meta{
+    font-family:var(--mono);font-size:11.5px;letter-spacing:.06em;
+    text-transform:uppercase;color:var(--muted);
+    display:flex;flex-wrap:wrap;gap:10px 18px;align-items:center;margin-bottom:26px;
+  }
+  .meta .pip{color:var(--accent-deep);font-weight:700}
+  .meta .tag{
+    border:1px solid var(--accent-line);color:var(--accent-deep);
+    padding:2px 8px;border-radius:999px;letter-spacing:.04em;
+  }
+  .meta a{font-weight:600}
+
+  .hero h1{
+    font-family:var(--display);
+    font-weight:700;
+    font-size:clamp(1.6rem,3.2vw,2.35rem);
+    line-height:1.12;letter-spacing:-.015em;
+    margin:0 0 26px;color:var(--ink);
+  }
+  .hero h1 .acronym{color:var(--accent-deep)}
+
+  /* KEY FINDING — largest type on the page */
+  .finding{
+    font-family:var(--display);
+    font-weight:600;
+    font-size:clamp(1.7rem,4.4vw,3.05rem);
+    line-height:1.14;letter-spacing:-.02em;
+    color:var(--ink);
+    border-left:4px solid var(--accent);
+    padding:6px 0 6px 22px;
+    margin:0 0 18px;
+    max-width:24ch;
+  }
+  .finding em{font-style:normal;color:var(--accent-deep);font-weight:700}
+  .finding-label{
+    font-family:var(--mono);font-size:11px;letter-spacing:.16em;
+    text-transform:uppercase;color:var(--accent-deep);font-weight:700;
+    display:block;margin-bottom:10px;
+  }
+  .finding-zh{
+    font-family:var(--sans);font-size:14px;color:var(--muted);
+    max-width:62ch;line-height:1.5;
+  }
+  .finding-zh b{color:var(--ink-soft)}
+
+  /* ---------- Asset row ---------- */
+  .assets{
+    display:grid;
+    grid-template-columns:1.15fr 1fr 1fr;
+    gap:16px;margin-top:42px;
+  }
+  .card{
+    background:var(--card);border:1px solid var(--rule);
+    border-radius:6px;padding:22px 22px 20px;position:relative;overflow:hidden;
+  }
+  .card .kicker{
+    font-family:var(--mono);font-size:10.5px;letter-spacing:.16em;
+    text-transform:uppercase;color:var(--muted);font-weight:700;
+    display:flex;align-items:center;gap:8px;margin-bottom:14px;
+  }
+  .card .kicker .dot{width:7px;height:7px;border-radius:50%;background:var(--accent)}
+
+  /* KEY METRIC card */
+  .metric-card{background:var(--accent-soft);border-color:var(--accent-line)}
+  .metric-num{
+    font-family:var(--display);font-weight:700;
+    font-size:clamp(3.6rem,10vw,6.1rem);
+    line-height:.92;letter-spacing:-.04em;color:var(--accent-deep);
+    margin:2px 0 4px;
+  }
+  .metric-unit{
+    font-family:var(--mono);font-size:12px;letter-spacing:.04em;
+    color:var(--ink-soft);margin-bottom:12px;
+  }
+  .metric-body{font-size:13.5px;color:var(--ink-soft);line-height:1.5}
+  .metric-body .cmp{
+    font-family:var(--mono);font-size:12px;color:var(--muted);
+    display:block;margin-top:8px;border-top:1px dashed var(--accent-line);padding-top:8px;
+  }
+  .metric-body .cmp b{color:var(--ink)}
+
+  /* WHY THIS MATTERS card */
+  .matter-card .body{
+    font-family:var(--display);font-size:1.12rem;line-height:1.4;color:var(--ink);
+    font-weight:500;
+  }
+
+  /* CRITICAL EDGE — inverted ink, accent text; no second hue */
+  .edge-card{background:var(--warn-bg);border-color:var(--warn-bg);color:var(--paper)}
+  .edge-card .kicker{color:var(--accent-line)}
+  .edge-card .kicker .dot{background:var(--accent-line)}
+  .edge-card .body{font-size:13.5px;line-height:1.55;color:#e7ece9}
+  .edge-card .body b{color:var(--accent-line);font-weight:600}
+  .edge-card .body .lead{display:block;color:#fff;font-family:var(--display);font-size:1.02rem;margin-bottom:8px}
+
+  /* ---------- Body sections ---------- */
+  section.body-sec{padding:54px 0;border-bottom:1px solid var(--rule);scroll-margin-top:64px}
+  .sec-head{
+    display:flex;align-items:baseline;gap:14px;margin-bottom:26px;flex-wrap:wrap;
+  }
+  .sec-num{
+    font-family:var(--mono);font-size:12px;letter-spacing:.1em;color:var(--accent-deep);
+    font-weight:700;
+  }
+  .sec-head h2{
+    font-family:var(--display);font-size:clamp(1.45rem,2.6vw,1.95rem);
+    margin:0;letter-spacing:-.01em;font-weight:700;
+  }
+  .sec-sub{font-family:var(--mono);font-size:12px;color:var(--muted);margin-left:auto}
+
+  /* Methodology: two-phase pipeline diagram */
+  .pipeline{
+    display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-bottom:26px;
+  }
+  .phase{
+    border:1px solid var(--rule);border-radius:6px;padding:20px;background:var(--card);
+    position:relative;
+  }
+  .phase.offline{border-top:3px solid var(--accent)}
+  .phase.online{border-top:3px solid var(--ink)}
+  .phase h3{
+    font-family:var(--mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;
+    margin:0 0 4px;color:var(--muted);font-weight:700;
+  }
+  .phase h3 b{color:var(--accent-deep)}
+  .phase .when{font-family:var(--mono);font-size:11px;color:var(--muted);margin-bottom:14px}
+  .flow{display:flex;flex-direction:column;gap:0}
+  .step{
+    display:flex;gap:12px;align-items:flex-start;padding:9px 0;
+    border-top:1px dashed var(--rule-soft);font-size:13.5px;line-height:1.45;color:var(--ink-soft);
+  }
+  .step:first-child{border-top:none}
+  .step .n{
+    font-family:var(--mono);font-size:11px;font-weight:700;color:var(--accent-deep);
+    background:var(--accent-soft);border:1px solid var(--accent-line);
+    width:20px;height:20px;border-radius:50%;
+    display:grid;place-items:center;flex-shrink:0;margin-top:1px;
+  }
+  .step code{font-family:var(--mono);font-size:12px;background:var(--rule-soft);padding:0 4px;border-radius:3px;color:var(--ink)}
+  .phase .lever{
+    margin-top:14px;font-family:var(--mono);font-size:11.5px;color:var(--accent-deep);
+    background:var(--accent-soft);border:1px solid var(--accent-line);
+    padding:8px 10px;border-radius:4px;line-height:1.4;
+  }
+
+  .note-strip{
+    font-size:13.5px;color:var(--ink-soft);background:var(--card);
+    border:1px solid var(--rule);border-left:3px solid var(--accent);
+    padding:14px 16px;border-radius:4px;line-height:1.5;
+  }
+  .note-strip b{color:var(--ink)}
+
+  /* Results: chart + distilled bullets */
+  .results-grid{display:grid;grid-template-columns:1.15fr 1fr;gap:24px;align-items:start}
+  .chart{border:1px solid var(--rule);border-radius:6px;background:var(--card);padding:20px}
+  .chart h3{
+    font-family:var(--mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;
+    color:var(--muted);margin:0 0 4px;font-weight:700;
+  }
+  .chart .cap{font-size:12.5px;color:var(--muted);margin:0 0 18px;line-height:1.4}
+  .bars{display:flex;flex-direction:column;gap:13px}
+  .bar-row{display:grid;grid-template-columns:128px 1fr 48px;align-items:center;gap:10px;font-size:12.5px}
+  .bar-row .lab{font-family:var(--mono);color:var(--ink-soft);letter-spacing:.01em}
+  .bar-row .lab b{color:var(--ink)}
+  .bar-track{height:14px;background:var(--rule-soft);border-radius:2px;overflow:hidden;position:relative}
+  .bar-fill{height:100%;border-radius:2px;background:var(--accent)}
+  .bar-fill.faint{background:#9aa6a2}
+  .bar-fill.collapsed{background:#c0573f;opacity:.85}
+  .bar-row .val{font-family:var(--mono);text-align:right;font-weight:700;color:var(--ink)}
+  .chart .axis{margin-top:12px;font-family:var(--mono);font-size:10.5px;color:var(--muted);border-top:1px solid var(--rule-soft);padding-top:8px}
+  .chart .legend{display:flex;gap:14px;flex-wrap:wrap;margin-top:10px;font-family:var(--mono);font-size:10.5px;color:var(--muted)}
+  .chart .legend span{display:inline-flex;align-items:center;gap:6px}
+  .chart .legend i{width:10px;height:10px;border-radius:2px;display:inline-block}
+
+  .bullets{display:flex;flex-direction:column;gap:12px}
+  .bullet{
+    background:var(--card);border:1px solid var(--rule);border-radius:5px;padding:14px 16px;
+    font-size:13.5px;line-height:1.5;color:var(--ink-soft);
+  }
+  .bullet .h{font-family:var(--mono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--accent-deep);font-weight:700;display:block;margin-bottom:5px}
+  .bullet b{color:var(--ink)}
+  .bullet .num{font-family:var(--display);color:var(--accent-deep);font-weight:700}
+
+  /* Strengths / Limitations side-by-side */
+  .tradeoff{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+  .panel{border:1px solid var(--rule);border-radius:6px;background:var(--card);overflow:hidden}
+  .panel .ph{
+    font-family:var(--mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;
+    font-weight:700;padding:13px 18px;margin:0;display:flex;align-items:center;gap:9px;
+  }
+  .panel.pro .ph{background:var(--accent-soft);color:var(--accent-deep);border-bottom:1px solid var(--accent-line)}
+  .panel.con .ph{background:var(--warn-bg);color:var(--accent-line);border-bottom:1px solid var(--warn-bg)}
+  .panel ul{margin:0;padding:14px 18px 18px;list-style:none}
+  .panel li{
+    font-size:13.5px;line-height:1.5;color:var(--ink-soft);
+    padding:9px 0 9px 20px;position:relative;border-top:1px dashed var(--rule-soft);
+  }
+  .panel li:first-child{border-top:none}
+  .panel.pro li::before{content:"+";position:absolute;left:0;top:9px;color:var(--accent);font-weight:700;font-family:var(--mono)}
+  .panel.con li::before{content:"–";position:absolute;left:0;top:9px;color:var(--accent-deep);font-weight:700;font-family:var(--mono)}
+  .panel li b{color:var(--ink)}
+
+  /* Questions */
+  .qlist{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  .q{
+    border:1px solid var(--rule);border-radius:5px;padding:16px 18px;background:var(--card);
+    font-size:13.5px;line-height:1.5;color:var(--ink-soft);
+    display:flex;gap:12px;
+  }
+  .q .qnum{
+    font-family:var(--display);font-size:1.5rem;font-weight:700;color:var(--accent);
+    line-height:1;flex-shrink:0;width:28px;
+  }
+  .q b{color:var(--ink)}
+
+  /* Provenance */
+  .provenance{
+    display:grid;grid-template-columns:1.3fr 1fr;gap:24px;align-items:start;
+    font-size:13.5px;color:var(--ink-soft);line-height:1.55;
+  }
+  .provenance .blk b{color:var(--ink)}
+  .cred-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .cred{
+    border:1px solid var(--rule);border-radius:5px;padding:12px 14px;background:var(--card);
+  }
+  .cred .k{font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);display:block;margin-bottom:3px}
+  .cred .v{font-family:var(--mono);font-size:14px;color:var(--accent-deep);font-weight:700}
+
+  /* Footer */
+  footer{padding:34px 0 60px}
+  .foot-row{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px}
+  .md-link{
+    font-family:var(--mono);font-size:12px;letter-spacing:.02em;
+    color:var(--accent-deep);font-weight:600;
+    border:1px solid var(--accent-line);background:var(--accent-soft);
+    padding:9px 14px;border-radius:4px;
+  }
+  .md-link:hover{background:var(--accent);color:#fff;text-decoration:none}
+  .foot-meta{font-family:var(--mono);font-size:11px;color:var(--muted)}
+
+  /* ---------- Staggered page-load reveal ---------- */
+  .reveal{opacity:0;transform:translateY(14px);animation:rise .6s cubic-bezier(.2,.7,.2,1) forwards}
+  @keyframes rise{to{opacity:1;transform:none}}
+  .d1{animation-delay:.05s}.d2{animation-delay:.13s}.d3{animation-delay:.21s}
+  .d4{animation-delay:.29s}.d5{animation-delay:.37s}.d6{animation-delay:.45s}
+  .d7{animation-delay:.53s}.d8{animation-delay:.61s}
+
+  /* ---------- Responsive ---------- */
+  @media (max-width:880px){
+    .assets{grid-template-columns:1fr}
+    .pipeline,.results-grid,.tradeoff,.qlist,.provenance{grid-template-columns:1fr}
+    .hero{padding-top:64px}
+    .digest-link{top:auto;bottom:14px;left:14px}
+  }
+  @media (prefers-reduced-motion:reduce){
+    .reveal{animation:none;opacity:1;transform:none}
+    html{scroll-behavior:auto}
+  }
+</style>
+</head>
+<body>
+
+<a class="digest-link" href="./index.html" title="Back to today's digest">↩ Today's digest</a>
+
+<!-- ============ STICKY NAV ============ -->
+<nav class="nav">
+  <div class="nav-inner">
+    <span class="nav-brand"><b>GUARD-IT</b> · arXiv 2605.12765</span>
+    <div class="nav-links" id="navlinks">
+      <a href="#methodology">Methodology</a>
+      <a href="#results">Results</a>
+      <a href="#tradeoffs">Strengths / Limits</a>
+      <a href="#questions">Open Questions</a>
+      <a href="#provenance">Provenance</a>
+    </div>
+  </div>
+</nav>
+
+<!-- ============ HERO ============ -->
+<header class="hero">
+  <div class="wrap">
+    <div class="meta reveal d1">
+      <span><span class="pip">●</span> arXiv 2605.12765</span>
+      <span>2026-07-14</span>
+      <span>machine-unlearning · activation-steering · llm-safety</span>
+      <span class="tag">inference-time</span>
+      <span class="tag">privacy</span>
+      <a href="https://github.com/ViniTurani/GUARD-IT" target="_blank" rel="noopener">code ↗</a>
+    </div>
+
+    <h1 class="reveal d2">Inference-Time Machine Unlearning via <span class="acronym">Gated Activation Redirection</span></h1>
+
+    <div class="reveal d3">
+      <span class="finding-label">Key finding</span>
+      <p class="finding">
+        GUARD-IT routes each query through a <em>similarity gateway</em> and applies a <em>norm-preserving activation rotation</em> — training-free, gradient-free, weights untouched.
+      </p>
+      <p class="finding-zh"><b>一句话总结 ·</b> 把遗忘建模为推理期的输入相关几何旋转：离线聚类出原型引导向量，推理时按相似度网关按需路由并施加保范数旋转，不改任何权重。</p>
+    </div>
+
+    <!-- Asset row -->
+    <div class="assets">
+      <!-- KEY METRIC -->
+      <div class="card metric-card reveal d4">
+        <span class="kicker"><span class="dot"></span>Key metric · TOFU forget01</span>
+        <div class="metric-num">0.84</div>
+        <div class="metric-unit">Gibb coherence · Llama-3.2-3B (higher = more fluent, 0–1)</div>
+        <div class="metric-body">
+          Output coherence held firm across all three Llama scales (<b>0.80 / 0.84 / 0.82</b>), where gradient baselines catastrophically collapse.
+          <span class="cmp">vs. <b>PDU → 0.28</b> (8B) · <b>RMU → 0.05</b> (1B, forget05)</span>
+        </div>
+      </div>
+
+      <!-- WHY THIS MATTERS -->
+      <div class="card matter-card reveal d5">
+        <span class="kicker"><span class="dot"></span>Why this matters</span>
+        <p class="body">A training-free, auditable, quantization-robust unlearning path directly serves GDPR / EU AI Act deletion requests and post-deployment safety intervention.</p>
+      </div>
+
+      <!-- CRITICAL EDGE -->
+      <div class="card edge-card reveal d6">
+        <span class="kicker"><span class="dot"></span>Critical edge</span>
+        <div class="body">
+          <span class="lead">Suppresses retrieval — does not erase influence.</span>
+          The cosine-similarity gateway is <b>untested against paraphrase, cross-lingual, or suffix attacks</b> that could evade routing, and the rotation approximates rather than provably removes the data's distributed statistical footprint.
+        </div>
+      </div>
+    </div>
+  </div>
+</header>
+
+<!-- ============ METHODOLOGY ============ -->
+<section class="body-sec" id="methodology">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <span class="sec-num">01</span>
+      <h2>Two decoupled phases, zero weight edits</h2>
+      <span class="sec-sub">offline ≈ 2 min / RTX A6000 (8B) · online = 1 cosine + 1 vector op</span>
+    </div>
+
+    <div class="pipeline">
+      <!-- OFFLINE -->
+      <div class="phase offline reveal d2">
+        <h3><b>OFFLINE</b> · once per forget corpus</h3>
+        <div class="when">Sentence-Transformer embed → cluster → extract</div>
+        <div class="flow">
+          <div class="step"><span class="n">1</span><span>Embed &amp; L2-normalize every doc in forget set <code>D_f</code>.</span></div>
+          <div class="step"><span class="n">2</span><span>Pick <code>k*</code> by max silhouette; k-Means partitions <code>D_f</code> into semantic clusters with centroids <code>{c_k}</code>.</span></div>
+          <div class="step"><span class="n">3</span><span>At an intermediate layer <code>ℓ</code>, mean-pool residual-stream activations per cluster → Prototype Steering Vectors <code>h̄_f^k</code> + mean norm <code>ρ̄</code>.</span></div>
+          <div class="step"><span class="n">4</span><span>One retain reference PSV <code>h̄_r</code> computed analogously. Best <code>ℓ</code> sits near the <b>first quartile</b> of the stack.</span></div>
+        </div>
+        <div class="lever">→ output: an auditable library of PSVs (add-only, never mutates weights)</div>
+      </div>
+
+      <!-- ONLINE -->
+      <div class="phase online reveal d3">
+        <h3>ONLINE · per query</h3>
+        <div class="when">gate → orthogonalize → rotate</div>
+        <div class="flow">
+          <div class="step"><span class="n">1</span><span>Cosine-gate forms active set <code>K(x) = {j : sim(c_j, φ(x)) ≥ T}</code>, default <code>T=0.55</code>.</span></div>
+          <div class="step"><span class="n">2</span><span>If <code>K(x)</code> empty → <b>no-op</b>. Retain-distribution queries bypass entirely (mechanically explains utility preservation).</span></div>
+          <div class="step"><span class="n">3</span><span>Mean-aggregate active PSVs; project <b>orthogonal</b> to <code>h̄_r</code> to strip shared retain direction.</span></div>
+          <div class="step"><span class="n">4</span><span>Apply <b>norm-preserving rotation</b>: <code>‖h′‖ = ‖h‖</code> exactly — only direction changes, LayerNorm / attention undisturbed.</span></div>
+        </div>
+        <div class="lever">→ <code>α</code> is a continuous deployment-time knob: 0 = no-op, 1 = full forget displacement</div>
+      </div>
+    </div>
+
+    <div class="note-strip reveal d4">
+      <b>Why fluency survives by construction.</b> Because the rotation preserves hidden-state magnitude, the perturbation leaves normalization and attention scaling untouched — so coherent output is structurally guaranteed even at aggressive <code style="font-family:var(--mono);font-size:12px">α</code>, unlike parameter edits that drift under quantization.
+    </div>
+  </div>
+</section>
+
+<!-- ============ RESULTS ============ -->
+<section class="body-sec" id="results">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <span class="sec-num">02</span>
+      <h2>Only method that holds utility, memory &amp; fluency at once</h2>
+      <span class="sec-sub">TOFU · 3 Llama scales · vs 12 gradient baselines · n=5 seeds, SE ≤ 0.007</span>
+    </div>
+
+    <div class="results-grid">
+      <!-- CHART -->
+      <div class="chart reveal d2">
+        <h3>Catastrophic-collapse avoidance</h3>
+        <p class="cap">Gibb coherence (0–1, higher = more fluent). GUARD-IT holds output quality where gradient edits shatter it.</p>
+        <div class="bars">
+          <div class="bar-row"><span class="lab"><b>GUARD-IT</b> 1B</span><div class="bar-track"><div class="bar-fill" style="width:80%"></div></div><span class="val">0.80</span></div>
+          <div class="bar-row"><span class="lab"><b>GUARD-IT</b> 3B</span><div class="bar-track"><div class="bar-fill" style="width:84%"></div></div><span class="val">0.84</span></div>
+          <div class="bar-row"><span class="lab"><b>GUARD-IT</b> 8B</span><div class="bar-track"><div class="bar-fill" style="width:82%"></div></div><span class="val">0.82</span></div>
+          <div class="bar-row"><span class="lab">PDU 8B</span><div class="bar-track"><div class="bar-fill collapsed" style="width:28%"></div></div><span class="val">0.28</span></div>
+          <div class="bar-row"><span class="lab">RMU 1B (f05)</span><div class="bar-track"><div class="bar-fill collapsed" style="width:5%"></div></div><span class="val">0.05</span></div>
+        </div>
+        <div class="legend">
+          <span><i style="background:var(--accent)"></i>GUARD-IT (held)</span>
+          <span><i style="background:#c0573f;opacity:.85"></i>gradient baseline (collapsed)</span>
+        </div>
+        <div class="axis">Source: Table 1, TOFU forget01 (RMU value on forget05 / 1B).</div>
+      </div>
+
+      <!-- BULLETS -->
+      <div class="bullets">
+        <div class="bullet reveal d3">
+          <span class="h">forget01 · harmonic-mean Avg</span>
+          <span class="num">0.64 / 0.66 / 0.58</span> across Llama-3.2-1B / 3B / 3.1-8B — beats the strongest gradient competitor on each scale by <b>0.03–0.05</b> (e.g. 3B: next-best CEU = 0.62).
+        </div>
+        <div class="bullet reveal d4">
+          <span class="h">forget05 · 5× larger forget set</span>
+          Best on 1B at <span class="num">0.62</span>; within 0.05 of the top baseline on 3B/8B — while <b>GA, PDU, CEU collapse to Util=0</b> on at least one model, and strong-Mem methods arrive with Gibb≈0.29.
+        </div>
+        <div class="bullet reveal d5">
+          <span class="h">continual unlearning (Table 2)</span>
+          Cleanest in the set: appending PSVs avoids the interference accumulation that dooms sequential gradient updates. Leads 1B Avg (<span class="num">0.64 / 0.62</span>) and 3B forget01 (<span class="num">0.66</span>); the only method that never sacrifices Util to buy Mem.
+        </div>
+        <div class="bullet reveal d6">
+          <span class="h">quantization robust · MUSE corroboration</span>
+          Position in the Mem–Util plane <b>barely shifts at 4/8-bit</b>; baselines drift off the Pareto frontier. On MUSE/Books, GUARD-IT (<span class="num">Util 69.6</span>) is closest to retrain (74.5) where all five gradient baselines report <b>VerbMem=KnowMem=0.00</b>.
+        </div>
+        <div class="bullet reveal d7">
+          <span class="h">cost</span>
+          Offline <b>&lt; 2 min on one RTX A6000</b> for the 8B model; every 8B gradient baseline needed <b>two GPUs</b>.
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ STRENGTHS / LIMITATIONS ============ -->
+<section class="body-sec" id="tradeoffs">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <span class="sec-num">03</span>
+      <h2>Structural strengths vs. where the rigor slips</h2>
+      <span class="sec-sub">read sideways — not a verdict, a trade map</span>
+    </div>
+
+    <div class="tradeoff">
+      <div class="panel pro reveal d2">
+        <div class="ph"><span>●</span> Strengths</div>
+        <ul>
+          <li><b>Collapse-immune by construction.</b> <code style="font-family:var(--mono);font-size:12px">‖h′‖ = ‖h‖</code> guarantees fluency even at aggressive α.</li>
+          <li><b>Gateway mechanically explains utility preservation</b> — forget-irrelevant queries are never touched; α becomes a per-query, deployment-time knob.</li>
+          <li><b>Truly training- / gradient-free.</b> No fine-tuning pipeline, no GPU pairs for 8B, offline &lt; 2 min.</li>
+          <li><b>Cleanest continual unlearning</b> in the set — appending PSVs sidesteps the interference that dooms sequential gradient updates.</li>
+          <li><b>Quantization-robust by construction</b> — no weights change, so base and quantized twin share parameters up to the cast.</li>
+          <li><b>Honest, detailed appendices</b> — layer/token sweeps, BM25-vs-ST gate parity, orthogonal-vs-diff-means, tuned-config tables.</li>
+        </ul>
+      </div>
+
+      <div class="panel con reveal d3">
+        <div class="ph"><span>●</span> Limitations</div>
+        <ul>
+          <li><b>Depends on the linear representation hypothesis;</b> may weaken for non-linearly encoded or distributed low-magnitude concepts.</li>
+          <li><b>Benchmark scope is narrow</b> — only TOFU &amp; MUSE, both entity-level; no procedural, reasoning, multimodal, or adversarial forget sets.</li>
+          <li><b>TOFU's retain/forget overlap flatters the gateway;</b> real corpora are expected to be harder, not easier.</li>
+          <li><b>Privacy-leakage is weak under defaults</b> (67.37 on 1B/forget01 vs tuned 54.38) — a tension between maximizing Avg and minimizing exposure.</li>
+          <li><b>Reversibility is a security liability</b> — anyone with the vector store can restore forgotten content or misuse the gate for censorship; paper recommends but does not provide access control.</li>
+          <li><b>No adversarial-elicitation evaluation</b> (jailbreaks, paraphrases, cross-lingual) that could evade the cosine gate.</li>
+          <li><b>Suppresses retrieval, not provably erases</b> distributed influence — an approximation under strict retrain-equivalence.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ QUESTIONS ============ -->
+<section class="body-sec" id="questions">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <span class="sec-num">04</span>
+      <h2>Open questions for further exploration</h2>
+      <span class="sec-sub">jump non-linearly — each stands alone</span>
+    </div>
+    <div class="qlist">
+      <div class="q reveal d2"><span class="qnum">Q1</span><span>Does the similarity <b>gateway hold against adversarial elicitation</b> — paraphrased, cross-lingual, or suffix-attack queries designed to evade the cosine threshold while still extracting forget-set content?</span></div>
+      <div class="q reveal d3"><span class="qnum">Q2</span><span>Can it extend beyond entity-level facts to <b>procedural / skill knowledge, multi-step reasoning chains, and multimodal</b> forget targets where the linear representation hypothesis is less obviously valid?</span></div>
+      <div class="q reveal d4"><span class="qnum">Q3</span><span>How does it behave on real corpora with <b>strong retain/forget separation</b> (the opposite of TOFU's overlap) — does Mem improve at constant Util, or does the gateway over-fire?</span></div>
+      <div class="q reveal d5"><span class="qnum">Q4</span><span>A head-to-head vs other <b>inference-time interventions</b> (CAST, SADI, ITI) on the same benchmarks — is it the clustered-PSV + rotation design, or input-conditional steering in general, that drives the gains?</span></div>
+      <div class="q reveal d6"><span class="qnum">Q5</span><span>Can the <b>privacy-leakage weakness under defaults</b> be closed without sacrificing Avg — e.g. a learned gate, an ST + BM25 ensemble, or a per-cluster α schedule?</span></div>
+      <div class="q reveal d7"><span class="qnum">Q6</span><span>What is the <b>forget-set size ceiling</b> before the growing PSV library makes K cluster comparisons a measurable latency cost — and can the gate be approximated with ANN retrieval over centroids?</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ PROVENANCE ============ -->
+<section class="body-sec" id="provenance">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <span class="sec-num">05</span>
+      <h2>Authors &amp; credibility</h2>
+      <span class="sec-sub">reproducibility: high · code public</span>
+    </div>
+    <div class="provenance">
+      <div class="blk reveal d2">
+        <p style="margin:0 0 12px"><b>Affiliations:</b> MALTA (Machine Learning Theory and Applications Lab) at PUCRS, Porto Alegre; the Kunumi Institute; and <b>Harvard University</b> (Flavio du Pin Calmon — fairness / representation learning / information theory).</p>
+        <p style="margin:0 0 12px"><b>Prior art in-house:</b> co-authors cited for quantization-robust unlearning (Abitante et al. 2026, arXiv:2602.13151) and a fairness survey (Parraga et al. 2025, ACM Computing Surveys) — a sustained program, not a one-off.</p>
+        <p style="margin:0"><b>Protocol:</b> follows <b>OpenUnlearning</b> (Dorna et al. 2026) with the standard TOFU/MUSE suite, n=5-seed standard errors, and a hyperparameter-tuned table (App. F). Funded by CAPES, CNPq, FAPERGS, Kunumi — framed for GDPR / EU AI Act deployment.</p>
+      </div>
+      <div class="cred-grid reveal d3">
+        <div class="cred"><span class="k">Baselines compared</span><span class="v">12</span></div>
+        <div class="cred"><span class="k">Model scales</span><span class="v">1B · 3B · 8B</span></div>
+        <div class="cred"><span class="k">Offline cost (8B)</span><span class="v">&lt; 2 min · 1 GPU</span></div>
+        <div class="cred"><span class="k">Seeds / SE on Avg</span><span class="v">n=5 · ≤0.007</span></div>
+        <div class="cred"><span class="k">Quantization</span><span class="v">4-bit / 8-bit</span></div>
+        <div class="cred"><span class="k">Benchmarks</span><span class="v">TOFU · MUSE</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ FOOTER ============ -->
+<footer>
+  <div class="wrap">
+    <div class="foot-row">
+      <span class="foot-meta">GUARD-IT · Gated Activation Redirection · 2026-07-14</span>
+      <a class="md-link" href="./2605.12765.md" target="_blank" rel="noopener">↗ Markdown source</a>
+    </div>
+  </div>
+</footer>
+
+<script>
+  /* Lightweight scroll-spy for the non-linear section nav. CSS-first design; this only lights the active link. */
+  (function(){
+    var links = Array.prototype.slice.call(document.querySelectorAll('#navlinks a'));
+    var map = {};
+    links.forEach(function(l){ map[l.getAttribute('href').slice(1)] = l; });
+    var sections = links.map(function(l){ return document.getElementById(l.getAttribute('href').slice(1)); });
+    function onScroll(){
+      var pos = (window.scrollY || document.documentElement.scrollTop) + 90;
+      var active = sections[0];
+      sections.forEach(function(s){ if(s && s.offsetTop <= pos) active = s; });
+      links.forEach(function(l){ l.classList.toggle('active', active && l.getAttribute('href') === '#' + active.id); });
+    }
+    window.addEventListener('scroll', onScroll, {passive:true});
+    onScroll();
+  })();
+</script>
+</body>
+</html>

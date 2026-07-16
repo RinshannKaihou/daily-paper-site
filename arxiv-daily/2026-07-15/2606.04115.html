@@ -1,0 +1,681 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>dMX — Differentiable Mixed-Precision Assignment · arXiv 2606.04115</title>
+<style>
+  :root{
+    --paper:#FAF7F1;
+    --paper-2:#F2EDE3;
+    --ink:#171511;
+    --ink-soft:#3A352D;
+    --muted:#6E675B;
+    --rule:#E2DCCD;
+    --rule-2:#D6CFBE;
+    --accent:#C2410C;        /* signal amber — single topic-derived accent */
+    --accent-soft:#FBE6D8;
+    --accent-ink:#7C2A07;
+    --positive:#1F6F4A;
+    --negative:#9A2B16;
+    --night:#1A1813;         /* contrasting callout */
+    --night-2:#26221B;
+    --maxw:min(95vw,1100px);
+    --display: Georgia, "Iowan Old Style", "Apple Garamond", "Times New Roman", serif;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+    --mono: "SF Mono", "JetBrains Mono", "Roboto Mono", Menlo, Consolas, monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    background:var(--paper);
+    color:var(--ink);
+    font-family:var(--sans);
+    font-size:16px;
+    line-height:1.6;
+    -webkit-font-smoothing:antialiased;
+    text-rendering:optimizeLegibility;
+    /* subtle paper grain via layered gradients — no marketing blobs */
+    background-image:
+      radial-gradient(1200px 600px at 85% -5%, rgba(194,65,12,.05), transparent 60%),
+      radial-gradient(900px 500px at -5% 30%, rgba(23,21,17,.025), transparent 55%);
+    background-attachment:fixed;
+  }
+  ::selection{background:var(--accent);color:#fff}
+
+  /* ───── Top bar ───── */
+  .topbar{
+    position:fixed; top:0; left:0; right:0; z-index:50;
+    display:flex; align-items:center; justify-content:space-between;
+    padding:14px 22px;
+    background:rgba(250,247,241,.82);
+    backdrop-filter:saturate(160%) blur(9px);
+    -webkit-backdrop-filter:saturate(160%) blur(9px);
+    border-bottom:1px solid var(--rule);
+  }
+  .digest-link{
+    font-family:var(--sans); font-size:13.5px; font-weight:600;
+    color:var(--ink); text-decoration:none;
+    letter-spacing:.01em;
+    padding:7px 12px; border:1px solid var(--rule-2); border-radius:7px;
+    background:var(--paper);
+    transition:all .18s ease;
+  }
+  .digest-link:hover{border-color:var(--accent); color:var(--accent-ink); transform:translateX(-2px)}
+  .topbar-meta{font-family:var(--mono); font-size:11.5px; color:var(--muted); letter-spacing:.04em}
+  .topbar-meta b{color:var(--accent-ink); font-weight:600}
+
+  /* ───── Layout shell ───── */
+  .wrap{max-width:var(--maxw); margin:0 auto; padding:0 26px}
+  main{padding-top:74px}
+
+  /* shared entrance */
+  @keyframes rise{from{opacity:0; transform:translateY(14px)} to{opacity:1; transform:none}}
+  .rise{animation:rise .7s cubic-bezier(.2,.7,.2,1) both}
+  .d1{animation-delay:.05s}.d2{animation-delay:.13s}.d3{animation-delay:.21s}
+  .d4{animation-delay:.30s}.d5{animation-delay:.40s}.d6{animation-delay:.50s}
+  .d7{animation-delay:.62s}.d8{animation-delay:.74s}
+
+  /* ───── Hero band ───── */
+  .hero{
+    padding:52px 0 34px;
+    border-bottom:1px solid var(--rule);
+  }
+  .kicker{
+    display:flex; flex-wrap:wrap; gap:10px 16px; align-items:center;
+    font-family:var(--mono); font-size:11.5px; letter-spacing:.12em;
+    text-transform:uppercase; color:var(--muted); margin-bottom:22px;
+  }
+  .kicker .tag{color:var(--accent-ink); font-weight:600}
+  .kicker .dot{width:4px;height:4px;border-radius:50%;background:var(--rule-2);display:inline-block}
+  .hero h1{
+    font-family:var(--display);
+    font-weight:700;
+    font-size:clamp(28px, 4.6vw, 46px);
+    line-height:1.08;
+    letter-spacing:-.015em;
+    margin:0 0 26px;
+    max-width:18ch;
+  }
+  .hero h1 .mx{color:var(--accent); font-style:italic}
+
+  .key-finding{
+    position:relative;
+    padding:4px 0 4px 26px;
+    border-left:3px solid var(--accent);
+    margin:0 0 18px;
+  }
+  .key-finding .lbl{
+    display:block;
+    font-family:var(--mono); font-size:10.5px; letter-spacing:.18em;
+    text-transform:uppercase; color:var(--accent-ink); font-weight:600;
+    margin-bottom:10px;
+  }
+  .key-finding p{
+    font-family:var(--display);
+    font-size:clamp(20px, 2.8vw, 30px);
+    line-height:1.32;
+    margin:0;
+    letter-spacing:-.005em;
+    color:var(--ink);
+  }
+  .zh{
+    font-family:var(--sans);
+    font-size:14px; line-height:1.7; color:var(--muted);
+    border-left:1px solid var(--rule-2);
+    padding:2px 0 2px 14px; margin-top:18px;
+    max-width:62ch;
+  }
+
+  /* layer-tile motif — data-native, on-topic */
+  .motif{
+    margin-top:30px;
+    display:flex; align-items:flex-end; gap:5px; flex-wrap:wrap;
+    padding:14px 0 4px;
+  }
+  .motif .lab{
+    font-family:var(--mono); font-size:10px; letter-spacing:.14em;
+    text-transform:uppercase; color:var(--muted); margin-right:8px; align-self:center;
+  }
+  .tile{
+    width:26px; height:30px; border-radius:3px;
+    display:flex; align-items:center; justify-content:center;
+    font-family:var(--mono); font-size:9.5px; font-weight:700;
+    color:#fff; position:relative;
+    transition:transform .15s ease;
+  }
+  .tile:hover{transform:translateY(-3px)}
+  .tile.b4{background:#9A2B16}      /* MXFP4 — low precision */
+  .tile.b6{background:#C2410C}      /* MXFP6 */
+  .tile.b8{background:#1F6F4A}      /* MXFP8 — high precision */
+  .tile.hot{outline:2px solid var(--ink); outline-offset:1px}
+  .motif .legend{
+    margin-left:14px; align-self:center;
+    font-family:var(--mono); font-size:10.5px; color:var(--muted);
+    display:flex; gap:12px; flex-wrap:wrap;
+  }
+  .legend span{display:inline-flex; align-items:center; gap:5px}
+  .legend i{width:9px;height:9px;border-radius:2px;display:inline-block}
+
+  /* ───── Asset row ───── */
+  .assets{
+    display:grid;
+    grid-template-columns:1.05fr .95fr 1.1fr;
+    gap:18px;
+    padding:34px 0;
+    border-bottom:1px solid var(--rule);
+  }
+  .card{
+    background:var(--paper);
+    border:1px solid var(--rule-2);
+    border-radius:10px;
+    padding:24px 24px 26px;
+    position:relative;
+    transition:border-color .2s ease, transform .2s ease;
+  }
+  .card:hover{border-color:var(--ink-soft)}
+  .card .clbl{
+    font-family:var(--mono); font-size:10px; letter-spacing:.18em;
+    text-transform:uppercase; font-weight:600; margin-bottom:18px;
+    display:flex; align-items:center; gap:8px;
+  }
+  .card .clbl::before{content:"";width:14px;height:1px;background:currentColor;display:inline-block}
+
+  /* metric card */
+  .card.metric{border-color:var(--accent); background:linear-gradient(180deg,var(--accent-soft),var(--paper) 70%)}
+  .card.metric .clbl{color:var(--accent-ink)}
+  .metric .num{
+    font-family:var(--display);
+    font-weight:700;
+    font-size:clamp(58px, 9vw, 92px);
+    line-height:.92;
+    letter-spacing:-.03em;
+    color:var(--accent-ink);
+    margin:2px 0 6px;
+  }
+  .metric .unit{
+    font-family:var(--mono); font-size:11.5px; color:var(--ink-soft);
+    letter-spacing:.04em; line-height:1.5; display:block;
+  }
+  .metric .delta{
+    margin-top:14px; padding-top:14px; border-top:1px dashed var(--rule-2);
+    display:flex; align-items:baseline; gap:10px; flex-wrap:wrap;
+  }
+  .metric .delta .d-num{
+    font-family:var(--display); font-size:24px; font-weight:700; color:var(--positive);
+  }
+  .metric .delta .d-txt{font-size:12.5px; color:var(--muted)}
+  .metric .delta .d-txt b{color:var(--ink-soft)}
+
+  /* why card */
+  .card.why .clbl{color:var(--ink-soft)}
+  .card.why p{
+    font-family:var(--display);
+    font-size:18.5px; line-height:1.42; margin:0;
+    color:var(--ink);
+  }
+  .card.why .tagline{
+    margin-top:16px; font-family:var(--mono); font-size:11px;
+    color:var(--muted); letter-spacing:.04em;
+  }
+
+  /* edge card — contrasting dark */
+  .card.edge{
+    background:var(--night); color:#EDE7DA; border-color:var(--night-2);
+  }
+  .card.edge .clbl{color:#E9A06B}
+  .card.edge p{
+    font-family:var(--display); font-size:17px; line-height:1.46; margin:0;
+    color:#F4EFE3;
+  }
+  .card.edge .src{
+    margin-top:14px; font-family:var(--mono); font-size:10.5px;
+    color:#A39A88; letter-spacing:.04em;
+  }
+
+  /* ───── Section nav ───── */
+  .sectionnav{
+    position:sticky; top:60px; z-index:30;
+    background:rgba(250,247,241,.9);
+    backdrop-filter:blur(7px); -webkit-backdrop-filter:blur(7px);
+    border-bottom:1px solid var(--rule);
+    margin:0 -26px 0;
+    padding:11px 26px;
+  }
+  .sectionnav .inner{max-width:var(--maxw); margin:0 auto; display:flex; gap:6px; flex-wrap:wrap}
+  .sectionnav a{
+    font-family:var(--mono); font-size:11px; letter-spacing:.08em;
+    text-transform:uppercase; text-decoration:none; color:var(--muted);
+    padding:6px 11px; border-radius:5px; transition:all .15s ease;
+  }
+  .sectionnav a:hover{background:var(--ink); color:var(--paper)}
+  .sectionnav a .n{color:var(--accent); margin-right:6px; font-weight:700}
+
+  /* ───── Body sections ───── */
+  section.body{padding:42px 0 18px; border-bottom:1px solid var(--rule); scroll-margin-top:108px}
+  .shead{display:flex; align-items:baseline; gap:14px; margin-bottom:22px}
+  .shead .sn{
+    font-family:var(--mono); font-size:12px; font-weight:700; color:var(--accent);
+    letter-spacing:.06em;
+  }
+  .shead h2{
+    font-family:var(--display); font-weight:700;
+    font-size:clamp(22px,3vw,30px); margin:0; letter-spacing:-.01em;
+  }
+
+  .prose p{margin:0 0 14px; max-width:68ch; color:var(--ink-soft)}
+  .prose strong{color:var(--ink)}
+  .prose code{
+    font-family:var(--mono); font-size:.86em; background:var(--paper-2);
+    padding:1px 6px; border-radius:4px; color:var(--accent-ink);
+    border:1px solid var(--rule-2);
+  }
+
+  .method-grid{
+    display:grid; grid-template-columns:1fr 1fr; gap:20px;
+  }
+  .pillar{
+    border:1px solid var(--rule-2); border-radius:9px; padding:18px 20px;
+    background:var(--paper);
+  }
+  .pillar h4{
+    margin:0 0 8px; font-size:13px; font-family:var(--mono);
+    letter-spacing:.06em; text-transform:uppercase; color:var(--accent-ink);
+  }
+  .pillar p{margin:0; font-size:14px; line-height:1.6; color:var(--ink-soft)}
+
+  /* ───── Results table ───── */
+  .results-wrap{overflow-x:auto; border:1px solid var(--rule-2); border-radius:10px}
+  table.res{
+    width:100%; border-collapse:collapse; font-size:13.5px; min-width:560px;
+  }
+  table.res th, table.res td{
+    text-align:left; padding:13px 16px; border-bottom:1px solid var(--rule);
+    vertical-align:middle;
+  }
+  table.res thead th{
+    font-family:var(--mono); font-size:10.5px; letter-spacing:.1em;
+    text-transform:uppercase; color:var(--muted); background:var(--paper-2);
+    border-bottom:1px solid var(--rule-2);
+  }
+  table.res tbody tr:last-child td{border-bottom:0}
+  table.res tbody tr:hover{background:var(--accent-soft)}
+  table.res .model{font-weight:600; color:var(--ink)}
+  table.res .model small{display:block; font-weight:400; color:var(--muted); font-family:var(--mono); font-size:11px; margin-top:2px}
+  table.res .ppl{font-family:var(--display); font-size:18px; font-weight:700; color:var(--ink)}
+  table.res .win{color:var(--positive); font-weight:700}
+  table.res .num{font-family:var(--mono); font-size:12.5px}
+  table.res td.best{background:rgba(31,111,74,.07)}
+
+  .result-notes{
+    margin-top:18px; display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:12px;
+  }
+  .chip{
+    border:1px solid var(--rule-2); border-left:3px solid var(--accent);
+    border-radius:6px; padding:12px 14px; background:var(--paper);
+    font-size:13px; line-height:1.5; color:var(--ink-soft);
+  }
+  .chip b{color:var(--ink); display:block; margin-bottom:3px; font-size:12.5px}
+  .chip .mono{font-family:var(--mono); font-size:12px; color:var(--accent-ink)}
+
+  /* ───── Strengths / Limitations ───── */
+  .twocol{display:grid; grid-template-columns:1fr 1fr; gap:22px}
+  .panel{
+    border-radius:11px; padding:24px 26px;
+    border:1px solid var(--rule-2);
+  }
+  .panel.pros{background:#F1F6F1; border-color:#C9DDCE}
+  .panel.cons{background:#FBEEE9; border-color:#EFD2C5}
+  .panel h3{
+    font-family:var(--mono); font-size:11px; letter-spacing:.16em;
+    text-transform:uppercase; margin:0 0 16px; font-weight:700;
+    display:flex; align-items:center; gap:9px;
+  }
+  .panel.pros h3{color:var(--positive)}
+  .panel.cons h3{color:var(--negative)}
+  .panel h3 .mark{
+    width:18px;height:18px;border-radius:50%; display:inline-flex;align-items:center;justify-content:center;
+    font-size:12px; font-family:var(--sans); font-weight:700;
+  }
+  .panel.pros .mark{background:var(--positive); color:#fff}
+  .panel.cons .mark{background:var(--negative); color:#fff}
+  .panel ul{margin:0; padding:0; list-style:none}
+  .panel li{
+    font-size:13.5px; line-height:1.55; color:var(--ink-soft);
+    padding:10px 0 10px 22px; position:relative; border-top:1px dashed rgba(0,0,0,.09);
+  }
+  .panel li:first-child{border-top:0}
+  .panel li::before{
+    content:""; position:absolute; left:0; top:17px;
+    width:9px; height:1px;
+  }
+  .panel.pros li::before{background:var(--positive)}
+  .panel.cons li::before{background:var(--negative)}
+  .panel li b{color:var(--ink)}
+
+  /* ───── Questions ───── */
+  .qlist{display:grid; grid-template-columns:1fr 1fr; gap:14px; counter-reset:q}
+  .q{
+    counter-increment:q;
+    border:1px solid var(--rule-2); border-radius:9px; padding:18px 20px 18px 56px;
+    background:var(--paper); position:relative;
+    transition:transform .18s ease, border-color .18s ease;
+  }
+  .q:hover{transform:translateY(-2px); border-color:var(--accent)}
+  .q::before{
+    content:counter(q,decimal-leading-zero);
+    position:absolute; left:18px; top:16px;
+    font-family:var(--display); font-size:22px; font-weight:700; color:var(--accent);
+    line-height:1;
+  }
+  .q p{margin:0; font-size:13.5px; line-height:1.55; color:var(--ink-soft)}
+  .q p b{color:var(--ink)}
+
+  /* ───── Footer ───── */
+  footer{
+    padding:34px 0 60px;
+  }
+  .creds{
+    display:grid; grid-template-columns:1.1fr 1fr; gap:24px;
+    padding:22px 24px; border:1px solid var(--rule-2); border-radius:10px;
+    background:var(--paper-2); margin-bottom:22px;
+  }
+  .creds h4{margin:0 0 6px; font-size:11px; font-family:var(--mono); letter-spacing:.14em; text-transform:uppercase; color:var(--accent-ink)}
+  .creds p{margin:0; font-size:13px; line-height:1.6; color:var(--ink-soft)}
+  .creds .authors{font-size:13.5px; color:var(--ink); margin-bottom:6px}
+  .footer-bar{
+    display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:14px;
+    padding-top:18px; border-top:1px solid var(--rule);
+  }
+  .md-link{
+    font-family:var(--sans); font-size:13.5px; font-weight:600; text-decoration:none;
+    color:var(--ink); padding:8px 14px; border:1px solid var(--rule-2); border-radius:7px;
+    background:var(--paper); transition:all .18s ease;
+  }
+  .md-link:hover{border-color:var(--accent); color:var(--accent-ink); transform:translateY(-1px)}
+  .footer-note{font-family:var(--mono); font-size:11px; color:var(--muted); letter-spacing:.03em}
+
+  /* ───── Responsive ───── */
+  @media (max-width:860px){
+    .assets{grid-template-columns:1fr}
+    .method-grid, .twocol, .qlist, .creds{grid-template-columns:1fr}
+    .hero{padding:34px 0 22px}
+    .topbar-meta{display:none}
+    .sectionnav{top:56px}
+    section.body{scroll-margin-top:96px}
+  }
+  @media (prefers-reduced-motion:reduce){
+    *{animation:none !important; transition:none !important}
+  }
+</style>
+</head>
+<body>
+
+<!-- ───────── Top bar ───────── -->
+<div class="topbar">
+  <a class="digest-link" href="./index.html" title="Back to today's digest">↩ Today's digest</a>
+  <div class="topbar-meta">arXiv:<b>2606.04115</b> · 14 Jul 2026 · <b>AMD Research</b></div>
+</div>
+
+<main>
+<div class="wrap">
+
+  <!-- ───────── Hero band ───────── -->
+  <header class="hero rise d1">
+    <div class="kicker">
+      <span class="tag">Paper Dashboard</span>
+      <span class="dot"></span>
+      <span>Mixed-Precision Quantization</span>
+      <span class="dot"></span>
+      <span>OCP MXFP Formats</span>
+      <span class="dot"></span>
+      <span>Post-Training · LLM</span>
+    </div>
+
+    <h1>dMX: Differentiable <span class="mx">Mixed-Precision</span> Assignment for Low-Precision Floating-Point</h1>
+
+    <div class="key-finding">
+      <span class="lbl">Key Finding</span>
+      <p>dMX folds each layer's MXFP format into one learnable offset&nbsp;β, Pareto-dominating uniform MXFP4 on perplexity and zero-shot reasoning across three LLM families.</p>
+    </div>
+
+    <div class="zh">
+      dMX 将每层浮点格式折叠为单一连续可学习偏移 β，配合温度退火逐步离散化到硬件支持的 MXFP8/MXFP4 或 MXFP6/MXFP4，校准仅需 400 步即可在困惑度与四项 zero-shot 基准上 Pareto 支配均匀 MXFP4 基线。
+    </div>
+
+    <!-- data-native motif: per-layer precision assignment (down/v proj highlighted as hot) -->
+    <div class="motif" aria-hidden="true">
+      <span class="lab">learned per-layer precision →</span>
+      <span class="tile b4">4</span><span class="tile b4">4</span><span class="tile b6">6</span>
+      <span class="tile b4">4</span><span class="tile b8 hot">8</span><span class="tile b4">4</span>
+      <span class="tile b6">6</span><span class="tile b4">4</span><span class="tile b8 hot">8</span>
+      <span class="tile b4">4</span><span class="tile b6">6</span><span class="tile b4">4</span>
+      <span class="tile b8 hot">8</span><span class="tile b4">4</span><span class="tile b6">6</span>
+      <span class="tile b4">4</span>
+      <span class="legend">
+        <span><i style="background:#9A2B16"></i>MXFP4</span>
+        <span><i style="background:#C2410C"></i>MXFP6</span>
+        <span><i style="background:#1F6F4A"></i>MXFP8 · hot = down / v proj</span>
+      </span>
+    </div>
+  </header>
+
+  <!-- ───────── Asset row ───────── -->
+  <section class="assets">
+    <!-- KEY METRIC -->
+    <div class="card metric rise d2">
+      <div class="clbl">Key Metric</div>
+      <div class="num">9.83</div>
+      <span class="unit">WikiText-2 perplexity · Llama 3.2 1B<br>at 6.04 avg bits</span>
+      <div class="delta">
+        <span class="d-num">−1.85</span>
+        <span class="d-txt">PPL vs uniform <b>MXFP4 (11.68)</b><br>+1.79 zero-shot acc (49.61 vs 47.82)</span>
+      </div>
+    </div>
+
+    <!-- WHY THIS MATTERS -->
+    <div class="card why rise d3">
+      <div class="clbl">Why This Matters</div>
+      <p>First gradient-based MXFP mixed-precision framework — handing practitioners a usable <em>bit-width-budget</em> knob and exposing <em>down</em>/<em>v&nbsp;proj</em> as the layers most sensitive to quantization.</p>
+      <div class="tagline">OCP MX hardware · PTQ regime · 400 calibration steps</div>
+    </div>
+
+    <!-- CRITICAL EDGE -->
+    <div class="card edge rise d4">
+      <div class="clbl">Critical Edge</div>
+      <p>Only uniform MXFP and a single KL heuristic on one model are benchmarked — HAWQ-V3, APTQ, MicroMix and integer-domain methods are never compared head-to-head.</p>
+      <div class="src">Source: Critical Assessment / Limitations</div>
+    </div>
+  </section>
+
+  <!-- ───────── Section nav ───────── -->
+  <nav class="sectionnav" aria-label="Section">
+    <div class="inner">
+      <a href="#method"><span class="n">01</span>Methodology</a>
+      <a href="#results"><span class="n">02</span>Results</a>
+      <a href="#balance"><span class="n">03</span>Strengths / Limits</a>
+      <a href="#questions"><span class="n">04</span>Open Questions</a>
+    </div>
+  </nav>
+
+  <!-- ───────── Methodology ───────── -->
+  <section class="body rise d5" id="method">
+    <div class="shead">
+      <span class="sn">01</span><h2>Methodology</h2>
+    </div>
+    <div class="prose">
+      <p>dMX rests on three observations: floating-point quantization stays well-defined when exponent/mantissa widths are treated as <strong>real-valued parameters</strong>; deployment still requires collapsing onto the discrete, hardware-supported MXFP set; and gradients propagate w.r.t. bit-width as with any learnable parameter — previously used for <em>integer</em> quantization (FracBits, SDQ, BSQ) but never for floating-point / MX.</p>
+    </div>
+    <div class="method-grid">
+      <div class="pillar">
+        <h4>Continuous FP parameterization</h4>
+        <p>The whole family collapses to <code>MXFP(β) = E(2+β)M(1+β)</code>: β=2 → MXFP8 (E4M3), β=0 → MXFP4 (E2M1), intermediate → MXFP6-like. Tying weights &amp; activations → <strong>one scalar per layer</strong>. Gradients derived across normal / subnormal / clipped regimes (Appendix A).</p>
+      </div>
+      <div class="pillar">
+        <h4>Temperature annealing</h4>
+        <p>A sigmoid <code>β = 2 / (1+e^(−T·(β̂/2−0.5)))</code> is near-linear at low T (free exploration) and sharpens to a step at β=1 as T grows — pushing offsets cleanly onto MXFP4 / MXFP6 / MXFP8 endpoints, closing the train/inference gap.</p>
+      </div>
+      <div class="pillar">
+        <h4>Target-aware regularization</h4>
+        <p>Either simple scaling <code>R_s = λ·b̄</code> or target-aware <code>R_t = max(0, λ·(b̄_current − b̄_target))</code>, with b̄ as simple or tensor-size-weighted average. The target-aware form yields denser, more predictable operating points.</p>
+      </div>
+      <div class="pillar">
+        <h4>PTQ training setup</h4>
+        <p>3200 FineWeb samples, batch 8, <strong>400 steps</strong> (800 for 3B–8B), jointly optimizing rotations + bit-widths in a SpinQuant-like infrastructure, quantized via <strong>Brevitas</strong>. Baselines share identical calibration with bit-widths frozen.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ───────── Results ───────── -->
+  <section class="body rise d6" id="results">
+    <div class="shead">
+      <span class="sn">02</span><h2>Results &amp; Highlights</h2>
+    </div>
+    <div class="results-wrap">
+      <table class="res">
+        <thead>
+          <tr>
+            <th>Model · config</th>
+            <th>Avg bits</th>
+            <th>WikiText-2 PPL</th>
+            <th>Δ vs MXFP4</th>
+            <th>Zero-shot acc</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="model">Llama 3.2 1B <small>uniform MXFP4 (baseline)</small></td>
+            <td class="num">4.0</td>
+            <td class="ppl">11.68</td>
+            <td class="num">—</td>
+            <td class="num">47.82</td>
+          </tr>
+          <tr>
+            <td class="model">Llama 3.2 1B <small>uniform MXFP8</small></td>
+            <td class="num">8.0</td>
+            <td class="ppl">9.15</td>
+            <td class="num">−2.53</td>
+            <td class="num">51.39</td>
+          </tr>
+          <tr class="best">
+            <td class="model">Llama 3.2 1B <small><b>dMX</b> (MXFP8/MXFP4)</small></td>
+            <td class="num">6.04</td>
+            <td class="ppl">9.83</td>
+            <td class="win">−1.85</td>
+            <td class="num">49.61</td>
+          </tr>
+          <tr>
+            <td class="model">SmolLM2 1.7B <small>uniform MXFP4 (baseline)</small></td>
+            <td class="num">4.0</td>
+            <td class="ppl">10.28</td>
+            <td class="num">—</td>
+            <td class="num">53.42</td>
+          </tr>
+          <tr class="best">
+            <td class="model">SmolLM2 1.7B <small><b>dMX</b> (MXFP8/MXFP4)</small></td>
+            <td class="num">6.06</td>
+            <td class="ppl">8.26</td>
+            <td class="win">−2.02</td>
+            <td class="num">57.28</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="result-notes">
+      <div class="chip">
+        <b>MXFP6/MXFP4 is more bit-efficient</b>
+        On Llama 3.2 1B, dMX MXFP6/MXFP4 at <span class="mono">5.02 bits</span> hits PPL 10.02 / acc 50.26 — beating the MXFP8/MXFP4 point at 5.11 bits (10.60 / 49.27).
+      </div>
+      <div class="chip">
+        <b>Beats KL layer-selection</b>
+        At intermediate widths (~5.0–7.0 bits) the learned assignment clearly beats the KL-divergence heuristic, whose sensitivity flattens in this region (Fig. 5).
+      </div>
+      <div class="chip">
+        <b>Continuous &gt; ROUND+STE</b>
+        The continuous forward form gives better PPL / zero-shot across all three models and hits target bit-width more reliably — avoiding FP4↔FP8 oscillation.
+      </div>
+      <div class="chip">
+        <b>Most sensitive layers</b>
+        <span class="mono">down proj</span> and <span class="mono">v proj</span> are most frequently assigned high precision (hit-freq 1.00 on Llama-3.2-1B) — confirmed across all configs.
+      </div>
+      <div class="chip">
+        <b>Scales to 8B</b>
+        Trends hold on Llama 3.2 3B, Llama 3.1 8B, Qwen3 4B/8B (800 steps, β-lr 2); MXFP6/MXFP4 stays the more efficient configuration.
+      </div>
+      <div class="chip">
+        <b>Candid caveat</b>
+        For Llama models MXFP6/MXFP4 can underperform uniform MXFP6 on perplexity — the method is <em>not</em> uniformly dominant across (model, format) pairs.
+      </div>
+    </div>
+  </section>
+
+  <!-- ───────── Strengths / Limitations ───────── -->
+  <section class="body rise d7" id="balance">
+    <div class="shead">
+      <span class="sn">03</span><h2>Strengths &amp; Limitations</h2>
+    </div>
+    <div class="twocol">
+      <div class="panel pros">
+        <h3><span class="mark">+</span> Strengths</h3>
+        <ul>
+          <li><b>First principled gradient framework</b> for MXFP mixed precision — clean one-parameter-per-layer design mapping exactly onto legal hardware formats.</li>
+          <li><b>Well-engineered annealing.</b> Continuous forward + temperature anneal solves the FP4↔FP8 oscillation; the ROUND+STE ablation gives direct evidence it matters.</li>
+          <li><b>Practitioner-facing knob.</b> Target-aware regularization exposes a desired average bit-width rather than an opaque λ.</li>
+          <li><b>Honest reporting</b> — per-layer sensitivity tables, candid discussion of the high-target-bit-width failure and model-specific underperformance, plus a real 8B scaling appendix.</li>
+          <li><b>Cheap PTQ cost</b> — 400 calibration steps keeps it firmly in the post-training regime.</li>
+        </ul>
+      </div>
+      <div class="panel cons">
+        <h3><span class="mark">−</span> Limitations</h3>
+        <ul>
+          <li><b>Thin baselines.</b> Only uniform MXFP and a KL heuristic on one model — no HAWQ-V3, APTQ, MicroMix, or integer mixed-precision ported to the same setting.</li>
+          <li><b>Hyper-parameter sensitivity</b> (T_ratio, schedule shape, λ) is largely asserted, not systematically swept.</li>
+          <li><b>No hardware validation.</b> Only weights+activations; no latency / throughput / memory on real MX-capable silicon — average bit-width is a coarse proxy.</li>
+          <li><b>Narrow evaluation.</b> PTQ-only on ≤8B dense models; MoE (acknowledged future work) and instruct-tuned chat evals absent.</li>
+          <li><b>High target widths unreliably hit</b>, and per-model retuning is sometimes required (explicitly needed for 3B–8B).</li>
+          <li><b>No public code-release commitment</b> stated in the paper body.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- ───────── Questions ───────── -->
+  <section class="body rise d8" id="questions">
+    <div class="shead">
+      <span class="sn">04</span><h2>Questions for Further Exploration</h2>
+    </div>
+    <div class="qlist">
+      <div class="q"><p>How does dMX compare against <b>integer-domain</b> differentiable methods (BSQ, FracBits, HMQ) when all are ported to the same MX hardware and the same average-bit-width budget?</p></div>
+      <div class="q"><p>Can the single-offset parameterization extend to a <b>richer format set</b> (E5M2, INT, non-uniform MX) without losing the smooth-annealing property?</p></div>
+      <div class="q"><p>What is the real <b>end-to-end latency / throughput / memory</b> delta on production MX-capable accelerators, beyond the average-bit-width proxy?</p></div>
+      <div class="q"><p>Does the learned ranking (<b>down / v proj</b> most sensitive) align with Hessian-spectrum or outlier-structure rankings from HAWQ / SpinQuant, and is it stable across seeds?</p></div>
+      <div class="q"><p>Does the framework transfer cleanly to <b>mixture-of-experts</b> models, where per-expert sensitivity varies dramatically, and to chat models on MT-Bench / AlpacaEval?</p></div>
+      <div class="q"><p>Would a <b>learned per-layer temperature schedule</b>, or a budget-aware Lagrangian replacing the max-penalty, improve convergence to target bit-width at the high end?</p></div>
+    </div>
+  </section>
+
+  <!-- ───────── Footer ───────── -->
+  <footer class="rise d8">
+    <div class="creds">
+      <div>
+        <h4>Authors &amp; Credibility</h4>
+        <p class="authors">Giuseppe Franco · Ian Colbert · Pablo Monteagudo-Lago · Felix Marty · Nicholas Fraser</p>
+        <p>All five are at <strong>AMD</strong> — a co-author of the OCP MX specification cited as the format standard, and maintainer of <strong>Brevitas</strong> (the quantization library used). Strong credibility on both hardware-format constraints and tooling. arXiv preprint (v2, 14 Jul 2026), <em>not yet peer-reviewed</em>.</p>
+      </div>
+      <div>
+        <h4>Relevance</h4>
+        <p>For researchers tracking low-bit LLM deployment — especially MXFP / OCP float formats and mixed-precision allocation — dMX offers a directly reusable differentiable framework. The continuous-β + anneal idea and the <em>down/v proj</em> sensitivity finding are valuable for quantization-algorithm design and hardware co-optimization; a worthwhile close-read in this direction for 2026.</p>
+      </div>
+    </div>
+    <div class="footer-bar">
+      <a class="md-link" href="./2606.04115.md" title="Open the source markdown">↗ Markdown source</a>
+      <div class="footer-note">Dashboard generated from source markdown · arXiv 2606.04115 · topic accent: signal amber</div>
+    </div>
+  </footer>
+
+</div>
+</main>
+
+</body>
+</html>
