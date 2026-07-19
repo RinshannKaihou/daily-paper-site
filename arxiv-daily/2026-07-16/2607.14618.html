@@ -1,0 +1,557 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PolyQ — End-to-End Quantization for Edge CPU LLM Inference</title>
+<style>
+  /* ---------- Design tokens ---------- */
+  :root{
+    --bg:        #F4F1EA;   /* warm paper */
+    --bg-alt:    #ECE7DC;
+    --ink:       #1A1714;   /* near-black warm */
+    --ink-soft:  #4A4540;
+    --ink-mute:  #7A7269;
+    --rule:      #C9C0B0;
+    --rule-soft: #DDD6C7;
+    --accent:    #B5471A;   /* clay / rust */
+    --accent-dk: #8C3411;
+    --accent-lt: #F2D9CB;
+    --warn:      #2F4858;   /* slate for the critical-edge card */
+    --warn-lt:   #D8DEE2;
+    --good:      #2E5D3F;
+    --mono: ui-monospace, "SF Mono", "JetBrains Mono", "IBM Plex Mono", Menlo, Consolas, monospace;
+    --display: "Fraunces", "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+    --w: min(95vw, 1100px);
+  }
+  @font-face{font-family:"Fraunces";font-style:normal;font-weight:400 900;font-display:swap;src:local("Fraunces")}
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    background:var(--bg);
+    color:var(--ink);
+    font-family:var(--sans);
+    font-size:16px;
+    line-height:1.55;
+    -webkit-font-smoothing:antialiased;
+    text-rendering:optimizeLegibility;
+    background-image:
+      radial-gradient(circle at 1px 1px, rgba(26,23,20,.04) 1px, transparent 0);
+    background-size: 22px 22px;
+  }
+  a{color:var(--accent-dk);text-decoration:none;border-bottom:1px solid transparent;transition:border-color .15s}
+  a:hover{border-bottom-color:var(--accent)}
+
+  /* ---------- Top nav ---------- */
+  .topnav{
+    position:fixed; top:14px; left:18px; z-index:50;
+    font-family:var(--mono); font-size:12px; letter-spacing:.02em;
+    background:var(--ink); color:#F4F1EA;
+    padding:7px 12px; border-radius:2px;
+    box-shadow:0 1px 0 rgba(0,0,0,.2);
+  }
+  .topnav a{color:inherit;border-bottom:none}
+  .topnav a:hover{color:var(--accent-lt)}
+
+  /* ---------- Layout shell ---------- */
+  .shell{
+    width:var(--w);
+    margin:0 auto;
+    padding: 72px 24px 56px;
+  }
+
+  /* ---------- Meta strip (above hero) ---------- */
+  .meta-strip{
+    display:flex; flex-wrap:wrap; align-items:center; gap:14px;
+    font-family:var(--mono); font-size:11.5px; letter-spacing:.08em;
+    text-transform:uppercase; color:var(--ink-mute);
+    padding-bottom:18px; border-bottom:1px solid var(--rule);
+  }
+  .meta-strip .dot{color:var(--accent);font-weight:700}
+  .meta-strip .arxiv{
+    margin-left:auto; color:var(--ink); border:1px solid var(--ink);
+    padding:3px 8px; border-radius:1px;
+  }
+
+  /* ---------- Hero band ---------- */
+  .hero{ padding: 40px 0 44px; border-bottom:1px solid var(--rule); position:relative }
+  .hero .label{
+    font-family:var(--mono); font-size:11px; letter-spacing:.18em;
+    text-transform:uppercase; color:var(--accent); margin-bottom:18px;
+    display:flex; align-items:center; gap:10px;
+  }
+  .hero .label::before{
+    content:""; display:inline-block; width:28px; height:1px; background:var(--accent);
+  }
+  .hero .claim{
+    font-family:var(--display);
+    font-weight:540;
+    font-size: clamp(28px, 4.6vw, 50px);
+    line-height:1.08;
+    letter-spacing:-0.015em;
+    margin:0 0 30px;
+    color:var(--ink);
+    max-width: 22ch;
+  }
+  .hero .claim em{
+    font-style:italic; color:var(--accent-dk); font-weight:600;
+  }
+  .hero .claim .hl{
+    background:linear-gradient(180deg, transparent 62%, var(--accent-lt) 62%);
+    padding: 0 .04em;
+  }
+  .paper-title{
+    font-family:var(--sans); font-weight:600;
+    font-size:17px; color:var(--ink); margin:0 0 6px;
+    max-width: 60ch;
+  }
+  .paper-title a{border-bottom:1px solid var(--rule)}
+  .authors{ font-size:13.5px; color:var(--ink-soft); margin:0 0 18px}
+  .authors .lab{ color:var(--ink-mute); font-style:italic }
+
+  .chips{ display:flex; flex-wrap:wrap; gap:6px; margin-top:8px }
+  .chip{
+    font-family:var(--mono); font-size:10.5px; letter-spacing:.04em;
+    padding:4px 9px; border:1px solid var(--rule); border-radius:999px;
+    color:var(--ink-soft); background:rgba(255,255,255,.4);
+  }
+  .chip.accent{ border-color:var(--accent); color:var(--accent-dk); background:var(--accent-lt) }
+
+  /* ---------- Asset row ---------- */
+  .assets{
+    display:grid;
+    grid-template-columns: 1.15fr 1fr 1fr;
+    gap:0;
+    margin-top:0;
+    border-bottom:1px solid var(--rule);
+  }
+  .asset{
+    padding: 28px 26px 30px;
+    border-right:1px solid var(--rule);
+    position:relative;
+    min-height: 200px;
+  }
+  .asset:last-child{ border-right:none }
+  .asset .k{
+    font-family:var(--mono); font-size:10.5px; letter-spacing:.16em;
+    text-transform:uppercase; color:var(--ink-mute); margin-bottom:14px;
+    display:flex; align-items:center; gap:8px;
+  }
+  .asset .k .idx{
+    display:inline-block; width:18px; height:18px; line-height:18px; text-align:center;
+    background:var(--ink); color:var(--bg); border-radius:1px; font-size:10px;
+  }
+
+  /* metric card */
+  .asset.metric{ background: var(--bg-alt) }
+  .metric .big{
+    font-family:var(--display); font-weight:600;
+    font-size: clamp(44px, 6.2vw, 68px); line-height:.95;
+    color:var(--accent-dk); letter-spacing:-0.02em;
+    margin: 4px 0 6px;
+  }
+  .metric .big sup{ font-size:.42em; vertical-align:top; color:var(--accent); margin-left:2px }
+  .metric .unit{ font-family:var(--mono); font-size:11px; color:var(--ink-mute); letter-spacing:.04em }
+  .metric .desc{ font-size:13.5px; color:var(--ink); margin-top:14px; max-width:34ch }
+  .metric .desc strong{ font-weight:600 }
+  .metric .compare{
+    margin-top:14px; display:grid; gap:4px;
+    font-family:var(--mono); font-size:11.5px; color:var(--ink-soft);
+  }
+  .metric .compare span b{ color:var(--ink); font-weight:600 }
+  .metric .compare span.win b{ color:var(--accent-dk) }
+
+  /* why-this-matters card */
+  .asset.why{ }
+  .why .lede{
+    font-family:var(--display); font-style:italic; font-weight:400;
+    font-size:20px; line-height:1.32; color:var(--ink); margin:6px 0 14px;
+  }
+  .why .lede::before{
+    content:"“"; color:var(--accent); font-size:42px; line-height:0;
+    vertical-align:-10px; margin-right:4px; font-family:var(--display);
+  }
+  .why .foot{ font-size:12.5px; color:var(--ink-mute) }
+
+  /* critical edge card — contrasting */
+  .asset.edge{
+    background: var(--warn); color:#EAEFF2;
+    border-right:none;
+  }
+  .asset.edge .k{ color:#9FB1BC }
+  .asset.edge .k .idx{ background:#EAEFF2; color:var(--warn) }
+  .asset.edge .body{
+    font-family:var(--display); font-weight:420;
+    font-size:17px; line-height:1.38; color:#F3F6F8;
+  }
+  .asset.edge .body b{ color:#FFFFFF; font-weight:600 }
+  .asset.edge .tag{
+    margin-top:16px; font-family:var(--mono); font-size:10.5px;
+    letter-spacing:.1em; text-transform:uppercase; color:#9FB1BC;
+    border-top:1px solid rgba(234,239,242,.18); padding-top:10px;
+  }
+
+  /* ---------- Section headers ---------- */
+  .sec-head{
+    display:flex; align-items:baseline; gap:14px;
+    margin: 44px 0 20px;
+    padding-bottom:8px; border-bottom:2px solid var(--ink);
+  }
+  .sec-head h2{
+    font-family:var(--display); font-weight:540;
+    font-size: 26px; margin:0; letter-spacing:-0.01em;
+  }
+  .sec-head .n{
+    font-family:var(--mono); font-size:11px; color:var(--accent);
+    letter-spacing:.14em; text-transform:uppercase;
+  }
+  .sec-head .note{
+    margin-left:auto; font-family:var(--mono); font-size:11px;
+    color:var(--ink-mute); letter-spacing:.04em;
+  }
+
+  /* ---------- Body grid ---------- */
+  .grid-2{
+    display:grid; grid-template-columns: 1.25fr 1fr; gap:0;
+    border:1px solid var(--rule); border-bottom:none;
+    background:rgba(255,255,255,.35);
+  }
+  .panel{ padding: 24px 26px; border-bottom:1px solid var(--rule) }
+  .grid-2 > .panel:first-child{ border-right:1px solid var(--rule) }
+  .panel h3{
+    font-family:var(--sans); font-weight:600; font-size:12px;
+    letter-spacing:.12em; text-transform:uppercase; color:var(--accent-dk);
+    margin:0 0 14px;
+  }
+  .panel p{ margin:0 0 12px; font-size:14.5px; color:var(--ink-soft) }
+  .panel p:last-child{ margin-bottom:0 }
+  .panel strong{ color:var(--ink) }
+
+  ol.steps{ margin:0; padding-left:0; counter-reset:s; list-style:none }
+  ol.steps li{
+    position:relative; padding:8px 0 8px 34px;
+    font-size:13.5px; color:var(--ink-soft);
+    border-bottom:1px dashed var(--rule-soft);
+  }
+  ol.steps li:last-child{ border-bottom:none }
+  ol.steps li::before{
+    counter-increment:s; content:counter(s,decimal-leading-zero);
+    position:absolute; left:0; top:9px;
+    font-family:var(--mono); font-size:11px; color:var(--accent);
+    font-weight:600;
+  }
+  ol.steps li b{ color:var(--ink); font-weight:600 }
+
+  /* results table */
+  .restbl{
+    width:100%; border-collapse:collapse;
+    font-family:var(--mono); font-size:12px; margin-top:6px;
+  }
+  .restbl th, .restbl td{
+    text-align:right; padding:7px 8px;
+    border-bottom:1px solid var(--rule-soft);
+  }
+  .restbl th:first-child, .restbl td:first-child{ text-align:left }
+  .restbl thead th{
+    font-size:10px; letter-spacing:.08em; text-transform:uppercase;
+    color:var(--ink-mute); border-bottom:1px solid var(--ink); font-weight:600;
+  }
+  .restbl td.win{ color:var(--accent-dk); font-weight:700 }
+  .restbl tr:hover td{ background:rgba(181,71,26,.04) }
+  .res-note{ font-size:12px; color:var(--ink-mute); margin-top:10px }
+
+  .stat-row{
+    display:grid; grid-template-columns: repeat(3,1fr); gap:1px;
+    background:var(--rule); border:1px solid var(--rule); margin-top:14px;
+  }
+  .stat{
+    background:rgba(255,255,255,.55); padding:12px 12px 10px;
+  }
+  .stat .v{
+    font-family:var(--display); font-weight:600; font-size:22px;
+    color:var(--ink); line-height:1; letter-spacing:-0.01em;
+  }
+  .stat .v .pct{ color:var(--accent); font-size:.7em }
+  .stat .l{ font-family:var(--mono); font-size:9.5px; letter-spacing:.06em;
+    text-transform:uppercase; color:var(--ink-mute); margin-top:5px }
+
+  /* strengths / limitations side by side */
+  .sxs{
+    display:grid; grid-template-columns: 1fr 1fr; gap:0;
+    border:1px solid var(--rule); background:rgba(255,255,255,.35);
+  }
+  .sxs .col{ padding:22px 24px }
+  .sxs .col + .col{ border-left:1px solid var(--rule) }
+  .sxs h3{ display:flex; align-items:center; gap:8px; margin-top:0 }
+  .sxs ul{ margin:0; padding-left:16px }
+  .sxs li{ font-size:13.5px; color:var(--ink-soft); margin-bottom:9px; line-height:1.45 }
+  .sxs li::marker{ color:var(--accent) }
+  .sxs .col.lim h3{ color:var(--warn) }
+  .sxs .col.lim li::marker{ color:var(--warn) }
+  .sxs li b{ color:var(--ink); font-weight:600 }
+
+  /* questions */
+  .questions{
+    border:1px solid var(--rule); background:rgba(255,255,255,.35);
+    padding:22px 26px;
+  }
+  .q-list{ display:grid; gap:10px; counter-reset:q; list-style:none; padding:0; margin:0 }
+  .q-list li{
+    counter-increment:q; position:relative; padding-left:42px;
+    font-size:14px; color:var(--ink-soft); line-height:1.5;
+  }
+  .q-list li::before{
+    content:"Q" counter(q);
+    position:absolute; left:0; top:1px;
+    font-family:var(--mono); font-size:11px; font-weight:700;
+    color:var(--accent-dk); background:var(--accent-lt);
+    padding:3px 6px; border-radius:1px;
+  }
+  .q-list li b{ color:var(--ink); font-weight:600 }
+
+  /* credibility strip */
+  .cred{
+    margin-top:24px; padding:16px 20px;
+    background:var(--bg-alt); border-left:3px solid var(--accent);
+    font-size:13px; color:var(--ink-soft);
+  }
+  .cred b{ color:var(--ink) }
+
+  /* footer */
+  .foot{
+    margin-top:48px; padding-top:18px; border-top:1px solid var(--rule);
+    display:flex; flex-wrap:wrap; gap:16px; align-items:center;
+    font-family:var(--mono); font-size:11.5px; color:var(--ink-mute);
+    letter-spacing:.04em;
+  }
+  .foot a{ color:var(--ink); border-bottom:1px solid var(--rule) }
+  .foot .right{ margin-left:auto }
+
+  /* entrance */
+  @keyframes rise { from{opacity:0; transform:translateY(8px)} to{opacity:1; transform:none} }
+  .hero, .assets, .sec-head, .grid-2, .sxs, .questions, .cred{
+    animation: rise .5s ease-out both;
+  }
+  .assets{ animation-delay:.08s }
+  .sec-head{ animation-delay:.14s }
+  .grid-2, .sxs, .questions, .cred{ animation-delay:.18s }
+
+  /* responsive */
+  @media (max-width: 880px){
+    .assets{ grid-template-columns:1fr }
+    .asset{ border-right:none; border-bottom:1px solid var(--rule); min-height:0 }
+    .grid-2, .sxs{ grid-template-columns:1fr }
+    .grid-2 > .panel:first-child{ border-right:none; border-bottom:1px solid var(--rule) }
+    .sxs .col + .col{ border-left:none; border-top:1px solid var(--rule) }
+    .stat-row{ grid-template-columns:1fr 1fr }
+    .hero .claim{ max-width:none }
+    .shell{ padding:60px 18px 40px }
+  }
+  @media (prefers-reduced-motion: reduce){
+    *{ animation:none !important; transition:none !important }
+  }
+</style>
+</head>
+<body>
+
+<nav class="topnav"><a href="./index.html">↩ Today's digest</a></nav>
+
+<main class="shell">
+
+  <!-- META STRIP -->
+  <div class="meta-strip">
+    <span><span class="dot">●</span> Paper Dashboard</span>
+    <span>2026 · 07 · 16</span>
+    <span>UC Irvine · Imani Lab</span>
+    <a class="arxiv" href="https://arxiv.org/abs/2607.14618" target="_blank" rel="noopener">arXiv:2607.14618 ↗</a>
+  </div>
+
+  <!-- HERO BAND -->
+  <section class="hero">
+    <div class="label">Key Finding</div>
+    <h1 class="claim">
+      <em>PolyQ</em> co-designs a quantizer and a model compiler so <span class="hl">one fractional bit-budget</span> monotonically controls quality, memory, latency, throughput and energy on edge CPUs.
+    </h1>
+
+    <h2 class="paper-title">
+      <a href="https://arxiv.org/abs/2607.14618" target="_blank" rel="noopener">PolyQ: Codesigning End-to-End Quantization Framework for Scalable Edge CPU LLM Inference</a>
+    </h2>
+    <p class="authors">
+      Hyunwoo Oh · Suyeon Jang · Hanning Chen · KyungIn Nam · Sanggeon Yun · Ryozo Masukawa · Mohsen Imani &nbsp;<span class="lab">(UC Irvine, Imani Lab)</span>
+    </p>
+    <div class="chips">
+      <span class="chip accent">llm-quantization</span>
+      <span class="chip">cpu-inference</span>
+      <span class="chip">mixed-precision</span>
+      <span class="chip">model-compiler</span>
+      <span class="chip">edge-deployment</span>
+      <span class="chip">{2,3,4,8,16}-bit palette</span>
+    </div>
+  </section>
+
+  <!-- ASSET ROW -->
+  <section class="assets">
+
+    <!-- KEY METRIC -->
+    <div class="asset metric">
+      <div class="k"><span class="idx">1</span> Key Metric · 3-bit WikiText-2</div>
+      <div class="big">4.88<sup>ppl</sup></div>
+      <div class="unit">Llama2-13B · lower is better</div>
+      <p class="desc">
+        PolyQ at a <strong>3-bit</strong> average budget beats every baseline on WikiText-2 — a <strong>2.4–32.1%</strong> perplexity reduction across three models.
+      </p>
+      <div class="compare">
+        <span class="win">▸ <b>4.88</b> &nbsp;PolyQ</span>
+        <span>▸ <b>5.29</b> &nbsp;AWQ</span>
+        <span>▸ <b>5.68</b> &nbsp;AMQ</span>
+        <span>▸ <b>5.03</b> &nbsp;Slim-LLM</span>
+      </div>
+    </div>
+
+    <!-- WHY THIS MATTERS -->
+    <div class="asset why">
+      <div class="k"><span class="idx">2</span> Why This Matters</div>
+      <p class="lede">
+        Turns CPU-only edge LLM deployment from a W2/W3/W4 pick-one into a predictable, 0.1-bit-granular design variable.
+      </p>
+      <p class="foot">
+        One fractional budget <span style="font-family:var(--mono);color:var(--ink)">B</span> simultaneously trades off perplexity, peak memory, prefill latency, decode throughput and energy — across workstation, laptop and mobile CPUs.
+      </p>
+    </div>
+
+    <!-- CRITICAL EDGE -->
+    <div class="asset edge">
+      <div class="k"><span class="idx">3</span> Critical Edge</div>
+      <p class="body">
+        AMQ is flagged <b>“unsupported”</b> on one of three models (Falcon-H1-3B), and every runtime claim rests on a <b>single baseline</b> — uniformly-quantized AWQ on T-MAC.
+      </p>
+      <div class="tag">No public code · GPU-only rivals excluded from runtime</div>
+    </div>
+
+  </section>
+
+  <!-- METHODOLOGY + RESULTS -->
+  <div class="sec-head">
+    <span class="n">§ 01 / 03</span>
+    <h2>How it works &amp; how it performed</h2>
+    <span class="note">quantizer §3 + compiler §4</span>
+  </div>
+
+  <div class="grid-2">
+
+    <!-- METHODOLOGY -->
+    <div class="panel">
+      <h3>Methodology · two-stage codesign</h3>
+      <p><strong>Quantizer</strong> — for each linear layer, a max-heap greedy <strong>waterfilling</strong> promotes channels to the widest feasible bit-width from the {2,3,4,8,16} palette until the fractional budget <span style="font-family:var(--mono)">B·d_in</span> is exhausted.</p>
+      <ol class="steps">
+        <li><b>Activation-aware error proxy.</b> <span style="font-family:var(--mono);font-size:12px">E_b[ℓ][j] ≈ ||w̃−w||² · E[x_j²]</span> in one pass + precomputed second moments.</li>
+        <li><b>Waterfilling under B.</b> Greedy max-heap on gain <span style="font-family:var(--mono);font-size:12px">G=(E_b−E_b′)/(b′−b)</span> until budget spent.</li>
+        <li><b>ISA-aware quanta snap.</b> Round channel counts to backend tiles (AVX2 int8 ×32, LUT quanta); error-aware reassign keeps <span style="font-family:var(--mono);font-size:12px">B_real≈B</span>.</li>
+        <li><b>Compiler layout regularization.</b> Factor <span style="font-family:var(--mono);font-size:12px">O=(A·P_Wᵀ)·(P_W·W)</span>; cluster same-bit rows; dispatch low-bit → T-MAC LUT, 8/16-bit → OpenBLAS SIMD.</li>
+        <li><b>DAG permutation propagation.</b> Absorb downstream activation perms into upstream weights via a finite graph-labeling problem — shuffles only at block boundaries.</li>
+      </ol>
+    </div>
+
+    <!-- RESULTS -->
+    <div class="panel">
+      <h3>Results · 3-bit WikiText-2 perplexity</h3>
+      <table class="restbl">
+        <thead>
+          <tr><th>Model</th><th>PolyQ</th><th>AWQ</th><th>GPTQ</th><th>AMQ</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Falcon-H1-3B</td><td class="win">5.82</td><td>5.96</td><td>6.28</td><td>— †</td></tr>
+          <tr><td>Llama2-13B</td><td class="win">4.88</td><td>5.29</td><td>5.75</td><td>5.68</td></tr>
+          <tr><td>Qwen3-32B</td><td class="win">7.66</td><td>8.23</td><td>10.75</td><td>11.29</td></tr>
+        </tbody>
+      </table>
+      <p class="res-note">† AMQ unsupported on Falcon-H1-3B's hybrid attention. Gain: 2.4–7.8% vs AWQ, up to 32.1% vs AMQ.</p>
+
+      <h3 style="margin-top:18px">Systems wins · Llama2-13B, B=3</h3>
+      <div class="stat-row">
+        <div class="stat"><div class="v"><span class="pct">70.8%</span></div><div class="l">reorder-traffic cut vs RPTQ</div></div>
+        <div class="stat"><div class="v">&lt;2<span class="pct">%</span></div><div class="l">energy overhead vs AWQ+T-MAC</div></div>
+        <div class="stat"><div class="v">0.045<span class="pct">b</span></div><div class="l">max avg-bit mismatch after snap</div></div>
+      </div>
+      <p class="res-note">Peak memory within 1.1% of same-backend AWQ; latency within 4.7% on Ryzen 9950X. Recovery thresholds B_min = 2.1 / 2.6 / 2.2 b save up to 21.8% memory vs uniform W3.</p>
+    </div>
+
+  </div>
+
+  <!-- STRENGTHS / LIMITATIONS -->
+  <div class="sec-head">
+    <span class="n">§ 02 / 03</span>
+    <h2>Strengths vs. Limitations</h2>
+    <span class="note">critical assessment</span>
+  </div>
+
+  <div class="sxs">
+    <div class="col str">
+      <h3>▲ Strengths</h3>
+      <ul>
+        <li><b>Genuinely end-to-end</b> — one budget B predicts quality, memory, latency, throughput and energy.</li>
+        <li><b>Strong systems rigor</b> — three CPU tiers, RAPL energy, full working-set memory (KV cache + FP16 residue + live activations), not weight-only theory.</li>
+        <li><b>Up to 70.8% reorder-traffic cut</b> vs the best prior fixed/template policy, with a clean per-token A16-traffic model.</li>
+        <li><b>Compile-time factorization</b> never materializes P_W at runtime; merge rule spans transformer-block boundaries.</li>
+        <li><b>Honest</b> about Slim-LLM's marginal edge at 5–6 b and about GPU-only baselines blocking direct runtime comparison.</li>
+      </ul>
+    </div>
+    <div class="col lim">
+      <h3>▼ Limitations</h3>
+      <ul>
+        <li><b>No public code</b>; quanta values and ARM NEON/SVE retargeting under-specified.</li>
+        <li><b>Only three models (3B/13B/32B)</b>; no 70B+ validation, no batch&gt;1 study.</li>
+        <li><b>AMQ missing on Falcon-H1-3B (†)</b>; runtime rests on a single baseline.</li>
+        <li><b>Non-standard "capped multiple-choice accuracy"</b> hinders cross-paper comparison.</li>
+        <li><b>No ablation</b> on calibration size, proxy choice, or α_b grid search.</li>
+        <li><b>Palette caps the ceiling</b> — no 5/6/7-bit entries by design.</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- CREDIBILITY -->
+  <div class="cred">
+    <b>Authors &amp; credibility.</b> UC Irvine Imani Lab, authors of T-SAR (arXiv:2511.13676) — PolyQ inherits its W{2,3,4}A16 LUT backend. Evaluation is unusually thorough on the systems side; the genuinely novel contribution is the <b>DAG-level permutation propagation (§4.4)</b>, while the per-channel waterfilling is closer to AWQ/Slim-LLM saliency in spirit.
+  </div>
+
+  <!-- QUESTIONS -->
+  <div class="sec-head">
+    <span class="n">§ 03 / 03</span>
+    <h2>Open questions</h2>
+    <span class="note">for further exploration</span>
+  </div>
+
+  <div class="questions">
+    <ol class="q-list">
+      <li>Is the <b>2.4% lower-bound gain</b> robust, or an artifact of 128-sequence calibration? How does it shift at 32 / 512 sequences?</li>
+      <li>Does DAG permutation propagation <b>generalize to Mamba, hybrid SSM-transformer, or MoE</b> routing where channels mix across attention/FFN boundaries?</li>
+      <li>What is the quality/latency trade-off at <b>70B+ scale</b>, where absolute reorder traffic and OpenBLAS SIMD dispatch scale differently?</li>
+      <li>How sensitive is the <b>E[x_j²] proxy</b> to activation distribution shift between calibration and deployment (code vs natural language, long vs short context)?</li>
+      <li>Can the quanta-snap stage extend to <b>GPU group-quantization tiles</b>, making the palette portable across CPU+GPU heterogeneous edge?</li>
+    </ol>
+  </div>
+
+  <!-- FOOTER -->
+  <div class="foot">
+    <a href="./2607.14618.md">↗ Markdown source</a>
+    <a href="https://arxiv.org/abs/2607.14618" target="_blank" rel="noopener">arXiv abstract ↗</a>
+    <span class="right">Dashboard · 2026-07-16 · PolyQ (2607.14618)</span>
+  </div>
+
+</main>
+
+<script>
+  // Lightweight: highlight the winning column in the results table on hover of a model row.
+  document.querySelectorAll('.restbl tbody tr').forEach(function(tr){
+    tr.addEventListener('mouseenter', function(){
+      tr.style.background = 'rgba(181,71,26,.06)';
+    });
+    tr.addEventListener('mouseleave', function(){
+      tr.style.background = '';
+    });
+  });
+</script>
+
+</body>
+</html>

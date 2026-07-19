@@ -1,0 +1,197 @@
+### 2026-07-13 (44)
+
+- [[2607.10970]] Enhanced Byzantine-Robust Federated Learning Via Truncated-Quadratic Loss for Heterogeneous Data — Training / 训练
+- [[2607.11007]] TabPFN beyond Tabular Data: Calibration and Accuracy on Multimodal Embeddings — Evaluation / 评估
+- [[2607.11022]] When the Reward Suite Is Leaky: A Preregistered Causal Contrast of Natural Verifier False Positives in RLVR — Reasoning / 推理
+- [[2607.11052]] Domain-Aware Scaling Laws Uncover Data Synergy — Training / 训练
+- [[2607.11079]] Are LLMs Ready for Scientific Discovery? A Capability-Oriented Benchmark for AI Scientists — Evaluation / 评估
+- [[2607.11081]] Controlling Motion Transfer in Diffusion Transformers via Attention Heads — Interpretability / 可解释性
+- [[2607.11084]] NVAITC AI Scientist: A Governed End-to-End Research System — A Hypertension GWAS Case Study — Agents / 智能体
+- [[2607.11098]] AgentCheck: A Reproduce–Intervene–Mitigate Workbench for LLM Agents over MCP — Agents / 智能体
+- [[2607.11116]] The Equilibrium Is the Initialization: Lazy Identity Collapse in Physics-Structured Deep Equilibrium Reasoning — Theory / 理论
+- [[2607.11122]] Implicit Neural Networks as Static Controllers: Certificates and Performance Separation — Theory / 理论
+- [[2607.11149]] The Hidden Footprint: Making Storage a First-Class Metric for LLM Agent Evaluation — Agents / 智能体
+- [[2607.11163]] Unified Gradient Projection: Language-Balanced Continual Learning for Multilingual Low-Resource ASR — Training / 训练
+- [[2607.11170]] TC-MAF: Train-Calibrated Bounded Multi-Evidence Fusion for Multimodal Industrial Anomaly Detection — Evaluation / 评估
+- [[2607.11175]] The Path to Self-Evolving Clinical Systems: Scaling Medical Agents from Assistance to Autonomy — Agents / 智能体
+- [[2607.11193]] REPTRAN: Search-Based Repair of Transformer Models — Training / 训练
+- [[2607.11211]] FastTPS: An Optimized Method for LLM Token Phase for AI Accelerators — Efficiency / 效率
+- [[2607.11214]] A Novel Method to Evaluate Models on Unreliable, Noisy and Inconsistent Labels (ARLA) — Evaluation / 评估
+- [[2607.11226]] Heterogeneous Agent Cohorts for Safe Open-Ended Exploration with Runtime Constraint Memory — Safety / 安全
+- [[2607.11250]] Multi-Agent LLMs Fail to Explore Each Other — Agents / 智能体
+- [[2607.11266]] Valid ≠ Necessary: Diagnosing Latent Inefficiency in Chain-of-Thought — Reasoning / 推理
+- [[2607.11267]] Enhancing LLMs through human feedback: a journey towards self-improvement — Training / 训练
+- [[2607.11288]] Mako: A Self-Evolving Agentic Operating System (SE-AOS) for Autonomous Web Exploitation — Safety / 安全
+- [[2607.11289]] Backpropagation as a Nilpotent Linear System — Theory / 理论
+- [[2607.11317]] Calibrated e-CUSUM Decoding for Quantized Reasoning Models — Efficiency / 效率
+- [[2607.11327]] PRISM Edit: One Vector for All Temporal Answers — Interpretability / 可解释性 ↻07-15
+- [[2607.11347]] From Neural Network Decisions to Training Cases: An Exact Account via Case-Based Decision Theory — Interpretability / 可解释性
+- [[2607.11359]] Efficient Tuning Before Low-Bit Post-Training Quantization for SGD-optimized Models — Efficiency / 效率
+- [[2607.11368]] Decomposing Runtime, Kernel, and Quantization Speedups via a Matched FP16 Intermediate — Efficiency / 效率
+- [[2607.11388]] StructAgent: Harness Long-horizon Digital Agents with Unified Causal Structure — Agents / 智能体
+- [[2607.11414]] Confidently Wrong: Detecting Hallucinations in Financial Question Answering from LLM Internal States — Reasoning / 推理
+- [[2607.11444]] Unlocking Every Expert in Domain-Specific Training — Training / 训练
+- [[2607.11475]] HyperSafe: Inference-Time Safety Recovery for Fine-Tuned Language Models — Safety / 安全
+- [[2607.11541]] Random Label Prediction Heads for Studying Memorization in Deep Neural Networks — Interpretability / 可解释性
+- [[2607.11542]] Condition-Stratified Robustness Analysis of Post-Hoc Calibration Methods for Probabilistic Classifiers — Evaluation / 评估
+- [[2607.11586]] HCRMap: Pressure-Aware Hot-Expert Residency Mapping for 3.5D MoE Chiplet Inference — Efficiency / 效率
+- [[2607.11598]] Interaction Scaling: Grounding the Third Axis of Test-Time Compute — Reasoning / 推理
+- [[2607.11607]] Auditing the Risk Claims of Distributional Reinforcement Learning — Reasoning / 推理
+- [[2607.11666]] How to Tame Grokking: Representation Geometry as a Control Signal — Theory / 理论
+- [[2607.11698]] Agent Hacks Agent: Autoresearch for Production-Agent Red-Teaming — Safety / 安全
+- [[2607.11751]] When Local Monitors Miss Compositional Harm: Diagnosing Distributed Backdoors in Multi-Agent Systems — Safety / 安全
+- [[2607.11796]] An Exact Instrument for State Usage in Selective State-Space Models, and the Input-Driven Migration It Reveals — Interpretability / 可解释性
+- [[2607.11801]] Encoder-Side Neuron Identification and Amplification for Acoustic Perception in Large Audio-Language Models — Evaluation / 评估
+- [[2607.11871]] Inside the Unfair Judge: A Mechanistic Interpretability Account of LLM-as-Judge Bias — Interpretability / 可解释性
+- [[2607.11875]] Invariant Learning Dynamics of Transformers in Inductive Reasoning Tasks — Theory / 理论
+
+### 2026-07-14 (39)
+
+- [[2607.12227]] Rethinking Harness Evolution Evaluation — Agent Benchmarks / 智能体基准 ⭐ ↻07-15
+- [[2607.12252]] FinResearchBench II — Agent Benchmarks / 智能体基准
+- [[2607.12254]] Recursively Self-Improving Agents — Agents & Memory / 智能体与记忆 ↻07-15
+- [[2607.12266]] Saturation Quantization Coverage Model — Quantization / 量化 ⭐ ↻07-15
+- [[2607.12273]] Code-MUE — Code & SE / 代码与软件工程
+- [[2607.12279]] Countdown Subcircuit — Mechanistic Interp / 机制可解释性 ⭐ ↻07-15
+- [[2607.12298]] EIR FPGA Self-Healing — Applications / 应用 ↻07-15
+- [[2607.12332]] Diagonal Linear Network Dynamics — Training Dynamics / 训练动力学 ↻07-15
+- [[2607.12338]] How Many Tasks Are Enough — Agent Benchmarks / 智能体基准 ↻07-15
+- [[2607.12360]] LR Cooldown Noise Structure — Training Dynamics / 训练动力学
+- [[2607.12385]] PM-Bench Prospective Memory — Agent Benchmarks / 智能体基准
+- [[2607.12397]] Critic Experience Bank (CEB) — Confidence & Safety / 置信度与安全 ↻07-15
+- [[2607.12438]] Fisher Rank Inflation — Training Dynamics / 训练动力学 ↻07-15
+- [[2607.12447]] SDC Confidence in LLMs — Confidence & Safety / 置信度与安全
+- [[2607.12455]] EvoQuant Trading — Applications / 应用 ↻07-15
+- [[2607.12469]] Agent-Safety Reconstructability — Agent Benchmarks / 智能体基准 ↻07-15
+- [[2607.12474]] Mechanistic World Models — Position / 立场论文
+- [[2607.12526]] Source-Grounded Feature Inversion — Mechanistic Interp / 机制可解释性
+- [[2607.12545]] VanillaBench — LLM-as-Judge / 评判者方法学
+- [[2607.12616]] FTSS Flow Matching Memorization — Training Dynamics / 训练动力学
+- [[2607.12625]] KnowAct-GUIClaw — Agents & Memory / 智能体与记忆
+- [[2607.12640]] GRPO Failure Web Agent — Agents & Memory / 智能体与记忆 ↻07-15
+- [[2607.12687]] CARE-PPO — Confidence & Safety / 置信度与安全
+- [[2607.12735]] Grokking Representational Priors — Training Dynamics / 训练动力学
+- [[2607.12739]] ESFP Epistemic Stance — LLM-as-Judge / 评判者方法学
+- [[2607.12747]] Oat Failure Attribution — Agents & Memory / 智能体与记忆
+- [[2607.12767]] Bayesian Accuracy Length Bias — LLM-as-Judge / 评判者方法学
+- [[2607.12780]] Quantum Circuit Autoregressive Drift — Applications / 应用
+- [[2607.12790]] Double Ratchet — Agents & Memory / 智能体与记忆 ↻07-15
+- [[2607.12792]] JADR J-Space Safety — Confidence & Safety / 置信度与安全 ↻07-15
+- [[2607.12796]] One-Word Census — Confidence & Safety / 置信度与安全
+- [[2607.12835]] LLM Rubric Meta-Evaluation — LLM-as-Judge / 评判者方法学 ↻07-15
+- [[2607.12863]] ROBIN Attention Bias — Mechanistic Interp / 机制可解释性
+- [[2607.12868]] Deep4ge DNN Faults — Code & SE / 代码与软件工程 ↻07-15
+- [[2607.12885]] LLM Judges Too Generous — LLM-as-Judge / 评判者方法学
+- [[2607.12893]] MemOps Memory Benchmark — Agents & Memory / 智能体与记忆
+- [[2607.12954]] PV Forecasting Robustness — Applications / 应用
+- [[2607.12962]] PoPE Self-Repair — Code & SE / 代码与软件工程
+- [[2607.12963]] Illusion of Robustness — Confidence & Safety / 置信度与安全
+
+### 2026-07-15 (24)
+
+- [[2405.11667]] Local SGD Limits & Potentials — Theory/Optimization
+- [[2511.04689]] ATLAS Adaptive Testing — Evaluation
+- [[2602.19938]] R&Q Replicate-and-Quantize for MoE — Efficiency/Quantization
+- [[2603.06592]] Hierarchical Latent Structures — Interpretability
+- [[2603.24787]] ReLope LoRA Probes for Routing — Routing/Efficiency
+- [[2605.05686]] Attractor Geometry of Transformer Memory — Interpretability
+- [[2605.12765]] GUARD-IT Inference-Time Unlearning — Safety/Unlearning
+- [[2605.22432]] AMUSE Anytime Muon Optimizer — Optimization
+- [[2606.04115]] dMX Differentiable Mixed-Precision — Quantization
+- [[2606.17930]] Inference Compute Shapes Frontier Eval — Evaluation
+- [[2606.27321]] Sparsity Regularizers for Top-k SAEs — Interpretability
+- [[2607.11183]] Amplitude-Only FFN Intervention — Inference Intervention
+- [[2607.11990]] Sparse Inter-Layer FFN Dependencies — Interpretability
+- [[2607.12085]] GenAI Eval for Conversational Agents — Evaluation
+- [[2607.12094]] SAID SAEs for OOD Detection — OOD Detection
+- [[2607.12113]] Trustworthy Autonomous Science (AISLE-2) — Agents/Position
+- [[2607.12122]] AI-SC Agentic Operator Discovery — Agents/Science
+- [[2607.12166]] SAE Causal Audit — Interpretability
+- [[2607.12395]] Ring-Zero RL to 1T — RL/Reasoning
+- [[2607.12523]] OOD-RL-Bench — OOD/RL Safety
+- [[2607.12550]] JoLT KV Cache Compression — KV Cache
+- [[2607.12789]] AVQ-Attention — Efficient Attention
+- [[2607.12815]] Visual Access Boundaries (VAB) — VLM/Interpretability
+- [[2607.12985]] Resist and Update (CRC) — Interpretability/Sycophancy
+
+### 2026-07-16 (50)
+
+- [[2607.13608]] Auto ODE Discovery (Bio) — Self-Evolving Agents / 自演化智能体
+- [[2607.13631]] Hessian-Spectrum Depends on Data — Training Dynamics / 训练动力学 ⭐
+- [[2607.13649]] CIMERA Compute-in-Interconnect — Quantization & Inference / 量化与推理
+- [[2607.13660]] CLIP Hyperspherical Geometry — Math Foundations / 数学基础
+- [[2607.13683]] GSME Self-Evolving Harness — Self-Evolving Agents / 自演化智能体 ⭐
+- [[2607.13707]] Test Oracle Problem LLM-as-Judge — LLM Evaluation / LLM 评测
+- [[2607.13753]] Post-Training Shifts Confidence — LLM Evaluation / LLM 评测
+- [[2607.13898]] FPGA MXFP Tensor Block — Quantization & Inference / 量化与推理
+- [[2607.13899]] AIMO Interpretability Challenge — Interpretability / 可解释性
+- [[2607.13918]] Partially Correlated Verifier Cascades — Computation Reliability / 计算可靠性 ⭐
+- [[2607.13940]] Self-Evolving Health Agent — Self-Evolving Agents / 自演化智能体
+- [[2607.14004]] Do Agent Optimizers Compound? — Self-Evolving Agents / 自演化智能体
+- [[2607.14018]] Transforming Rank: Spectral Pathologies — Training Dynamics / 训练动力学
+- [[2607.14178]] ReasFlow Math Discovery — Self-Evolving Agents / 自演化智能体
+- [[2607.14181]] Quantize with Confidence? (Code Gen) — Quantization & Inference / 量化与推理
+- [[2607.14185]] Closed-Loop Knowledge Dynamics — Training Dynamics / 训练动力学
+- [[2607.14228]] SeeSE3: 3D Space in Vision — Math Foundations / 数学基础
+- [[2607.14275]] Context Fails First — LLM Evaluation / LLM 评测
+- [[2607.14306]] ENTD: Trace to Training Data — Interpretability / 可解释性
+- [[2607.14375]] Random Noise vs ReLU Verification — Computation Reliability / 计算可靠性
+- [[2607.14399]] Instrument Effects in Honesty Eval — Interpretability / 可解释性
+- [[2607.14408]] Reward-Free Evolving Agents — Self-Evolving Agents / 自演化智能体
+- [[2607.14427]] Per-Token Fixed-Point Convergence — Training Dynamics / 训练动力学
+- [[2607.14431]] Byte-Exact KV-State Grafting Flywheel — Self-Evolving Agents / 自演化智能体
+- [[2607.14463]] Hidden-State Collapse (LiDAR AE) — Interpretability / 可解释性 ↻07-17
+- [[2607.14480]] LLM Evaluators Biased across Languages — LLM Evaluation / LLM 评测 ↻07-17
+- [[2607.14506]] Non-vacuous Bounds for RLVR — Math Foundations / 数学基础 ↻07-17
+- [[2607.14516]] RK3(2)-Adam Compute-Matched Study — Training Dynamics / 训练动力学 ↻07-17
+- [[2607.14528]] CRTBench: Logical Consistency — LLM Evaluation / LLM 评测 ↻07-17
+- [[2607.14536]] Muse: Muon Representation Geometry — Training Dynamics / 训练动力学 ↻07-17
+- [[2607.14541]] Atrex-Bench: GPU Kernels — Quantization & Inference / 量化与推理 ↻07-17
+- [[2607.14552]] Answer-Conditioned CoT Degrades — LLM Evaluation / LLM 评测 ⭐ ↻07-17
+- [[2607.14568]] Multimodal on 2011 Fermi GPU — Quantization & Inference / 量化与推理
+- [[2607.14576]] Sharp Stability Threshold (Residual) — Training Dynamics / 训练动力学 ↻07-17
+- [[2607.14618]] PolyQ: Edge CPU Quantization — Quantization & Inference / 量化与推理 ↻07-17
+- [[2607.14622]] ExaGEMM In-Register Computing — Quantization & Inference / 量化与推理
+- [[2607.14658]] TopoAgent: Self-Evolving Topological — Self-Evolving Agents / 自演化智能体 ↻07-17
+- [[2607.14777]] SEED: Self-Evolving OPD — Self-Evolving Agents / 自演化智能体 ↻07-17
+- [[2607.14791]] Transcoders for Deception — Interpretability / 可解释性 ↻07-17
+- [[2607.14817]] Evaluating Epistemic Uncertainty — Math Foundations / 数学基础 ↻07-17
+- [[2607.14943]] WA-LQR: Steering Robustness into WAMs — Interpretability / 可解释性 ↻07-17
+- [[2607.15001]] LQCDMaster: Agentic Lattice QCD — Self-Evolving Agents / 自演化智能体 ↻07-17
+- [[2607.15079]] BrainPilot: Agentic Brain Discovery — Self-Evolving Agents / 自演化智能体 ↻07-17
+- [[2607.15084]] Face Embedding Geometry MIA — Math Foundations / 数学基础 ↻07-17
+- [[2607.15175]] Linear Representations of Grammaticality — Interpretability / 可解释性 ↻07-17
+- [[2607.15190]] Can We Trust IRT for AI Evaluation? — LLM Evaluation / LLM 评测 ↻07-17
+- [[2607.15196]] Subjective Risk Decomposition — Math Foundations / 数学基础 ↻07-17
+- [[2607.15218]] PRISM: Physical Danger Beyond Text — Interpretability / 可解释性 ↻07-17
+- [[2607.15247]] AutoSynthesis: Automated Meta-Analysis — Self-Evolving Agents / 自演化智能体 ↻07-17
+- [[2607.15277]] Statistical Self-Consistency in LLMs — LLM Evaluation / LLM 评测 ↻07-17
+
+### 2026-07-17 (26)
+
+- [[2607.14460]] Precise sample covariance spectral norm error – an RDT view — 协方差谱范数精确界 / Sharp covariance spectral bound
+- [[2607.14466]] Interleaved Noise Injection Improves Clean, Corrupted, and OOD Performance — 交替噪声课程 / Interleaved noise curriculum
+- [[2607.14530]] xHC: Expanded Hyper-Connections — Transformer 架构 / Transformer architecture ⭐
+- [[2607.14545]] CASP: Learning-Augmented Offline Approximation with Verifiable Certificates — 学习增强近似算法 / Learning-augmented approximation
+- [[2607.14560]] Breaking the Model Forgetting Cycle in Long-Incremental 3D Object Detection — 长期增量 3D 检测 / Long-incremental 3D detection
+- [[2607.14570]] Democratizing Agent Deployment Safety: A Structural Monitoring Approach — IaC 篡改检测 / IaC sabotage detection
+- [[2607.14582]] MathCoPilot: Interactive Human-AI Symbiotic Theorem Proving — 人机协同定理证明 / Human-AI theorem proving
+- [[2607.14707]] Harnessing LLMs for Reliable Academic Supervision — 工程化 vs 裸 LLM / Engineered vs bare LLM
+- [[2607.14720]] Causal-Adversarial Probing of Clinical Covariates for Prostate MRI Grading — 协变量因果探测 / Causal covariate probing
+- [[2607.14731]] What's in a Smoothness Constant? Tighter Rates for Local SGD — Local SGD 收敛率 / Local SGD convergence
+- [[2607.14737]] GeoDetect: Geometric Adversarial Detection for VLPs — VLP 对抗检测 / VLP adversarial detection
+- [[2607.14760]] Clean-Reference Streaming Detection of Lens Occlusion — 摄像头篡改流式检测 / Streaming camera-tamper detection
+- [[2607.14826]] Interventional Causal Circuits for Safe Robot Action Testing — 机器人动作因果调试 / Causal robot action debugging
+- [[2607.14862]] Tamed Stochastic Gradient Hamiltonian Monte Carlo — 驯服 SGHMC / Tamed SGHMC
+- [[2607.14877]] PAC Learning in Turn-Based Stochastic Games with Reachability Objectives — 随机博弈 PAC 学习 / TBSG PAC learning
+- [[2607.14889]] Analytical Study of the Optimal Combination of Binary Classifiers — 分类器集成理论 / Classifier ensemble theory
+- [[2607.14890]] Proof-or-Stop: Don't Trust the Agent, Trust the Evidence — 智能体生命周期证据门控 / Agent lifecycle evidence gating ⭐
+- [[2607.14947]] Optimal Self-Distillation for Rectified Flow via Linear Probing — 线性 RF 自蒸馏 / Linear RF self-distillation
+- [[2607.14952]] LongStraw: Long-Context RL Beyond 2M Tokens under a Fixed GPU Budget — 固定预算长上下文 RL / Fixed-budget long-context RL
+- [[2607.14967]] Latent Trajectory Discrimination for AI-Generated Text Detection — AI 文本检测 / AI-text detection
+- [[2607.15003]] SMC-ES: Automated Synthesis of Formally Verified Control Policies — 形式验证控制策略 / Formally verified control
+- [[2607.15067]] Kernel Weighted Importance Sampling for Off-Policy Evaluation — 核加权 OPE / Kernel-weighted OPE
+- [[2607.15080]] Evaluating Covariate Balance for Long-Horizon MDPs — 离线 RL 协变量均衡 / Offline-RL covariate balance
+- [[2607.15105]] Long-Context Fine-Tuning with Limited VRAM — 低 VRAM 长上下文 QLoRA / Low-VRAM long-context QLoRA
+- [[2607.15164]] The Industrialization of Research: On AI-Driven Science — AI 科学的工业化批判 / AI-science industrialization critique
+- [[2607.15208]] Delocalization of Bias in Unadjusted Hamiltonian Monte Carlo — HMC 偏差离域化 / HMC bias delocalization

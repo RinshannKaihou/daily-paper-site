@@ -1,0 +1,853 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Per-Token Fixed-Point Convergence in Depth-Recurrent Transformers</title>
+<style>
+  :root {
+    --accent: #b8341c;       /* oxblood / scientific red */
+    --accent-soft: #f4e6e1;
+    --ink: #14110f;
+    --ink-2: #4a443f;
+    --ink-3: #7a736b;
+    --rule: #d9d3cb;
+    --rule-2: #ece7e0;
+    --paper: #fbf9f5;
+    --paper-2: #f3efe7;
+    --good: #2f5d3a;
+    --good-soft: #e6eee7;
+    --warn: #6a4a0f;
+    --warn-soft: #f1e9d4;
+    --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+    --serif: "Iowan Old Style", "Charter", "Hoefler Text", Georgia, "Times New Roman", serif;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap {
+    width: min(95vw, 1100px);
+    margin: 0 auto;
+    padding: 0 4px;
+  }
+
+  /* ───── top-left fixed back link ───── */
+  .back-bar {
+    position: fixed;
+    top: 14px;
+    left: 14px;
+    z-index: 50;
+    background: var(--ink);
+    color: var(--paper);
+    font-size: 12.5px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    padding: 8px 12px;
+    border-radius: 3px;
+    text-decoration: none;
+    box-shadow: 0 6px 18px -8px rgba(0,0,0,0.45);
+    transition: transform 0.15s ease, background 0.15s ease;
+  }
+  .back-bar:hover { transform: translateX(-2px); background: var(--accent); }
+
+  /* ───── meta strip ───── */
+  .meta-strip {
+    padding: 56px 0 0;
+    font-family: var(--mono);
+    font-size: 11.5px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    display: flex;
+    gap: 16px;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+  .meta-strip .dot {
+    display: inline-block;
+    width: 5px; height: 5px;
+    background: var(--accent);
+    border-radius: 50%;
+    margin-right: 8px;
+    vertical-align: middle;
+  }
+  .meta-strip span { display: inline-flex; align-items: center; }
+
+  /* ───── hero band ───── */
+  .hero {
+    padding: 18px 0 36px;
+    border-bottom: 1px solid var(--rule);
+  }
+
+  .hero-title {
+    font-family: var(--sans);
+    font-size: 15px;
+    font-weight: 500;
+    color: var(--ink-2);
+    margin: 0 0 6px;
+  }
+  .hero-title a {
+    color: var(--ink-2);
+    text-decoration: none;
+    border-bottom: 1px solid var(--rule);
+    transition: color .15s, border-color .15s;
+  }
+  .hero-title a:hover { color: var(--accent); border-color: var(--accent); }
+
+  .hero-authors {
+    font-size: 13.5px;
+    color: var(--ink-3);
+    margin: 0 0 30px;
+  }
+  .hero-authors em { font-style: italic; color: var(--ink-3); }
+
+  .hero-finding {
+    font-family: var(--serif);
+    font-weight: 400;
+    font-size: clamp(30px, 5.4vw, 54px);
+    line-height: 1.06;
+    letter-spacing: -0.018em;
+    color: var(--ink);
+    margin: 0;
+    max-width: 17ch;
+  }
+  .hero-finding .em {
+    color: var(--accent);
+    font-style: italic;
+  }
+  .hero-finding .lift {
+    background: linear-gradient(transparent 62%, var(--accent-soft) 62%);
+    padding: 0 2px;
+  }
+
+  .chips {
+    margin: 28px 0 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 7px;
+  }
+  .chip {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.03em;
+    padding: 4px 9px;
+    border: 1px solid var(--rule);
+    background: #fff;
+    color: var(--ink-2);
+    border-radius: 2px;
+  }
+  .chip.accent { border-color: var(--accent); color: var(--accent); }
+
+  /* ───── asset row ───── */
+  .asset-row {
+    display: grid;
+    grid-template-columns: 1.1fr 0.95fr 0.95fr;
+    gap: 0;
+    border-bottom: 1px solid var(--rule);
+  }
+
+  .card {
+    padding: 32px 26px 30px;
+    border-right: 1px solid var(--rule);
+    position: relative;
+  }
+  .card:last-child { border-right: none; }
+
+  .card-label {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    margin: 0 0 14px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .card-label .pip {
+    width: 7px; height: 7px;
+    display: inline-block;
+    background: var(--accent);
+  }
+  .card-label .pip.good { background: var(--good); }
+  .card-label .pip.edge { background: var(--warn); }
+
+  /* metric card */
+  .metric-number {
+    font-family: var(--serif);
+    font-size: 76px;
+    line-height: 0.95;
+    letter-spacing: -0.03em;
+    color: var(--ink);
+    margin: 2px 0 4px;
+  }
+  .metric-number .unit {
+    font-size: 22px;
+    color: var(--ink-3);
+    letter-spacing: 0;
+    margin-left: 4px;
+    font-style: italic;
+  }
+  .metric-headline {
+    font-size: 14.5px;
+    color: var(--ink);
+    margin: 10px 0 6px;
+    font-weight: 600;
+  }
+  .metric-body {
+    font-size: 13px;
+    color: var(--ink-2);
+    margin: 0;
+    line-height: 1.5;
+  }
+  .metric-body code {
+    font-family: var(--mono);
+    font-size: 12px;
+    background: var(--paper-2);
+    padding: 1px 5px;
+    border-radius: 2px;
+  }
+
+  /* matters card */
+  .matters {
+    background: var(--good-soft);
+  }
+  .matters p {
+    font-family: var(--serif);
+    font-size: 17px;
+    line-height: 1.4;
+    color: var(--good);
+    margin: 0;
+  }
+
+  /* edge card */
+  .edge {
+    background: var(--warn-soft);
+  }
+  .edge p {
+    font-family: var(--serif);
+    font-size: 16.5px;
+    line-height: 1.4;
+    color: var(--warn);
+    margin: 0;
+  }
+  .edge p strong { font-weight: 600; }
+
+  /* ───── body section nav ───── */
+  .section-nav {
+    display: flex;
+    gap: 18px;
+    padding: 20px 0 0;
+    font-family: var(--mono);
+    font-size: 11.5px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    flex-wrap: wrap;
+  }
+  .section-nav a {
+    color: var(--ink-3);
+    text-decoration: none;
+    padding-bottom: 4px;
+    border-bottom: 1px solid transparent;
+    transition: color .15s, border-color .15s;
+  }
+  .section-nav a:hover { color: var(--accent); border-color: var(--accent); }
+
+  /* ───── body sections ───── */
+  section.body-block {
+    padding: 44px 0 8px;
+    border-bottom: 1px solid var(--rule);
+  }
+  section.body-block:last-of-type { border-bottom: none; }
+
+  .section-head {
+    display: flex;
+    align-items: baseline;
+    gap: 14px;
+    margin-bottom: 22px;
+  }
+  .section-num {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--accent);
+    letter-spacing: 0.1em;
+  }
+  .section-title {
+    font-family: var(--serif);
+    font-size: 30px;
+    font-weight: 400;
+    margin: 0;
+    letter-spacing: -0.012em;
+  }
+
+  .prose {
+    font-size: 15.5px;
+    line-height: 1.62;
+    color: var(--ink);
+    max-width: 68ch;
+  }
+  .prose p { margin: 0 0 14px; }
+  .prose strong { font-weight: 600; }
+  .prose code {
+    font-family: var(--mono);
+    font-size: 13px;
+    background: var(--paper-2);
+    padding: 1px 5px;
+    border-radius: 2px;
+    color: var(--ink);
+  }
+
+  /* methodology grid */
+  .method-grid {
+    display: grid;
+    grid-template-columns: 140px 1fr;
+    gap: 14px 28px;
+    font-size: 14.5px;
+    line-height: 1.55;
+  }
+  .method-grid dt {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    padding-top: 3px;
+  }
+  .method-grid dd { margin: 0; color: var(--ink); }
+  .method-grid dd code {
+    font-family: var(--mono);
+    font-size: 12.5px;
+    background: var(--paper-2);
+    padding: 1px 5px;
+    border-radius: 2px;
+  }
+
+  /* results grid */
+  .results-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 1px;
+    background: var(--rule);
+    border: 1px solid var(--rule);
+  }
+  .result-tile {
+    background: #fff;
+    padding: 18px 18px 16px;
+  }
+  .result-tile .rt-label {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    margin: 0 0 6px;
+  }
+  .result-tile .rt-val {
+    font-family: var(--serif);
+    font-size: 24px;
+    color: var(--ink);
+    letter-spacing: -0.01em;
+    margin: 0 0 4px;
+  }
+  .result-tile .rt-val .accent { color: var(--accent); }
+  .result-tile .rt-note {
+    font-size: 12.5px;
+    color: var(--ink-2);
+    margin: 0;
+    line-height: 1.45;
+  }
+
+  /* KL decay inline chart */
+  .kl-chart {
+    margin: 14px 0 4px;
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 4px;
+    align-items: end;
+    height: 64px;
+  }
+  .kl-bar {
+    background: var(--accent);
+    width: 100%;
+    position: relative;
+    transition: transform .2s;
+  }
+  .kl-bar span {
+    position: absolute;
+    bottom: -16px;
+    left: 0; right: 0;
+    text-align: center;
+    font-family: var(--mono);
+    font-size: 9.5px;
+    color: var(--ink-3);
+  }
+  .kl-bar small {
+    position: absolute;
+    top: -14px;
+    left: 0; right: 0;
+    text-align: center;
+    font-family: var(--mono);
+    font-size: 9.5px;
+    color: var(--ink-2);
+  }
+
+  /* strengths / limitations two-up */
+  .two-up {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0;
+    border: 1px solid var(--rule);
+  }
+  .pane {
+    padding: 24px 22px;
+  }
+  .pane.pro { background: var(--good-soft); border-right: 1px solid var(--rule); }
+  .pane.con { background: var(--warn-soft); }
+  .pane h3 {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    margin: 0 0 14px;
+    color: var(--ink-2);
+  }
+  .pane.pro h3 { color: var(--good); }
+  .pane.con h3 { color: var(--warn); }
+  .pane ul {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .pane li {
+    font-size: 13.8px;
+    line-height: 1.5;
+    margin: 0 0 12px;
+    padding-left: 16px;
+    position: relative;
+    color: var(--ink);
+  }
+  .pane li:last-child { margin-bottom: 0; }
+  .pane.pro li::before {
+    content: "+";
+    position: absolute;
+    left: 0; top: 0;
+    color: var(--good);
+    font-weight: 700;
+  }
+  .pane.con li::before {
+    content: "!";
+    position: absolute;
+    left: 0; top: 0;
+    color: var(--warn);
+    font-weight: 700;
+    font-family: var(--mono);
+  }
+  .pane li strong { font-weight: 600; }
+
+  /* questions list */
+  ol.q-list {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    counter-reset: q;
+  }
+  ol.q-list li {
+    counter-increment: q;
+    padding: 16px 0 16px 56px;
+    border-top: 1px solid var(--rule-2);
+    position: relative;
+    font-family: var(--serif);
+    font-size: 17px;
+    line-height: 1.45;
+    color: var(--ink);
+  }
+  ol.q-list li:first-child { border-top: none; }
+  ol.q-list li::before {
+    content: "Q" counter(q);
+    position: absolute;
+    left: 0; top: 18px;
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    color: var(--accent);
+    background: var(--accent-soft);
+    padding: 3px 7px;
+    border-radius: 2px;
+  }
+
+  /* credibility strip */
+  .cred {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 0;
+    border: 1px solid var(--rule);
+    margin-top: 20px;
+    font-size: 13px;
+  }
+  .cred > div {
+    padding: 14px 16px;
+    border-right: 1px solid var(--rule);
+  }
+  .cred > div:last-child { border-right: none; }
+  .cred .ck {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    display: block;
+    margin-bottom: 4px;
+  }
+  .cred .cv { color: var(--ink); font-weight: 500; }
+
+  /* footer */
+  footer {
+    padding: 36px 0 60px;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--ink-3);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+  footer a {
+    color: var(--accent);
+    text-decoration: none;
+    border-bottom: 1px solid var(--rule);
+    padding-bottom: 2px;
+  }
+  footer a:hover { border-color: var(--accent); }
+
+  /* staggered load */
+  @keyframes rise {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  .rise { opacity: 0; animation: rise 0.6s cubic-bezier(0.2,0.7,0.2,1) forwards; }
+  .d1 { animation-delay: 0.05s; }
+  .d2 { animation-delay: 0.13s; }
+  .d3 { animation-delay: 0.21s; }
+  .d4 { animation-delay: 0.30s; }
+  .d5 { animation-delay: 0.40s; }
+  .d6 { animation-delay: 0.50s; }
+  .d7 { animation-delay: 0.60s; }
+
+  /* responsive */
+  @media (max-width: 820px) {
+    .asset-row { grid-template-columns: 1fr; }
+    .card { border-right: none; border-bottom: 1px solid var(--rule); }
+    .card:last-child { border-bottom: none; }
+    .results-grid { grid-template-columns: 1fr; }
+    .two-up { grid-template-columns: 1fr; }
+    .pane.pro { border-right: none; border-bottom: 1px solid var(--rule); }
+    .method-grid { grid-template-columns: 1fr; gap: 4px 0; }
+    .method-grid dt { padding-top: 12px; }
+    .cred { grid-template-columns: 1fr; }
+    .cred > div { border-right: none; border-bottom: 1px solid var(--rule); }
+    .back-bar { top: auto; bottom: 14px; left: 14px; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .rise { animation: none; opacity: 1; }
+    * { transition: none !important; }
+  }
+</style>
+</head>
+<body>
+
+<a class="back-bar" href="./index.html" title="Back to today's digest">↩ Today's digest</a>
+
+<div class="wrap">
+
+  <!-- meta strip -->
+  <div class="meta-strip rise d1">
+    <span><span class="dot"></span>arXiv 2607.14427</span>
+    <span>2026 · 07 · 16</span>
+    <span>cs.CL / efficient inference</span>
+    <span>~100 GPU-hours · 1× RTX 4090</span>
+  </div>
+
+  <!-- HERO BAND -->
+  <header class="hero">
+    <p class="hero-title rise d1">
+      <a href="https://arxiv.org/abs/2607.14427" target="_blank" rel="noopener">Per-Token Fixed-Point Convergence in Depth-Recurrent Transformers ↗</a>
+    </p>
+    <p class="hero-authors rise d1">Dr. Joe Logan &nbsp;·&nbsp; <em>independent researcher</em> &nbsp;·&nbsp; single-seed study</p>
+
+    <h1 class="hero-finding rise d2">
+      The recurrent state of a depth-recurrent transformer <span class="em">converges to a per-token fixed point</span> — and a <span class="lift">zero-parameter</span> rule that reads this signal <span class="em">beats a learned router</span>.
+    </h1>
+
+    <div class="chips rise d3">
+      <span class="chip accent">depth-recurrent</span>
+      <span class="chip">weight-tied core</span>
+      <span class="chip">per-token adaptive compute</span>
+      <span class="chip">convergence-exit</span>
+      <span class="chip">training-free halting</span>
+      <span class="chip">SmolLM2-135M shape · 29M unique params</span>
+      <span class="chip">FineWeb-Edu · 12.9B tokens</span>
+    </div>
+  </header>
+
+  <!-- ASSET ROW -->
+  <section class="asset-row">
+
+    <!-- KEY METRIC -->
+    <div class="card rise d3">
+      <p class="card-label"><span class="pip"></span>Key metric</p>
+      <div class="metric-number">4.94<span class="unit">avg loops</span></div>
+      <p class="metric-headline">38% depth cut, matched quality</p>
+      <p class="metric-body">
+        Training-free exit policy <code>A1</code> reaches uniform depth-8 validation loss (<code>3.189 nats</code>) at <strong>4.94 avg loops</strong> vs <strong>7.99</strong> for the learned router <code>A2</code> — no saving.
+      </p>
+      <!-- KL decay sparkline -->
+      <div class="kl-chart" aria-hidden="true">
+        <div class="kl-bar" style="height: 100%"><small>3.9e-1</small><span>L2</span></div>
+        <div class="kl-bar" style="height: 38%"><small>3.2e-2</small><span>L4</span></div>
+        <div class="kl-bar" style="height: 12%"><small>5.4e-4</small><span>L8</span></div>
+        <div class="kl-bar" style="height: 4%"><small>8.5e-6</small><span>L16</span></div>
+        <div class="kl-bar" style="height: 2%; background: var(--rule)"><small>&lt; ε</small><span>∞</span></div>
+      </div>
+      <p class="metric-body" style="margin-top: 26px; font-size: 12px; color: var(--ink-3);">
+        successive-output KL between loops, S1 diagnostic run
+      </p>
+    </div>
+
+    <!-- WHY THIS MATTERS -->
+    <div class="card matters rise d4">
+      <p class="card-label"><span class="pip good"></span>Why this matters</p>
+      <p>
+        A zero-parameter, per-token adaptive-depth recipe for looped LMs — and an honest split between <strong>FLOP-proxy savings</strong> and real throughput. A direct baseline for test-time compute elasticity.
+      </p>
+    </div>
+
+    <!-- CRITICAL EDGE -->
+    <div class="card edge rise d4">
+      <p class="card-label"><span class="pip edge"></span>Critical edge</p>
+      <p>
+        Realized throughput gain is <strong>~0%</strong> — the 38% saving is a FLOP proxy that depends on depth-wise continuous batching the author <strong>never built</strong>.
+      </p>
+    </div>
+  </section>
+
+  <!-- section nav -->
+  <nav class="section-nav rise d5">
+    <a href="#method">01 · Method</a>
+    <a href="#results">02 · Results</a>
+    <a href="#pro-con">03 · Strengths / Limits</a>
+    <a href="#questions">04 · Open questions</a>
+    <a href="#cred">05 · Credibility</a>
+  </nav>
+
+  <!-- 01 METHODOLOGY -->
+  <section class="body-block rise d5" id="method">
+    <div class="section-head">
+      <span class="section-num">01</span>
+      <h2 class="section-title">Methodology, in one breath</h2>
+    </div>
+
+    <dl class="method-grid">
+      <dt>Architecture</dt>
+      <dd>Unique-layer prelude → weight-tied core applied a variable number of times → unique-layer coda. Llama-style blocks (RMSNorm, SwiGLU, rotary, GQA, tied embeddings, no biases), following Huginn (Geiping et al.).</dd>
+
+      <dt>Three guards</dt>
+      <dd>(1) recurrent state init from noise <code>s0 ~ N(0, 2/5)</code>, not the embedding — forces input-conditioned fixed point; (2) input re-injected each loop via <code>s_{i+1} = core(adapter([e, s_i]))</code>; (3) sandwich norm (post-norm inside residuals) to stop hidden-state collapse.</dd>
+
+      <dt>Training</dt>
+      <dd>Per step, sample <code>r ~ round(LogNormal(log r̄, 0.5))</code> clamped to [1, r_max]; plain cross-entropy at the final state — <strong>no halting unit, no ponder loss, no FLOP penalty</strong>. Truncated BPTT over last <code>k</code> iterations. S0: r̄=4 / r_max=16 / k=4. S1: r̄=8 / r_max=32 / k=8.</dd>
+
+      <dt>Scales</dt>
+      <dd><strong>S0</strong> — 12.9M unique params, TinyStories 0.4B tokens (architecture check only). <strong>S1</strong> — 29.0M unique (57.3M total), FineWeb-Edu 12.9B tokens, SmolLM2-135M shape with middle layers replaced by the tied core. SmolLM2 tokenizer (49,152).</dd>
+
+      <dt>Three policies</dt>
+      <dd><strong>A0</strong> uniform depth (baseline, sweep r). <strong>A1</strong> convergence-exit, training-free: freeze tokens once <code>KL(p_i ‖ p_{i-1}) &lt; ε</code>. <strong>A2</strong> oracle-labeled linear router: probe trained on self-harvested labels from the same frozen backbone.</dd>
+
+      <dt>Eval</dt>
+      <dd>Loss-vs-loops sweeps use noise state init (training path), 64×2048 windows. Allocation comparison uses zero state init, 128 windows. The two conventions differ by 0.013 nats at r=8 — openly reported, not hidden.</dd>
+    </dl>
+  </section>
+
+  <!-- 02 RESULTS -->
+  <section class="body-block rise d6" id="results">
+    <div class="section-head">
+      <span class="section-num">02</span>
+      <h2 class="section-title">Results &amp; highlights</h2>
+    </div>
+
+    <div class="results-grid">
+
+      <div class="result-tile">
+        <p class="rt-label">Fixed-point evidence · S1</p>
+        <p class="rt-val">KL <span class="accent">3.9e-1 → 8.5e-6</span></p>
+        <p class="rt-note">Mean successive-output KL between loops 2 and 16; state-change norm decays in lockstep (24.7 → 0.030). Fraction still moving drops 99.8% → 0.1%.</p>
+      </div>
+
+      <div class="result-tile">
+        <p class="rt-label">Depth elasticity · S1</p>
+        <p class="rt-val"><span class="accent">0.60-nat</span> range, 16× compute</p>
+        <p class="rt-note">Validation loss 3.803 (r=1) → 3.202 (r=8) → flat to r=32. One set of weights, depth chosen at inference.</p>
+      </div>
+
+      <div class="result-tile">
+        <p class="rt-label">Allocation head-to-head · S1</p>
+        <p class="rt-val">A1 <span class="accent">4.94</span> · A2 7.99 loops</p>
+        <p class="rt-note">Both reach the 3.189-nat depth-8 bar. At matched avg depth 3, A1 = 3.231 vs uniform 3.272 — A1 <em>beats</em> uniform in the shallow regime.</p>
+      </div>
+
+      <div class="result-tile">
+        <p class="rt-label">Fixed-depth control · S0</p>
+        <p class="rt-val">constant r=4: <span class="accent">peaked</span></p>
+        <p class="rt-note">Loss 1.97 at r=4 but 6.01 at r=1, 2.50 at r=16. Randomized-depth S0 stays flat (1.886 / 1.883 / 1.883) — even beats the control at its own depth.</p>
+      </div>
+
+      <div class="result-tile">
+        <p class="rt-label">Exit-depth ordering · S1</p>
+        <p class="rt-val">space 3.58 &gt; word <span class="accent">4.25</span></p>
+        <p class="rt-note">Mean exit depth: space 3.58, numeral 3.81, punct 4.16, word 4.25 — content tokens deepest, structural shallowest. Stable under 4× more eval windows. (Flips at S0: numerals deepest.)</p>
+      </div>
+
+      <div class="result-tile">
+        <p class="rt-label">Wall-clock bracket</p>
+        <p class="rt-val"><span class="accent">~0%</span> realized · 1.5× ceiling</p>
+        <p class="rt-note">Teacher-forced harness masks frozen tokens but loops all to r_max. Matched r=8 vs r=5 gives 1.48–1.51× across batch 1–8 — the theoretical ceiling under perfect depth-wise batching.</p>
+      </div>
+
+      <div class="result-tile">
+        <p class="rt-label">Ceiling reference · not parity</p>
+        <p class="rt-val">SmolLM2-135M <span class="accent">2.66</span> vs 3.20</p>
+        <p class="rt-note">0.54-nat gap — expected: SmolLM2 trained on ~2T tokens (~150× this budget). Explicitly a ceiling, not a baseline.</p>
+      </div>
+
+      <div class="result-tile">
+        <p class="rt-label">Compute footprint</p>
+        <p class="rt-val"><span class="accent">~100</span> GPU-hours</p>
+        <p class="rt-note">Entire study (S1 training + all evaluation incl. allocation) on a single RTX 4090. 12.9B tokens at 24k tokens/s, 262k effective steps.</p>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- 03 STRENGTHS / LIMITATIONS -->
+  <section class="body-block rise d6" id="pro-con">
+    <div class="section-head">
+      <span class="section-num">03</span>
+      <h2 class="section-title">Strengths &amp; limitations, side by side</h2>
+    </div>
+
+    <div class="two-up">
+      <div class="pane pro">
+        <h3>+ Strengths</h3>
+        <ul>
+          <li><strong>Reusable diagnostic.</strong> Per-loop KL + state-change + still-moving fraction (Table 3) is cheap, clean, and runnable on any depth-recurrent checkpoint.</li>
+          <li><strong>"Reading beats learning" is non-obvious</strong> and supported by a clean control: A2's labels come from the same frozen backbone, isolating the comparison.</li>
+          <li><strong>Unusual scope honesty.</strong> Average-depth-as-FLOP-proxy, three-point wall-clock bracket, single-scale/single-seed caveat in the abstract, explicit rejection of a token-starved dense baseline.</li>
+          <li><strong>Useful engineering artifacts.</strong> Appendix D documents a real bf16/fp32 rotary-attention dtype-promotion bug and a non-finite step guard practitioners will hit.</li>
+          <li><strong>Engaged related work</strong> — Huginn, LoopFormer, MoR, ACT, PonderNet, Csordás et al.'s shallow-halt failure — not decorative.</li>
+        </ul>
+      </div>
+      <div class="pane con">
+        <h3>! Limitations</h3>
+        <ul>
+          <li><strong>Single 135M-class scale, single seed.</strong> Behavior at 1B+ unknown; literature says depth effects <em>strengthen</em> with scale, so average-loss results likely understate per-token allocation's value.</li>
+          <li><strong>No realized speedup.</strong> 38% depth saving → throughput needs depth-wise continuous batching (Bae et al.), which was not built. Harness throughput ≈ 0% better than uniform.</li>
+          <li><strong>No FLOP-matched dense baseline.</strong> The most deployment-relevant comparison is explicitly missing.</li>
+          <li><strong>Teacher-forced only.</strong> Per-token allocation at decode time inherits the KV-cache story from prior work and is not stress-tested under autoregressive generation.</li>
+          <li><strong>No downstream-task eval at each depth.</strong> Whether reasoning load sits in the "late-converging 10%" is open.</li>
+          <li><strong>"Saturation depth = training mean" rests on two internal + one external point</strong> — admirably framed as a hypothesis, not a law.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- 04 QUESTIONS -->
+  <section class="body-block rise d7" id="questions">
+    <div class="section-head">
+      <span class="section-num">04</span>
+      <h2 class="section-title">Questions this opens</h2>
+    </div>
+
+    <ol class="q-list">
+      <li>Does convergence-exit <code>A1</code> still beat the learned router <code>A2</code> at 1B+ — or does a non-linear router trained on richer labels overtake it once the useful-depth range widens?</li>
+      <li>Under autoregressive generation (per-recursion KV caching or depth-1 sharing), does the 38% average-depth saving survive — and what is the realized wall-clock gain under depth-wise continuous batching?</li>
+      <li>How does per-token exit depth correlate with downstream task accuracy (reasoning, math, code)? Do the late-converging 10% carry the reasoning load?</li>
+      <li>Can "saturation depth = training mean" be promoted to a law by sweeping the training loop distribution (mean 4/8/16/32) at fixed scale — or does it break at wider distributions?</li>
+      <li>Is the fixed-point structure preserved under entropy-regularized depth (Ouro) or shortcut-consistency (LoopFormer), or specific to plain cross-entropy with randomized depth?</li>
+      <li>Could the convergence-exit signal combine with self-speculative decoding (LayerSkip-style verification) to recover exactness while keeping the depth saving?</li>
+    </ol>
+  </section>
+
+  <!-- 05 CREDIBILITY -->
+  <section class="body-block rise d7" id="cred">
+    <div class="section-head">
+      <span class="section-num">05</span>
+      <h2 class="section-title">Credibility at a glance</h2>
+    </div>
+
+    <div class="cred">
+      <div>
+        <span class="ck">Authorship</span>
+        <span class="cv">Single independent researcher · no affiliation</span>
+      </div>
+      <div>
+        <span class="ck">Code release</span>
+        <span class="cv">Training + eval code, configs, log, S1 checkpoint promised</span>
+      </div>
+      <div>
+        <span class="ck">Reproducibility</span>
+        <span class="cv">Strong on paper — single GPU, public datasets, ~100 GPU-h</span>
+      </div>
+      <div>
+        <span class="ck">Seed variance</span>
+        <span class="cv">S1 single seed; headline deltas (0.002–0.081 nats) plausibly within seed noise</span>
+      </div>
+      <div>
+        <span class="ck">Bug disclosure</span>
+        <span class="cv">Appendix D logs a silent bf16/fp32 dtype-promotion fallback + non-finite guard</span>
+      </div>
+      <div>
+        <span class="ck">Verdict</span>
+        <span class="cv">Genuine but narrow measurement contribution — not a new architecture</span>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <span>2607.14427 · daily-paper digest · 2026-07-16</span>
+    <a href="./2607.14427.md">↗ Markdown source</a>
+  </footer>
+
+</div>
+
+<script>
+  // Smooth-scroll for in-page section nav, with respect for reduced motion.
+  const prefersReduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  document.querySelectorAll('.section-nav a').forEach(a => {
+    a.addEventListener('click', (e) => {
+      const id = a.getAttribute('href');
+      if (id && id.startsWith('#')) {
+        const el = document.querySelector(id);
+        if (el) {
+          e.preventDefault();
+          el.scrollIntoView({ behavior: prefersReduced ? 'auto' : 'smooth', block: 'start' });
+        }
+      }
+    });
+  });
+</script>
+
+</body>
+</html>

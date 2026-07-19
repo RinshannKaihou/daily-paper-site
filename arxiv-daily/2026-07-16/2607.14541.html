@@ -1,0 +1,561 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Atrex-Bench — Are LLM-Generated GPU Kernels Production-Ready?</title>
+<style>
+  /* ---------- design tokens: data-dense editorial, one accent ---------- */
+  :root{
+    --paper:#f4efe4;          /* warm paper */
+    --paper-2:#ece5d5;        /* slightly deeper panel */
+    --ink:#171310;            /* near-black ink */
+    --ink-2:#3a342b;          /* secondary ink */
+    --muted:#857b6c;          /* warm gray */
+    --rule:#cdc3ae;           /* hairline */
+    --accent:#c0391b;         /* vermillion — single accent */
+    --accent-ink:#7a2110;     /* deeper accent for text on paper */
+    --accent-tint:#e9d2c8;    /* tint for edge card */
+    --good:#2f6f3e;           /* sparingly, for strengths */
+    --mono:ui-monospace,"SF Mono",SFMono-Regular,Menlo,Consolas,monospace;
+    --serif:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,"Times New Roman",serif;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;
+    --maxw:min(95vw,1100px);
+  }
+
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    background:var(--paper);
+    color:var(--ink);
+    font-family:var(--sans);
+    font-size:16px;
+    line-height:1.55;
+    -webkit-font-smoothing:antialiased;
+    text-rendering:optimizeLegibility;
+    background-image:
+      radial-gradient(rgba(0,0,0,0.018) 1px, transparent 1px);
+    background-size:3px 3px;
+  }
+
+  /* ---------- fixed back link ---------- */
+  .back{
+    position:fixed; top:14px; left:16px; z-index:50;
+    font:600 12px/1 var(--sans);
+    letter-spacing:.04em;
+    color:var(--ink);
+    background:var(--paper);
+    border:1px solid var(--rule);
+    padding:8px 11px;
+    text-decoration:none;
+    transition:color .15s, border-color .15s, transform .15s;
+  }
+  .back:hover{color:var(--accent); border-color:var(--accent); transform:translateX(-2px)}
+  .back:active{transform:translateX(0)}
+
+  .wrap{max-width:var(--maxw); margin:0 auto; padding:72px 28px 48px}
+
+  /* ---------- hero band ---------- */
+  .hero{padding:8px 0 26px; border-bottom:2px solid var(--ink); position:relative}
+  .eyebrow{
+    display:flex; flex-wrap:wrap; gap:6px; margin:0 0 18px;
+  }
+  .chip{
+    font:600 10.5px/1 var(--mono);
+    letter-spacing:.02em;
+    text-transform:lowercase;
+    color:var(--ink-2);
+    border:1px solid var(--rule);
+    background:var(--paper-2);
+    padding:5px 8px;
+    border-radius:2px;
+  }
+  .chip.accent{color:var(--accent-ink); border-color:var(--accent); background:var(--accent-tint)}
+
+  .meta-row{
+    display:flex; flex-wrap:wrap; align-items:baseline; gap:10px 18px;
+    font:500 12px/1.4 var(--sans);
+    color:var(--muted);
+    letter-spacing:.02em;
+    text-transform:uppercase;
+    margin-bottom:22px;
+  }
+  .meta-row .paper-title{
+    text-transform:none; letter-spacing:0;
+    font:600 13.5px/1.4 var(--sans);
+    color:var(--ink);
+  }
+  .meta-row a.paper-title{text-decoration:none; border-bottom:1px solid var(--rule)}
+  .meta-row a.paper-title:hover{color:var(--accent); border-color:var(--accent)}
+  .meta-row .sep{color:var(--rule)}
+
+  .finding{
+    font-family:var(--serif);
+    font-weight:700;
+    font-size:clamp(30px, 5.6vw, 58px);
+    line-height:1.04;
+    letter-spacing:-0.015em;
+    color:var(--ink);
+    margin:0;
+    max-width:18ch;
+  }
+  .finding .hl{
+    color:var(--accent);
+    font-style:italic;
+  }
+  .finding-lede{
+    margin:18px 0 0;
+    max-width:62ch;
+    font:400 14.5px/1.6 var(--sans);
+    color:var(--ink-2);
+  }
+  .finding-lede b{color:var(--ink)}
+  .arxiv{
+    font:500 12px/1 var(--mono);
+    color:var(--muted);
+  }
+  .arxiv a{color:var(--accent-ink); text-decoration:none; border-bottom:1px dotted var(--accent)}
+  .arxiv a:hover{border-bottom-style:solid}
+
+  /* ---------- asset row ---------- */
+  .assets{
+    display:grid;
+    grid-template-columns:1.05fr 1fr 1fr;
+    gap:0;
+    margin:0;
+    border-bottom:1px solid var(--rule);
+  }
+  .asset{
+    padding:22px 22px 24px;
+    border-right:1px solid var(--rule);
+    position:relative;
+  }
+  .asset:last-child{border-right:none}
+  .asset .label{
+    font:700 10px/1 var(--mono);
+    letter-spacing:.16em;
+    text-transform:uppercase;
+    color:var(--muted);
+    margin:0 0 12px;
+    display:flex; align-items:center; gap:8px;
+  }
+  .asset .label::before{
+    content:""; width:7px; height:7px; background:var(--ink); display:inline-block;
+  }
+  .asset.edge .label::before{background:var(--accent)}
+  .asset.metric .label::before{background:var(--ink)}
+
+  .metric .num{
+    font-family:var(--serif);
+    font-weight:800;
+    font-size:clamp(46px,7vw,76px);
+    line-height:.95;
+    letter-spacing:-0.03em;
+    color:var(--ink);
+    margin:0 0 6px;
+  }
+  .metric .num small{
+    font-family:var(--sans);
+    font-weight:600;
+    font-size:0.3em;
+    letter-spacing:.02em;
+    color:var(--muted);
+    display:block;
+    margin-top:6px;
+  }
+  .metric .num .pct{color:var(--accent)}
+  .metric .num .of{color:var(--muted); font-weight:600}
+  .metric .sub{
+    font:400 13px/1.5 var(--sans); color:var(--ink-2); margin:10px 0 0;
+  }
+  .metric .sub code{font:600 12px var(--mono); color:var(--accent-ink); background:var(--accent-tint); padding:1px 5px; border-radius:2px}
+
+  .matters .body{
+    font-family:var(--serif);
+    font-size:17px; line-height:1.4; color:var(--ink);
+    margin:0; font-weight:500;
+  }
+  .matters .src{font:500 11px/1 var(--mono); color:var(--muted); margin-top:12px; letter-spacing:.04em; text-transform:uppercase}
+
+  .asset.edge{background:var(--accent-tint)}
+  .asset.edge .label{color:var(--accent-ink)}
+  .edge .body{
+    font:400 14px/1.55 var(--sans);
+    color:var(--accent-ink);
+    margin:0;
+  }
+  .edge .body strong{font-weight:700}
+
+  /* ---------- section nav (sticky) ---------- */
+  .nav{
+    position:sticky; top:0; z-index:20;
+    background:var(--paper);
+    border-bottom:1px solid var(--rule);
+    margin:0 -28px 0;
+    padding:10px 28px;
+    display:flex; gap:6px; flex-wrap:wrap;
+    font:600 11px/1 var(--mono);
+    letter-spacing:.06em;
+    text-transform:uppercase;
+  }
+  .nav a{
+    color:var(--ink-2); text-decoration:none;
+    padding:5px 9px; border:1px solid transparent;
+    transition:all .15s;
+  }
+  .nav a:hover{color:var(--accent); border-color:var(--accent)}
+  .nav a.active{color:var(--ink); background:var(--paper-2); border-color:var(--rule)}
+
+  /* ---------- body grid ---------- */
+  .body-grid{
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:0;
+    border-bottom:1px solid var(--rule);
+  }
+  .panel{
+    padding:26px 24px 30px;
+    border-right:1px solid var(--rule);
+    border-bottom:1px solid var(--rule);
+  }
+  .panel:nth-child(2n){border-right:none}
+  .panel.full{grid-column:1 / -1; border-right:none}
+  .panel h2{
+    font:700 11px/1 var(--mono);
+    letter-spacing:.18em;
+    text-transform:uppercase;
+    color:var(--accent-ink);
+    margin:0 0 4px;
+    display:flex; align-items:baseline; gap:10px;
+  }
+  .panel h2 .n{
+    font:800 22px/1 var(--serif);
+    color:var(--ink);
+    letter-spacing:0;
+  }
+  .panel h2 .tag{
+    font:500 10.5px/1 var(--mono);
+    color:var(--muted);
+    letter-spacing:.08em;
+    margin-left:auto;
+    text-transform:uppercase;
+  }
+  .panel .lede{
+    font-family:var(--serif);
+    font-size:16px; line-height:1.45; color:var(--ink);
+    font-weight:500;
+    margin:6px 0 14px;
+    padding-bottom:12px; border-bottom:1px solid var(--rule);
+  }
+  .panel p, .panel li{font:400 13.5px/1.6 var(--sans); color:var(--ink-2); margin:0 0 8px}
+  .panel ul{margin:6px 0 10px; padding:0; list-style:none}
+  .panel li{
+    padding:7px 0 7px 18px;
+    position:relative;
+    border-bottom:1px dotted var(--rule);
+  }
+  .panel li:last-child{border-bottom:none}
+  .panel li::before{
+    content:"›"; position:absolute; left:0; top:6px;
+    color:var(--accent); font-weight:700; font-family:var(--mono);
+  }
+  .panel li b, .panel li strong{color:var(--ink); font-weight:700}
+  .panel li code{font:600 12px var(--mono); color:var(--ink); background:var(--paper-2); padding:1px 4px; border-radius:2px}
+
+  .num-line{
+    display:flex; align-items:baseline; gap:8px; flex-wrap:wrap;
+    font:400 13px/1.5 var(--sans); color:var(--ink-2);
+  }
+  .num-line .k{font-family:var(--mono); font-weight:700; color:var(--ink); font-size:13.5px}
+  .num-line .v{font-family:var(--serif); font-weight:700; color:var(--accent); font-size:15px}
+
+  /* strengths vs limitations contrasting columns */
+  .panel.strengths{background:var(--paper-2)}
+  .panel.strengths h2 .n,
+  .panel.strengths li::before{color:var(--good)}
+  .panel.strengths h2{color:#1f4d2b}
+
+  .panel.limits h2 .n,
+  .panel.limits li::before{color:var(--accent)}
+  .panel.limits h2{color:var(--accent-ink)}
+
+  /* results big-stat strip */
+  .statstrip{
+    display:grid; grid-template-columns:repeat(4,1fr);
+    gap:0; margin:10px 0 14px;
+    border:1px solid var(--rule);
+  }
+  .statstrip .s{
+    padding:10px 10px; border-right:1px solid var(--rule);
+    text-align:left;
+  }
+  .statstrip .s:last-child{border-right:none}
+  .statstrip .s .sv{
+    font:800 20px/1 var(--serif); color:var(--ink); letter-spacing:-0.02em;
+  }
+  .statstrip .s .sv.red{color:var(--accent)}
+  .statstrip .s .sl{
+    font:500 9.5px/1.3 var(--mono); color:var(--muted);
+    letter-spacing:.05em; text-transform:uppercase; margin-top:4px; display:block;
+  }
+
+  /* questions */
+  .questions ol{
+    counter-reset:q; list-style:none; padding:0; margin:6px 0 0;
+    columns:2; column-gap:32px;
+  }
+  .questions li{
+    counter-increment:q;
+    padding:8px 0 8px 30px;
+    position:relative;
+    border-bottom:1px dotted var(--rule);
+    font:400 13px/1.55 var(--sans); color:var(--ink-2);
+    break-inside:avoid;
+  }
+  .questions li::before{
+    content:counter(q,decimal-leading-zero);
+    position:absolute; left:0; top:8px;
+    font:700 12px/1 var(--mono); color:var(--accent);
+  }
+
+  /* ---------- footer ---------- */
+  footer{
+    padding:22px 0 4px;
+    display:flex; justify-content:space-between; align-items:center;
+    flex-wrap:wrap; gap:10px;
+    font:500 11px/1 var(--mono); color:var(--muted);
+    letter-spacing:.06em; text-transform:uppercase;
+  }
+  footer a{
+    color:var(--accent-ink); text-decoration:none;
+    border-bottom:1px solid var(--accent);
+    padding-bottom:2px;
+  }
+  footer a:hover{color:var(--ink)}
+
+  /* ---------- staggered load reveal ---------- */
+  .reveal{opacity:0; transform:translateY(8px); animation:rv .55s cubic-bezier(.2,.7,.2,1) forwards}
+  @keyframes rv{to{opacity:1; transform:none}}
+  .d1{animation-delay:.04s}.d2{animation-delay:.10s}.d3{animation-delay:.16s}
+  .d4{animation-delay:.22s}.d5{animation-delay:.28s}.d6{animation-delay:.34s}
+  .d7{animation-delay:.40s}.d8{animation-delay:.46s}
+
+  @media (prefers-reduced-motion: reduce){
+    .reveal{opacity:1; transform:none; animation:none}
+  }
+
+  /* ---------- responsive ---------- */
+  @media (max-width:880px){
+    .assets{grid-template-columns:1fr}
+    .asset{border-right:none; border-bottom:1px solid var(--rule)}
+    .asset:last-child{border-bottom:none}
+    .body-grid{grid-template-columns:1fr}
+    .panel{border-right:none}
+    .panel.full{grid-column:auto}
+    .statstrip{grid-template-columns:repeat(2,1fr)}
+    .statstrip .s:nth-child(2){border-right:none}
+    .statstrip .s:nth-child(-n+2){border-bottom:1px solid var(--rule)}
+    .questions ol{columns:1}
+    .nav{margin:0 -16px; padding:8px 16px; overflow-x:auto; flex-wrap:nowrap}
+    .wrap{padding:64px 16px 36px}
+    .finding{max-width:none}
+  }
+</style>
+</head>
+<body>
+
+<a class="back" href="./index.html" title="Back to today's digest">↩ Today's digest</a>
+
+<div class="wrap">
+
+  <!-- ============ HERO BAND ============ -->
+  <header class="hero reveal d1">
+    <div class="eyebrow">
+      <span class="chip accent">atrex-bench</span>
+      <span class="chip">llm-kernel-generation</span>
+      <span class="chip">gpu-benchmark</span>
+      <span class="chip">roofline-model</span>
+      <span class="chip">production-traces</span>
+      <span class="chip">code-agent</span>
+      <span class="chip">inference-optimization</span>
+      <span class="chip">flydsl</span>
+    </div>
+
+    <div class="meta-row">
+      <a class="paper-title" href="https://arxiv.org/abs/2607.14541" target="_blank" rel="noopener">
+        Are LLM-Generated GPU Kernels Production-Ready? A Trace-Driven Benchmark and Optimization Agent ↗</a>
+      <span class="sep">·</span>
+      <span>Lingyun Yang†, Yuxiao Wang†, Shenghao Liang, Linfeng Yang, Daocheng Ying, Chunbo You, Rui Zhang, Luping Wang, Yinghao Yu, Guodong Yang, Liping Zhang</span>
+      <span class="sep">·</span>
+      <span>ATREX Team · Alibaba</span>
+      <span class="sep">·</span>
+      <span>2026-07-16</span>
+    </div>
+
+    <h1 class="finding">
+      Six frontier coding agents reach at best <span class="hl">10.7%</span> of GPU roofline — <span class="hl">none</span> beats the deployed production kernel.
+    </h1>
+
+    <p class="finding-lede">
+      On <b>Atrex-Bench</b> — 30 operators, 440 shapes mined from <b>1,303 production profiles</b> over <b>&gt;10k XPU-A/H20</b> accelerators and ~20 deployed models — the best agent (<b>GPT-5.5</b>, <code>Sagg=0.107</code>) clears just a tenth of the hardware ceiling. The co-released <b>Atrex-Kernel-Agent (AKA)</b> converts 0%-FlyDSL fallbacks into near-100%-FlyDSL kernels that beat hand-tuned baselines by 1.06x–1.31x on three compute-bound operators.
+      <span class="arxiv" style="display:block; margin-top:10px;">arXiv: <a href="https://arxiv.org/abs/2607.14541">2607.14541</a></span>
+    </p>
+  </header>
+
+  <!-- ============ ASSET ROW (3 cards) ============ -->
+  <section class="assets" aria-label="Key assets">
+
+    <!-- KEY METRIC -->
+    <div class="asset metric reveal d2">
+      <p class="label">Key metric — best agent vs ceiling</p>
+      <div class="num">
+        0.107<span class="pct">Sagg</span>
+        <small>= <span class="of">10.7%</span> of hardware roofline</small>
+      </div>
+      <p class="sub">
+        GPT-5.5 leads; Claude Opus 4.7 reaches only <code>0.059</code>, the other four fall to <code>0.012–0.047</code>. Closest to production is Opus 4.7 at <code>0.99x</code> — still no win. Correctness illusion: Qwen3.7-Max posts <b>84.8%</b> correctness on only <b>43.8%</b> FlyDSL adoption.
+      </p>
+    </div>
+
+    <!-- WHY THIS MATTERS -->
+    <div class="asset matters reveal d3">
+      <p class="label">Why this matters</p>
+      <p class="body">
+        First production-trace GPU-kernel benchmark, weighted by real serving time, with a per-problem roofline ceiling — a deployability signal that rebukes over-optimistic synthetic benchmarks. Both artifacts open-sourced.
+      </p>
+      <p class="src">from Relevance · ATREX Team, Alibaba</p>
+    </div>
+
+    <!-- CRITICAL EDGE -->
+    <div class="asset edge reveal d4">
+      <p class="label">Critical edge</p>
+      <p class="body">
+        AKA's production-beating margins are <strong>single-timed-run point estimates</strong> on <strong>three hand-picked compute-bound operators</strong> — no variance bars, one shape each, no full-benchmark run, no ablation isolating dropout vs GPU-Wiki vs profile loop.
+      </p>
+    </div>
+
+  </section>
+
+  <!-- ============ STICKY NAV ============ -->
+  <nav class="nav" aria-label="Section index">
+    <a href="#method">Methodology</a>
+    <a href="#results">Results</a>
+    <a href="#strengths">Strengths</a>
+    <a href="#limits">Limitations</a>
+    <a href="#questions">Open Questions</a>
+  </nav>
+
+  <!-- ============ BODY GRID ============ -->
+  <div class="body-grid">
+
+    <!-- METHODOLOGY (full) -->
+    <section id="method" class="panel full reveal d5">
+      <h2><span class="n">01</span> Methodology <span class="tag">trace → contract → roofline</span></h2>
+      <p class="lede">
+        A tracer attaches to live serving on XPU-A / H20 clusters without relaunch, fusing Python-frame context with vendor runtime traces; raw kernels collapse into computation-level operator families so vLLM / SGLang / AITER / RTP-LLM share one problem.
+      </p>
+      <ul>
+        <li><b>Five-file contract per operator.</b> Candidate sees <code>reference.py</code>, <code>input.py</code>, <code>shapes.json</code>, prompt. Hidden from generation: <code>metadata.json</code> + <code>roofline.json</code> — anti-leakage by construction.</li>
+        <li><b>Per-problem roofline.</b> <code>T<sub>roofline</sub> = max(F/P<sub>τ</sub>, M/β)</code> with dtype-specific compute peak &amp; bandwidth calibrated once per accelerator.</li>
+        <li><b>Importance weighting (Eq. 3).</b> <code>w<sub>i</sub></code> = app card-hour share × per-phase device-time share; top-5 ops hold <b>≈64%</b> (<code>unified_attention</code> alone <b>36.1%</b>). Headline <code>Sagg = Σ w<sub>i</sub>·S<sub>i</sub></code> is arithmetic, so one zeroed operator does not erase signal.</li>
+        <li><b>Three-stage gate.</b> compile → correctness (<code>K=5</code> seeds, <code>atol=1e-2</code>) → perf (median end-to-end, frequency-lock, L2 flush, per-shape subprocess isolation).</li>
+        <li><b>FlyDSL deliberately absent from pre-training</b> — probes learning, not recall.</li>
+        <li><b>AKA agent:</b> 7-stage outer + 8-stage inner loop; profile-driven measure-revise, <b>optimization dropout</b> (partial restart masking stale memory), layered GPU Wiki (298 kernels + 244 docs, every spec cited).</li>
+      </ul>
+    </section>
+
+    <!-- RESULTS (full) -->
+    <section id="results" class="panel full reveal d6">
+      <h2><span class="n">02</span> Results <span class="tag">30 ops · 440 shapes · XPU-A</span></h2>
+      <p class="lede">
+        Memory-bound is largely solved; compute-bound is not. Generation volume does not predict quality, and the failure taxonomy over all 683 failing units is disclosed rather than cherry-picked.
+      </p>
+
+      <div class="statstrip" aria-label="Headline numbers">
+        <div class="s"><div class="sv red">0.107</div><span class="sl">best Sagg · GPT-5.5</span></div>
+        <div class="s"><div class="sv">0.99x</div><span class="sl">closest to prod · Opus</span></div>
+        <div class="s"><div class="sv red">53.4%</div><span class="sl">failures are compile</span></div>
+        <div class="s"><div class="sv">1.06–1.31x</div><span class="sl">AKA over prod · 3 ops</span></div>
+      </div>
+
+      <ul>
+        <li><b>No candidate beats production.</b> Opus 4.7 closest at <code>0.99x</code>, GPT-5.5 <code>0.85x</code>, Qwen3.7-Max <code>0.19x</code>, DeepSeek-V4-Pro <code>0.12x</code>. vs torch.compile only Opus (<code>2.29x</code>) &amp; GPT-5.5 (<code>3.06x</code>) win on the median op.</li>
+        <li><b>Correctness illusion is measurable.</b> Qwen3.7-Max: <b>84.8%</b> correctness vs <b>43.8%</b> FlyDSL adoption — the rest hides in <code>scaled_dot_product_attention</code> / precompiled AITER. Opus is the honest exception (negative gap).</li>
+        <li><b>Memory-bound solved, compute-bound not.</b> Opus memory-bound median <code>S=0.207</code> is <b>&gt;20x</b> its compute-bound <code>0.009</code>; GPT-5.5 is the only model with non-trivial compute-bound achievement (<code>0.074</code>).</li>
+        <li><b>Hardness is operator-specific.</b> Hardest — <code>fp8_blockscale_fused_moe</code> (22.2% mean pass), <code>fused_rmsnorm_quant</code> (34.8%), <code>per_token_group_quant_fp8</code> (44.7%), <code>attention_forward</code> (45.2%) — uniformly low-precision-fused / matrix-engine.</li>
+        <li><b>Failure taxonomy (683 units).</b> 53.4% compile (GLM-5.1 alone: 232), 43.0% runtime (257 numeric mismatches), 3.5% correct-but-slow. Opus's 46 failures are uniquely half correct-but-slow — the soft perf signature of the strongest backend.</li>
+        <li><b>Volume ≠ quality.</b> DeepSeek-V4-Pro emits <b>6.56M tokens</b> for 18 correct ops (365K/op); GPT-5.5 emits <b>1.19M</b> for 26 (46K/op).</li>
+        <li><b>AKA closes both gaps.</b> On Qwen3.7-Max: <code>chunk_gated_delta_rule_state</code> <code>0.001→0.03</code> S (<code>0.03x→1.20x</code> prod); <code>attention_forward</code> <code>0.06→0.40</code> (<code>0.17x→1.11x</code>); <code>mla_decode</code> <code>0.10x→1.06x</code>. On Opus lifts <code>attention_forward</code> <code>0.28→0.42</code> (<code>0.78x→1.17x</code>).</li>
+      </ul>
+    </section>
+
+    <!-- STRENGTHS -->
+    <section id="strengths" class="panel strengths reveal d7">
+      <h2><span class="n">03</span> Strengths <span class="tag">what holds up</span></h2>
+      <ul>
+        <li><b>First distribution-honest benchmark.</b> Problems, weights and denominator all come from production serving — the score is a deployability proxy, not a synthetic average.</li>
+        <li><b>FlyDSL-adoption metric</b> turns an invisible "specification shortcutting" pass into a recorded number, exposing the correctness illusion that pass-rate benchmarks miss.</li>
+        <li><b>Disclosed failure taxonomy</b> — all 683 failing units broken down by stage and model, plus a model-independent operator-difficulty ranking.</li>
+        <li><b>Concrete anti-gaming engineering</b> — hidden metadata/roofline, restricted tool surface, isolated subprocesses, frequency-lock, L2 flush.</li>
+        <li><b>AKA design discipline</b> — every hardware spec cited, every kernel edit justified by profiler evidence. Good practice others should adopt.</li>
+      </ul>
+    </section>
+
+    <!-- LIMITATIONS -->
+    <section id="limits" class="panel limits reveal d8">
+      <h2><span class="n">04</span> Limitations <span class="tag">where it frays</span></h2>
+      <ul>
+        <li><b>Single-hardware empirics.</b> All headline numbers on XPU-A (AMD-class, desensitized); H20 sampled but not benchmarked.</li>
+        <li><b>Inference-only.</b> Backward / optimizer-step kernels out of scope for this release.</li>
+        <li><b>Narrow AKA evaluation.</b> Three operators, one shape each, one timed run, no variance, no full-benchmark run, no ablation, no AKO/KDA comparison.</li>
+        <li><b>FlyDSL-specific.</b> Out-of-distribution DSL ⇒ absolute <code>Sagg</code> not comparable to CUDA/Triton benchmarks; Triton/Gluon/CuteDSL deferred.</li>
+        <li><b>Weight skew.</b> <code>unified_attention</code> alone holds 36.1%; a different fleet mix could re-rank agents.</li>
+        <li><b>"Overtake production" partly explained away</b> — the general AITER varlen kernel only reaches ~36% of roof on the awkward head-dim-72 shape, so a shape-specialized win is less surprising than it sounds.</li>
+      </ul>
+    </section>
+
+    <!-- QUESTIONS -->
+    <section id="questions" class="panel full reveal d8">
+      <h2><span class="n">05</span> Questions for Further Exploration <span class="tag">open threads</span></h2>
+      <ol>
+        <li>Does the agent ranking change — and does the correctness illusion shrink, stay, or morph — when the target DSL is Triton or CUDA (in-distribution) instead of FlyDSL?</li>
+        <li>Does AKA's production-beating margin hold across the full 440-shape benchmark with variance bars, or collapse outside the three hand-picked compute-bound operators?</li>
+        <li>What is the individual contribution of optimization dropout vs the GPU-Wiki vs the profile loop in an ablation under the same contract?</li>
+        <li>How transferable are the production-importance weights and operator ranking to an NVIDIA-only or H20-heavy fleet with a different model mix?</li>
+        <li>Can the memory-bound vs compute-bound diagnostic become an automatic routing signal that picks the AKA optimization category per operator?</li>
+        <li>Given AKA retrieves from 298 kernels + 244 docs, how sensitive is it to knowledge-base coverage on out-of-scope operators (e.g., training backward kernels)?</li>
+      </ol>
+    </section>
+
+  </div>
+
+  <footer>
+    <span>Daily Paper Digest · 2026-07-16</span>
+    <a href="./2607.14541.md" title="Source markdown">↗ Markdown source</a>
+  </footer>
+
+</div>
+
+<script>
+  // Sticky-nav active state on scroll (no framework, no deps)
+  (function(){
+    var links = document.querySelectorAll('.nav a');
+    var sections = Array.prototype.map.call(links, function(a){
+      return document.querySelector(a.getAttribute('href'));
+    });
+    if(!('IntersectionObserver' in window) || !sections[0]){ return; }
+    var io = new IntersectionObserver(function(entries){
+      entries.forEach(function(e){
+        if(e.isIntersecting){
+          links.forEach(function(l){ l.classList.remove('active'); });
+          var i = sections.indexOf(e.target);
+          if(i>=0){ links[i].classList.add('active'); }
+        }
+      });
+    }, { rootMargin:'-45% 0px -50% 0px', threshold:0 });
+    sections.forEach(function(s){ if(s) io.observe(s); });
+  })();
+</script>
+
+</body>
+</html>

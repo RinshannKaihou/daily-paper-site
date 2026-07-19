@@ -1,0 +1,555 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>2607.14306 — Tracing LLM Behavior to the Training Data</title>
+<style>
+  /* ---------- Design tokens ---------- */
+  :root{
+    --paper:#f6f3ec;        /* warm off-white */
+    --ink:#15140f;          /* near-black warm */
+    --ink-2:#56524a;        /* muted body */
+    --ink-3:#8a8478;        /* faint */
+    --rule:#dcd4c4;         /* hairline */
+    --card:#fdfbf6;         /* card surface */
+    --accent:#b23a1d;       /* ONE accent: brick / sienna */
+    --accent-ink:#fff8f4;   /* text on accent */
+    --accent-soft:#f3e2da;  /* accent tint */
+    --good:#2f6f4f;         /* sparingly: strengths marker */
+    --maxw:min(95vw,1100px);
+    --font:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  }
+
+  *{box-sizing:border-box;}
+  html{scroll-behavior:smooth;}
+  body{
+    margin:0;
+    background:var(--paper);
+    color:var(--ink);
+    font-family:var(--font);
+    font-size:16px;
+    line-height:1.55;
+    -webkit-font-smoothing:antialiased;
+    text-rendering:optimizeLegibility;
+  }
+  a{color:var(--accent);text-decoration:none;}
+  a:hover{text-decoration:underline;text-underline-offset:3px;}
+
+  .wrap{
+    width:var(--maxw);
+    margin:0 auto;
+    padding:clamp(28px,4vw,56px) clamp(16px,4vw,40px) 64px;
+  }
+
+  /* ---------- Fixed digest back-link ---------- */
+  .digest-link{
+    position:fixed;
+    top:14px;left:14px;
+    z-index:50;
+    background:var(--ink);
+    color:var(--paper);
+    font-size:12.5px;
+    font-weight:600;
+    letter-spacing:.01em;
+    padding:8px 13px;
+    border-radius:2px;
+    box-shadow:0 1px 0 rgba(0,0,0,.18);
+    transition:background .15s ease;
+  }
+  .digest-link:hover{background:var(--accent);text-decoration:none;}
+
+  /* ---------- Hero band ---------- */
+  .hero{
+    border-top:3px solid var(--ink);
+    padding-top:18px;
+    padding-left:max(0px,calc((100vw - var(--maxw))/2 - 40px + 40px));
+  }
+  .hero-meta{
+    display:flex;
+    flex-direction:column;
+    gap:7px;
+    margin-bottom:34px;
+  }
+  .paper-title{
+    font-size:14px;
+    font-weight:600;
+    color:var(--ink-2);
+    letter-spacing:.005em;
+    line-height:1.4;
+    max-width:62ch;
+  }
+  .paper-title:hover{color:var(--accent);}
+  .byline{
+    font-size:13px;
+    color:var(--ink-3);
+    letter-spacing:.02em;
+  }
+  .byline b{color:var(--ink-2);font-weight:600;}
+  .chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px;}
+  .chip{
+    font-size:11px;
+    font-weight:600;
+    letter-spacing:.04em;
+    text-transform:uppercase;
+    color:var(--ink-2);
+    border:1px solid var(--rule);
+    background:var(--card);
+    padding:4px 9px;
+    border-radius:999px;
+  }
+  .chip.accent{color:var(--accent);border-color:var(--accent-soft);background:var(--accent-soft);}
+
+  .finding-label{
+    font-size:11.5px;
+    font-weight:700;
+    letter-spacing:.18em;
+    text-transform:uppercase;
+    color:var(--accent);
+    margin-bottom:14px;
+    display:flex;align-items:center;gap:10px;
+  }
+  .finding-label::after{
+    content:"";flex:1;height:1px;background:var(--rule);
+  }
+  .finding{
+    font-size:clamp(1.85rem,4.6vw,3.15rem);
+    line-height:1.08;
+    font-weight:800;
+    letter-spacing:-.02em;
+    margin:0;
+    max-width:22ch;
+    color:var(--ink);
+  }
+  .finding em{
+    font-style:normal;
+    color:var(--accent);
+    white-space:nowrap;
+  }
+  .finding .hl{
+    border-bottom:4px solid var(--accent);
+    padding-bottom:1px;
+  }
+
+  /* ---------- Section jump nav ---------- */
+  .jumps{
+    display:flex;flex-wrap:wrap;gap:6px;
+    margin:38px 0 8px;
+    padding:10px 0;
+    border-top:1px solid var(--rule);
+    border-bottom:1px solid var(--rule);
+    position:sticky;top:0;background:var(--paper);z-index:20;
+  }
+  .jumps a{
+    font-size:12px;font-weight:600;letter-spacing:.02em;
+    color:var(--ink-2);
+    padding:5px 11px;border-radius:999px;
+    border:1px solid transparent;
+  }
+  .jumps a:hover{background:var(--card);border-color:var(--rule);text-decoration:none;color:var(--ink);}
+  .jumps a.active{background:var(--ink);color:var(--paper);}
+
+  /* ---------- Asset row ---------- */
+  .asset-row{
+    display:grid;
+    grid-template-columns:1.05fr 1.15fr 1.1fr;
+    gap:14px;
+    margin:22px 0 54px;
+  }
+  .card{
+    background:var(--card);
+    border:1px solid var(--rule);
+    padding:22px 22px 20px;
+    position:relative;
+    display:flex;flex-direction:column;
+    min-height:188px;
+  }
+  .card .kicker{
+    font-size:10.5px;font-weight:700;letter-spacing:.16em;text-transform:uppercase;
+    color:var(--ink-3);margin-bottom:14px;
+  }
+
+  .card.metric .big{
+    font-family:var(--mono);
+    font-size:clamp(2.6rem,6vw,3.6rem);
+    font-weight:700;
+    line-height:1;
+    color:var(--accent);
+    letter-spacing:-.03em;
+  }
+  .card.metric .big .le{font-size:.5em;vertical-align:.5em;color:var(--ink-2);font-weight:600;}
+  .card.metric .unit{
+    font-size:12.5px;color:var(--ink-2);margin-top:6px;line-height:1.4;
+  }
+  .card.metric .spark{margin-top:auto;padding-top:14px;}
+  .card.metric .sec{
+    margin-top:12px;padding-top:12px;border-top:1px dashed var(--rule);
+    display:flex;align-items:baseline;gap:8px;
+  }
+  .card.metric .sec .n{font-family:var(--mono);font-weight:700;color:var(--ink);font-size:15px;}
+  .card.metric .sec .t{font-size:11.5px;color:var(--ink-3);}
+
+  .card.matters .lede{
+    font-size:16.5px;font-weight:600;line-height:1.4;color:var(--ink);letter-spacing:-.005em;
+  }
+  .card.matters .tag{
+    margin-top:auto;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3);font-weight:600;
+  }
+
+  .card.edge{
+    background:var(--ink);
+    color:var(--accent-ink);
+    border-color:var(--ink);
+  }
+  .card.edge .kicker{color:#e08a72;}
+  .card.edge .verdict{
+    font-size:17px;font-weight:600;line-height:1.4;letter-spacing:-.005em;color:#fff;
+  }
+  .card.edge .verdict .mark{color:#ff8a6e;}
+  .card.edge .sub{
+    margin-top:13px;font-size:12.5px;color:#cdc6bb;line-height:1.5;
+    padding-top:13px;border-top:1px solid #3a3733;
+  }
+
+  /* ---------- Body grid ---------- */
+  .body-grid{
+    display:grid;
+    grid-template-columns:repeat(12,1fr);
+    gap:22px 26px;
+  }
+  .sec-head{
+    grid-column:1/-1;
+    display:flex;align-items:baseline;gap:14px;
+    margin:18px 0 4px;
+  }
+  .sec-head:first-child{margin-top:0;}
+  .sec-head .idx{
+    font-family:var(--mono);font-size:13px;font-weight:700;color:var(--accent);
+    letter-spacing:.04em;
+  }
+  .sec-head h2{
+    margin:0;font-size:20px;font-weight:700;letter-spacing:-.01em;color:var(--ink);
+  }
+  .sec-head .ln{flex:1;height:1px;background:var(--rule);}
+
+  .block{grid-column:span 12;}
+  .block.method{grid-column:span 6;}
+  .block.results{grid-column:span 6;}
+  .block.proscons{grid-column:span 12;}
+  .block.questions{grid-column:span 12;}
+
+  .block p{margin:0 0 11px;color:var(--ink-2);font-size:14.5px;line-height:1.62;}
+  .block p strong{color:var(--ink);font-weight:600;}
+  .block code{font-family:var(--mono);font-size:12.5px;background:var(--accent-soft);color:#7a2713;padding:1px 5px;border-radius:3px;}
+  .block .lead{font-size:15px;color:var(--ink);}
+
+  ol.probes{margin:6px 0 0;padding-left:18px;color:var(--ink-2);font-size:13.5px;line-height:1.6;}
+  ol.probes li{margin-bottom:6px;}
+  ol.probes li b{color:var(--ink);font-weight:600;}
+
+  ul.highlights{list-style:none;margin:0;padding:0;}
+  ul.highlights li{
+    position:relative;padding:10px 0 10px 26px;border-bottom:1px solid var(--rule);
+    font-size:13.8px;line-height:1.55;color:var(--ink-2);
+  }
+  ul.highlights li:last-child{border-bottom:none;}
+  ul.highlights li::before{
+    content:"";position:absolute;left:4px;top:17px;width:9px;height:9px;
+    background:var(--accent);
+  }
+  ul.highlights li b{color:var(--ink);font-weight:600;}
+  ul.highlights li .num{font-family:var(--mono);color:var(--accent);font-weight:700;}
+
+  /* distribution chart inside results */
+  .dist{
+    margin:6px 0 4px;background:var(--card);border:1px solid var(--rule);padding:14px 14px 8px;
+  }
+  .dist svg{width:100%;height:auto;display:block;}
+  .dist .cap{font-size:11px;color:var(--ink-3);letter-spacing:.02em;margin-top:4px;display:flex;justify-content:space-between;}
+
+  /* strengths / limitations split */
+  .proscons-inner{
+    display:grid;grid-template-columns:1fr 1fr;gap:0;
+    border:1px solid var(--rule);
+  }
+  .pc{padding:20px 22px;}
+  .pc.up{background:var(--card);border-right:1px solid var(--rule);}
+  .pc.down{background:#f1ece1;}
+  .pc h3{
+    margin:0 0 12px;font-size:13px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;
+    display:flex;align-items:center;gap:9px;
+  }
+  .pc.up h3{color:var(--good);}
+  .pc.down h3{color:var(--accent);}
+  .pc h3 .sym{
+    display:inline-flex;align-items:center;justify-content:center;
+    width:20px;height:20px;border-radius:999px;font-size:13px;font-weight:800;
+  }
+  .pc.up h3 .sym{background:#e2efe7;color:var(--good);}
+  .pc.down h3 .sym{background:var(--accent-soft);color:var(--accent);}
+  .pc ul{margin:0;padding-left:16px;}
+  .pc li{font-size:13.5px;line-height:1.55;color:var(--ink-2);margin-bottom:9px;}
+  .pc li:last-child{margin-bottom:0;}
+  .pc li b{color:var(--ink);font-weight:600;}
+
+  /* questions */
+  .qgrid{display:grid;grid-template-columns:repeat(2,1fr);gap:1px;background:var(--rule);border:1px solid var(--rule);}
+  .q{
+    background:var(--card);padding:16px 18px;
+  }
+  .q .qn{
+    font-family:var(--mono);font-size:11px;font-weight:700;color:var(--accent);
+    letter-spacing:.06em;margin-bottom:6px;
+  }
+  .q p{margin:0;font-size:13.5px;line-height:1.55;color:var(--ink-2);}
+  .q p b{color:var(--ink);}
+
+  /* ---------- Footer ---------- */
+  footer{
+    margin-top:54px;padding-top:18px;border-top:2px solid var(--ink);
+    display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;
+  }
+  .src-link{
+    font-weight:700;font-size:14px;color:var(--ink);
+    border-bottom:2px solid var(--accent);padding-bottom:2px;
+  }
+  .src-link:hover{color:var(--accent);text-decoration:none;}
+  .meta-foot{font-size:11.5px;color:var(--ink-3);letter-spacing:.02em;}
+
+  /* ---------- Reveal animation ---------- */
+  @keyframes rise{from{opacity:0;transform:translateY(14px);}to{opacity:1;transform:none;}}
+  .r{animation:rise .55s cubic-bezier(.2,.7,.2,1) both;}
+  .d1{animation-delay:.05s}.d2{animation-delay:.12s}.d3{animation-delay:.19s}
+  .d4{animation-delay:.26s}.d5{animation-delay:.33s}.d6{animation-delay:.40s}
+
+  /* ---------- Responsive ---------- */
+  @media (max-width:860px){
+    .asset-row{grid-template-columns:1fr;}
+    .block.method,.block.results{grid-column:span 12;}
+    .proscons-inner{grid-template-columns:1fr;}
+    .pc.up{border-right:none;border-bottom:1px solid var(--rule);}
+    .qgrid{grid-template-columns:1fr;}
+    .jumps{position:static;}
+    .digest-link{top:auto;bottom:14px;left:14px;}
+  }
+  @media (prefers-reduced-motion:reduce){
+    *{animation:none!important;transition:none!important;}
+  }
+</style>
+</head>
+<body>
+
+<a class="digest-link" href="./index.html">↩ Today's digest</a>
+
+<main class="wrap">
+
+  <!-- ============ HERO ============ -->
+  <header class="hero">
+    <div class="hero-meta r d1">
+      <a class="paper-title" href="https://arxiv.org/abs/2607.14306" target="_blank" rel="noopener">Tracing LLM Behavior to the Training Data with Empirical Next-Token Distributions &nbsp;↗</a>
+      <div class="byline"><b>Zachary Izzo</b> · NEC Labs America · arXiv:2607.14306 · 2026-07-16</div>
+      <div class="chips">
+        <span class="chip accent">mechanistic-interpretability</span>
+        <span class="chip">empirical-next-token-distribution</span>
+        <span class="chip">scaling-laws</span>
+        <span class="chip">llm-pretraining</span>
+        <span class="chip">pythia</span>
+        <span class="chip">data-centric</span>
+      </div>
+    </div>
+
+    <div class="finding-label r d2">Key finding</div>
+    <h1 class="finding r d2">
+      A trained LLM's next-token distribution matches the <span class="hl">empirical next-token distribution</span> of its pretraining corpus <em>near-perfectly</em> for <em>~20%</em> of inputs.
+    </h1>
+  </header>
+
+  <!-- ============ JUMP NAV ============ -->
+  <nav class="jumps r d3" aria-label="Section navigation">
+    <a href="#method">Method</a>
+    <a href="#results">Results</a>
+    <a href="#strengths-limits">Strengths / Limits</a>
+    <a href="#questions">Open questions</a>
+  </nav>
+
+  <!-- ============ ASSET ROW ============ -->
+  <section class="asset-row">
+    <!-- Metric -->
+    <div class="card metric r d4">
+      <div class="kicker">Key metric</div>
+      <div class="big"><span class="le">≤</span>0.0093</div>
+      <div class="unit">total-variation distance, bottom-20% CDF of 83,963 stratified prefixes.</div>
+      <div class="sec">
+        <span class="n">ρ = 0.80</span>
+        <span class="t">Spearman, ENTD entropy ↔ final TV (count ≥ 10⁴)</span>
+      </div>
+      <div class="spark" aria-hidden="true">
+        <svg viewBox="0 0 200 48" preserveAspectRatio="none">
+          <path d="M2,46 L2,40 C8,8 14,4 24,6 C40,9 56,20 76,28 C104,37 140,42 178,45 L198,46 L198,47 L2,47 Z" fill="#b23a1d" opacity="0.16"/>
+          <path d="M2,40 C8,8 14,4 24,6 C40,9 56,20 76,28 C104,37 140,42 178,45 L198,46" fill="none" stroke="#b23a1d" stroke-width="1.6"/>
+          <rect x="2" y="2" width="22" height="45" fill="#b23a1d" opacity="0.10"/>
+          <line x1="24" y1="2" x2="24" y2="47" stroke="#b23a1d" stroke-width="0.8" stroke-dasharray="2 2"/>
+        </svg>
+      </div>
+    </div>
+
+    <!-- Why this matters -->
+    <div class="card matters r d5">
+      <div class="kicker">Why this matters</div>
+      <div class="lede">A mathematically rigorous, data-traceable framework for how LLM behavior emerges from training data — directly relevant to pretraining, data curation, interpretability, and scaling-law work.</div>
+      <div class="tag">Relevance</div>
+    </div>
+
+    <!-- Critical edge -->
+    <div class="card edge r d6">
+      <div class="kicker">Critical edge</div>
+      <div class="verdict">Every conclusion rests on Pythia up to <span class="mark">2.8B parameters</span> — roughly two orders of magnitude below frontier — and may not survive at scale.</div>
+      <div class="sub">Positional-invariance and softmax-bottleneck-insufficiency findings are the most novel claims, and both are exactly the kind that could break at frontier scale.</div>
+    </div>
+  </section>
+
+  <!-- ============ BODY GRID ============ -->
+  <div class="body-grid">
+
+    <!-- METHODOLOGY -->
+    <div class="sec-head" id="method"><span class="idx">01</span><h2>Methodology</h2><span class="ln"></span></div>
+    <article class="block method">
+      <p class="lead">Studies base (pretraining-only) <b>Pythia</b> models at <b>70M / 410M / 2.8B</b> on the Pile. Core target: the <b>empirical next-token distribution (ENTD)</b> — the unrestricted global minimizer of next-token cross-entropy:</p>
+      <p><code>p_ENTD(x_{k+1} | x_{1:k}) = count(x_{1:k+1}, D) / count(x_{1:k}, D)</code></p>
+      <p>A training-aligned variant <b>ENTD-T</b> counts only prefixes at positions aligned to the batch window (mod C+1, C=2048). Both are computed via the ∞-gram suffix-array engine. Discrepancy is measured as <b>total-variation (TV)</b> distance.</p>
+    </article>
+
+    <article class="block results">
+      <p class="lead">Five targeted probes isolate each candidate explanation:</p>
+      <ol class="probes">
+        <li><b>Positional invariance</b> — TV vs ENTD-T at offsets 0 / 1 / 1024.</li>
+        <li><b>Softmax-bottleneck ceiling</b> — unconstrained rank-d_model logit fit.</li>
+        <li><b>Optimization variance</b> — PolyPythias (multi-seed): model↔ENTD vs model↔model.</li>
+        <li><b>Stratified + tail analysis</b> — bucket by length, frequency, entropy.</li>
+        <li><b>Per-sample trajectory</b> — TV over training steps: uniform vs memorization.</li>
+      </ol>
+    </article>
+
+    <!-- RESULTS -->
+    <div class="sec-head" id="results"><span class="idx">02</span><h2>Results &amp; highlights</h2><span class="ln"></span></div>
+
+    <article class="block" style="grid-column:span 12;">
+      <div class="dist" aria-label="Per-sample TV-distance distribution: sharp near-zero peak with heavy high-TV tail">
+        <svg viewBox="0 0 720 150" role="img">
+          <!-- baseline -->
+          <line x1="20" y1="128" x2="700" y2="128" stroke="#dcd4c4" stroke-width="1"/>
+          <!-- near-perfect band -->
+          <rect x="20" y="10" width="120" height="118" fill="#b23a1d" opacity="0.08"/>
+          <line x1="140" y1="10" x2="140" y2="128" stroke="#b23a1d" stroke-width="1" stroke-dasharray="3 3"/>
+          <text x="26" y="24" font-family="ui-monospace,monospace" font-size="11" font-weight="700" fill="#b23a1d">≤ 0.0093</text>
+          <text x="26" y="38" font-family="ui-monospace,monospace" font-size="10" fill="#7a2713">~20% of prefixes</text>
+          <!-- distribution area + curve -->
+          <path d="M20,128 L20,120 C34,30 50,14 80,18 C112,23 150,46 200,66 C270,90 360,108 470,120 C560,127 640,128 700,128 L700,128 L20,128 Z" fill="#b23a1d" opacity="0.12"/>
+          <path d="M20,120 C34,30 50,14 80,18 C112,23 150,46 200,66 C270,90 360,108 470,120 C560,127 640,128 700,128" fill="none" stroke="#b23a1d" stroke-width="2"/>
+          <!-- tail callouts -->
+          <circle cx="200" cy="66" r="3" fill="#15140f"/>
+          <text x="208" y="60" font-family="ui-monospace,monospace" font-size="10" fill="#56524a">high-entropy frequent prefixes → model collapses</text>
+          <circle cx="430" cy="118" r="3" fill="#15140f"/>
+          <text x="300" y="146" font-family="ui-monospace,monospace" font-size="10" fill="#56524a">rare inputs (count ≤ 2): plausibly finite-sample noise</text>
+          <!-- axis labels -->
+          <text x="20" y="146" font-family="ui-monospace,monospace" font-size="10" fill="#8a8478">TV = 0</text>
+          <text x="660" y="146" font-family="ui-monospace,monospace" font-size="10" fill="#8a8478">TV → 1</text>
+        </svg>
+        <div class="cap"><span>Per-sample TV distance (model vs ENTD)</span><span>stratified n ≈ 84K prefixes</span></div>
+      </div>
+    </article>
+
+    <article class="block" style="grid-column:span 7;">
+      <ul class="highlights">
+        <li>On the stratified sample, the LLM matches ENTD almost perfectly (<span class="num">TV ≤ 0.0093</span>) for the bottom-20% CDF; <b>agreement rises with scale and compute</b>.</li>
+        <li>Despite ENTD-T being "training-aligned," the model is consistently <b>closer to standard ENTD</b> than to ENTD-T — lighter upper tails too (Fig. 2).</li>
+        <li>Offset-0 / 1 / 1024 TV distributions are <b>nearly identical</b> across scales: the transformer learns a strong positional invariance the training never asked for (Fig. 3).</li>
+        <li>Rank-<span class="num">2560</span> unconstrained logit fit reaches TV far below even the 2.8B model → <b>softmax bottleneck is not</b> the dominant explanation (Fig. 4).</li>
+        <li>Optimization variance dominates at 70M but <b>not at 410M / 2.8B</b>; larger models converge to a more stable target (Fig. 5).</li>
+      </ul>
+    </article>
+
+    <article class="block" style="grid-column:span 5;">
+      <ul class="highlights">
+        <li>For high-count (≥ 10⁴) prefixes, ENTD entropy ↔ final TV: <span class="num">Spearman ρ = 0.80</span> — the strongest correlate found.</li>
+        <li>High-TV inputs split into three failure modes: <b>(a)</b> rare inputs (median count ≤ 2, plausibly noise); <b>(b)</b> frequent-but-high-entropy, where the model collapses narrow (model entropy <span class="num">0.08</span> vs ENTD <span class="num">6.08</span>); <b>(c)</b> frequent-but-deterministic spam/templates where the model refuses to commit (model entropy 4.5–6.5 vs ENTD ≈ 0).</li>
+        <li>High-TV tails are <b>structurally persistent</b> for larger models (high top-10% IoU across checkpoints).</li>
+      </ul>
+    </article>
+
+    <!-- STRENGTHS / LIMITATIONS -->
+    <div class="sec-head" id="strengths-limits"><span class="idx">03</span><h2>Strengths / Limitations</h2><span class="ln"></span></div>
+    <div class="block proscons">
+      <div class="proscons-inner">
+        <div class="pc up">
+          <h3><span class="sym">+</span> Strengths</h3>
+          <ul>
+            <li>Decomposes a single aggregate (mean training loss) into a <b>rich per-sample distribution</b>.</li>
+            <li>Clean separation of <b>four candidate explanations</b>, each tested with a targeted experiment rather than narrative.</li>
+            <li>Cross-validates the empirical index with an <b>independent brute-force hash table</b> — rare paranoia in interpretability work.</li>
+            <li>The <b>high-entropy-frequent-prefix</b> failure mode is genuinely interesting, with a plausible link to text-homogeneity collapse.</li>
+            <li>Open, reproducible stack: Pythia, PolyPythias, ∞-gram, Pile.</li>
+          </ul>
+        </div>
+        <div class="pc down">
+          <h3><span class="sym">!</span> Limitations</h3>
+          <ul>
+            <li>All conclusions from Pythia up to <b>2.8B</b> — ~100× below frontier; 6.9B/12B &amp; OLMo are future work.</li>
+            <li>Strict ENTD analysis applies <b>only to training-set sequences</b>; unseen inputs (where LLMs are actually useful) are out of scope.</li>
+            <li>Restricted to <b>single-token</b> next-token distributions — nothing on chained generation, long-horizon coherence, or instruction tuning.</li>
+            <li>Headline numbers depend on the specific <b>stratified binning</b> (length × corpus-count) and reservoir N=100.</li>
+            <li><b>No released code</b>; some figures (rank-2560 fit) would benefit from a public artifact.</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <!-- QUESTIONS -->
+    <div class="sec-head" id="questions"><span class="idx">04</span><h2>Open questions</h2><span class="ln"></span></div>
+    <div class="block questions">
+      <div class="qgrid">
+        <div class="q"><div class="qn">Q1 · SCALING</div><p>Do <b>positional-invariance</b> and <b>softmax-bottleneck-insufficiency</b> persist at 6.9B/12B and frontier scale, or are they artifacts of the 70M–2.8B regime?</p></div>
+        <div class="q"><div class="qn">Q2 · MECHANISM</div><p>What inductive bias — attention sparsity, residual-stream rank, an SGD regularization effect — <b>forces a narrower-than-empirical</b> distribution on high-entropy frequent prefixes?</p></div>
+        <div class="q"><div class="qn">Q3 · GENERALIZATION</div><p>Can ENTD be extended to <b>unseen inputs</b> via a principled mixture with a learned smoothing distribution, beyond heuristic backoff?</p></div>
+        <div class="q"><div class="qn">Q4 · DIAGNOSTIC</div><p>Is the <b>ρ = 0.80 entropy–TV</b> correlation a leading indicator of <b>text-homogeneity collapse</b>, usable as a cheap pretraining diagnostic?</p></div>
+        <div class="q"><div class="qn">Q5 · POST-TRAINING</div><p>How do <b>SFT / RLHF</b> shift the model–ENTD TV distribution — widen it (explaining RLHF "diversity loss") or merely move mass within it?</p></div>
+        <div class="q"><div class="qn">Q6 · INTERVENTION</div><p>Could the <b>per-sample TV-trajectory taxonomy</b> (uniform vs memorization vs oscillation) flag "structurally hard" prefixes for targeted data intervention at training time?</p></div>
+      </div>
+    </div>
+
+  </div><!-- /body-grid -->
+
+  <footer>
+    <a class="src-link" href="./2607.14306.md">↗ Markdown source</a>
+    <span class="meta-foot">2607.14306 · single-author data-centric interpretability · dashboard generated from source markdown</span>
+  </footer>
+
+</main>
+
+<script>
+  // Active state for the sticky jump-nav based on scroll position.
+  (function(){
+    var links = document.querySelectorAll('.jumps a');
+    var targets = [];
+    links.forEach(function(l){
+      var id = l.getAttribute('href').slice(1);
+      var el = document.getElementById(id);
+      if(el) targets.push({el:l, sec:el});
+    });
+    if(!('IntersectionObserver' in window) || !targets.length) return;
+    var io = new IntersectionObserver(function(entries){
+      entries.forEach(function(e){
+        if(e.isIntersecting){
+          links.forEach(function(l){l.classList.remove('active');});
+          var hit = targets.filter(function(t){return t.sec===e.target;})[0];
+          if(hit) hit.el.classList.add('active');
+        }
+      });
+    }, {rootMargin:'-45% 0px -50% 0px', threshold:0});
+    targets.forEach(function(t){io.observe(t.sec);});
+  })();
+</script>
+
+</body>
+</html>

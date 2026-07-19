@@ -1,0 +1,489 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Long-Context Fine-Tuning with Limited VRAM — arXiv 2607.15105</title>
+<style>
+  :root{
+    --bg:#f5f2ea;          /* warm paper */
+    --bg-2:#efeadd;
+    --panel:#fbf9f3;
+    --ink:#14161b;
+    --ink-2:#3c3f47;
+    --ink-3:#6c6f78;
+    --rule:#d8d1bf;
+    --rule-2:#e6e0cf;
+    --accent:#b8410e;      /* single accent: burnt sienna */
+    --accent-soft:#e9c4b3;
+    --accent-tint:#f3e3da;
+    --ok:#2f6b3a;
+    --warn:#9a6a1f;
+    --sans:ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,system-ui,"Helvetica Neue",Arial,sans-serif;
+    --mono:ui-monospace,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    background:var(--bg);
+    color:var(--ink);
+    font-family:var(--sans);
+    font-size:15px;
+    line-height:1.55;
+    -webkit-font-smoothing:antialiased;
+    text-rendering:optimizeLegibility;
+  }
+  a{color:var(--accent);text-decoration:none;border-bottom:1px solid var(--accent-soft)}
+  a:hover{border-bottom-color:var(--accent)}
+  .wrap{width:min(95vw,1100px);margin:0 auto;padding:0 4.5vw}
+
+  /* ---------- topbar ---------- */
+  .topbar{
+    position:sticky;top:0;z-index:40;
+    background:rgba(245,242,234,.9);
+    backdrop-filter:saturate(140%) blur(8px);
+    border-bottom:1px solid var(--rule);
+  }
+  .topbar-in{display:flex;align-items:center;gap:14px;height:52px;flex-wrap:wrap}
+  .mark{
+    font-family:var(--mono);font-size:12px;font-weight:600;
+    letter-spacing:.06em;color:var(--ink);
+    display:inline-flex;align-items:center;gap:8px;
+  }
+  .mark::before{content:"";width:10px;height:10px;background:var(--accent);display:inline-block}
+  .crumb{font-family:var(--mono);font-size:11px;color:var(--ink-3);letter-spacing:.08em;text-transform:uppercase}
+  .spacer{flex:1;min-width:8px}
+  .nav{display:flex;gap:2px;flex-wrap:wrap}
+  .nav a{
+    font-family:var(--mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase;
+    color:var(--ink-2);border:0;padding:6px 10px;border-radius:6px;transition:.15s;
+  }
+  .nav a:hover{background:var(--bg-2);color:var(--accent);border:0}
+
+  /* ---------- hero band ---------- */
+  .hero{padding:54px 0 34px;border-bottom:1px solid var(--rule)}
+  .eyebrow{
+    display:inline-flex;align-items:center;gap:10px;
+    font-family:var(--mono);font-size:11px;letter-spacing:.16em;text-transform:uppercase;
+    color:var(--accent);margin:0 0 18px;font-weight:600;
+  }
+  .eyebrow::before{content:"";width:26px;height:2px;background:var(--accent)}
+  .papertitle{
+    font-family:var(--sans);font-weight:700;
+    font-size:clamp(15px,1.7vw,18px);letter-spacing:-.01em;
+    color:var(--ink-2);margin:0 0 26px;max-width:62ch;line-height:1.4;
+  }
+  .papertitle .sep{color:var(--rule);margin:0 8px}
+  .meta-row{
+    display:flex;gap:22px;flex-wrap:wrap;align-items:baseline;
+    font-family:var(--mono);font-size:11.5px;color:var(--ink-3);letter-spacing:.04em;
+    margin-bottom:30px;
+  }
+  .meta-row b{color:var(--ink);font-weight:600}
+
+  .finding-label{
+    font-family:var(--mono);font-size:11px;letter-spacing:.18em;text-transform:uppercase;
+    color:var(--ink-3);margin-bottom:12px;
+  }
+  .finding{
+    font-family:var(--sans);
+    font-weight:800;
+    font-size:clamp(30px,6.4vw,64px);
+    line-height:1.0;
+    letter-spacing:-.035em;
+    margin:0;
+    max-width:17ch;
+  }
+  .finding .hl{color:var(--accent)}
+  .finding .arrow{color:var(--accent);font-weight:800}
+  .finding sub{font-size:.5em;font-weight:600;vertical-align:baseline;color:var(--ink-3);letter-spacing:0}
+  .finding .sm{font-size:.62em;font-weight:600;letter-spacing:-.02em}
+  .finding-line2{margin-top:14px}
+  .hero-foot{
+    margin-top:26px;display:flex;gap:28px;flex-wrap:wrap;align-items:center;
+    font-family:var(--mono);font-size:11.5px;color:var(--ink-3);letter-spacing:.04em;
+  }
+  .hero-foot .pill{
+    display:inline-flex;align-items:center;gap:7px;
+    border:1px solid var(--rule);background:var(--panel);
+    padding:5px 10px;border-radius:999px;
+  }
+  .hero-foot .pill b{color:var(--ink);font-weight:600}
+
+  /* ---------- asset row ---------- */
+  .assets{
+    display:grid;grid-template-columns:1.15fr 1fr 1.05fr;gap:0;
+    border-bottom:1px solid var(--rule);
+  }
+  .asset{
+    padding:30px 26px;border-right:1px solid var(--rule);
+    display:flex;flex-direction:column;gap:10px;
+  }
+  .asset:last-child{border-right:0}
+  .asset-label{
+    font-family:var(--mono);font-size:10.5px;letter-spacing:.18em;text-transform:uppercase;
+    color:var(--ink-3);font-weight:600;
+  }
+  .metric-num{
+    font-family:var(--mono);font-weight:700;
+    font-size:clamp(46px,8vw,76px);line-height:.95;letter-spacing:-.04em;
+    color:var(--ink);
+  }
+  .metric-num .unit{font-size:.32em;color:var(--ink-3);font-weight:600;letter-spacing:0;margin-left:6px}
+  .metric-sub{font-size:13.5px;color:var(--ink-2);line-height:1.45}
+  .metric-sub b{color:var(--ink)}
+  .metric-delta{
+    font-family:var(--mono);font-size:11.5px;color:var(--accent);font-weight:600;letter-spacing:.03em;
+  }
+  /* mini VRAM budget bar */
+  .vbar{margin-top:8px;display:flex;flex-direction:column;gap:6px}
+  .vrow{display:grid;grid-template-columns:54px 1fr 60px;align-items:center;gap:8px;font-family:var(--mono);font-size:10.5px;color:var(--ink-3)}
+  .vrow .lbl{color:var(--ink-2);font-weight:600}
+  .vtrack{height:8px;background:var(--bg-2);border:1px solid var(--rule);position:relative;overflow:hidden}
+  .vfill{height:100%;background:var(--ink)}
+  .vfill.acc{background:var(--accent)}
+  .vrow .val{text-align:right;color:var(--ink)}
+  .vrow .oom{color:var(--accent);font-weight:600}
+
+  .matters-text{font-size:15px;color:var(--ink);line-height:1.5;font-weight:500}
+
+  .edge{
+    background:var(--accent-tint);
+    border-left:3px solid var(--accent);
+    padding:18px 18px 16px;
+    margin:-6px -8px 0;
+  }
+  .edge-text{font-size:14.5px;color:var(--ink);line-height:1.5;font-weight:500}
+  .edge-text .cite{color:var(--accent);font-weight:700;font-family:var(--mono);font-size:.85em}
+
+  /* ---------- body grid ---------- */
+  .body{padding:40px 0 24px}
+  .body-head{
+    display:flex;align-items:baseline;gap:14px;margin-bottom:22px;flex-wrap:wrap;
+  }
+  .body-head h2{
+    font-family:var(--sans);font-weight:700;font-size:13px;letter-spacing:.16em;
+    text-transform:uppercase;color:var(--ink);margin:0;
+  }
+  .body-head .rule{flex:1;height:1px;background:var(--rule);min-width:30px}
+  .body-head .legend{font-family:var(--mono);font-size:11px;color:var(--ink-3);letter-spacing:.04em}
+
+  .grid{
+    display:grid;grid-template-columns:1fr 1fr;gap:1px;
+    background:var(--rule);border:1px solid var(--rule);
+  }
+  .cell{background:var(--panel);padding:24px 24px 22px}
+  .cell-num{
+    font-family:var(--mono);font-size:11px;color:var(--accent);font-weight:600;
+    letter-spacing:.1em;display:block;margin-bottom:6px;
+  }
+  .cell h3{
+    font-family:var(--sans);font-weight:700;font-size:19px;letter-spacing:-.01em;
+    margin:0 0 12px;color:var(--ink);
+  }
+  .cell p{margin:0 0 10px;font-size:14px;color:var(--ink-2);line-height:1.55}
+  .cell p b{color:var(--ink);font-weight:600}
+  .cell p .num{font-family:var(--mono);font-weight:600;color:var(--ink)}
+  .cell ul{margin:0;padding:0;list-style:none}
+  .cell ul li{
+    font-size:13.5px;color:var(--ink-2);line-height:1.5;padding:6px 0 6px 18px;position:relative;
+    border-bottom:1px dashed var(--rule-2);
+  }
+  .cell ul li:last-child{border-bottom:0}
+  .cell ul li::before{
+    content:"";position:absolute;left:0;top:13px;width:8px;height:1px;background:var(--accent);
+  }
+  .cell ul li b{color:var(--ink);font-weight:600}
+  .cell ul li .num{font-family:var(--mono);color:var(--ink);font-weight:600}
+
+  /* results tab control */
+  .tabs{display:flex;gap:2px;background:var(--bg-2);border:1px solid var(--rule);border-radius:7px;padding:2px;margin-bottom:14px;flex-wrap:wrap}
+  .tabs button{
+    border:0;background:transparent;cursor:pointer;
+    font-family:var(--mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;
+    color:var(--ink-2);padding:6px 10px;border-radius:5px;transition:.15s;font-weight:600;
+  }
+  .tabs button:hover{color:var(--ink)}
+  .tabs button.on{background:var(--ink);color:var(--bg)}
+  .tab-pane{display:none}
+  .tab-pane.on{display:block;animation:fade .25s ease}
+  @keyframes fade{from{opacity:0}to{opacity:1}}
+
+  .stat-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-top:6px}
+  .stat{
+    border:1px solid var(--rule);background:var(--bg);padding:10px 11px;border-radius:6px;
+  }
+  .stat .k{font-family:var(--mono);font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3);font-weight:600}
+  .stat .v{font-family:var(--mono);font-size:17px;font-weight:700;color:var(--ink);letter-spacing:-.02em;margin-top:2px}
+  .stat .v .acc{color:var(--accent)}
+  .stat .d{font-family:var(--mono);font-size:10px;color:var(--ink-3);margin-top:1px}
+
+  .limit li.warn::before{background:var(--warn);height:2px;width:8px;top:14px}
+
+  /* ---------- footer ---------- */
+  .foot{
+    padding:26px 0 48px;border-top:1px solid var(--rule);margin-top:18px;
+    display:flex;gap:22px;flex-wrap:wrap;align-items:baseline;
+    font-family:var(--mono);font-size:11px;color:var(--ink-3);letter-spacing:.04em;
+  }
+  .foot a{font-family:var(--mono)}
+  .foot .sig{color:var(--ink);font-weight:600}
+
+  /* staggered load */
+  .reveal{opacity:0;transform:translateY(10px);animation:rv .6s cubic-bezier(.2,.7,.2,1) forwards}
+  @keyframes rv{to{opacity:1;transform:none}}
+  .d1{animation-delay:.05s}.d2{animation-delay:.13s}.d3{animation-delay:.21s}
+  .d4{animation-delay:.30s}.d5{animation-delay:.40s}.d6{animation-delay:.50s}
+
+  /* ---------- responsive ---------- */
+  @media (max-width:880px){
+    .assets{grid-template-columns:1fr}
+    .asset{border-right:0;border-bottom:1px solid var(--rule)}
+    .asset:last-child{border-bottom:0}
+    .grid{grid-template-columns:1fr}
+    .stat-grid{grid-template-columns:1fr 1fr}
+    .nav{display:none}
+    .finding{max-width:none}
+    .topbar-in{height:auto;padding:8px 0;gap:10px}
+  }
+  @media (max-width:480px){
+    .hero{padding:38px 0 26px}
+    .stat-grid{grid-template-columns:1fr}
+  }
+  @media (prefers-reduced-motion:reduce){
+    .reveal{opacity:1;transform:none;animation:none}
+    .tab-pane.on{animation:none}
+  }
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="wrap topbar-in">
+    <span class="mark">arXiv:2607.15105</span>
+    <span class="crumb">Daily Digest · 2026-07-17</span>
+    <span class="spacer"></span>
+    <nav class="nav">
+      <a href="#method">Method</a>
+      <a href="#results">Results</a>
+      <a href="#strengths">Strengths</a>
+      <a href="#limits">Limitations</a>
+    </nav>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <!-- ============ HERO BAND ============ -->
+  <section class="hero">
+    <div class="eyebrow reveal d1">Key Finding</div>
+    <h2 class="papertitle reveal d1">
+      Long-Context Fine-Tuning with Limited VRAM
+      <span class="sep">·</span> Fedosov, Sazhin, Grinenko &amp; Woernle — BMW Group
+    </h2>
+
+    <div class="meta-row reveal d1">
+      <span><b>Qwen3-8B</b> · 4-bit NF4 QLoRA</span>
+      <span>GPU <b>16 GB Quadro RTX 5000</b></span>
+      <span>seed <b>1337</b> · 100 steps</span>
+      <span>bench <b>PG19</b></span>
+    </div>
+
+    <p class="finding reveal d2">
+      HGA <span class="arrow">+</span> segment-wise TBPTT <span class="arrow">+</span> tiered KV
+    </p>
+    <p class="finding finding-line2 reveal d3">
+      extends training context<br>
+      <span class="sm"><span class="hl">2K</span> &rarr; <span class="hl">16K</span></span><br>
+      on a single 16 GB GPU.
+    </p>
+
+    <div class="hero-foot reveal d4">
+      <span class="pill"><b>8&times;</b> trainable context</span>
+      <span class="pill">dense attention <b>OOM @ 4,096</b></span>
+      <span class="pill">same adapter runs to <b>131K</b> at eval</span>
+      <span class="pill">code: <b>github.com/vfedosov77/HGA</b></span>
+    </div>
+  </section>
+
+  <!-- ============ ASSET ROW ============ -->
+  <section class="assets">
+    <!-- KEY METRIC -->
+    <div class="asset reveal d3">
+      <span class="asset-label">Key Metric</span>
+      <div class="metric-num">16,384<span class="unit">tokens</span></div>
+      <div class="metric-sub">trainable context at <b>15.28 GB</b> peak VRAM — vs <b>2,048</b> for dense attention.</div>
+      <div class="metric-delta">&uarr; 8&times; expansion · HGA OOMs only at 32,768</div>
+
+      <div class="vbar" aria-hidden="true">
+        <div class="vrow">
+          <span class="lbl">Dense</span>
+          <span class="vtrack"><span class="vfill" style="width:35%"></span></span>
+          <span class="val">2K · 11.6GB</span>
+        </div>
+        <div class="vrow">
+          <span class="lbl">Dense 4K</span>
+          <span class="vtrack"><span class="vfill" style="width:100%;background:repeating-linear-gradient(45deg,var(--accent-soft),var(--accent-soft) 4px,var(--bg-2) 4px,var(--bg-2) 8px)"></span></span>
+          <span class="val oom">OOM</span>
+        </div>
+        <div class="vrow">
+          <span class="lbl">HGA</span>
+          <span class="vtrack"><span class="vfill acc" style="width:96%"></span></span>
+          <span class="val">16K · 15.3GB</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- WHY THIS MATTERS -->
+    <div class="asset reveal d4">
+      <span class="asset-label">Why This Matters</span>
+      <p class="matters-text">
+        Directly extends QLoRA long-context fine-tuning on consumer / workstation GPUs — a practical system recipe for PEFT, efficient-attention, and tiered KV-cache researchers.
+      </p>
+      <div class="metric-delta" style="margin-top:auto">Relevance · system-engineering reference</div>
+    </div>
+
+    <!-- CRITICAL EDGE -->
+    <div class="asset reveal d5">
+      <span class="asset-label">Critical Edge</span>
+      <div class="edge">
+        <p class="edge-text">
+          The headline context-scaling claim rests on a <span class="cite">single model, a single GPU, and only 100 optimizer steps</span> of training — far too short to draw strong conclusions about convergence or final quality at 16K.
+        </p>
+      </div>
+      <div class="metric-delta" style="color:var(--ink-3)">&mdash; Critical Assessment · Rigor</div>
+    </div>
+  </section>
+
+  <!-- ============ BODY GRID ============ -->
+  <section class="body" id="method">
+    <div class="body-head">
+      <h2>Anatomy of the Method</h2>
+      <span class="rule"></span>
+      <span class="legend">4 sections · non-linear jump nav above</span>
+    </div>
+
+    <div class="grid">
+
+      <!-- METHODOLOGY -->
+      <article class="cell">
+        <span class="cell-num">01 / Methodology</span>
+        <h3>Exact-token routing, decoupled from gradient memory</h3>
+        <p><b>HGA routing.</b> Context is split into <span class="num">64-token</span> chunks and <span class="num">8-token</span> groups. Compact summaries are built from the model's existing projected K vectors — <b>no new router weights</b>; gradients still flow through original Q/K/V/O and MLP.</p>
+        <p>Three-step selection: <b>(1)</b> every closed chunk keeps a summary resident in VRAM; query block scores &amp; picks top chunks plus fixed sink/local windows. <b>(2)</b> Selected chunks open at group level via a larger VRAM cache (misses paged from RAM/NVMe). <b>(3)</b> Only exact token K/V of selected groups loads for attention — summaries are never used as attention values.</p>
+        <p><b>Segment-wise backward + 3-tier KV.</b> Sequence split into length-S segments; each attends to local tokens + HGA-selected history, computes loss, runs backward immediately. At the boundary the segment's K/V is <b>detached</b> (classical TBPTT). Working set: <span class="num">M_model + M_adapters + O(S) + O(B_route)</span>; external record grows as <span class="num">O(L)</span>.</p>
+        <p><b>Matched protocol.</b> Identical seed <span class="num">1337</span>, data order, hyperparameters, 100 steps — only the attention module differs. Both adapters then cross-evaluated under <b>dense</b> and <b>routed</b> readout.</p>
+      </article>
+
+      <!-- RESULTS (tabbed) -->
+      <article class="cell" id="results">
+        <span class="cell-num">02 / Results</span>
+        <h3>Three lenses on a single 100-step run</h3>
+
+        <div class="tabs" role="tablist">
+          <button class="on" data-tab="q">Matched Quality</button>
+          <button data-tab="t">Throughput</button>
+          <button data-tab="s">Routing Sparsity</button>
+        </div>
+
+        <div class="tab-pane on" data-pane="q">
+          <p>At <b>2K overlap</b>, dense readout on 32 held-out PG19 blocks — HGA-trained vs dense-trained adapter:</p>
+          <div class="stat-grid">
+            <div class="stat"><div class="k">HGA loss / PPL</div><div class="v">2.7405 <span class="acc">/</span> 15.495</div><div class="d">dense-trained: 2.7383 / 15.461</div></div>
+            <div class="stat"><div class="k">&Delta; loss</div><div class="v"><span class="acc">0.0022</span> nat</div><div class="d">train-time equivalent</div></div>
+            <div class="stat"><div class="k">@ 4K (dense readout)</div><div class="v">PPL 15.006</div><div class="d">vs dense-trained 14.966 (&Delta;.04)</div></div>
+            <div class="stat"><div class="k">FT gain vs stock</div><div class="v">&minus;0.216 nat</div><div class="d">PPL 19.19 &rarr; 15.49 (&minus;19.4%)</div></div>
+          </div>
+          <p style="margin-top:12px">RULER retrieval (dense readout): passkey &amp; multikey <b>100%</b> at 4K/8K; multivalue 93.8&ndash;100% — no evidence HGA training harms dense retrieval.</p>
+        </div>
+
+        <div class="tab-pane" data-pane="t">
+          <p>Throughput crossover at the overlap boundary (tok/s):</p>
+          <div class="stat-grid">
+            <div class="stat"><div class="k">@ 1,024 tokens</div><div class="v">225.5 <span class="acc">vs</span> 282.3</div><div class="d">HGA &minus;20% vs dense</div></div>
+            <div class="stat"><div class="k">@ 2,048 tokens</div><div class="v"><span class="acc">217.8</span> vs 207.0</div><div class="d">HGA marginally faster (+5%)</div></div>
+            <div class="stat"><div class="k">KV savings @ 16K</div><div class="v"><span class="acc">91.2%</span></div><div class="d">95.6% at 32K</div></div>
+            <div class="stat"><div class="k">Cache hit rate</div><div class="v">87.7&ndash;95.3%</div><div class="d">stable across budgets</div></div>
+          </div>
+          <p style="margin-top:12px">Projected lead grows with context — but a true long-context timing crossover <b>cannot be measured</b> on this GPU because dense OOMs above 2K.</p>
+        </div>
+
+        <div class="tab-pane" data-pane="s">
+          <p>Fixed top-8 chunk budget — selected historical fraction falls naturally with context:</p>
+          <div class="stat-grid">
+            <div class="stat"><div class="k">selected @ 2K</div><div class="v">59.4%</div><div class="d">of history attended</div></div>
+            <div class="stat"><div class="k">selected @ 16K</div><div class="v"><span class="acc">8.7%</span></div><div class="d">~91% KV interactions saved</div></div>
+            <div class="stat"><div class="k">top-2 sweep @ 4K</div><div class="v">PPL 15.69</div><div class="d">vs 15.15 default (+.54)</div></div>
+            <div class="stat"><div class="k">cost of top-2</div><div class="v">&minus;81.2%</div><div class="d">KV interactions, +0.045 loss</div></div>
+          </div>
+          <p style="margin-top:12px">Quality near-saturated at default top-8; graceful degradation under budget pressure.</p>
+        </div>
+      </article>
+
+      <!-- STRENGTHS -->
+      <article class="cell" id="strengths">
+        <span class="cell-num">03 / Strengths</span>
+        <h3>What lands cleanly</h3>
+        <ul>
+          <li><b>Matched protocol.</b> Same seed/data/hyperparameters, four-way cross-evaluation (2 train &times; 2 eval modes) — the right control.</li>
+          <li><b>Honest failure disclosure.</b> Causal-leakage mode surfaced explicitly, with scoping of where the method is and isn't safe.</li>
+          <li><b>Strong engineering story.</b> 2K &rarr; 16K on a 16 GB consumer card, with a public reference implementation.</li>
+          <li><b>Composable recipe.</b> Per-segment backward + tiered KV needs no new router parameters or changes to pretrained projections.</li>
+          <li><b>Thorough characterization.</b> Routing-sparsity sweep (Table 7) shows graceful degradation under budget pressure.</li>
+        </ul>
+      </article>
+
+      <!-- LIMITATIONS -->
+      <article class="cell limit" id="limits">
+        <span class="cell-num">04 / Limitations</span>
+        <h3>Where the claim is load-bearing</h3>
+        <ul>
+          <li class="warn"><b>Single model &amp; GPU.</b> Qwen3-8B on one 16 GB Quadro RTX 5000 — no scaling study across sizes or vendors.</li>
+          <li class="warn"><b>Only 100 optimizer steps.</b> Equal-context equivalence (Table 6) shown for short runs only; may not hold at convergence.</li>
+          <li class="warn"><b>No dense baseline beyond 4K.</b> 8K/16K quality is uncontrolled; non-monotonic PPL across 8K&rarr;16K&rarr;32K is unexplained beyond "different document truncation."</li>
+          <li class="warn"><b>Causal leakage.</b> Current implementation unsafe for from-scratch pretraining; validated only for ~100M fine-tuning tokens.</li>
+          <li class="warn"><b>NVMe tier unbenchmarked.</b> RAM-backed is the only measured configuration; central scale-out thesis under-tested.</li>
+          <li class="warn"><b>Routed inference is a prototype.</b> vLLM/SGLang integration is future work — dense readout used for all main comparisons.</li>
+        </ul>
+      </article>
+
+    </div>
+  </section>
+
+  <footer class="foot">
+    <span class="sig">arXiv:2607.15105</span>
+    <span>Long-Context Fine-Tuning with Limited VRAM</span>
+    <span>·</span>
+    <a href="https://arxiv.org/abs/2607.15105">arxiv.org/abs/2607.15105</a>
+    <span>·</span>
+    <a href="https://github.com/vfedosov77/HierarchicalGlobalAttention">reference code</a>
+    <span>·</span>
+    <span>companion: arXiv:2606.30709 (HGA)</span>
+  </footer>
+
+</main>
+
+<script>
+  // Results tab switching — real interaction
+  (function(){
+    var tabs = document.querySelectorAll('.tabs button');
+    var panes = document.querySelectorAll('.tab-pane');
+    tabs.forEach(function(btn){
+      btn.addEventListener('click', function(){
+        var key = btn.getAttribute('data-tab');
+        tabs.forEach(function(b){ b.classList.toggle('on', b===btn); });
+        panes.forEach(function(p){ p.classList.toggle('on', p.getAttribute('data-pane')===key); });
+      });
+    });
+    // keyboard nav on tabs
+    tabs.forEach(function(btn, i){
+      btn.addEventListener('keydown', function(e){
+        if(e.key==='ArrowRight' && tabs[i+1]){ tabs[i+1].focus(); tabs[i+1].click(); }
+        if(e.key==='ArrowLeft' && tabs[i-1]){ tabs[i-1].focus(); tabs[i-1].click(); }
+      });
+    });
+  })();
+</script>
+
+</body>
+</html>
