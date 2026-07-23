@@ -1,0 +1,774 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CKKS-CPU-FT · An Efficient Fault-Tolerance Scheme for CKKS on CPUs</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&family=Newsreader:ital,wght@0,400;1,400&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#F6F3EC;          /* warm paper */
+    --bg-card:#FFFFFF;
+    --bg-sunken:#EFEAE0;
+    --ink:#15140F;          /* near-black charcoal */
+    --ink-soft:#4A4639;
+    --ink-mute:#7A7464;
+    --rule:#D9D2C2;
+    --accent:#B23A1C;       /* burnt amber - fault/alert signal */
+    --accent-deep:#7A1F0E;
+    --accent-soft:#F4E4DC;
+    --good:#2F6F3E;
+    --warn:#8A5A00;
+    --maxw:min(95vw,1100px);
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:var(--bg);
+    color:var(--ink);
+    font-family:"IBM Plex Sans",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+    font-size:16px;
+    line-height:1.55;
+    -webkit-font-smoothing:antialiased;
+    text-rendering:optimizeLegibility;
+  }
+  /* subtle paper grain */
+  body::before{
+    content:"";
+    position:fixed;inset:0;
+    pointer-events:none;
+    background-image:radial-gradient(rgba(20,18,12,0.025) 1px,transparent 1px);
+    background-size:3px 3px;
+    z-index:0;
+  }
+  .wrap{
+    position:relative;
+    z-index:1;
+    max-width:var(--maxw);
+    margin:0 auto;
+    padding:0 clamp(16px,3vw,40px) 80px;
+  }
+
+  /* ---------- top nav ---------- */
+  .topnav{
+    position:fixed;
+    top:14px;
+    left:14px;
+    z-index:50;
+    background:rgba(246,243,236,0.92);
+    backdrop-filter:saturate(140%) blur(6px);
+    border:1px solid var(--rule);
+    border-radius:8px;
+    padding:7px 12px;
+    font-size:13px;
+    font-weight:500;
+    box-shadow:0 1px 0 rgba(0,0,0,0.03);
+  }
+  .topnav a{
+    color:var(--ink);
+    text-decoration:none;
+    display:inline-flex;align-items:center;gap:4px;
+  }
+  .topnav a:hover{color:var(--accent);}
+
+  /* ---------- meta strip ---------- */
+  .meta-strip{
+    display:flex;
+    justify-content:space-between;
+    align-items:baseline;
+    gap:16px;
+    flex-wrap:wrap;
+    padding:64px 0 18px;
+    border-bottom:1px solid var(--rule);
+    font-family:"IBM Plex Mono",monospace;
+    font-size:12px;
+    letter-spacing:0.02em;
+    color:var(--ink-mute);
+    text-transform:uppercase;
+  }
+  .meta-strip .id{color:var(--accent);font-weight:600;}
+  .meta-strip .right{display:flex;gap:18px;flex-wrap:wrap;}
+
+  /* ---------- hero ---------- */
+  .hero{
+    padding:34px 0 40px;
+    border-bottom:2px solid var(--ink);
+  }
+  .chips{
+    display:flex;flex-wrap:wrap;gap:6px;
+    margin-bottom:22px;
+  }
+  .chip{
+    font-family:"IBM Plex Mono",monospace;
+    font-size:11px;
+    letter-spacing:0.04em;
+    text-transform:uppercase;
+    color:var(--accent-deep);
+    background:var(--accent-soft);
+    border:1px solid #E8C9BC;
+    padding:3px 9px;
+    border-radius:999px;
+    font-weight:500;
+  }
+  .title{
+    font-family:"Space Grotesk",sans-serif;
+    font-weight:700;
+    font-size:clamp(30px,5vw,52px);
+    line-height:1.04;
+    letter-spacing:-0.02em;
+    margin:0 0 14px;
+  }
+  .title a{
+    color:var(--ink);
+    text-decoration:none;
+    background-image:linear-gradient(var(--accent),var(--accent));
+    background-size:0% 2px;
+    background-repeat:no-repeat;
+    background-position:left bottom;
+    transition:background-size .25s ease;
+  }
+  .title a:hover{background-size:100% 2px;color:var(--accent-deep);}
+  .byline{
+    display:flex;flex-wrap:wrap;gap:4px 14px;align-items:baseline;
+    font-size:14px;color:var(--ink-soft);
+    margin-bottom:6px;
+  }
+  .byline .auth{color:var(--ink);}
+  .byline .venue{
+    font-family:"IBM Plex Mono",monospace;
+    font-size:11px;
+    text-transform:uppercase;
+    letter-spacing:0.05em;
+    color:var(--ink-mute);
+    padding-left:14px;
+    border-left:1px solid var(--rule);
+  }
+
+  /* key finding band */
+  .keyfinding{
+    margin-top:34px;
+    position:relative;
+    padding:6px 0 6px 22px;
+    border-left:4px solid var(--accent);
+  }
+  .keyfinding .label{
+    font-family:"IBM Plex Mono",monospace;
+    font-size:11px;
+    text-transform:uppercase;
+    letter-spacing:0.12em;
+    color:var(--accent);
+    font-weight:600;
+    display:block;
+    margin-bottom:8px;
+  }
+  .keyfinding .claim{
+    font-family:"Newsreader",Georgia,serif;
+    font-style:italic;
+    font-size:clamp(22px,3.3vw,34px);
+    line-height:1.22;
+    color:var(--ink);
+    font-weight:400;
+    letter-spacing:-0.01em;
+    max-width:24ch;
+  }
+
+  /* ---------- asset row ---------- */
+  .assets{
+    display:grid;
+    grid-template-columns:1.1fr 1.4fr 1.5fr;
+    gap:14px;
+    margin:34px 0 56px;
+  }
+  .card{
+    background:var(--bg-card);
+    border:1px solid var(--rule);
+    border-radius:6px;
+    padding:22px 22px 20px;
+    position:relative;
+  }
+  .card .klabel{
+    font-family:"IBM Plex Mono",monospace;
+    font-size:10.5px;
+    text-transform:uppercase;
+    letter-spacing:0.12em;
+    color:var(--ink-mute);
+    font-weight:600;
+    margin-bottom:14px;
+    display:flex;align-items:center;gap:6px;
+  }
+  .card .klabel::before{
+    content:"";display:inline-block;
+    width:8px;height:8px;border-radius:1px;
+    background:var(--accent);
+  }
+
+  /* metric card */
+  .metric .big{
+    font-family:"Space Grotesk",sans-serif;
+    font-weight:700;
+    font-size:clamp(54px,8vw,82px);
+    line-height:0.9;
+    letter-spacing:-0.04em;
+    color:var(--accent-deep);
+    margin:2px 0 4px;
+  }
+  .metric .big .unit{
+    font-size:0.42em;font-weight:600;color:var(--accent);vertical-align:super;margin-left:2px;
+  }
+  .metric .sub{
+    font-size:13.5px;color:var(--ink-soft);line-height:1.45;
+  }
+  .metric .pillrow{
+    display:flex;gap:8px;margin-top:14px;flex-wrap:wrap;
+  }
+  .ministat{
+    background:var(--bg-sunken);
+    border-radius:4px;
+    padding:7px 9px;
+    font-size:11.5px;
+    line-height:1.3;
+  }
+  .ministat b{display:block;font-family:"Space Grotesk",sans-serif;font-size:15px;color:var(--ink);}
+
+  /* matters card */
+  .matters .body{
+    font-size:16px;
+    line-height:1.45;
+    color:var(--ink);
+    font-weight:500;
+  }
+  .matters .body em{color:var(--accent-deep);font-style:normal;}
+
+  /* critical edge card - contrasting */
+  .edge{
+    background:#15140F;
+    color:#EFEAE0;
+    border-color:#15140F;
+  }
+  .edge .klabel{color:#9A917B;}
+  .edge .klabel::before{background:var(--accent);}
+  .edge .verdict{
+    font-family:"Newsreader",serif;
+    font-style:italic;
+    font-size:17px;
+    line-height:1.45;
+    color:#F6F3EC;
+  }
+  .edge .verdict strong{color:#FFB79A;font-style:normal;font-weight:600;}
+  .edge .tag{
+    display:inline-block;margin-top:14px;
+    font-family:"IBM Plex Mono",monospace;
+    font-size:10.5px;text-transform:uppercase;letter-spacing:0.08em;
+    color:var(--accent);
+    border:1px solid var(--accent);
+    padding:3px 8px;border-radius:3px;
+  }
+
+  /* ---------- body grid ---------- */
+  .section-head{
+    display:flex;align-items:baseline;gap:14px;
+    margin:0 0 18px;
+    border-bottom:1px solid var(--ink);
+    padding-bottom:10px;
+  }
+  .section-head .num{
+    font-family:"IBM Plex Mono",monospace;
+    font-size:12px;color:var(--accent);font-weight:600;
+  }
+  .section-head h2{
+    font-family:"Space Grotesk",sans-serif;
+    font-weight:600;
+    font-size:22px;
+    letter-spacing:-0.01em;
+    margin:0;
+  }
+
+  .body-grid{
+    display:grid;
+    grid-template-columns:1fr 1.25fr;
+    gap:16px;
+    margin-bottom:56px;
+  }
+  .panel{
+    background:var(--bg-card);
+    border:1px solid var(--rule);
+    border-radius:6px;
+    padding:22px 24px;
+  }
+  .panel h3{
+    font-family:"Space Grotesk",sans-serif;
+    font-size:15px;font-weight:600;
+    margin:0 0 12px;
+    letter-spacing:-0.005em;
+    display:flex;align-items:center;gap:8px;
+  }
+  .panel h3 .dot{
+    width:7px;height:7px;border-radius:50%;background:var(--accent);
+  }
+  .panel p{font-size:14.5px;line-height:1.6;color:var(--ink-soft);margin:0 0 10px;}
+  .panel p:last-child{margin-bottom:0;}
+  .panel strong{color:var(--ink);}
+  .panel code, .mono{
+    font-family:"IBM Plex Mono",monospace;
+    font-size:0.92em;
+    background:var(--bg-sunken);
+    padding:1px 5px;border-radius:3px;
+    color:var(--accent-deep);
+  }
+  .method-steps{counter-reset:step;margin-top:4px;}
+  .method-steps .step{
+    position:relative;
+    padding:0 0 14px 30px;
+    border-left:1px dashed var(--rule);
+    margin-left:8px;
+    padding-left:22px;
+  }
+  .method-steps .step:last-child{border-left-color:transparent;padding-bottom:0;}
+  .method-steps .step::before{
+    counter-increment:step;
+    content:counter(step);
+    position:absolute;
+    left:-11px;top:0;
+    width:22px;height:22px;
+    background:var(--ink);color:var(--bg);
+    border-radius:50%;
+    font-family:"IBM Plex Mono",monospace;
+    font-size:11px;font-weight:600;
+    display:flex;align-items:center;justify-content:center;
+  }
+  .method-steps .step h4{
+    font-family:"Space Grotesk",sans-serif;
+    font-size:14px;font-weight:600;margin:0 0 4px;
+  }
+  .method-steps .step p{font-size:13.5px;line-height:1.55;margin:0;}
+
+  /* results full width */
+  .results{
+    margin-bottom:56px;
+  }
+  .tables{
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:16px;
+  }
+  .tbl-card{
+    background:var(--bg-card);
+    border:1px solid var(--rule);
+    border-radius:6px;
+    padding:18px 20px 16px;
+  }
+  .tbl-card .cap{
+    font-family:"IBM Plex Mono",monospace;
+    font-size:10.5px;
+    text-transform:uppercase;
+    letter-spacing:0.1em;
+    color:var(--ink-mute);
+    margin:0 0 10px;
+    font-weight:600;
+  }
+  table{width:100%;border-collapse:collapse;font-size:13.5px;}
+  th,td{
+    text-align:left;
+    padding:7px 8px;
+    border-bottom:1px solid var(--rule);
+  }
+  th{
+    font-family:"IBM Plex Mono",monospace;
+    font-size:10.5px;
+    text-transform:uppercase;
+    letter-spacing:0.06em;
+    color:var(--ink-mute);
+    font-weight:600;
+    border-bottom:1.5px solid var(--ink);
+  }
+  td.num,th.num{text-align:right;font-family:"IBM Plex Mono",monospace;font-variant-numeric:tabular-nums;}
+  tr.hi td{background:var(--accent-soft);font-weight:600;color:var(--accent-deep);}
+  tr.hi td:first-child{border-left:3px solid var(--accent);padding-left:5px;}
+  .delta{color:var(--good);font-weight:600;}
+  .delta.bad{color:var(--accent);}
+  .full{grid-column:1 / -1;}
+
+  /* strengths / limitations */
+  .twocol{
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:16px;
+    margin-bottom:56px;
+  }
+  .procard{
+    border-radius:6px;
+    padding:22px 24px;
+    border:1px solid var(--rule);
+  }
+  .procard.pro{background:var(--bg-card);}
+  .procard.con{background:#15140F;color:#EFEAE0;border-color:#15140F;}
+  .procard.con .klabel{color:#9A917B;}
+  .procard h3{
+    font-family:"Space Grotesk",sans-serif;
+    font-size:16px;font-weight:600;margin:0 0 14px;
+    display:flex;align-items:center;gap:8px;
+  }
+  .procard.pro h3 .mark{color:var(--good);}
+  .procard.con h3 .mark{color:var(--accent);}
+  .procard ul{margin:0;padding-left:0;list-style:none;}
+  .procard li{
+    position:relative;
+    padding:0 0 11px 20px;
+    font-size:13.8px;
+    line-height:1.5;
+  }
+  .procard li:last-child{padding-bottom:0;}
+  .procard.pro li::before{
+    content:"+";position:absolute;left:0;top:0;
+    color:var(--good);font-weight:700;font-family:"IBM Plex Mono",monospace;
+  }
+  .procard.con li::before{
+    content:"!";position:absolute;left:0;top:-1px;
+    color:var(--accent);font-weight:700;font-family:"IBM Plex Mono",monospace;
+  }
+  .procard.pro li{color:var(--ink-soft);}
+  .procard.con li{color:#D8D2C4;}
+  .procard strong{color:inherit;font-weight:600;}
+  .procard.pro strong{color:var(--ink);}
+  .procard.con strong{color:#F6F3EC;}
+
+  /* questions */
+  .questions{
+    background:var(--bg-card);
+    border:1px solid var(--rule);
+    border-radius:6px;
+    padding:22px 24px;
+    margin-bottom:40px;
+  }
+  .questions ol{
+    margin:0;padding-left:22px;
+    counter-reset:q;
+    list-style:none;
+  }
+  .questions li{
+    counter-increment:q;
+    position:relative;
+    padding:0 0 14px 0;
+    font-size:14px;line-height:1.55;
+    color:var(--ink-soft);
+  }
+  .questions li::before{
+    content:"Q" counter(q);
+    position:absolute;
+    left:-44px;top:0;
+    width:28px;text-align:right;
+    font-family:"IBM Plex Mono",monospace;
+    font-size:11px;font-weight:600;
+    color:var(--accent);
+  }
+  .questions li:last-child{padding-bottom:0;}
+
+  /* footer */
+  footer{
+    border-top:1px solid var(--rule);
+    padding-top:18px;
+    display:flex;justify-content:space-between;align-items:center;
+    flex-wrap:wrap;gap:10px;
+    font-family:"IBM Plex Mono",monospace;
+    font-size:12px;color:var(--ink-mute);
+  }
+  footer a{
+    color:var(--accent-deep);
+    text-decoration:none;
+    font-weight:600;
+    display:inline-flex;align-items:center;gap:4px;
+    border-bottom:1px solid var(--accent);
+    padding-bottom:1px;
+  }
+  footer a:hover{color:var(--accent);}
+
+  /* reveal animation */
+  @keyframes rise{
+    from{opacity:0;transform:translateY(10px);}
+    to{opacity:1;transform:none;}
+  }
+  .reveal{opacity:0;animation:rise .55s cubic-bezier(.2,.7,.2,1) forwards;}
+  .d1{animation-delay:.05s}.d2{animation-delay:.12s}.d3{animation-delay:.19s}
+  .d4{animation-delay:.26s}.d5{animation-delay:.33s}.d6{animation-delay:.4s}
+
+  /* responsive */
+  @media (max-width:880px){
+    .assets{grid-template-columns:1fr;}
+    .body-grid{grid-template-columns:1fr;}
+    .tables{grid-template-columns:1fr;}
+    .twocol{grid-template-columns:1fr;}
+    .topnav{top:auto;bottom:14px;}
+  }
+  @media (prefers-reduced-motion:reduce){
+    .reveal{animation:none;opacity:1;}
+    *{transition:none !important;}
+  }
+</style>
+</head>
+<body>
+
+<nav class="topnav">
+  <a href="./index.html">↩ Today's digest</a>
+</nav>
+
+<div class="wrap">
+
+  <!-- meta strip -->
+  <div class="meta-strip reveal d1">
+    <span><span class="id">arXiv:2607.18720</span> &nbsp;·&nbsp; 2026-07-21</span>
+    <span class="right">
+      <span>ICT, CAS · Tsinghua · Peking</span>
+      <span>Accepted · IEEE TCAD</span>
+    </span>
+  </div>
+
+  <!-- HERO -->
+  <header class="hero reveal d2">
+    <div class="chips">
+      <span class="chip">Fully Homomorphic Encryption</span>
+      <span class="chip">CKKS</span>
+      <span class="chip">Fault Tolerance</span>
+      <span class="chip">Silent Data Corruption</span>
+      <span class="chip">Algorithm-Based FT</span>
+    </div>
+
+    <h1 class="title">
+      <a href="https://arxiv.org/abs/2607.18720" target="_blank" rel="noopener">
+        An Efficient Fault-Tolerance Scheme for CKKS Computation on CPUs
+      </a>
+    </h1>
+
+    <div class="byline">
+      <span class="auth">Jianan Mu · Ge Yu · Tenghui Hua · Liang Kong · Jing Ye · Xing Hu · Meng Li · Xiaowei Li · Huawei Li</span>
+      <span class="venue">IEEE TCAD · OpenFHE</span>
+    </div>
+
+    <div class="keyfinding">
+      <span class="label">▍ Key Finding</span>
+      <p class="claim">
+        The first CPU-tailored fault-tolerance scheme for CKKS encryption hits a 100% detection rate at just 6.8% average runtime overhead.
+      </p>
+    </div>
+  </header>
+
+  <!-- ASSET ROW -->
+  <section class="assets">
+
+    <div class="card metric reveal d3">
+      <div class="klabel">Key Metric</div>
+      <div class="big">6.8<span class="unit">%</span></div>
+      <div class="sub">Average end-to-end runtime overhead across 7 CKKS benchmarks — a <strong>4.9× reduction</strong> versus direct checksum protection (33.4%).</div>
+      <div class="pillrow">
+        <div class="ministat"><b>100%</b>empirical detection</div>
+        <div class="ministat"><b>150k</b>non-crash cases</div>
+        <div class="ministat"><b>&lt;1%</b>recovery cost</div>
+      </div>
+    </div>
+
+    <div class="card matters reveal d4">
+      <div class="klabel">Why This Matters</div>
+      <p class="body">
+        Cheap, <em>full-pipeline</em> silent-data-corruption protection finally makes CPU-based CKKS encrypted inference <em>deployable</em> on commodity hardware — where privacy workloads actually run before any accelerator exists.
+      </p>
+    </div>
+
+    <div class="card edge reveal d5">
+      <div class="klabel">Critical Edge</div>
+      <p class="verdict">
+        The headline <strong>100% detection is empirical</strong>, scoped only to <strong>non-crashing single-bit</strong> faults — checksum-preserving <strong>multi-bit adversaries remain undetectable in principle</strong>.
+      </p>
+      <span class="tag">Read figures as qualified, not absolute</span>
+    </div>
+
+  </section>
+
+  <!-- METHODOLOGY + RESULTS SIDE -->
+  <div class="body-grid">
+
+    <section class="panel reveal d3">
+      <h3><span class="dot"></span>Methodology</h3>
+      <p>The scheme treats each polynomial operator — <strong>NTT/INTT, EWM, BConv</strong> — as the basic detection unit, verifying an algebraic input→output invariant and recovering by re-executing only the affected (or fused) segment. Three optimizations reshape checksum logic to CPU constraints:</p>
+      <div class="method-steps">
+        <div class="step">
+          <h4>Modulus-aware bucket checksum</h4>
+          <p>Reuse the unused 8–28 bits of the existing <span class="mono">128-bit</span> multiply intermediate to accumulate up to s(q) products before a single Barrett reduction — cutting checksum-side reductions from N to v(q), with no wider types.</p>
+        </div>
+        <div class="step">
+          <h4>Dataflow-fused in-operator checking</h4>
+          <p>Fold encode/decode accumulation into the first/last NTT butterfly stage and EWM's single multiply loop, removing two cache-unfriendly memory passes that dominate EWM cost.</p>
+        </div>
+        <div class="step">
+          <h4>Cross-operator check fusion</h4>
+          <p>At BConv→NTT and EWM→INTT boundaries, compose two independent checks into one end-to-end invariant (Enc<sub>f</sub>?=Dec<sub>g</sub>), removing redundant Dec-then-Enc pairs at the cost of a slightly wider recovery scope.</p>
+        </div>
+      </div>
+      <p style="margin-top:14px;">Evaluated in <strong>OpenFHE</strong> on an Intel Xeon Platinum 8358P across four encrypted inference apps, two HMult configurations, and CKKS bootstrapping; reliability measured via <span class="mono">PinFI</span> single-bit transient fault injection.</p>
+    </section>
+
+    <section class="panel reveal d4">
+      <h3><span class="dot"></span>How the three cuts stack up</h3>
+      <p>A progressive ablation isolates each optimization's contribution to normalized runtime (100% = unprotected):</p>
+      <table style="margin-top:8px;">
+        <thead>
+          <tr><th>Configuration</th><th class="num">Runtime</th></tr>
+        </thead>
+        <tbody>
+          <tr class="hi"><td>Full scheme (all three)</td><td class="num">106.0–108.4%</td></tr>
+          <tr><td>− cross-operator fusion</td><td class="num">110.4–112.5%</td></tr>
+          <tr><td>− bucket checksum</td><td class="num">124.1–125.7%</td></tr>
+          <tr><td>− dataflow-fused (= basic detached)</td><td class="num">130.7–135.3%</td></tr>
+        </tbody>
+      </table>
+      <p style="margin-top:14px;">All three optimizations are <strong>necessary</strong>: removing any one pushes overhead back toward the 33%+ regime of naïve checksum protection.</p>
+
+      <h3 style="margin-top:22px;"><span class="dot"></span>Operator-level wins</h3>
+      <table style="margin-top:8px;">
+        <thead>
+          <tr><th>Operator</th><th class="num">Basic checksum</th><th class="num">Proposed</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>NTT (protected)</td><td class="num">138.5%</td><td class="num delta">108.6%</td></tr>
+          <tr><td>EWM (protected)</td><td class="num">231.1%</td><td class="num delta">116.0%</td></tr>
+          <tr><td>BConv (protected)</td><td class="num">—</td><td class="num delta">~103%</td></tr>
+        </tbody>
+      </table>
+    </section>
+  </div>
+
+  <!-- RESULTS TABLES -->
+  <section class="results reveal d4">
+    <div class="section-head">
+      <span class="num">02 / RESULTS</span>
+      <h2>Detection, overhead &amp; accuracy</h2>
+    </div>
+
+    <div class="tables">
+
+      <div class="tbl-card">
+        <p class="cap">Per-benchmark normalized runtime — proposed scheme</p>
+        <table>
+          <thead><tr><th>Workload</th><th class="num">Norm. runtime</th></tr></thead>
+          <tbody>
+            <tr><td>LoLA</td><td class="num">107.2%</td></tr>
+            <tr><td>MLP</td><td class="num">108.4%</td></tr>
+            <tr><td>ResNet-20</td><td class="num">106.3%</td></tr>
+            <tr><td>VGG-16</td><td class="num">106.5%</td></tr>
+            <tr><td>HMult set1</td><td class="num">107.2%</td></tr>
+            <tr><td>HMult set2</td><td class="num">106.0%</td></tr>
+            <tr><td>Bootstrapping</td><td class="num">106.3%</td></tr>
+            <tr class="hi"><td>Average overhead</td><td class="num">6.8%</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="tbl-card">
+        <p class="cap">Protection strategy comparison (7-benchmark average)</p>
+        <table>
+          <thead><tr><th>Strategy</th><th class="num">Avg overhead</th><th class="num">vs proposed</th></tr></thead>
+          <tbody>
+            <tr class="hi"><td>Proposed (3 optimizations)</td><td class="num">6.8%</td><td class="num">1.0×</td></tr>
+            <tr><td>Basic checksum (ReliaFHE re-impl.)</td><td class="num">33.4%</td><td class="num">4.9×</td></tr>
+            <tr><td>Dual modular redundancy (DMR)</td><td class="num">&gt;115%</td><td class="num">&gt;16×</td></tr>
+          </tbody>
+        </table>
+        <p style="font-size:12px;color:var(--ink-mute);margin:12px 0 0;line-height:1.45;">
+          DMR is normalized to 215.3–222.3% of the unprotected baseline. The basic-checksum baseline is the authors' own re-implementation of the closed-source ReliaFHE scheme, without its ASIC hardware support.
+        </p>
+      </div>
+
+      <div class="tbl-card full">
+        <p class="cap">Reliability &amp; recovery summary</p>
+        <table>
+          <thead>
+            <tr>
+              <th>Dimension</th>
+              <th>Result</th>
+              <th class="num">Scope / caveat</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Detection rate</td>
+              <td><strong>100% empirical</strong></td>
+              <td class="num">150,000 non-crashing single-bit cases (50k per operator family)</td>
+            </tr>
+            <tr>
+              <td>Application accuracy</td>
+              <td>Near fault-free baseline</td>
+              <td class="num">LoLA / MLP / ResNet-20 / VGG-16 across fault rates 10⁻¹² → 10⁻⁶</td>
+            </tr>
+            <tr>
+              <td>Recovery cost</td>
+              <td><strong>&lt;1.0%</strong> of end-to-end runtime</td>
+              <td class="num">single re-execution of affected operator / fused segment</td>
+            </tr>
+            <tr>
+              <td>Unprotected behavior</td>
+              <td class="delta bad">collapses toward random accuracy</td>
+              <td class="num">ResNet-20 &amp; VGG-16 degrade earliest (longer ciphertext flows)</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- STRENGTHS / LIMITATIONS -->
+  <section class="reveal d5">
+    <div class="section-head">
+      <span class="num">03 / TRADEOFFS</span>
+      <h2>Strengths vs. limitations</h2>
+    </div>
+
+    <div class="twocol">
+      <div class="procard pro">
+        <h3><span class="mark">▲</span> Strengths</h3>
+        <ul>
+          <li><strong>First systematic</strong> treatment of efficient SDC protection for <em>CPU-based</em> CKKS, with hard evidence that accelerator schemes don't port directly.</li>
+          <li>Three complementary optimizations that are individually <strong>simple, invariant-preserving</strong>, and validated by a clean ablation.</li>
+          <li>Strong practical headline: <strong>6.8% average overhead</strong> with full NTT/INTT + EWM + BConv coverage and sub-1% recovery cost.</li>
+          <li>Built on the mainstream <strong>OpenFHE</strong> library (also the SPEC CPU 2026 crypto backend) and tested on realistic workloads including bootstrapping.</li>
+          <li>Intellectually honest limitations section that explicitly states single-fault-model and single-platform scope.</li>
+        </ul>
+      </div>
+
+      <div class="procard con">
+        <h3><span class="mark">▼</span> Limitations</h3>
+        <ul>
+          <li>Restricted to <strong>single-bit, single-fault-per-operator</strong> injection — multi-bit, correlated, or multi-fault cases are explicitly out of scope.</li>
+          <li>100% detection is empirical and only over <strong>non-crashing</strong> cases; checksum-preserving structured multi-errors are <strong>undetectable in principle</strong>.</li>
+          <li>Single CPU platform (Intel Xeon Platinum 8358P) — the cache-locality EWM win is <strong>not validated</strong> on AMD/ARM or under multi-threading.</li>
+          <li>Only CKKS in OpenFHE; transfer to <strong>BGV/BFV/TFHE</strong>, GPU libraries, or other stacks is left to future work.</li>
+          <li>The 4.9× headline rests on a <strong>self-reproduction</strong> of the closed-source ReliaFHE scheme without its hardware support.</li>
+          <li>Application accuracy shown as curves, with <strong>no tabulated deltas</strong> at fixed fault rates for fine-grained comparison.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- QUESTIONS -->
+  <section class="questions reveal d6">
+    <div class="section-head" style="margin-top:0;">
+      <span class="num">04 / OPEN</span>
+      <h2>Questions for further exploration</h2>
+    </div>
+    <ol>
+      <li>How does the scheme behave under <strong>multi-bit or correlated</strong> transient fault models — and what would a stronger linear-code-based or randomized-checksum variant cost in overhead to close the checksum-preserving-multi-error gap?</li>
+      <li>Do the cache-locality gains (especially the EWM win) hold on AMD Zen, ARM Neoverse, or under <strong>multi-threaded / SIMD-parallel</strong> CKKS execution where the "live in operator dataflow" assumption may shift?</li>
+      <li>Can the three optimizations transfer to other FHE schemes (<strong>BGV, BFV, TFHE</strong>) and libraries (Microsoft SEAL, Zama Concrete), where operator pipelines and RNS representations differ?</li>
+      <li>Is there an <strong>automated way</strong> to discover cross-operator fusion opportunities across arbitrary ciphertext primitive compositions, rather than hand-instantiating the BConv→NTT and EWM→INTT cases?</li>
+      <li>What is the interaction with <strong>GPU / accelerator offload</strong>: when CKKS pipelines span CPU and accelerator, where should the checksum boundary live, and does the bucket headroom analysis still apply?</li>
+    </ol>
+  </section>
+
+  <footer>
+    <span>arXiv:2607.18720 · 2026-07-21 · CKKS-CPU-FT</span>
+    <a href="./2607.18720.md" target="_blank" rel="noopener">↗ Markdown source</a>
+  </footer>
+
+</div>
+
+</body>
+</html>

@@ -1,0 +1,746 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FlowBlock — Wavefront-Parallel Decoding for Self-Correcting Diffusion LLMs</title>
+<style>
+  :root {
+    --paper: #f6f2ea;
+    --paper-2: #efe9dd;
+    --ink: #1a1815;
+    --ink-2: #4a463f;
+    --ink-3: #807a6f;
+    --rule: #d8d1c2;
+    --accent: #c2410c;
+    --accent-soft: rgba(194, 65, 12, 0.08);
+    --accent-line: rgba(194, 65, 12, 0.22);
+    --good: #1f6f4a;
+    --warn: #8a1a1a;
+    --maxw: min(95vw, 1100px);
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    font-size: 15px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  body {
+    background-image:
+      linear-gradient(var(--rule) 1px, transparent 1px);
+    background-size: 100% 0;
+    background-repeat: no-repeat;
+  }
+
+  /* ---------- top-left fixed nav ---------- */
+  .topnav {
+    position: fixed;
+    top: 14px;
+    left: 16px;
+    z-index: 50;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 12px;
+    letter-spacing: 0.02em;
+  }
+  .topnav a {
+    color: var(--ink-2);
+    text-decoration: none;
+    background: var(--paper);
+    border: 1px solid var(--rule);
+    padding: 6px 10px;
+    transition: color .15s, border-color .15s, background .15s;
+  }
+  .topnav a:hover {
+    color: var(--accent);
+    border-color: var(--accent-line);
+  }
+
+  /* ---------- layout shell ---------- */
+  .wrap {
+    width: var(--maxw);
+    margin: 0 auto;
+    padding: 56px 28px 24px;
+  }
+
+  /* ---------- HERO BAND ---------- */
+  .hero {
+    border-top: 3px solid var(--ink);
+    padding: 18px 0 26px;
+    border-bottom: 1px solid var(--rule);
+  }
+  .hero-tag {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    margin-bottom: 18px;
+  }
+  .hero-tag .dot {
+    display: inline-block;
+    width: 7px; height: 7px;
+    background: var(--accent);
+    margin-right: 8px;
+    transform: translateY(-1px);
+  }
+  .hero-tag a {
+    color: var(--accent);
+    text-decoration: none;
+    border-bottom: 1px solid var(--accent-line);
+  }
+  .hero-tag a:hover { border-bottom-color: var(--accent); }
+
+  .finding {
+    font-family: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Palatino, Georgia, serif;
+    font-weight: 600;
+    font-size: clamp(30px, 5.4vw, 58px);
+    line-height: 1.04;
+    letter-spacing: -0.02em;
+    color: var(--ink);
+    margin: 0 0 22px;
+    max-width: 18ch;
+  }
+  .finding em {
+    font-style: normal;
+    color: var(--accent);
+  }
+  .finding .num {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-weight: 700;
+    font-feature-settings: "tnum";
+    letter-spacing: -0.03em;
+  }
+
+  .titleblock {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 14px 18px;
+    margin-top: 6px;
+  }
+  .papertitle {
+    font-family: "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+    font-size: 19px;
+    font-weight: 600;
+    line-height: 1.25;
+    color: var(--ink);
+    text-decoration: none;
+    border-bottom: 1px solid var(--rule);
+    flex: 1 1 320px;
+  }
+  .papertitle:hover {
+    color: var(--accent);
+    border-bottom-color: var(--accent);
+  }
+  .meta {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 11.5px;
+    color: var(--ink-3);
+    letter-spacing: 0.02em;
+  }
+  .meta b { color: var(--ink-2); font-weight: 600; }
+
+  .chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 14px;
+  }
+  .chip {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 10.5px;
+    letter-spacing: 0.04em;
+    color: var(--ink-2);
+    background: var(--paper-2);
+    border: 1px solid var(--rule);
+    padding: 3px 8px;
+    border-radius: 2px;
+  }
+  .chip.accent {
+    color: var(--accent);
+    background: var(--accent-soft);
+    border-color: var(--accent-line);
+  }
+
+  /* ---------- ASSET ROW ---------- */
+  .assets {
+    display: grid;
+    grid-template-columns: 1.05fr 1.3fr 1.35fr;
+    gap: 0;
+    margin-top: 28px;
+    border: 1px solid var(--rule);
+    background: #fbf8f1;
+  }
+  .asset {
+    padding: 18px 20px 20px;
+    border-right: 1px solid var(--rule);
+    position: relative;
+  }
+  .asset:last-child { border-right: none; }
+  .asset-label {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 10.5px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    margin-bottom: 10px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .asset-label .sq {
+    width: 8px; height: 8px;
+    background: var(--accent);
+    display: inline-block;
+  }
+
+  .metric-value {
+    font-family: "Iowan Old Style", Georgia, serif;
+    font-weight: 700;
+    font-size: 68px;
+    line-height: 0.95;
+    letter-spacing: -0.04em;
+    color: var(--ink);
+    margin: 2px 0 4px;
+  }
+  .metric-value .x {
+    color: var(--accent);
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-weight: 700;
+    font-size: 0.55em;
+    margin-left: 2px;
+    vertical-align: 0.18em;
+  }
+  .metric-sub {
+    font-size: 12.5px;
+    color: var(--ink-2);
+    line-height: 1.4;
+  }
+  .metric-sub b { color: var(--ink); font-weight: 600; }
+  .metric-secondaries {
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px dashed var(--rule);
+    display: flex;
+    gap: 14px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 11px;
+    color: var(--ink-3);
+  }
+  .metric-secondaries b { color: var(--accent); font-weight: 700; }
+
+  .matters {
+    font-size: 14.5px;
+    color: var(--ink);
+    line-height: 1.5;
+    font-family: "Iowan Old Style", Georgia, serif;
+  }
+  .matters .lead {
+    display: block;
+    font-family: ui-sans-serif, system-ui, sans-serif;
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    margin-bottom: 8px;
+    font-weight: 600;
+  }
+
+  .edge {
+    font-size: 13.5px;
+    color: var(--warn);
+    line-height: 1.5;
+  }
+  .edge .lead {
+    display: block;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 10.5px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    margin-bottom: 6px;
+  }
+
+  /* ---------- BODY GRID ---------- */
+  .body-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 22px;
+    margin-top: 30px;
+  }
+
+  .section {
+    border-top: 2px solid var(--ink);
+    padding-top: 14px;
+  }
+  .section.wide { grid-column: 1 / -1; }
+  .section-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    margin-bottom: 14px;
+  }
+  .section-num {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 11px;
+    color: var(--accent);
+    letter-spacing: 0.08em;
+  }
+  .section-title {
+    font-family: "Iowan Old Style", Georgia, serif;
+    font-size: 22px;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    color: var(--ink);
+    margin: 0;
+  }
+
+  .lead-p {
+    font-size: 14px;
+    color: var(--ink-2);
+    margin: 0 0 14px;
+    line-height: 1.55;
+  }
+  .lead-p b { color: var(--ink); }
+
+  /* methodology mechanism stack */
+  .mech {
+    border-left: 2px solid var(--accent);
+    padding: 4px 0 4px 14px;
+    margin-bottom: 14px;
+  }
+  .mech-h {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--accent);
+    font-weight: 700;
+    margin-bottom: 4px;
+  }
+  .mech-h span { color: var(--ink-3); margin-right: 6px; }
+  .mech p {
+    margin: 0;
+    font-size: 13.5px;
+    color: var(--ink-2);
+    line-height: 1.5;
+  }
+  .mech code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 12px;
+    background: var(--accent-soft);
+    color: var(--accent);
+    padding: 1px 4px;
+    border-radius: 2px;
+  }
+
+  /* results metric lattice */
+  .res-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px 18px;
+    margin-bottom: 14px;
+  }
+  .res-cell {
+    border-top: 1px solid var(--rule);
+    padding-top: 8px;
+  }
+  .res-cell .k {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 10.5px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+  }
+  .res-cell .v {
+    font-family: "Iowan Old Style", Georgia, serif;
+    font-size: 26px;
+    font-weight: 700;
+    color: var(--ink);
+    line-height: 1.1;
+    letter-spacing: -0.02em;
+    margin-top: 2px;
+  }
+  .res-cell .v .acc { color: var(--accent); }
+  .res-cell .v .unit {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 11px;
+    color: var(--ink-3);
+    font-weight: 500;
+    margin-left: 4px;
+    letter-spacing: 0;
+  }
+  .res-cell .ctx {
+    font-size: 11.5px;
+    color: var(--ink-2);
+    line-height: 1.35;
+    margin-top: 2px;
+  }
+  .res-note {
+    font-size: 12.5px;
+    color: var(--ink-2);
+    border-top: 1px dashed var(--rule);
+    padding-top: 10px;
+    margin-top: 4px;
+  }
+  .res-note b { color: var(--ink); }
+
+  /* strengths vs limitations */
+  .pair {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0;
+    border: 1px solid var(--rule);
+  }
+  .pair > div { padding: 14px 16px; }
+  .pair > div:first-child {
+    border-right: 1px solid var(--rule);
+    background: #fbf8f1;
+  }
+  .pair h3 {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    margin: 0 0 10px;
+  }
+  .pair .pos { color: var(--good); }
+  .pair .neg { color: var(--warn); }
+  .pair ul {
+    margin: 0;
+    padding-left: 16px;
+  }
+  .pair li {
+    font-size: 13px;
+    color: var(--ink-2);
+    line-height: 1.45;
+    margin-bottom: 7px;
+  }
+  .pair li:last-child { margin-bottom: 0; }
+  .pair li b { color: var(--ink); font-weight: 600; }
+
+  /* questions */
+  .qlist {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 0;
+    counter-reset: q;
+  }
+  .q {
+    counter-increment: q;
+    padding: 10px 16px 10px 0;
+    padding-left: 38px;
+    position: relative;
+    font-size: 13.5px;
+    color: var(--ink-2);
+    line-height: 1.5;
+    border-top: 1px solid var(--rule);
+  }
+  .q:nth-child(2) { padding-left: 16px; padding-right: 0; }
+  .q:nth-child(odd) { padding-right: 18px; }
+  .q:nth-child(even) { padding-left: 38px; }
+  .q::before {
+    content: "Q" counter(q, decimal-leading-zero);
+    position: absolute;
+    left: 0;
+    top: 11px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 10.5px;
+    color: var(--accent);
+    font-weight: 700;
+    letter-spacing: 0.04em;
+  }
+  .q:nth-child(even)::before { left: 18px; }
+
+  /* footer */
+  .foot {
+    margin-top: 36px;
+    padding-top: 16px;
+    border-top: 1px solid var(--rule);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 11.5px;
+    color: var(--ink-3);
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .foot a {
+    color: var(--ink-2);
+    text-decoration: none;
+    border-bottom: 1px solid var(--rule);
+  }
+  .foot a:hover { color: var(--accent); border-bottom-color: var(--accent); }
+  .foot .src {
+    color: var(--accent);
+    border-bottom-color: var(--accent-line);
+  }
+
+  /* ---------- load reveal ---------- */
+  .reveal {
+    opacity: 0;
+    transform: translateY(8px);
+    animation: rv .55s cubic-bezier(.2,.7,.2,1) forwards;
+  }
+  .d1 { animation-delay: .04s; }
+  .d2 { animation-delay: .10s; }
+  .d3 { animation-delay: .16s; }
+  .d4 { animation-delay: .22s; }
+  .d5 { animation-delay: .30s; }
+  .d6 { animation-delay: .38s; }
+  @keyframes rv {
+    to { opacity: 1; transform: translateY(0); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .reveal { opacity: 1; transform: none; animation: none; }
+  }
+
+  /* ---------- responsive: single column < 720px ---------- */
+  @media (max-width: 720px) {
+    .wrap { padding: 52px 16px 20px; }
+    .assets { grid-template-columns: 1fr; }
+    .asset { border-right: none; border-bottom: 1px solid var(--rule); }
+    .asset:last-child { border-bottom: none; }
+    .body-grid { grid-template-columns: 1fr; gap: 24px; }
+    .section.wide { grid-column: auto; }
+    .pair { grid-template-columns: 1fr; }
+    .pair > div:first-child {
+      border-right: none;
+      border-bottom: 1px solid var(--rule);
+    }
+    .qlist { grid-template-columns: 1fr; }
+    .q, .q:nth-child(odd), .q:nth-child(even) {
+      padding-left: 38px;
+      padding-right: 0;
+    }
+    .q:nth-child(even)::before { left: 0; }
+    .res-grid { grid-template-columns: 1fr 1fr; }
+    .metric-value { font-size: 56px; }
+    .finding { max-width: none; }
+  }
+</style>
+</head>
+<body>
+
+<nav class="topnav">
+  <a href="./index.html">↩ Today's digest</a>
+</nav>
+
+<div class="wrap">
+
+  <!-- ============ HERO BAND ============ -->
+  <header class="hero">
+    <div class="hero-tag reveal d1">
+      <span><span class="dot"></span>PAPER DASHBOARD · arXiv 2607.17652</span>
+      <span><a href="https://arxiv.org/abs/2607.17652" target="_blank" rel="noopener">arxiv.org/abs/2607.17652 ↗</a></span>
+    </div>
+
+    <h1 class="finding reveal d2">
+      Training-free <em>wavefront decoding</em> lifts self-correcting diffusion-LLM batched throughput <em class="num">2.95×</em> — while <em>gaining</em> accuracy.
+    </h1>
+
+    <div class="titleblock reveal d3">
+      <a class="papertitle" href="https://arxiv.org/abs/2607.17652" target="_blank" rel="noopener">FlowBlock: Wavefront-Parallel Decoding for Self-Correcting Diffusion Language Models</a>
+      <div class="meta">
+        <b>Bing Tian</b>, Haikun Liu, Xiaocheng Zhong, Zhuohui Duan, Zhaokai Luo, Huayi Jin, Zhiyong Wang, <b>Xiaofei Liao</b><br>
+        HUST · Xiaohongshu Inc. &nbsp;·&nbsp; 2026-07-20 &nbsp;·&nbsp; LLaDA-2.1-mini · 8×GPU(80GB)
+      </div>
+    </div>
+
+    <div class="chips reveal d3">
+      <span class="chip accent">training-free</span>
+      <span class="chip">diffusion-llm</span>
+      <span class="chip">parallel-decoding</span>
+      <span class="chip">block-wise-diffusion</span>
+      <span class="chip">KV-cache</span>
+      <span class="chip">inference-acceleration</span>
+      <span class="chip">dInfer / SGLang</span>
+    </div>
+  </header>
+
+  <!-- ============ ASSET ROW ============ -->
+  <section class="assets reveal d4" aria-label="Key assets">
+    <div class="asset">
+      <div class="asset-label"><span class="sq"></span>Key metric</div>
+      <div class="metric-value">2.95<span class="x">×</span></div>
+      <div class="metric-sub">
+        batched <b>tokens/sec</b> over LLaDA-2.1<br>
+        HumanEval, batch=32 → <b>1471 TPS</b>
+      </div>
+      <div class="metric-secondaries">
+        <span><b>4.01×</b> vs 2.0</span>
+        <span><b>16×</b> vs D2F</span>
+        <span><b>+1.3</b> acc</span>
+      </div>
+    </div>
+
+    <div class="asset">
+      <div class="matters">
+        <span class="lead">Why this matters</span>
+        First training-free, batch-friendly inter-block parallelism for self-correcting diffusion LLMs — a likely default serving optimization as block-diffusion LLMs scale to mainstream deployment.
+      </div>
+    </div>
+
+    <div class="asset">
+      <div class="edge">
+        <span class="lead">⚠ Critical edge</span>
+        Only one checkpoint evaluated (LLaDA-2.1-mini); no head-to-head with <b style="color:var(--warn)">Fast-dLLM</b> under the same harness, and the headline 16× win is measured against an under-tuned D2F baseline.
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ BODY GRID ============ -->
+  <div class="body-grid">
+
+    <!-- METHODOLOGY (wide) -->
+    <section class="section wide reveal d5">
+      <div class="section-head">
+        <h2 class="section-title">Methodology</h2>
+        <span class="section-num">01 / HOW IT WORKS</span>
+      </div>
+      <p class="lead-p">
+        Block-wise diffusion LLMs decode fixed-length blocks left-to-right — positions inside a block denoise in parallel, but <b>blocks are strictly serial</b>: B<sub>g+1</sub> cannot start until B<sub>g</sub> is committed. FlowBlock's insight: LLaDA-2.1's <b>token-to-token (T2T) editing</b> turns that hard data dependency into a schedulable resource — a downstream block needs only an <i>informative</i> upstream draft, not a finalized one.
+      </p>
+
+      <div class="mech">
+        <div class="mech-h"><span>M1</span>Gated Wavefront Decoding (GWD)</div>
+        <p>
+          A sliding window <code>[L, R)</code> of up to <code>W</code> blocks runs concurrently; each step does one forward over the <code>W·bl</code> window positions and applies the joint M2T∪T2T update. A new block is admitted when frontier readiness <code>ρ(B) ≥ θ_spawn</code>; the leftmost finished block retires and freezes KV into the prefix. A <b>W-shaped block-causal mask</b> makes committed-prefix KV <b>bit-identical</b> to serial decoding.
+        </p>
+      </div>
+
+      <div class="mech">
+        <div class="mech-h"><span>M2</span>Heterogeneous Wavefront Packing (HWP)</div>
+        <p>
+          Each request keeps its own wavefront state <code>(L_b, R_b)</code>, but all windows are gathered into a <b>padding-free dense <code>[B, q]</code> batch</b> (q = W·bl) using per-row gathers, absolute-position RoPE indices, and a per-row block-diagonal packed mask. Shape-stable → no recompilation, no allocator churn, no straggler lockstep.
+        </p>
+      </div>
+
+      <div class="mech">
+        <div class="mech-h"><span>M3</span>Setup</div>
+        <p>
+          Implemented in <b>dInfer</b> (SGLang backend), no post-training, no kernel changes. Defaults: W=2, θ_spawn≈0.6, block length 32, max len 2048. Baselines run in the <b>same engine</b> to isolate the scheduling effect: LLaDA-2.0-mini, LLaDA-2.1-mini, and D2F (training-based, distilled 2.0-mini).
+        </p>
+      </div>
+    </section>
+
+    <!-- RESULTS (wide) -->
+    <section class="section wide reveal d5">
+      <div class="section-head">
+        <h2 class="section-title">Results</h2>
+        <span class="section-num">02 / NUMBERS</span>
+      </div>
+
+      <div class="res-grid">
+        <div class="res-cell">
+          <div class="k">Avg accuracy (8 benchmarks)</div>
+          <div class="v">87.00<span class="unit">vs 85.70 / 84.63</span></div>
+          <div class="ctx"><b style="color:var(--good)">+1.3 pts</b> over serial LLaDA-2.1 on the same checkpoint — accuracy improves, not traded.</div>
+        </div>
+        <div class="res-cell">
+          <div class="k">Avg end-to-end TPS (B=1)</div>
+          <div class="v">261.2<span class="unit">vs 177.9 / 115.7</span></div>
+          <div class="ctx">Tokens-per-forward climbs to <b>7.23</b> (vs 4.62 / 2.99).</div>
+        </div>
+        <div class="res-cell">
+          <div class="k">Peak batched TPS</div>
+          <div class="v"><span class="acc">1471</span><span class="unit">HumanEval · B=32</span></div>
+          <div class="ctx">Also <b>1293 TPS</b> on Minerva-Algebra @ B=16.</div>
+        </div>
+        <div class="res-cell">
+          <div class="k">Latency reduction</div>
+          <div class="v"><span class="acc">53.6%</span> / <span class="acc">77.1%</span></div>
+          <div class="ctx">vs LLaDA-2.1 / 2.0 respectively, batched serving.</div>
+        </div>
+      </div>
+
+      <div class="res-note">
+        <b>vs D2F (training-based):</b> +16.5 accuracy points, up to 16× batched throughput, 65% lower latency. D2F averages only 70.52 accuracy and <i>degrades</i> from 113→89 TPS as batch grows on HumanEval.<br>
+        <b>HWP ablation:</b> 2.15× TPS @ B=16 over a batch-synchronous variant (1.46× @ B=2). <b>Robustness:</b> at block-length 128, where LLaDA-2.1 collapses 92.57%→77.41%, FlowBlock holds TPF 5.70 (+2.65 acc); D2F collapses to 22.82%.
+      </div>
+    </section>
+
+    <!-- STRENGTHS / LIMITATIONS side-by-side -->
+    <section class="section wide reveal d6">
+      <div class="section-head">
+        <h2 class="section-title">Strengths &amp; Limitations</h2>
+        <span class="section-num">03 / BALANCE</span>
+      </div>
+      <div class="pair">
+        <div>
+          <h3 class="pos">▲ Strengths</h3>
+          <ul>
+            <li><b>Training-free</b>, applicable to unmodified checkpoints — strong for serving teams.</li>
+            <li><b>Bit-identical frozen-prefix KV</b> claim rigorously argued via the W-shaped mask + absolute-position layout.</li>
+            <li><b>HWP is genuinely novel</b> — converts asynchronous per-request progress into dense, shape-stable batches; solves a problem many dLLM serving systems silently suffer.</li>
+            <li>Comprehensive ablations: θ_spawn, W, block length, generation length, plus a dedicated HWP-vs-batch-synchronous study.</li>
+            <li>Open-source code &amp; open-weight model; same-engine baselines remove system confounds.</li>
+            <li><b>Improves accuracy</b> rather than trading it off — rare for an acceleration paper.</li>
+          </ul>
+        </div>
+        <div>
+          <h3 class="neg">▼ Limitations</h3>
+          <ul>
+            <li><b>Single model only</b> — LLaDA-2.1-mini; no larger checkpoints, no other self-correcting families, no non-self-correcting block baselines.</li>
+            <li><b>D2F baseline is weak</b> (70.52 avg, under-scaling), so the 16× headline is less informative about the field.</li>
+            <li><b>No direct comparison to Fast-dLLM</b> or dKV-Cache under the same harness — the most direct apples-to-apples gap.</li>
+            <li><b>θ_spawn is hand-tuned per task</b>; paper notes task-specific selection but gives no auto-tuning recipe.</li>
+            <li>8×GPU data-parallel setup <b>obscures per-device throughput</b>; GPU type unspecified beyond "80GB".</li>
+            <li><b>Long-form behavior (&gt;2048 tokens)</b> — where upstream draft drift could compound — is not studied.</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- QUESTIONS -->
+    <section class="section wide reveal d6">
+      <div class="section-head">
+        <h2 class="section-title">Open Questions</h2>
+        <span class="section-num">04 / WHAT'S NEXT</span>
+      </div>
+      <div class="qlist">
+        <div class="q">Does FlowBlock hold on <b>larger self-correcting dLLMs (8B+)</b> where per-block compute and KV pressure differ substantially?</div>
+        <div class="q">Can the readiness gate <code style="font-family:ui-monospace,monospace;font-size:12px;color:var(--accent)">ρ(B)</code> be replaced by a <b>learned / adaptive schedule</b> that auto-tunes θ_spawn per task?</div>
+        <div class="q">What happens on <b>long-form generation (&gt;2048 tokens)</b> where upstream draft drift could outrun T2T repair?</div>
+        <div class="q">How does it compare <b>head-to-head with Fast-dLLM and dKV-Cache</b> under the same engine and checkpoint?</div>
+        <div class="q">Is the W-shaped mask + absolute-position packing <b>transferable to non-self-correcting block dLLMs</b>, or does correctness depend on editability?</div>
+        <div class="q">Can HWP's per-row gather/scatter be <b>fused with FlashAttention kernels</b> to remove the q-token window's data movement overhead?</div>
+        <div class="q">Does the readiness gate misfire on <b>low-confidence / ambiguous generations</b> (creative writing), and how should θ_spawn be set outside math/code?</div>
+        <div class="q">Does <b>θ_spawn interact with τ_mask / τ_edit</b> thresholds in ways that change the speed–accuracy frontier across domains?</div>
+      </div>
+    </section>
+
+  </div>
+
+  <!-- ============ FOOTER ============ -->
+  <footer class="foot">
+    <span>FlowBlock · arXiv:2607.17652 · 2026-07-20 · rendered as a non-linear dashboard</span>
+    <span><a class="src" href="./2607.17652.md">↗ Markdown source</a> &nbsp; · &nbsp; <a href="https://github.com/Red-EAD/FlowBlock" target="_blank" rel="noopener">code ↗</a></span>
+  </footer>
+
+</div>
+
+<script>
+  // Lightweight: respect reduced motion already handled in CSS.
+  // Tiny progressive enhancement — pause reveal off-screen for long pages (no-op safe).
+  (function(){
+    if (window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    // nothing else needed — staggered reveals are CSS animation-delay driven.
+  })();
+</script>
+
+</body>
+</html>

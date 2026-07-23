@@ -1,0 +1,744 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SkewAdam — Tiered Optimizer State for MoE — 2607.19058</title>
+<style>
+  /* ─── Tokens ─────────────────────────────────────────────── */
+  :root{
+    --bg:        #f5f6f5;        /* cool paper */
+    --bg-card:   #fffefe;
+    --ink:       #0f1414;
+    --ink-soft:  #434a4a;
+    --ink-faint: #787f7e;
+    --rule:      #dde3e1;
+    --rule-strong:#bcc8c4;
+    /* one topic-derived accent: engineered deep teal
+       (memory-efficiency / systems / structural allocation) */
+    --accent:        #0d5b5b;
+    --accent-deep:   #073b3b;
+    --accent-soft:   #e1eeed;
+    --accent-line:   #a8d0cd;
+    /* contrasting callout for critical edge */
+    --caution-bg:    #fbeee2;
+    --caution-line:  #d2892a;
+    --caution-ink:   #5c3614;
+    --caution-accent:#a5531a;
+
+    --serif: "Charter","Iowan Old Style","Bitstream Charter","Source Serif Pro","Noto Serif CJK SC",Georgia,serif;
+    --sans: -apple-system,BlinkMacSystemFont,"Segoe UI","Helvetica Neue","PingFang SC","Hiragino Sans GB","Microsoft YaHei",Arial,sans-serif;
+    --mono: "JetBrains Mono","SF Mono",ui-monospace,"Menlo","Consolas",monospace;
+  }
+
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:var(--bg);
+    color:var(--ink);
+    font-family:var(--sans);
+    font-size:16px;
+    line-height:1.5;
+    -webkit-font-smoothing:antialiased;
+    text-rendering:optimizeLegibility;
+    background-image:
+      radial-gradient(circle at 18% 8%, rgba(13,91,91,0.030), transparent 42%),
+      radial-gradient(circle at 82% 78%, rgba(13,91,91,0.022), transparent 38%);
+  }
+
+  /* ─── Top-left fixed nav ─────────────────────────────────── */
+  .nav-back{
+    position:fixed; top:16px; left:16px; z-index:50;
+    font-family:var(--sans);
+    font-size:13px;
+    letter-spacing:0.01em;
+    background:rgba(245,246,245,0.85);
+    backdrop-filter:saturate(140%) blur(6px);
+    -webkit-backdrop-filter:saturate(140%) blur(6px);
+    padding:7px 12px 7px 10px;
+    border:1px solid var(--rule);
+    border-radius:999px;
+    color:var(--ink-soft);
+    text-decoration:none;
+    transition:color .15s, border-color .15s, background .15s;
+  }
+  .nav-back:hover{ color:var(--accent-deep); border-color:var(--accent-line); background:#fff; }
+  .nav-back:active{ transform:translateY(1px); }
+
+  /* ─── Page frame ─────────────────────────────────────────── */
+  .wrap{
+    width:min(95vw, 1100px);
+    margin:0 auto;
+    padding:64px 28px 0;
+  }
+
+  /* ─── Eyebrow / metadata strip ───────────────────────────── */
+  .eyebrow{
+    display:flex; flex-wrap:wrap; align-items:center; gap:10px;
+    font-family:var(--mono);
+    font-size:11.5px;
+    letter-spacing:0.08em;
+    text-transform:uppercase;
+    color:var(--ink-faint);
+    margin-bottom:18px;
+  }
+  .eyebrow .dot{ width:5px; height:5px; border-radius:50%; background:var(--rule-strong); display:inline-block;}
+  .eyebrow .tag{ color:var(--accent-deep); }
+
+  /* ─── HERO BAND ──────────────────────────────────────────── */
+  .hero{
+    border-top:3px solid var(--accent);
+    padding:28px 0 28px;
+    border-bottom:1px solid var(--rule);
+  }
+  .hero-finding{
+    font-family:var(--serif);
+    font-weight:600;
+    font-size:clamp(2.0rem, 4.6vw, 3.35rem);
+    line-height:1.08;
+    letter-spacing:-0.018em;
+    color:var(--ink);
+    margin:0 0 22px;
+    max-width:24ch;
+  }
+  .hero-finding .em{
+    color:var(--accent-deep);
+    font-style:italic;
+  }
+  .hero-title{
+    font-family:var(--sans);
+    font-size:14px;
+    font-weight:500;
+    margin:0 0 6px;
+    color:var(--ink-soft);
+  }
+  .hero-title a{
+    color:var(--ink);
+    text-decoration:none;
+    border-bottom:1px solid var(--rule-strong);
+    padding-bottom:1px;
+    transition:color .15s, border-color .15s;
+  }
+  .hero-title a:hover{ color:var(--accent-deep); border-color:var(--accent); }
+  .hero-authors{
+    font-size:13px; color:var(--ink-faint); margin:0 0 14px;
+  }
+  .hero-authors b{ color:var(--ink-soft); font-weight:500;}
+
+  .chips{ display:flex; flex-wrap:wrap; gap:6px; }
+  .chip{
+    font-family:var(--mono);
+    font-size:10.5px;
+    letter-spacing:0.04em;
+    padding:3px 9px;
+    border-radius:3px;
+    background:var(--accent-soft);
+    color:var(--accent-deep);
+    border:1px solid var(--accent-line);
+  }
+  .chip.muted{ background:transparent; color:var(--ink-faint); border-color:var(--rule-strong);}
+
+  /* ─── Asset row ──────────────────────────────────────────── */
+  .assets{
+    display:grid;
+    grid-template-columns: 1.05fr 1fr 1.05fr;
+    gap:14px;
+    margin:18px 0 8px;
+  }
+  .asset{
+    background:var(--bg-card);
+    border:1px solid var(--rule);
+    padding:20px 20px 18px;
+    border-radius:6px;
+    position:relative;
+    overflow:hidden;
+  }
+  .asset-label{
+    font-family:var(--mono);
+    font-size:10.5px;
+    letter-spacing:0.14em;
+    text-transform:uppercase;
+    color:var(--ink-faint);
+    margin:0 0 14px;
+    display:flex; align-items:center; gap:8px;
+  }
+  .asset-label .idx{
+    display:inline-flex; align-items:center; justify-content:center;
+    width:18px; height:18px;
+    border-radius:50%;
+    background:var(--accent);
+    color:#fff;
+    font-weight:700;
+    font-size:10px;
+    letter-spacing:0;
+  }
+
+  /* metric card */
+  .metric .num{
+    font-family:var(--serif);
+    font-weight:600;
+    font-variant-numeric:tabular-nums;
+    font-size:clamp(3.2rem, 7vw, 4.6rem);
+    line-height:1;
+    letter-spacing:-0.03em;
+    color:var(--accent-deep);
+    display:block;
+  }
+  .metric .num .unit{
+    font-size:0.42em;
+    font-weight:500;
+    color:var(--ink-soft);
+    margin-left:4px;
+    letter-spacing:0;
+  }
+  .metric .delta{
+    font-family:var(--mono);
+    font-size:12px;
+    color:var(--accent-deep);
+    margin:8px 0 6px;
+    letter-spacing:0.02em;
+  }
+  .metric .ctx{
+    font-size:13px; color:var(--ink-soft); line-height:1.45; margin:0;
+  }
+  .metric .ctx b{ color:var(--ink); font-weight:600;}
+
+  /* why-this-matters card */
+  .matters p{
+    font-family:var(--serif);
+    font-size:17px;
+    line-height:1.45;
+    color:var(--ink);
+    margin:0;
+  }
+  .matters .footnote{
+    font-family:var(--sans);
+    font-size:11.5px;
+    color:var(--ink-faint);
+    margin-top:14px;
+    padding-top:12px;
+    border-top:1px dashed var(--rule);
+    line-height:1.4;
+  }
+
+  /* critical edge card */
+  .edge{
+    background:var(--caution-bg);
+    border-color:var(--caution-line);
+  }
+  .edge .asset-label{ color:var(--caution-ink); }
+  .edge .asset-label .idx{ background:var(--caution-accent); }
+  .edge p{
+    font-family:var(--serif);
+    font-size:16px;
+    line-height:1.45;
+    color:var(--caution-ink);
+    margin:0;
+  }
+  .edge p .lead{
+    font-style:italic;
+    color:var(--caution-accent);
+    font-weight:600;
+  }
+
+  /* ─── Body grid ──────────────────────────────────────────── */
+  .body-grid{
+    display:grid;
+    grid-template-columns: 1fr 1fr;
+    gap:14px;
+    margin-top:14px;
+  }
+  .card{
+    background:var(--bg-card);
+    border:1px solid var(--rule);
+    border-radius:6px;
+    padding:22px 22px 20px;
+  }
+  .card.full{ grid-column:1 / -1; }
+  .card-head{
+    display:flex; justify-content:space-between; align-items:baseline;
+    margin:0 0 14px;
+    padding-bottom:10px;
+    border-bottom:1px solid var(--rule);
+  }
+  .card-head h2{
+    font-family:var(--serif);
+    font-weight:600;
+    font-size:20px;
+    letter-spacing:-0.01em;
+    margin:0;
+    color:var(--ink);
+  }
+  .card-head .tag{
+    font-family:var(--mono);
+    font-size:10.5px;
+    color:var(--ink-faint);
+    letter-spacing:0.08em;
+    text-transform:uppercase;
+  }
+
+  /* Methodology flow */
+  .method-lead{
+    font-size:14px; color:var(--ink-soft); margin:0 0 16px; line-height:1.55;
+  }
+  .method-lead b{ color:var(--ink); }
+  .flow{
+    font-family:var(--mono);
+    font-size:11.5px;
+    line-height:1.7;
+    background:var(--accent-soft);
+    border:1px solid var(--accent-line);
+    border-radius:4px;
+    padding:14px 16px;
+    color:var(--accent-deep);
+    white-space:pre;
+    overflow-x:auto;
+    margin:0 0 16px;
+  }
+  .flow .root{ color:var(--ink); font-weight:700;}
+  .flow .branch{ color:var(--accent-deep); font-weight:600;}
+  .flow .muted{ color:var(--ink-faint); }
+  .flow .tot{ color:var(--ink); font-weight:700; background:#fff; border-radius:3px; padding:1px 5px;}
+  .ingr-grid{
+    display:grid;
+    grid-template-columns: 1fr 1fr;
+    gap:14px 22px;
+    font-size:13px;
+  }
+  .ingr-grid h4{
+    font-family:var(--mono);
+    font-size:10.5px;
+    text-transform:uppercase;
+    letter-spacing:0.08em;
+    color:var(--ink-faint);
+    margin:0 0 6px;
+  }
+  .ingr-grid ul{ margin:0; padding-left:16px; color:var(--ink-soft); }
+  .ingr-grid li{ margin-bottom:3px; line-height:1.4;}
+  .ingr-grid li code{
+    font-family:var(--mono);
+    font-size:11px;
+    background:#eef2f1;
+    padding:1px 4px;
+    border-radius:2px;
+    color:var(--ink);
+  }
+
+  /* Results card */
+  .results-lead{
+    font-size:14px; color:var(--ink-soft); margin:0 0 14px; line-height:1.55;
+  }
+  .results-lead b{ color:var(--ink); }
+  table.results{
+    width:100%;
+    border-collapse:collapse;
+    font-size:13.5px;
+    margin:0 0 14px;
+  }
+  table.results caption{
+    font-family:var(--mono);
+    font-size:10.5px;
+    text-transform:uppercase;
+    letter-spacing:0.08em;
+    color:var(--ink-faint);
+    text-align:left;
+    margin-bottom:8px;
+  }
+  table.results th, table.results td{
+    text-align:left;
+    padding:8px 10px;
+    border-bottom:1px solid var(--rule);
+    vertical-align:middle;
+  }
+  table.results th{
+    font-family:var(--mono);
+    font-size:11px;
+    text-transform:uppercase;
+    letter-spacing:0.06em;
+    color:var(--ink-faint);
+    font-weight:500;
+    border-bottom-color:var(--rule-strong);
+  }
+  table.results td.score{
+    font-family:var(--mono);
+    font-variant-numeric:tabular-nums;
+    text-align:right;
+    color:var(--ink);
+  }
+  table.results tr.win td{
+    background:var(--accent-soft);
+    color:var(--accent-deep);
+    font-weight:600;
+  }
+  table.results tr.win td.score{ color:var(--accent-deep); }
+  table.results tr.fail td.score{ color:var(--caution-accent); }
+  .stats-grid{
+    display:grid;
+    grid-template-columns:repeat(3,1fr);
+    gap:12px;
+    margin-top:6px;
+  }
+  .stat{
+    padding:10px 12px;
+    border-left:2px solid var(--accent);
+    background:#f7faf9;
+    border-radius:0 4px 4px 0;
+  }
+  .stat .v{
+    font-family:var(--mono);
+    font-weight:600;
+    font-size:15px;
+    color:var(--accent-deep);
+    display:block;
+    font-variant-numeric:tabular-nums;
+  }
+  .stat .l{
+    font-size:11.5px;
+    color:var(--ink-faint);
+    line-height:1.35;
+    margin-top:3px;
+    display:block;
+  }
+  .stat .l b{ color:var(--ink-soft); font-weight:600;}
+
+  /* Strengths / Limitations side-by-side */
+  .pro-con{ grid-column:1 / -1; padding:0; }
+  .pro-con .inner{
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:0;
+  }
+  .pc-col{ padding:22px; }
+  .pc-col + .pc-col{ border-left:1px solid var(--rule); }
+  .pc-head{
+    display:flex; align-items:center; gap:10px;
+    margin-bottom:14px;
+    padding-bottom:10px;
+    border-bottom:1px solid var(--rule);
+  }
+  .pc-head .glyph{
+    width:22px; height:22px; border-radius:50%;
+    display:inline-flex; align-items:center; justify-content:center;
+    font-family:var(--mono); font-weight:700; font-size:13px;
+  }
+  .pc-col.pos .glyph{ background:var(--accent); color:#fff;}
+  .pc-col.neg .glyph{ background:var(--caution-line); color:#fff;}
+  .pc-head h2{
+    font-family:var(--serif); font-weight:600;
+    font-size:18px; margin:0;
+  }
+  .pc-col.pos .pc-head h2{ color:var(--accent-deep); }
+  .pc-col.neg .pc-head h2{ color:var(--caution-ink); }
+  .pc-col ul{ margin:0; padding-left:16px; color:var(--ink-soft); font-size:13.5px; }
+  .pc-col li{ margin-bottom:9px; line-height:1.45; }
+  .pc-col li b{ color:var(--ink); font-weight:600; }
+  .pc-col.neg li b{ color:var(--caution-ink); }
+
+  /* Questions panel */
+  .q-panel{ grid-column:1/-1; }
+  .q-panel ol{
+    margin:0; padding-left:20px;
+    columns:2;
+    column-gap:32px;
+    font-size:13.5px;
+    color:var(--ink-soft);
+    line-height:1.5;
+  }
+  .q-panel li{ margin-bottom:8px; break-inside:avoid; }
+  .q-panel li b{ color:var(--ink); font-weight:600; }
+
+  /* footer */
+  .foot{
+    width:min(95vw, 1100px);
+    margin:24px auto 56px;
+    padding:18px 28px 0;
+    border-top:1px solid var(--rule);
+    display:flex; justify-content:space-between; align-items:center;
+    font-family:var(--mono);
+    font-size:11.5px;
+    color:var(--ink-faint);
+    letter-spacing:0.04em;
+  }
+  .foot a{
+    color:var(--ink-soft);
+    text-decoration:none;
+    border-bottom:1px solid var(--rule-strong);
+    padding-bottom:1px;
+  }
+  .foot a:hover{ color:var(--accent-deep); border-color:var(--accent);}
+
+  /* ─── Mobile ─────────────────────────────────────────────── */
+  @media (max-width: 880px){
+    .assets{ grid-template-columns:1fr; }
+    .body-grid{ grid-template-columns:1fr; }
+    .pro-con .inner{ grid-template-columns:1fr; }
+    .pc-col + .pc-col{ border-left:0; border-top:1px solid var(--rule); }
+    .ingr-grid{ grid-template-columns:1fr; }
+    .stats-grid{ grid-template-columns:1fr 1fr; }
+    .q-panel ol{ columns:1; }
+    .wrap{ padding-top:56px; }
+    .hero-finding{ max-width:none; }
+  }
+  @media (max-width: 480px){
+    .wrap{ padding:52px 16px 0;}
+    .foot{ padding:18px 16px 0;}
+    .stats-grid{ grid-template-columns:1fr; }
+  }
+
+  /* entrance choreography — single orchestrated load */
+  @media (prefers-reduced-motion: no-preference){
+    .hero, .asset, .card{
+      opacity:0; transform:translateY(8px);
+      animation:rise .55s cubic-bezier(.2,.7,.2,1) forwards;
+    }
+    .hero    { animation-delay:.05s; }
+    .asset:nth-child(1){ animation-delay:.18s; }
+    .asset:nth-child(2){ animation-delay:.26s; }
+    .asset:nth-child(3){ animation-delay:.34s; }
+    .body-grid > *:nth-child(1){ animation-delay:.45s; }
+    .body-grid > *:nth-child(2){ animation-delay:.52s; }
+    .body-grid > *:nth-child(3){ animation-delay:.60s; }
+    .body-grid > *:nth-child(4){ animation-delay:.68s; }
+    @keyframes rise{ to{ opacity:1; transform:none; } }
+  }
+</style>
+</head>
+<body>
+
+<a class="nav-back" href="./index.html" title="Back to today's digest">↩ Today's digest</a>
+
+<main class="wrap">
+
+  <!-- ───────────────── EYEBROW ───────────────── -->
+  <div class="eyebrow">
+    <span>Paper Dashboard</span>
+    <span class="dot"></span>
+    <span>arXiv:2607.19058</span>
+    <span class="dot"></span>
+    <span>2026-07-21</span>
+    <span class="dot"></span>
+    <span class="tag">MoE · memory-efficient optimizer</span>
+  </div>
+
+  <!-- ───────────────── HERO BAND ───────────────── -->
+  <section class="hero">
+    <h1 class="hero-finding">
+      Stop treating an MoE as one bag of parameters —
+      <span class="em">allocate optimizer state by tier, and 50 GB collapses to 1.29.</span>
+    </h1>
+
+    <p class="hero-title">
+      Paper:
+      <a href="https://arxiv.org/abs/2607.19058" target="_blank" rel="noopener">
+        Where Should Optimizer State Live? Tiered State Allocation for Memory-Efficient Mixture-of-Experts Training
+      </a>
+    </p>
+    <p class="hero-authors">
+      <b>Nuemaan Malik</b> — Independent Researcher (self-funded, rented GPU time). Single-author, non-peer-reviewed preprint.
+    </p>
+    <div class="chips">
+      <span class="chip">mixture-of-experts</span>
+      <span class="chip">optimizer-state</span>
+      <span class="chip">memory-efficiency</span>
+      <span class="chip">adafactor-factored</span>
+      <span class="chip">single-gpu</span>
+      <span class="chip muted">6.78B MoE · 82M tokens</span>
+    </div>
+  </section>
+
+  <!-- ───────────────── ASSET ROW ───────────────── -->
+  <section class="assets">
+
+    <!-- KEY METRIC -->
+    <div class="asset metric">
+      <p class="asset-label"><span class="idx">1</span> Key metric · Optimizer state</p>
+      <span class="num">2.6<span class="unit">% of AdamW</span></span>
+      <p class="delta">50.55 GB &rarr; 1.29 GB</p>
+      <p class="ctx">
+        Peak training memory falls from <b>81.4 GB</b> to <b>31.3 GB</b> &mdash;
+        clearing a 40 GB accelerator budget that Lion and Muon (~57 GB peak)
+        still miss. Saving is <b>structural</b>, independent of quantization.
+      </p>
+    </div>
+
+    <!-- WHY THIS MATTERS -->
+    <div class="asset matters">
+      <p class="asset-label"><span class="idx">2</span> Why this matters</p>
+      <p>
+        A plug-and-play &ldquo;allocate state by role&rdquo; principle that moves
+        a 6.78B MoE off an 80 GB-class device onto a 40 GB one &mdash; code &amp; logs open-sourced.
+      </p>
+      <div class="footnote">
+        Targets anyone doing memory-constrained MoE training, optimizer engineering,
+        or Adafactor/ZeRO/GaLore-style state compression.
+      </div>
+    </div>
+
+    <!-- CRITICAL EDGE -->
+    <div class="asset edge">
+      <p class="asset-label"><span class="idx">3</span> Critical edge</p>
+      <p>
+        <span class="lead">The tiers buy memory, not accuracy.</span>
+        The perplexity lead rests on single seeds, and SkewAdam was never
+        tuned while the baselines were.
+      </p>
+    </div>
+
+  </section>
+
+  <!-- ───────────────── BODY GRID ───────────────── -->
+  <section class="body-grid">
+
+    <!-- METHODOLOGY -->
+    <article class="card">
+      <header class="card-head"><h2>Methodology</h2><span class="tag">Tiered allocation</span></header>
+
+      <p class="method-lead">
+        SkewAdam is a standard Adam-style update with one idea: an MoE is not
+        homogeneous. Its three parameter populations &mdash; dense backbone
+        (5%), experts (95%), router (&lt;0.01%) &mdash; differ so sharply in
+        <b>size and gradient statistics</b> that they should not share one
+        state recipe. State is allocated by role.
+      </p>
+
+<pre class="flow"><span class="root">MoE parameters · 6.78B</span>
+   │
+   ├── <span class="branch">Backbone  5%</span>     fp32 momentum + factored 2nd moment   <span class="tot">1.27 GB</span>
+   │              (embed · attn · dense FFN · norms)
+   │
+   ├── <span class="branch">Experts  95%</span>     factored 2nd moment ONLY             <span class="muted">~0 GB momentum</span>
+   │              (128 SwiGLU · top-2-of-128 routing)
+   │
+   └── <span class="branch">Router  &lt;0.01%</span>   EXACT unfactored 2nd moment            <span class="tot">2 MB</span>
+                  (128×4096 gate · no weight decay)
+
+<span class="muted">Total optimizer state: <span class="tot">1.29 GB</span>   ·   AdamW baseline: 50.55 GB</span>
+</pre>
+
+      <div class="ingr-grid">
+        <div>
+          <h4>Reused, not novel</h4>
+          <ul>
+            <li>Factored 2nd moment (Adafactor): row+col EMA &rarr; rank-1 <code>V̂</code>; a <code>4096×4096</code> matrix drops <code>64 MB &rarr; 32 KB</code>.</li>
+            <li>Update-RMS clipping (also Adafactor's).</li>
+          </ul>
+        </div>
+        <div>
+          <h4>Matched protocol</h4>
+          <ul>
+            <li><b>bf16</b> master weights; fp32 step written back through <b>dithered stochastic rounding</b> &mdash; identical path for every optimizer.</li>
+            <li>2-block decoder, width 4096, GQA 32/8, ~440M active/token; OpenWebText hash-split 95/5, 10k steps, batch 64×128, 81.9M tokens, cosine + 3% warmup.</li>
+          </ul>
+        </div>
+      </div>
+    </article>
+
+    <!-- RESULTS -->
+    <article class="card">
+      <header class="card-head"><h2>Results</h2><span class="tag">Beyond the headline</span></header>
+
+      <p class="results-lead">
+        The structural memory win is unambiguous; the perplexity win is real
+        but <b>underpowered</b>. SkewAdam overtakes AdamW and Muon by step 4,000,
+        and its lead survives tuning the baselines (AdamW &rarr; 118.5, Adafactor &rarr; 139.7).
+      </p>
+
+      <table class="results">
+        <caption>Table 1 · Optimizer state &amp; peak memory (6.78B MoE, single GPU)</caption>
+        <thead>
+          <tr><th>Optimizer</th><th class="score">State</th><th class="score">Peak mem</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>AdamW</td><td class="score">50.55 GB</td><td class="score">81.4 GB</td></tr>
+          <tr><td>Lion</td><td class="score">25.27 GB</td><td class="score">~57 GB</td></tr>
+          <tr><td>Muon</td><td class="score">25.27 GB</td><td class="score">~57 GB</td></tr>
+          <tr class="win"><td>SkewAdam</td><td class="score">1.29 GB</td><td class="score">31.3 GB</td></tr>
+        </tbody>
+      </table>
+
+      <table class="results">
+        <caption>Table 2 · OpenWebText validation perplexity (lower is better)</caption>
+        <thead>
+          <tr><th>Optimizer</th><th class="score">Val PPL</th></tr>
+        </thead>
+        <tbody>
+          <tr class="win"><td>SkewAdam (untuned)</td><td class="score">108.4</td></tr>
+          <tr><td>AdamW (best after LR sweep, 3 seeds)</td><td class="score">118.5</td></tr>
+          <tr><td>Muon</td><td class="score">120.2</td></tr>
+          <tr><td>Adafactor (best after sweep, 2 seeds)</td><td class="score">139.7</td></tr>
+          <tr><td>Adafactor (default)</td><td class="score">149.5</td></tr>
+          <tr class="fail"><td>Lion (single LR, single seed)</td><td class="score">393.7</td></tr>
+        </tbody>
+      </table>
+
+      <div class="stats-grid">
+        <div class="stat">
+          <span class="v">5,000 tok/s</span>
+          <span class="l">SkewAdam throughput &mdash; <b>+6.6%</b> vs AdamW (4,692); Muon pays a <b>32%</b> penalty (3,409).</span>
+        </div>
+        <div class="stat">
+          <span class="v">108.4 / 109.0 / 108.9</span>
+          <span class="l">H200 / H100 / MI300X &mdash; <b>&le;0.6 spread</b> across two vendors.</span>
+        </div>
+        <div class="stat">
+          <span class="v">20&times;</span>
+          <span class="l">Tier-ablation state spread at <b>parity PPL</b> (108.2&ndash;108.9) &mdash; expert momentum = 24 GB dead weight.</span>
+        </div>
+      </div>
+    </article>
+
+    <!-- STRENGTHS / LIMITATIONS -->
+    <article class="card pro-con">
+      <div class="inner">
+        <div class="pc-col pos">
+          <div class="pc-head">
+            <span class="glyph">+</span>
+            <h2>Strengths</h2>
+          </div>
+          <ul>
+            <li><b>Role-aware, not uniform</b> &mdash; allocation targets the dominant cost (expert momentum) instead of shrinking all state equally.</li>
+            <li><b>Large structural savings</b> &mdash; 97.4% state / 61% peak-memory reduction, independent of quantization and compounding with it.</li>
+            <li><b>Exceptionally controlled comparison</b> &mdash; shared initialization, identical data order, identical bf16 / dithered-rounding write-back path; no optimizer is precision-privileged.</li>
+            <li><b>Intellectual honesty</b> &mdash; the paper itself frames the result as memory-at-parity, and pre-empts over-reading the near-chance downstream numbers.</li>
+            <li><b>Strong artifact</b> &mdash; open code, per-step logs, exact CLI commands, closed-form memory model, and cross-vendor replication.</li>
+          </ul>
+        </div>
+        <div class="pc-col neg">
+          <div class="pc-head">
+            <span class="glyph">!</span>
+            <h2>Limitations</h2>
+          </div>
+          <ul>
+            <li><b>Shallow by design</b> &mdash; only a 2-block model; how tiered allocation behaves when routing composes across many MoE layers is untested.</li>
+            <li><b>Statistically underpowered</b> &mdash; most configs are single-seed; only LR sweeps repeat seeds, and SkewAdam itself was never tuned while baselines were.</li>
+            <li><b>Tiny horizon</b> &mdash; 82M tokens / 128-token context, three to four orders of magnitude below production; weight decay rounded to a no-op, so the recipe is effectively unregularized.</li>
+            <li><b>Near-chance downstream evals</b> (PIQA / WinoGrande / HellaSwag / ARC-C) &mdash; a completeness check only, no optimizer separation.</li>
+            <li><b>Weak baselines caveats</b> &mdash; the GaLore run (1,839.9 PPL) is a single untuned own-implementation config; Lion's 393.7 is one LR / one seed.</li>
+            <li><b>Single-author, self-funded preprint</b> &mdash; the compute budget, not the design, set the scale.</li>
+          </ul>
+        </div>
+      </div>
+    </article>
+
+    <!-- QUESTIONS -->
+    <article class="card q-panel">
+      <header class="card-head"><h2>Questions for further exploration</h2><span class="tag">Open threads</span></header>
+      <ol>
+        <li>Does tiered allocation keep its perplexity / memory edge on <b>deeper MoEs (16&ndash;32 blocks)</b>, where routing decisions compose across many expert layers?</li>
+        <li>Would a <b>cheap, low-rank expert momentum</b> (vs. full fp32) close any gap at longer horizons where expert momentum might &ldquo;begin to earn its 24 GB&rdquo;?</li>
+        <li>How does SkewAdam interact with <b>quantized state (8-bit, FP8)</b> &mdash; does factoring's lack of a scale ceiling compound with quantization, as speculated?</li>
+        <li>Does <b>Muon's late load-balance drift</b> (22% above the 0.05 floor in the final thousand steps) foreshadow a real instability at longer horizons or larger expert counts?</li>
+        <li>Can the tiered principle extend to other <b>heterogeneous-parameter architectures</b> &mdash; retrieval-augmented models, multi-modal towers &mdash; where gradient density also varies sharply by component?</li>
+      </ol>
+    </article>
+
+  </section>
+</main>
+
+<footer class="foot">
+  <span>Dashboard · one-paper digest · 2607.19058 · SkewAdam</span>
+  <a href="./2607.19058.md">↗ Markdown source</a>
+</footer>
+
+</body>
+</html>

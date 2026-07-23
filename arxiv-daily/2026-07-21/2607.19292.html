@@ -1,0 +1,763 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>The Safety Failures We Are Not Instrumenting — Paper Dashboard</title>
+<style>
+  /* ---------- Design tokens ---------- */
+  :root{
+    --paper:     #F6F2EA;
+    --paper-2:   #EFE9DC;
+    --panel:     #FBF8F1;
+    --ink:       #1C1A17;
+    --ink-soft:  #423E37;
+    --muted:     #847D70;
+    --rule:      #D9D2C4;
+    --rule-2:    #C8C0AF;
+    --accent:    #B23A1E;          /* topic-derived: AI Safety = caution rust */
+    --accent-2:  #8A2C13;
+    --accent-soft:#F1E2D6;
+    --ok:        #2F6B43;
+    --warn:      #B23A1E;
+    --dark:      #16140F;          /* inverted critical panel */
+    --dark-fg:   #F1ECDF;
+    --dark-mut:  #9A9181;
+
+    --maxw: min(95vw, 1100px);
+    --disp: ui-serif, Georgia, Cambria, "Times New Roman", serif;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+
+  *{ box-sizing: border-box; }
+  html,body{ margin:0; padding:0; }
+  body{
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  a{ color: var(--accent); text-decoration: none; }
+  a:hover{ text-decoration: underline; text-underline-offset: 3px; }
+
+  /* paper-grain atmosphere: subtle dotted texture, not a gradient */
+  body::before{
+    content:"";
+    position: fixed; inset:0;
+    background-image: radial-gradient(rgba(28,26,23,0.035) 1px, transparent 1px);
+    background-size: 3px 3px;
+    pointer-events:none; z-index:0;
+  }
+
+  /* ---------- Top nav ---------- */
+  .topnav{
+    position: fixed; top:0; left:0; right:0;
+    z-index: 50;
+    display:flex; align-items:center; justify-content: space-between;
+    padding: 10px 18px;
+    background: rgba(246,242,234,0.86);
+    backdrop-filter: saturate(140%) blur(8px);
+    border-bottom: 1px solid var(--rule);
+    font-size: 13px;
+  }
+  .topnav .left{ display:flex; align-items:center; gap:10px; }
+  .topnav a.back{
+    color: var(--ink);
+    font-weight: 600;
+    letter-spacing: 0.01em;
+    border: 1px solid var(--rule-2);
+    padding: 4px 10px;
+    border-radius: 3px;
+    background: var(--panel);
+  }
+  .topnav a.back:hover{ border-color: var(--accent); color: var(--accent); text-decoration:none; }
+  .topnav .crumb{ color: var(--muted); font-variant: small-caps; letter-spacing: 0.08em; }
+  .topnav .right{ color: var(--muted); font-family: var(--mono); font-size: 12px; }
+  .topnav .right b{ color: var(--ink); font-weight: 600; }
+
+  /* ---------- Layout shell ---------- */
+  .wrap{
+    position: relative; z-index:1;
+    max-width: var(--maxw);
+    margin: 0 auto;
+    padding: 84px 22px 48px;
+  }
+
+  /* shared section card */
+  .card{
+    background: var(--panel);
+    border: 1px solid var(--rule);
+    border-radius: 4px;
+    padding: 22px 24px;
+  }
+  .sec-label{
+    font-family: var(--sans);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin: 0 0 6px;
+  }
+  .sec-h{
+    font-family: var(--disp);
+    font-weight: 700;
+    font-size: 21px;
+    line-height: 1.2;
+    margin: 0 0 12px;
+    color: var(--ink);
+    letter-spacing: -0.01em;
+  }
+  .lead{ font-size: 15.5px; color: var(--ink-soft); }
+
+  /* ---------- Hero ---------- */
+  .hero{
+    border-top: 3px solid var(--ink);
+    padding: 22px 0 6px;
+  }
+  .chips{ display:flex; flex-wrap:wrap; gap:6px; margin: 0 0 16px; }
+  .chip{
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+    background: var(--paper-2);
+    border: 1px solid var(--rule);
+    padding: 3px 9px;
+    border-radius: 999px;
+  }
+  .chip.accent{ color: var(--accent); border-color: var(--accent-soft); background: var(--accent-soft); }
+
+  .hero h1{
+    font-family: var(--disp);
+    font-weight: 700;
+    font-size: clamp(28px, 4.4vw, 44px);
+    line-height: 1.08;
+    letter-spacing: -0.02em;
+    margin: 0 0 14px;
+  }
+  .hero h1 a{ color: var(--ink); }
+  .hero h1 a:hover{ color: var(--accent); text-decoration: none; }
+  .hero h1 .em{ color: var(--accent); font-style: italic; }
+
+  .meta{
+    display:flex; flex-wrap:wrap; gap: 6px 16px;
+    font-size: 13.5px; color: var(--muted);
+    margin: 0 0 26px;
+    align-items: baseline;
+  }
+  .meta .auth{ color: var(--ink); font-weight: 600; }
+  .meta .sep{ color: var(--rule-2); }
+  .meta .id{ font-family: var(--mono); }
+
+  /* KEY FINDING oversized */
+  .finding{
+    position: relative;
+    padding: 6px 0 6px 22px;
+    border-left: 3px solid var(--accent);
+    margin: 6px 0 8px;
+  }
+  .finding .kfind-label{
+    font-size: 11px; font-weight: 700; letter-spacing: 0.2em;
+    text-transform: uppercase; color: var(--accent);
+    display:block; margin-bottom: 8px;
+  }
+  .finding p{
+    font-family: var(--disp);
+    font-weight: 600;
+    font-size: clamp(20px, 3vw, 30px);
+    line-height: 1.22;
+    letter-spacing: -0.012em;
+    margin: 0;
+    color: var(--ink);
+  }
+  .finding p mark{
+    background: transparent;
+    color: var(--accent);
+    font-style: italic;
+  }
+
+  /* ---------- Asset row ---------- */
+  .assets{
+    display:grid;
+    grid-template-columns: 1fr 1.15fr 1.15fr;
+    gap: 16px;
+    margin: 30px 0 14px;
+  }
+  .asset{
+    border-radius: 4px;
+    padding: 18px 18px 16px;
+    border: 1px solid var(--rule);
+    background: var(--panel);
+    display:flex; flex-direction: column; gap: 8px;
+    min-height: 168px;
+  }
+  .asset .lbl{
+    font-size: 10.5px; font-weight: 700; letter-spacing: 0.18em;
+    text-transform: uppercase; color: var(--muted);
+  }
+  .asset .body{ font-size: 14.5px; color: var(--ink-soft); line-height: 1.45; }
+
+  /* metric */
+  .asset.metric{ border-color: var(--accent-soft); background: #FCF6F0; }
+  .asset.metric .lbl{ color: var(--accent); }
+  .metric .num{
+    font-family: var(--mono);
+    font-weight: 700;
+    font-size: 58px;
+    line-height: 1;
+    color: var(--ink);
+    letter-spacing: -0.02em;
+  }
+  .metric .num small{ font-size: 16px; color: var(--muted); font-weight: 500; }
+  .metric .numrow{ display:flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+  .metric .cap{ font-size: 13px; color: var(--ink-soft); }
+  .metric .cap b{ color: var(--ink); }
+  .metric .footnote{
+    margin-top: auto;
+    font-size: 12px; color: var(--muted);
+    border-top: 1px dashed var(--rule);
+    padding-top: 8px;
+    font-family: var(--mono);
+  }
+  .metric .footnote b{ color: var(--accent); font-family: var(--sans); }
+
+  /* matters */
+  .asset.matters .body{
+    font-family: var(--disp);
+    font-size: 17px;
+    line-height: 1.34;
+    color: var(--ink);
+    font-weight: 500;
+  }
+
+  /* critical edge — contrasting inverted */
+  .asset.edge{
+    background: var(--dark);
+    border-color: var(--dark);
+    color: var(--dark-fg);
+  }
+  .asset.edge .lbl{ color: #E8A48C; }
+  .asset.edge .body{ color: var(--dark-fg); font-size: 14.5px; line-height: 1.46; }
+  .asset.edge .body strong{ color: #FFFFFF; }
+  .asset.edge .tag{
+    margin-top: auto;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--dark-mut);
+    border-top: 1px solid #2E2A22;
+    padding-top: 8px;
+  }
+
+  /* ---------- Body grid ---------- */
+  .grid{
+    display:grid;
+    grid-template-columns: repeat(12, 1fr);
+    gap: 16px;
+    margin-top: 14px;
+  }
+  .col-12{ grid-column: span 12; }
+  .col-8{ grid-column: span 8; }
+  .col-7{ grid-column: span 7; }
+  .col-6{ grid-column: span 6; }
+  .col-5{ grid-column: span 5; }
+  .col-4{ grid-column: span 4; }
+
+  .card h3.sec-h{ font-size: 19px; }
+
+  /* methodology numbered list */
+  .method ol{
+    margin: 6px 0 10px;
+    padding-left: 20px;
+    color: var(--ink-soft);
+    font-size: 14.5px;
+  }
+  .method ol li{ margin-bottom: 7px; line-height: 1.5; }
+  .method ol li b{ color: var(--ink); }
+  .method .note{
+    font-size: 12.5px; color: var(--muted);
+    border-top: 1px solid var(--rule);
+    padding-top: 9px; margin-top: 6px;
+    font-family: var(--mono);
+  }
+
+  /* ---------- Five-layer framework strip ---------- */
+  .layers{
+    display:grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 8px;
+    margin: 10px 0 4px;
+  }
+  .layer{
+    border: 1px solid var(--rule);
+    border-top: 3px solid var(--accent);
+    background: var(--paper);
+    padding: 10px 11px 11px;
+    border-radius: 0 0 3px 3px;
+  }
+  .layer .lnum{
+    font-family: var(--mono); font-size: 11px; color: var(--accent); font-weight: 700;
+  }
+  .layer .lname{
+    font-family: var(--disp); font-weight: 700; font-size: 15px;
+    margin: 1px 0 5px; letter-spacing: -0.01em;
+  }
+  .layer .ldesc{ font-size: 11.5px; color: var(--muted); line-height: 1.38; }
+  .layer .ltag{
+    margin-top: 6px; font-size: 10.5px; color: var(--ink-soft);
+    font-family: var(--mono); line-height: 1.35;
+  }
+
+  /* ---------- Four-feature bar ---------- */
+  .feats{ display:grid; grid-template-columns: repeat(4,1fr); gap:8px; margin-top: 12px; }
+  .feat{
+    border: 1px dashed var(--rule-2);
+    padding: 9px 11px;
+    border-radius: 3px;
+    background: var(--paper);
+  }
+  .feat .ft{ font-size: 11px; font-weight: 700; color: var(--accent); letter-spacing: 0.05em; text-transform: uppercase; }
+  .feat .fb{ font-size: 11.5px; color: var(--ink-soft); margin-top: 2px; line-height: 1.35; }
+
+  /* ---------- Tables ---------- */
+  .tbl-wrap{ overflow-x: auto; }
+  table.inst{
+    width:100%; border-collapse: collapse;
+    font-size: 13px; margin-top: 8px;
+  }
+  table.inst thead th{
+    text-align:left;
+    font-size: 10.5px; font-weight: 700; letter-spacing: 0.12em;
+    text-transform: uppercase; color: var(--muted);
+    border-bottom: 2px solid var(--ink);
+    padding: 7px 10px 7px 0;
+    vertical-align: bottom;
+  }
+  table.inst tbody td{
+    padding: 9px 10px 9px 0;
+    border-bottom: 1px solid var(--rule);
+    vertical-align: top;
+    color: var(--ink-soft);
+  }
+  table.inst tbody tr:hover{ background: var(--paper-2); }
+  table.inst td.layer-cell{
+    font-family: var(--disp); font-weight: 700; color: var(--ink);
+    white-space: nowrap;
+  }
+  table.inst td.layer-cell .dot{
+    display:inline-block; width:8px; height:8px; border-radius:50%;
+    background: var(--accent); margin-right: 7px; vertical-align: middle;
+  }
+  table.inst td.ind{
+    font-family: var(--mono); font-size: 12px; color: var(--ink);
+  }
+  table.inst td.chal{ color: var(--ink); font-weight: 600; }
+  .table-foot{
+    font-size: 11.5px; color: var(--muted); margin-top: 9px;
+    font-family: var(--mono);
+  }
+
+  /* ---------- Strengths / Limitations ---------- */
+  .panel-h{
+    display:flex; align-items:center; gap: 8px; margin-bottom: 4px;
+  }
+  .panel-h .dot{ width:10px; height:10px; border-radius:50%; flex:0 0 auto; }
+  .str .dot{ background: var(--ok); }
+  .lim .dot{ background: var(--warn); }
+  .panel-h .sec-label{ margin:0; }
+  ul.bullets{
+    list-style: none; padding:0; margin: 8px 0 0;
+  }
+  ul.bullets li{
+    position: relative;
+    padding: 0 0 10px 18px;
+    font-size: 13.5px;
+    color: var(--ink-soft);
+    line-height: 1.46;
+  }
+  ul.bullets li::before{
+    content:"";
+    position:absolute; left: 2px; top: 8px;
+    width: 7px; height: 2px; background: var(--muted);
+  }
+  .str li b{ color: var(--ink); }
+  .lim li b{ color: var(--ink); }
+
+  /* ---------- Questions ---------- */
+  ol.q{
+    margin: 8px 0 0; padding-left: 22px;
+    font-size: 13.5px; color: var(--ink-soft); line-height: 1.5;
+  }
+  ol.q li{ margin-bottom: 9px; padding-left: 4px; }
+  ol.q li::marker{ color: var(--accent); font-family: var(--mono); font-weight: 700; }
+  ol.q li b{ color: var(--ink); }
+
+  /* ---------- Credibility strip ---------- */
+  .cred{
+    display:grid; grid-template-columns: repeat(3,1fr); gap: 10px;
+    margin-top: 10px;
+  }
+  .cred .c{
+    border: 1px solid var(--rule);
+    background: var(--paper);
+    padding: 10px 12px; border-radius: 3px;
+  }
+  .cred .ck{ font-size: 10.5px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); font-weight:700; }
+  .cred .cv{ font-size: 13px; color: var(--ink); margin-top: 3px; line-height: 1.4; }
+
+  /* ---------- Footer ---------- */
+  footer{
+    margin-top: 34px;
+    padding-top: 16px;
+    border-top: 1px solid var(--rule);
+    display:flex; flex-wrap:wrap; gap: 10px 22px; align-items: center;
+    justify-content: space-between;
+    font-size: 12.5px; color: var(--muted);
+  }
+  footer a{
+    color: var(--ink-soft);
+    border-bottom: 1px solid var(--rule-2);
+    padding-bottom: 1px;
+  }
+  footer a:hover{ color: var(--accent); border-color: var(--accent); text-decoration:none; }
+  footer .src{ font-family: var(--mono); }
+
+  /* ---------- Load-in animation (CSS only) ---------- */
+  @media (prefers-reduced-motion: no-preference){
+    .reveal{ opacity:0; transform: translateY(8px); animation: rise .6s cubic-bezier(.2,.7,.2,1) forwards; }
+    @keyframes rise{ to{ opacity:1; transform:none; } }
+    .d1{ animation-delay:.04s } .d2{ animation-delay:.10s } .d3{ animation-delay:.16s }
+    .d4{ animation-delay:.22s } .d5{ animation-delay:.28s } .d6{ animation-delay:.34s }
+    .d7{ animation-delay:.40s } .d8{ animation-delay:.46s } .d9{ animation-delay:.52s }
+  }
+
+  /* ---------- Responsive ---------- */
+  @media (max-width: 900px){
+    .assets{ grid-template-columns: 1fr; }
+    .layers{ grid-template-columns: repeat(2,1fr); }
+    .feats{ grid-template-columns: repeat(2,1fr); }
+    .col-8,.col-7,.col-6,.col-5,.col-4{ grid-column: span 12; }
+    .cred{ grid-template-columns: 1fr; }
+  }
+  @media (max-width: 560px){
+    .wrap{ padding: 78px 14px 36px; }
+    .card{ padding: 18px 16px; }
+    .metric .num{ font-size: 46px; }
+    .layers{ grid-template-columns: 1fr; }
+    .topnav .crumb{ display:none; }
+  }
+</style>
+</head>
+<body>
+
+<!-- Fixed top nav -->
+<nav class="topnav">
+  <div class="left">
+    <a class="back" href="./index.html">↩ Today's digest</a>
+    <span class="crumb">Paper dashboard</span>
+  </div>
+  <div class="right">
+    <b>arXiv:2607.19292</b> · 2026-07-21
+  </div>
+</nav>
+
+<div class="wrap">
+
+  <!-- ===== HERO ===== -->
+  <header class="hero reveal d1">
+    <div class="chips">
+      <span class="chip accent">AI Safety</span>
+      <span class="chip">Socio-Technical Systems</span>
+      <span class="chip">LLM Agents</span>
+      <span class="chip">AI Governance</span>
+      <span class="chip">Overreliance</span>
+      <span class="chip">Perspective / Synthesis</span>
+    </div>
+
+    <h1>
+      <a href="https://arxiv.org/abs/2607.19292" target="_blank" rel="noopener">
+        The Safety Failures We Are <span class="em">Not Instrumenting</span>
+      </a>
+    </h1>
+
+    <div class="meta">
+      <span class="auth">Gjergji Kasneci · Enkelejda Kasneci</span>
+      <span class="sep">|</span>
+      <span>Technical University of Munich (TUM)</span>
+      <span class="sep">|</span>
+      <span>2026-07-21</span>
+      <span class="sep">|</span>
+      <span class="id">arXiv:2607.19292</span>
+    </div>
+
+    <div class="finding">
+      <span class="kfind-label">Key Finding</span>
+      <p>
+        AI safety must shift from catching model-level harms to keeping errors
+        <mark>visible, contestable, containable, and recoverable</mark> across the
+        whole socio-technical deployment stack.
+      </p>
+    </div>
+  </header>
+
+  <!-- ===== ASSET ROW ===== -->
+  <section class="assets" aria-label="Key assets">
+
+    <!-- KEY METRIC -->
+    <div class="asset metric reveal d2">
+      <span class="lbl">Key Metric</span>
+      <div class="numrow">
+        <span class="num">0<small> / 0 / 0</small></span>
+      </div>
+      <div class="cap">
+        <b>experiments · benchmarks · measured deltas.</b>
+        A perspective/synthesis paper — its output is a framework and a control table, not empirical results.
+      </div>
+      <div class="footnote">
+        → substitute anchor: Table&nbsp;1 proposes testing safety-boundary survival across <b>50+ turn</b> adversarial trajectories.
+      </div>
+    </div>
+
+    <!-- WHY THIS MATTERS -->
+    <div class="asset matters reveal d3">
+      <span class="lbl">Why This Matters</span>
+      <div class="body">
+        As stateful agents and persistent memory enter production, safety must
+        move from single-turn benchmarks to socio-technical, trajectory-level
+        reliability.
+      </div>
+    </div>
+
+    <!-- CRITICAL EDGE (contrasting) -->
+    <div class="asset edge reveal d4">
+      <span class="lbl">Critical Edge</span>
+      <div class="body">
+        No worked example shows the framework <strong>resolving a safety
+        trade-off</strong> that a competent team would otherwise miss — it risks
+        becoming a labeling exercise rather than a diagnostic that changes decisions.
+      </div>
+      <div class="tag">src: Critical Assessment · Limitations</div>
+    </div>
+
+  </section>
+
+  <!-- ===== BODY GRID ===== -->
+  <div class="grid">
+
+    <!-- Five-layer framework (full width visual) -->
+    <section class="card col-12 reveal d5">
+      <p class="sec-label">The Framework</p>
+      <h2 class="sec-h">Five-layer integrity taxonomy — safety as an emergent property of the deployment stack</h2>
+      <p class="lead" style="margin:0 0 4px;">
+        The authors argue mitigations (retrieval, human-in-the-loop) can improve one layer
+        while degrading another. Layers are non-exhaustive; real failures span several at once.
+      </p>
+
+      <div class="layers">
+        <div class="layer">
+          <div class="lnum">L1</div>
+          <div class="lname">Epistemic</div>
+          <div class="ldesc">Are uncertainty &amp; evidence honestly presented?</div>
+          <div class="ltag">overreliance · calibration debt · legitimacy laundering</div>
+        </div>
+        <div class="layer">
+          <div class="lnum">L2</div>
+          <div class="lname">Control</div>
+          <div class="ldesc">Do instruction authority &amp; permission boundaries hold under pressure?</div>
+          <div class="ltag">prompt injection · reward hacking · action amplification</div>
+        </div>
+        <div class="layer">
+          <div class="lnum">L3</div>
+          <div class="lname">Temporal</div>
+          <div class="ldesc">Does safety hold across sessions, memory &amp; drift?</div>
+          <div class="ltag">memory poisoning · multi-turn jailbreaks · stateful drift</div>
+        </div>
+        <div class="layer">
+          <div class="lnum">L4</div>
+          <div class="lname">Organizational</div>
+          <div class="ldesc">Auditability, accountability, intervention capacity.</div>
+          <div class="ltag">fictional oversight · evaluation deception</div>
+        </div>
+        <div class="layer">
+          <div class="lnum">L5</div>
+          <div class="lname">Ecosystem</div>
+          <div class="ldesc">Is the information environment eroded by synthetic content?</div>
+          <div class="ltag">synthetic evidence pollution · retrieval collapse · model collapse</div>
+        </div>
+      </div>
+
+      <div class="feats">
+        <div class="feat"><div class="ft">Plausible</div><div class="fb">Looks like normal operation.</div></div>
+        <div class="feat"><div class="ft">Distributed</div><div class="fb">Spread across model, tools, interfaces, operators, institutions.</div></div>
+        <div class="feat"><div class="ft">Temporally Extended</div><div class="fb">Accumulates across turns, sessions, memory, retraining.</div></div>
+        <div class="feat"><div class="ft">Degrade Correction</div><div class="fb">Recursive failure: erodes the infrastructure needed to detect errors.</div></div>
+      </div>
+    </section>
+
+    <!-- Methodology -->
+    <section class="card col-5 method reveal d6">
+      <p class="sec-label">Methodology</p>
+      <h3 class="sec-h">A conceptual synthesis, not an empirical study</h3>
+      <p class="lead" style="margin:2px 0 8px;">
+        The authors state plainly the contribution is an operational synthesis — no new benchmark,
+        formal theory, or prevalence estimate.
+      </p>
+      <ol>
+        <li><b>Reframe the unit of analysis</b> from isolated model output to the socio-technical deployment stack, drawing on STAMP (Leveson), high-reliability org theory (Reason; Weick &amp; Sutcliffe), and NIST AI RMF / EU AI Act.</li>
+        <li><b>Distill four shared features</b> of hidden challenges from a heterogeneous literature: user studies, red-team evals, agent benchmarks, memory/retrieval security, and model-collapse work.</li>
+        <li><b>Organize</b> the space into five integrity layers, each with named patterns and a diagnosis of why the risk stays hidden.</li>
+        <li><b>Synthesize a control table</b> (Table 1) cross-referencing each challenge with feasible controls and measurable indicators.</li>
+      </ol>
+      <div class="note">Generative AI disclosure: ChatGPT &amp; Gemini used for language polishing &amp; schematic figures only.</div>
+    </section>
+
+    <!-- Results / instrumentation table -->
+    <section class="card col-7 reveal d6">
+      <p class="sec-label">Results &amp; Highlights</p>
+      <h3 class="sec-h">No quantitative results — the deliverable is the Table&nbsp;1 instrumentation checklist</h3>
+      <p class="lead" style="margin:2px 0 6px;">
+        Every figure (the "hidden iceberg," calibration-debt gap, ecosystem erosion) is explicitly
+        schematic — hypothesized mechanisms, <b>not</b> measurements. The actionable artifact is a set of
+        proposed indicators for safety cases and audits:
+      </p>
+      <div class="tbl-wrap">
+      <table class="inst">
+        <thead>
+          <tr>
+            <th style="width:18%">Layer</th>
+            <th style="width:34%">Hidden challenge</th>
+            <th>Proposed instrumentation indicator</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="layer-cell"><span class="dot"></span>Epistemic</td>
+            <td class="chal">Overreliance / calibration debt</td>
+            <td class="ind">Weighted positive gap between observed &amp; warranted reliance; rate of accepted incorrect recommendations in matched workflows</td>
+          </tr>
+          <tr>
+            <td class="layer-cell"><span class="dot"></span>Control</td>
+            <td class="chal">Prompt injection / instruction-hierarchy breaks</td>
+            <td class="ind">Instruction-hierarchy violations &amp; unauthorized tool-use attempts <b>per 1,000 tool calls</b></td>
+          </tr>
+          <tr>
+            <td class="layer-cell"><span class="dot"></span>Control</td>
+            <td class="chal">Action amplification</td>
+            <td class="ind">Mean downstream state changes per erroneous tool invocation</td>
+          </tr>
+          <tr>
+            <td class="layer-cell"><span class="dot"></span>Temporal</td>
+            <td class="chal">Multi-turn / stateful drift</td>
+            <td class="ind">Survival rate of safety boundaries across <b>50+ turn</b> adversarial trajectories</td>
+          </tr>
+          <tr>
+            <td class="layer-cell"><span class="dot"></span>Temporal</td>
+            <td class="chal">Memory poisoning / leakage</td>
+            <td class="ind">Cross-session propagation rate of injected memory content</td>
+          </tr>
+          <tr>
+            <td class="layer-cell"><span class="dot"></span>Organizational</td>
+            <td class="chal">Fictional human oversight</td>
+            <td class="ind">Mean review time per case; detection rate of seeded review errors</td>
+          </tr>
+          <tr>
+            <td class="layer-cell"><span class="dot"></span>Organizational</td>
+            <td class="chal">Evaluation deception</td>
+            <td class="ind">Divergence between static-benchmark performance &amp; live-deployment incident rates</td>
+          </tr>
+          <tr>
+            <td class="layer-cell"><span class="dot"></span>Ecosystem</td>
+            <td class="chal">Synthetic evidence pollution / retrieval collapse</td>
+            <td class="ind">Fraction of retrieved sources that are synthetic, duplicated, or provenance-uncertain</td>
+          </tr>
+          <tr>
+            <td class="layer-cell"><span class="dot"></span>Cross-cutting</td>
+            <td class="chal">Containment &amp; recovery</td>
+            <td class="ind">Mean time to detection &amp; recovery</td>
+          </tr>
+        </tbody>
+      </table>
+      </div>
+      <div class="table-foot">None of these indicators are validated in the paper — proposed as starting points, "illustrative rather than universally validated."</div>
+    </section>
+
+    <!-- Strengths -->
+    <section class="card col-6 str reveal d7">
+      <div class="panel-h"><span class="dot"></span><p class="sec-label" style="color:var(--ok)">Strengths</p></div>
+      <h3 class="sec-h" style="margin-top:2px;">Genuinely integrative &amp; epistemically honest</h3>
+      <ul class="bullets">
+        <li><b>Bridges four fields</b> — ML safety, human factors, systems-safety engineering, governance — in one coherent vocabulary.</li>
+        <li>The <b>control table is the concrete deliverable</b>: each hidden challenge paired with a measurable indicator you can drop into a safety case today.</li>
+        <li><b>Epistemic honesty throughout</b>: explicit scope conditions, schematic vs. empirical content labeled, candid GenAI disclosure, real Limitations section.</li>
+        <li>The reframing — <b>visible / contestable / containable / recoverable</b> errors — is operationally crisper than binary "safe/unsafe."</li>
+        <li><b>Timely</b>: foregrounds temporal integrity &amp; memory governance exactly as stateful, memory-equipped agents ship.</li>
+      </ul>
+    </section>
+
+    <!-- Limitations -->
+    <section class="card col-6 lim reveal d7">
+      <div class="panel-h"><span class="dot"></span><p class="sec-label" style="color:var(--warn)">Limitations</p></div>
+      <h3 class="sec-h" style="margin-top:2px;">Proposals, not tested interventions</h3>
+      <ul class="bullets">
+        <li><b>No empirical validation</b> — framework, table &amp; indicators are untested; success depends on adoption &amp; downstream work that doesn't yet exist.</li>
+        <li><b>Evidence base is heterogeneous</b>; several keystone claims rest on red-team / simulated settings with unknown deployment prevalence.</li>
+        <li>Risks becoming a <b>checklist / labeling exercise</b> — no demo of it changing a real safety decision.</li>
+        <li><b>Ecosystem layer is the weakest</b> — retrieval collapse &amp; synthetic contamination are hedged as "emerging indicators," yet sit alongside better-established risks.</li>
+        <li><b>Silent on cost &amp; trade-offs</b>: review burden, usability loss, and impact on smaller deployers acknowledged only briefly.</li>
+        <li><b>LLM- &amp; Global-North-centric</b>; thin on multimodal, robotics, non-Western regulation.</li>
+      </ul>
+    </section>
+
+    <!-- Credibility -->
+    <section class="card col-12 reveal d8" style="padding:18px 22px;">
+      <p class="sec-label">Authors &amp; Credibility</p>
+      <div class="cred">
+        <div class="c">
+          <div class="ck">Authors</div>
+          <div class="cv"><b>Gjergji &amp; Enkelejda Kasneci</b> — TUM. Gjergji co-authored the early ChatGPT "miracle or hype" analysis, giving the piece visibility in AI-discourse circles.</div>
+        </div>
+        <div class="c">
+          <div class="ck">Grounding</div>
+          <div class="cv">Draws on established systems-safety literature (Leveson, Reason, Weick &amp; Sutcliffe) and NIST AI RMF / EU AI Act — not solely recent ML preprints.</div>
+        </div>
+        <div class="c">
+          <div class="ck">Citation density</div>
+          <div class="cv">High, but a few keystone claims route through single / contested sources (e.g. alignment-faking → Greenblatt 2024); weight accordingly.</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Questions -->
+    <section class="card col-12 reveal d9">
+      <p class="sec-label">Questions for Further Exploration</p>
+      <h3 class="sec-h">Where the framework could be sharpened — or falsified</h3>
+      <ol class="q">
+        <li>Which Table&nbsp;1 indicators (e.g., <b>50+ turn trajectory survival</b>, <b>cross-session memory-propagation rate</b>) can be operationalized into reproducible benchmarks — and what are stable reference ranges for current frontier systems?</li>
+        <li>Can the five-layer framework be made <b>diagnostic, not just descriptive</b> — a case study where applying it changes a deploy-vs-not decision a competent team would otherwise get wrong?</li>
+        <li>How should "graduated agency" and "minimal, reviewable, revocable persistence" trade off against <b>throughput, cost, and usability</b> — especially for smaller deployers?</li>
+        <li>Is <b>retrieval collapse</b> (distinct from model collapse) a measurable, deployment-relevant phenomenon, and how fast is it progressing on the open web in 2026?</li>
+        <li>How do the temporal-integrity &amp; memory-governance recommendations <b>transfer to non-LLM modalities</b> (multimodal, robotics) and non-Western regulatory contexts?</li>
+        <li>Can <b>calibration debt</b> be measured longitudinally — and do interventions (cognitive forcing, decision-justification fields) actually close the observed-vs-warranted reliance gap?</li>
+      </ol>
+    </section>
+
+  </div>
+
+  <footer>
+    <span>Dashboard generated from source markdown · topic accent: AI Safety</span>
+    <span>
+      <a href="https://arxiv.org/abs/2607.19292" target="_blank" rel="noopener">↗ arXiv abstract</a>
+      &nbsp;·&nbsp;
+      <a class="src" href="./2607.19292.md">↗ Markdown source</a>
+    </span>
+  </footer>
+
+</div>
+
+</body>
+</html>
