@@ -1,0 +1,674 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>C-PTQ · Fisher-weighted Channel-wise PTQ for MLLMs</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700;9..144,900&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --paper:#f4efe6;
+    --paper-2:#ece5d6;
+    --ink:#1b1814;
+    --ink-soft:#4a443b;
+    --ink-faint:#7a7264;
+    --rule:#cfc4ad;
+    --accent:#b8391f;       /* single confident vermillion */
+    --accent-deep:#7d2412;
+    --good:#2f5d3a;
+    --dark:#16130f;          /* contrasting card */
+    --dark-ink:#ece5d6;
+    --maxw:min(95vw,1100px);
+  }
+
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    background:var(--paper);
+    color:var(--ink);
+    font-family:'IBM Plex Sans',system-ui,-apple-system,sans-serif;
+    font-size:16px;
+    line-height:1.55;
+    -webkit-font-smoothing:antialiased;
+    text-rendering:optimizeLegibility;
+  }
+
+  /* ---------- Topbar ---------- */
+  .topbar{
+    position:sticky; top:0; z-index:20;
+    background:rgba(244,239,230,0.92);
+    backdrop-filter:saturate(140%) blur(6px);
+    border-bottom:1px solid var(--rule);
+  }
+  .topbar-inner{
+    max-width:var(--maxw); margin:0 auto;
+    display:flex; align-items:center; justify-content:space-between;
+    padding:10px 28px; gap:16px;
+  }
+  .crumb{
+    font-family:'IBM Plex Mono',monospace;
+    font-size:12.5px; letter-spacing:0.02em;
+    color:var(--ink-soft); text-decoration:none;
+    display:inline-flex; align-items:center; gap:6px;
+    padding:5px 10px; border:1px solid var(--rule);
+    border-radius:3px; background:var(--paper);
+    transition:color .15s, border-color .15s;
+  }
+  .crumb:hover{color:var(--accent); border-color:var(--accent)}
+  .topbar-meta{
+    font-family:'IBM Plex Mono',monospace;
+    font-size:11.5px; color:var(--ink-faint);
+    letter-spacing:0.04em; text-transform:uppercase;
+    display:flex; gap:14px; align-items:center;
+  }
+  .topbar-meta .dot{width:6px;height:6px;background:var(--accent);border-radius:50%;display:inline-block}
+
+  /* ---------- Layout ---------- */
+  .wrap{max-width:var(--maxw); margin:0 auto; padding:0 28px}
+
+  /* ---------- Hero ---------- */
+  .hero{padding:54px 0 38px; border-bottom:1px solid var(--rule)}
+  .chips{display:flex; flex-wrap:wrap; gap:6px; margin-bottom:26px}
+  .chip{
+    font-family:'IBM Plex Mono',monospace;
+    font-size:10.5px; letter-spacing:0.06em; text-transform:uppercase;
+    color:var(--ink-soft);
+    padding:4px 9px; border:1px solid var(--rule); border-radius:2px;
+    background:var(--paper-2);
+  }
+  .title-block{margin-bottom:30px}
+  h1.title{
+    font-family:'Fraunces',Georgia,serif;
+    font-weight:600; font-variation-settings:"opsz" 110;
+    font-size:clamp(28px,4.4vw,46px);
+    line-height:1.05; letter-spacing:-0.015em;
+    margin:0 0 14px;
+  }
+  h1.title a{color:var(--ink); text-decoration:none; border-bottom:none}
+  h1.title a:hover{color:var(--accent)}
+  h1.title .arrow{color:var(--accent); font-weight:500; margin-left:6px; display:inline-block; transition:transform .2s}
+  h1.title a:hover .arrow{transform:translate(3px,-3px)}
+  .byline{
+    font-size:14px; color:var(--ink-soft);
+    display:flex; flex-wrap:wrap; gap:4px 18px; align-items:baseline;
+  }
+  .byline .label{
+    font-family:'IBM Plex Mono',monospace;
+    font-size:10.5px; letter-spacing:0.08em; text-transform:uppercase;
+    color:var(--ink-faint); margin-right:6px;
+  }
+
+  .keyfinding{
+    border-top:2px solid var(--ink);
+    border-bottom:1px solid var(--rule);
+    padding:26px 0 28px;
+    position:relative;
+  }
+  .keyfinding .kicker{
+    font-family:'IBM Plex Mono',monospace;
+    font-size:11px; letter-spacing:0.14em; text-transform:uppercase;
+    color:var(--accent); font-weight:600;
+    display:block; margin-bottom:12px;
+  }
+  .keyfinding .kf-text{
+    font-family:'Fraunces',Georgia,serif;
+    font-weight:400; font-variation-settings:"opsz" 144;
+    font-size:clamp(21px,2.7vw,30px);
+    line-height:1.22; letter-spacing:-0.005em;
+    color:var(--ink); max-width:62ch;
+  }
+  .keyfinding .kf-text b{font-weight:600; color:var(--ink); background:linear-gradient(transparent 62%, rgba(184,57,31,0.18) 62%)}
+  .keyfinding .kf-text .acc{color:var(--accent)}
+
+  /* ---------- Asset row ---------- */
+  .assets{
+    display:grid;
+    grid-template-columns:1.15fr 0.9fr 0.95fr;
+    gap:0;
+    border-bottom:1px solid var(--rule);
+  }
+  .asset{
+    padding:26px 24px 28px;
+    border-right:1px solid var(--rule);
+    position:relative;
+  }
+  .asset:last-child{border-right:none}
+  .asset .a-label{
+    font-family:'IBM Plex Mono',monospace;
+    font-size:10.5px; letter-spacing:0.12em; text-transform:uppercase;
+    color:var(--ink-faint); font-weight:600;
+    margin-bottom:14px; display:flex; align-items:center; gap:7px;
+  }
+  .asset .a-label .idx{
+    width:18px;height:18px; border:1px solid var(--rule); border-radius:50%;
+    display:inline-flex;align-items:center;justify-content:center;
+    font-size:9.5px; color:var(--ink-soft);
+  }
+
+  /* metric */
+  .metric-wrap{display:flex; align-items:baseline; gap:10px; flex-wrap:wrap}
+  .metric-num{
+    font-family:'Fraunces',serif;
+    font-weight:700; font-variation-settings:"opsz" 144;
+    font-size:clamp(64px,9vw,104px);
+    line-height:0.9; letter-spacing:-0.04em;
+    color:var(--ink);
+  }
+  .metric-delta{
+    font-family:'IBM Plex Mono',monospace;
+    font-weight:600; font-size:13px;
+    color:var(--good); background:rgba(47,93,58,0.1);
+    padding:3px 8px; border-radius:2px;
+    letter-spacing:0.02em;
+  }
+  .metric-ctx{
+    font-size:13px; color:var(--ink-soft);
+    margin-top:8px; line-height:1.4;
+  }
+  .metric-ctx strong{color:var(--ink)}
+  .compare{
+    margin-top:16px; display:flex; flex-direction:column; gap:6px;
+  }
+  .compare-row{display:grid; grid-template-columns:74px 1fr 46px; align-items:center; gap:8px; font-size:11.5px}
+  .compare-row .name{font-family:'IBM Plex Mono',monospace; color:var(--ink-soft); letter-spacing:0.02em}
+  .compare-row .bar{height:8px; background:var(--paper-2); border:1px solid var(--rule); position:relative}
+  .compare-row .bar i{display:block; height:100%; background:var(--ink-faint)}
+  .compare-row.us .bar i{background:var(--accent)}
+  .compare-row.us .name{color:var(--ink); font-weight:600}
+  .compare-row .val{font-family:'IBM Plex Mono',monospace; text-align:right; color:var(--ink)}
+  .compare-row.us .val{color:var(--accent); font-weight:700}
+  .compare-note{
+    margin-top:10px; font-family:'IBM Plex Mono',monospace;
+    font-size:10px; color:var(--ink-faint); letter-spacing:0.04em;
+  }
+
+  /* why-this-matters */
+  .why-text{
+    font-family:'Fraunces',serif; font-variation-settings:"opsz" 60;
+    font-size:18px; line-height:1.4; color:var(--ink);
+  }
+
+  /* critical edge (contrasting) */
+  .asset.edge{
+    background:var(--dark); color:var(--dark-ink);
+    border-right:none;
+  }
+  .asset.edge .a-label{color:rgba(236,229,214,0.55)}
+  .asset.edge .a-label .idx{border-color:rgba(236,229,214,0.25); color:rgba(236,229,214,0.7)}
+  .edge-title{
+    font-family:'Fraunces',serif; font-weight:600; font-variation-settings:"opsz" 90;
+    font-size:20px; line-height:1.2; margin:0 0 12px; color:#f4efe6;
+  }
+  .edge-list{margin:0; padding:0; list-style:none; display:flex; flex-direction:column; gap:9px}
+  .edge-list li{
+    font-size:13px; line-height:1.42; color:rgba(236,229,214,0.82);
+    padding-left:14px; position:relative;
+  }
+  .edge-list li::before{
+    content:""; position:absolute; left:0; top:8px;
+    width:6px; height:1px; background:var(--accent);
+  }
+  .edge-list li b{color:#f4efe6; font-weight:600}
+
+  /* ---------- Body grid ---------- */
+  .body{padding:40px 0 10px}
+  .section-head{
+    display:flex; align-items:baseline; gap:14px;
+    margin:0 0 18px;
+    border-bottom:1px solid var(--rule); padding-bottom:10px;
+  }
+  .section-head .num{
+    font-family:'IBM Plex Mono',monospace;
+    font-size:11px; letter-spacing:0.1em; color:var(--accent); font-weight:600;
+  }
+  .section-head h2{
+    font-family:'Fraunces',serif; font-weight:600; font-variation-settings:"opsz" 100;
+    font-size:clamp(22px,2.6vw,28px); margin:0; letter-spacing:-0.01em;
+  }
+
+  /* methodology */
+  .method{
+    display:grid; grid-template-columns:0.92fr 1.08fr; gap:32px;
+    margin-bottom:48px;
+  }
+  .method-prose p{font-size:14.5px; line-height:1.6; color:var(--ink-soft); margin:0 0 12px}
+  .method-prose p strong{color:var(--ink)}
+  .method-prose .lead{font-family:'Fraunces',serif; font-size:17px; color:var(--ink); line-height:1.4}
+  .eqn{
+    font-family:'IBM Plex Mono',monospace;
+    background:var(--paper-2); border:1px solid var(--rule);
+    padding:10px 14px; margin:12px 0; font-size:13px;
+    border-radius:2px; color:var(--ink); overflow-x:auto;
+    white-space:nowrap;
+  }
+  .eqn .tag{color:var(--accent); font-weight:600; margin-right:8px}
+
+  .pipeline{display:flex; flex-direction:column; gap:10px}
+  .step{
+    display:grid; grid-template-columns:34px 1fr; gap:12px;
+    padding:12px 14px; background:var(--paper); border:1px solid var(--rule);
+    border-radius:3px;
+  }
+  .step .sn{
+    font-family:'Fraunces',serif; font-weight:600; font-size:22px;
+    color:var(--accent); line-height:1;
+  }
+  .step .st-title{font-weight:600; font-size:14px; margin-bottom:3px; color:var(--ink)}
+  .step .st-body{font-size:12.5px; color:var(--ink-soft); line-height:1.45}
+
+  /* results */
+  .results{margin-bottom:48px}
+  .result-grid{
+    display:grid;
+    grid-template-columns:repeat(4,1fr);
+    gap:1px; background:var(--rule); border:1px solid var(--rule);
+  }
+  .rcell{background:var(--paper); padding:14px 14px 16px}
+  .rcell .rh{
+    font-family:'IBM Plex Mono',monospace;
+    font-size:10px; letter-spacing:0.08em; text-transform:uppercase;
+    color:var(--ink-faint); margin-bottom:6px;
+  }
+  .rcell .rmodel{font-size:12.5px; font-weight:600; color:var(--ink); margin-bottom:2px}
+  .rcell .rset{font-family:'IBM Plex Mono',monospace; font-size:11px; color:var(--accent); margin-bottom:10px}
+  .rcell .rval{
+    font-family:'Fraunces',serif; font-weight:600; font-size:34px; line-height:1; letter-spacing:-0.02em;
+    color:var(--ink);
+  }
+  .rcell .rdelta{font-family:'IBM Plex Mono',monospace; font-size:11px; color:var(--ink-soft); margin-top:4px}
+  .rcell .rdelta .gap{color:var(--good); font-weight:600}
+  .rcell.flag{background:var(--paper-2)}
+  .results-note{
+    font-family:'IBM Plex Mono',monospace; font-size:11px;
+    color:var(--ink-faint); margin-top:12px; letter-spacing:0.02em;
+  }
+
+  /* strengths / limitations */
+  .twocol{
+    display:grid; grid-template-columns:1fr 1fr; gap:24px;
+    margin-bottom:48px;
+  }
+  .panel{
+    border:1px solid var(--rule); border-radius:3px; padding:0; overflow:hidden;
+  }
+  .panel-head{
+    padding:12px 18px; border-bottom:1px solid var(--rule);
+    font-family:'IBM Plex Mono',monospace;
+    font-size:11px; letter-spacing:0.1em; text-transform:uppercase;
+    font-weight:600; display:flex; align-items:center; justify-content:space-between;
+  }
+  .panel.strengths .panel-head{background:var(--paper-2); color:var(--ink)}
+  .panel.strengths .panel-head .mark{color:var(--good)}
+  .panel.limits .panel-head{background:var(--dark); color:var(--dark-ink); border-bottom:none}
+  .panel.limits .panel-head .mark{color:var(--accent)}
+  .panel ul{margin:0; padding:16px 18px 18px; list-style:none}
+  .panel li{
+    font-size:13.5px; line-height:1.5; color:var(--ink-soft);
+    padding:9px 0 9px 20px; border-bottom:1px solid var(--rule); position:relative;
+  }
+  .panel li:last-child{border-bottom:none; padding-bottom:6px}
+  .panel li:first-child{padding-top:6px}
+  .panel.strengths li::before{
+    content:"+"; position:absolute; left:0; top:9px;
+    color:var(--good); font-weight:700; font-family:'IBM Plex Mono',monospace;
+  }
+  .panel.limits li::before{
+    content:"!"; position:absolute; left:0; top:9px;
+    color:var(--accent); font-weight:700; font-family:'IBM Plex Mono',monospace;
+  }
+  .panel li b{color:var(--ink); font-weight:600}
+
+  /* questions */
+  .questions{margin-bottom:48px}
+  .qlist{display:grid; grid-template-columns:1fr 1fr; gap:14px}
+  .qcard{
+    border:1px solid var(--rule); border-left:3px solid var(--accent);
+    padding:14px 16px; background:var(--paper);
+    border-radius:0 3px 3px 0;
+  }
+  .qcard .qn{
+    font-family:'IBM Plex Mono',monospace;
+    font-size:10.5px; letter-spacing:0.1em; color:var(--accent);
+    font-weight:600; margin-bottom:6px;
+  }
+  .qcard .qt{font-size:13.5px; line-height:1.5; color:var(--ink)}
+
+  /* ---------- Footer ---------- */
+  footer{
+    border-top:2px solid var(--ink); margin-top:30px;
+  }
+  .foot-inner{
+    max-width:var(--maxw); margin:0 auto;
+    padding:24px 28px 50px;
+    display:flex; flex-wrap:wrap; gap:14px 30px;
+    justify-content:space-between; align-items:center;
+  }
+  .src-link{
+    font-family:'IBM Plex Mono',monospace;
+    font-size:12.5px; color:var(--ink); text-decoration:none;
+    padding:8px 14px; border:1px solid var(--ink); border-radius:2px;
+    background:var(--paper); transition:background .15s, color .15s;
+    display:inline-flex; align-items:center; gap:8px;
+  }
+  .src-link:hover{background:var(--ink); color:var(--paper)}
+  .repo-link{
+    font-family:'IBM Plex Mono',monospace;
+    font-size:12px; color:var(--accent); text-decoration:none;
+  }
+  .repo-link:hover{text-decoration:underline}
+  .foot-meta{
+    font-family:'IBM Plex Mono',monospace;
+    font-size:11px; color:var(--ink-faint); letter-spacing:0.03em;
+  }
+
+  /* ---------- Reveal animation ---------- */
+  .reveal{opacity:0; transform:translateY(8px); animation:rise .6s cubic-bezier(.2,.7,.2,1) forwards}
+  @keyframes rise{to{opacity:1; transform:translateY(0)}}
+  .d1{animation-delay:.05s}.d2{animation-delay:.12s}.d3{animation-delay:.19s}
+  .d4{animation-delay:.26s}.d5{animation-delay:.33s}.d6{animation-delay:.40s}
+  .d7{animation-delay:.47s}.d8{animation-delay:.54s}
+
+  /* ---------- Responsive ---------- */
+  @media (max-width:880px){
+    .assets{grid-template-columns:1fr}
+    .asset{border-right:none; border-bottom:1px solid var(--rule)}
+    .asset:last-child{border-bottom:none}
+    .method{grid-template-columns:1fr; gap:24px}
+    .result-grid{grid-template-columns:1fr 1fr}
+    .twocol{grid-template-columns:1fr}
+    .qlist{grid-template-columns:1fr}
+  }
+  @media (max-width:720px){
+    .wrap{padding:0 20px}
+    .topbar-inner{padding:10px 20px}
+    .hero{padding:36px 0 28px}
+    .result-grid{grid-template-columns:1fr}
+    .foot-inner{padding:20px 20px 40px}
+    .topbar-meta .full{display:none}
+  }
+
+  @media (prefers-reduced-motion:reduce){
+    .reveal{animation:none; opacity:1; transform:none}
+  }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="topbar-inner">
+    <a class="crumb" href="./index.html">↩ Today's digest</a>
+    <div class="topbar-meta">
+      <span class="full">arXiv 2607.21076</span>
+      <span class="dot"></span>
+      <span>2026 · 07 · 23</span>
+    </div>
+  </div>
+</div>
+
+<div class="wrap">
+
+  <!-- ============ HERO ============ -->
+  <section class="hero">
+    <div class="chips reveal d1">
+      <span class="chip">Post-training quantization</span>
+      <span class="chip">Multimodal LLMs</span>
+      <span class="chip">Fisher information</span>
+      <span class="chip">Channel-wise scaling</span>
+      <span class="chip">Model compression</span>
+    </div>
+
+    <div class="title-block reveal d2">
+      <h1 class="title">
+        <a href="https://arxiv.org/abs/2607.21076" target="_blank" rel="noopener">
+          C-PTQ: Fisher-weighted Channel-wise Sensitivity for Post-training Quantization of MLLMs<span class="arrow">↗</span>
+        </a>
+      </h1>
+      <div class="byline">
+        <span><span class="label">Authors</span>Jiameng Li · Han Zhou · Matthew B. Blaschko</span>
+        <span><span class="label">Affil.</span>KU Leuven · Tiangong University</span>
+      </div>
+    </div>
+
+    <div class="keyfinding reveal d3">
+      <span class="kicker">Key finding</span>
+      <p class="kf-text">
+        Existing MLLM quantizers <b>measure sensitivity on one axis</b> (modality / token) but
+        <b>search scaling on another</b> (channel). C-PTQ closes that gap with a
+        <span class="acc">diagonal-Fisher-weighted channel-wise MSE</span> —
+        derived from the second-order Taylor expansion of the task loss — hitting SOTA without LoRA.
+      </p>
+    </div>
+  </section>
+
+  <!-- ============ ASSET ROW ============ -->
+  <section class="assets">
+
+    <!-- KEY METRIC -->
+    <div class="asset reveal d4">
+      <div class="a-label"><span class="idx">1</span> Key metric</div>
+      <div class="metric-wrap">
+        <div class="metric-num">72.4</div>
+        <div class="metric-delta">+9.3 vs MBQ</div>
+      </div>
+      <div class="metric-ctx">
+        <strong>Qwen2.5VL-7B · W4A6</strong> avg accuracy across 8 benchmarks
+        (FP16 baseline 81.6).
+      </div>
+      <div class="compare">
+        <div class="compare-row us">
+          <span class="name">C-PTQ</span>
+          <span class="bar"><i style="width:100%"></i></span>
+          <span class="val">72.4</span>
+        </div>
+        <div class="compare-row">
+          <span class="name">MASQuant</span>
+          <span class="bar"><i style="width:84.7%"></i></span>
+          <span class="val">69.0</span>
+        </div>
+        <div class="compare-row">
+          <span class="name">QIG</span>
+          <span class="bar"><i style="width:79.6%"></i></span>
+          <span class="val">67.7</span>
+        </div>
+        <div class="compare-row">
+          <span class="name">MBQ</span>
+          <span class="bar"><i style="width:66.1%"></i></span>
+          <span class="val">63.1</span>
+        </div>
+      </div>
+      <div class="compare-note">higher is better · bars normalized to C-PTQ</div>
+    </div>
+
+    <!-- WHY THIS MATTERS -->
+    <div class="asset reveal d5">
+      <div class="a-label"><span class="idx">2</span> Why this matters</div>
+      <p class="why-text">
+        A theoretically-grounded, <b>LoRA-free</b> PTQ baseline whose
+        &ldquo;channel-importance = channel-scale&rdquo; principle and
+        diagonal-Fisher proxy hold at <b>low-bit W4A6</b> and across
+        <b>2B–72B</b> scales — directly useful for efficient MLLM deployment.
+      </p>
+    </div>
+
+    <!-- CRITICAL EDGE (contrasting) -->
+    <div class="asset edge reveal d6">
+      <div class="a-label"><span class="idx">3</span> Critical edge</div>
+      <h3 class="edge-title">SOTA rests on the hard regime, not the easy one.</h3>
+      <ul class="edge-list">
+        <li><b>0.1 pt</b> over MBQ on Qwen2.5VL-7B W3A16 — <b>within evaluation noise</b>, yet bolded as SOTA.</li>
+        <li>Vision encoder + projection left in <b>FP16</b>; only the LLM decoder is quantized.</li>
+        <li><b>No W4A4</b> results — explicitly flagged as future work needing compensation.</li>
+        <li>No end-to-end <b>inference latency / memory</b> vs LoRA methods; only quantization-time cost reported.</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- ============ BODY ============ -->
+  <div class="body">
+
+    <!-- Methodology -->
+    <section class="method-block">
+      <div class="section-head reveal">
+        <span class="num">01 / METHODOLOGY</span>
+        <h2>From task-loss perturbation to a Fisher-weighted residual</h2>
+      </div>
+      <div class="method">
+        <div class="method-prose reveal">
+          <p class="lead">Prior CWS methods (MBQ, QIG, MASQuant) measure sensitivity along modality/token axes while the scaling search itself lives on the channel axis — a structural mismatch.</p>
+          <p>Starting from the second-order Taylor expansion of the SFT loss and dropping the first-order term under the <strong>OBD local-optimum assumption</strong>, the Hessian is approximated by the empirical <strong>Fisher Information Matrix</strong> F = E[gᵢgᵢ⊤] — which encodes global task sensitivity, unlike GPTQ's activation-derived XX⊤.</p>
+          <div class="eqn"><span class="tag">ΔL ≈</span> ½ · ΔY⊤ · H · ΔY &nbsp;&nbsp;→&nbsp;&nbsp; ½ Σᵢ ‖ √f ⊙ Δyᵢ ‖₂²</div>
+          <p>A <strong>diagonal simplification</strong> turns dense O(N²) Fisher into per-channel scalar weights fⱼ. Mean-normalization fixes the magnitude gap between gradient² and MSE — collapsing the objective to an element-wise weighted residual.</p>
+          <div class="eqn"><span class="tag">min_s</span> ‖ √f · ( WX − Q(W·s)·Q(s⁻¹·X) ) ‖₂²</div>
+          <p><strong>Calibration.</strong> 128 COCO-caption image–text pairs (ShareGPT4V subset), fixed seed 42, shared across all baselines.</p>
+        </div>
+
+        <div class="pipeline reveal">
+          <div class="step">
+            <div class="sn">1</div>
+            <div>
+              <div class="st-title">Compute diagonal Fisher weights</div>
+              <div class="st-body">Backprop the SFT loss to each linear-layer output on the calibration set; take per-channel fⱼ = E[gᵢⱼ²], then mean-normalize.</div>
+            </div>
+          </div>
+          <div class="step">
+            <div class="sn">2</div>
+            <div>
+              <div class="st-title">Initialize channel-wise scales</div>
+              <div class="st-body">From activation magnitudes, s = x₀^α, …, x_Nc^α — the AWQ-style parameterization, now Fisher-aware.</div>
+            </div>
+          </div>
+          <div class="step">
+            <div class="sn">3</div>
+            <div>
+              <div class="st-title">40-step grid search over α</div>
+              <div class="st-body">Minimize the Fisher-weighted MSE. Pure CWS — no LoRA, no low-rank matrices, no mixed bit-widths at inference.</div>
+            </div>
+          </div>
+          <div class="step">
+            <div class="sn">✓</div>
+            <div>
+              <div class="st-title">Deployable on stock INT kernels</div>
+              <div class="st-body">Diagonal Fisher matches dense Fisher (<b>74.3 vs 73.5</b>) at ~5× the speed (~11 min vs ~50 min).</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Results -->
+    <section class="results">
+      <div class="section-head reveal">
+        <span class="num">02 / RESULTS</span>
+        <h2>SOTA across three model families and three bit-settings</h2>
+      </div>
+      <div class="result-grid reveal">
+        <div class="rcell flag">
+          <div class="rh">Flagship · W4A6</div>
+          <div class="rmodel">Qwen2.5VL-7B</div>
+          <div class="rset">weight + activation</div>
+          <div class="rval">72.4</div>
+          <div class="rdelta"><span class="gap">+3.4</span> over MASQuant · <span class="gap">+9.3</span> over MBQ</div>
+        </div>
+        <div class="rcell">
+          <div class="rh">Large · W3A16</div>
+          <div class="rmodel">Qwen2.5VL-32B</div>
+          <div class="rset">weight-only</div>
+          <div class="rval">77.0</div>
+          <div class="rdelta">−0.9% vs FP16 · beats AWQ 76.4</div>
+        </div>
+        <div class="rcell">
+          <div class="rh">Cross-family · W4A6</div>
+          <div class="rmodel">InternVL2-8B</div>
+          <div class="rset">weight + activation</div>
+          <div class="rval">71.6</div>
+          <div class="rdelta">only method &gt; 70 avg under W4A6</div>
+        </div>
+        <div class="rcell">
+          <div class="rh">Efficiency</div>
+          <div class="rmodel">Qwen2.5VL-7B</div>
+          <div class="rset">quantization time</div>
+          <div class="rval">11<span style="font-size:18px">min</span></div>
+          <div class="rdelta">≈ MBQ · QIG takes <b>41 min</b></div>
+        </div>
+      </div>
+      <p class="results-note reveal">— avg over 8 benchmarks (MMMU, MMBench, MMStar, etc.). FP16 baselines: Qwen2.5VL-7B 81.6, 32B 77.7, InternVL2-8B 77.0. Aggressive activation quant (W4A6) is where C-PTQ's lead widens most.</p>
+    </section>
+
+    <!-- Strengths / Limitations -->
+    <section class="twocol reveal">
+      <div class="panel strengths">
+        <div class="panel-head"><span>Strengths</span><span class="mark">＋</span></div>
+        <ul>
+          <li><b>Theoretically grounded.</b> Cleanly derives the Fisher-weighted MSE from the second-order Taylor expansion of the task loss — closing the activation-error vs task-loss gap AWQ/GPTQ leave open.</li>
+          <li><b>Practical efficiency.</b> Diagonal Fisher matches dense Fisher at ~5× the speed; matches MBQ's quant time while beating QIG's 32-step integrated gradients by ~4×.</li>
+          <li><b>Hardware-friendly.</b> Pure CWS with grid search — no low-rank matrices, no mixed bit-widths at inference; runs on stock INT kernels.</li>
+          <li><b>Rigorously stress-tested.</b> Calibration subsets, sizes, modalities all ablated; transfers cleanly to pure LLMs and 2B–72B scales.</li>
+          <li><b>Honest reporting.</b> Explicitly acknowledges AWQ stays competitive in easy settings, W4A4 fails, and the vision encoder remains FP16.</li>
+        </ul>
+      </div>
+      <div class="panel limits">
+        <div class="panel-head"><span>Limitations</span><span class="mark">!</span></div>
+        <ul>
+          <li><b>Weight-only gains within noise.</b> 0.1 pt over MBQ on Qwen2.5VL-7B W3A16 — SOTA claim rests mainly on aggressive W4A6 and the 32B model.</li>
+          <li><b>Partial memory savings.</b> Vision encoder and projection stay FP16; only LLM decoder layers benefit.</li>
+          <li><b>No extreme W4A4.</b> Left as future work requiring LoRA-like compensation — undercutting the &ldquo;no auxiliary modules&rdquo; claim there.</li>
+          <li><b>Baselines are model-dependent.</b> SQ vs MBQ swap ranking across families; single-benchmark SOTA claims should be read cautiously.</li>
+          <li><b>Under-specified calibration loss.</b> Fisher requires backprop on an SFT loss; whether captions come from the model or ground-truth COCO is not crisp.</li>
+          <li><b>No end-to-end latency benchmark</b> vs LoRA-based competitors — only quantization-time cost.</li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- Questions -->
+    <section class="questions">
+      <div class="section-head reveal">
+        <span class="num">03 / OPEN QUESTIONS</span>
+        <h2>Where this leads next</h2>
+      </div>
+      <div class="qlist reveal">
+        <div class="qcard">
+          <div class="qn">Q1 · OUTLIER COMPENSATION</div>
+          <div class="qt">Could diagonal Fisher weights merge with a low-rank head only for the few highest-gradient outlier channels (e.g. the ~3200-th in Qwen2.5VL-7B), recovering W4A4 without full LoRA cost?</div>
+        </div>
+        <div class="qcard">
+          <div class="qn">Q2 · THEORETICAL PUZZLE</div>
+          <div class="qt">Diagonal Fisher beats dense (74.3 vs 73.5) — but dense should be a strict superset of information. Noise artefact? Overfitting on 128 samples? Or are off-diagonal terms actively harmful?</div>
+        </div>
+        <div class="qcard">
+          <div class="qn">Q3 · LOSS FORMULATION</div>
+          <div class="qt">How does C-PTQ behave when Fisher uses a multimodal instruction-tuning loss with interleaved image–text tokens, rather than plain captioning cross-entropy?</div>
+        </div>
+        <div class="qcard">
+          <div class="qn">Q4 · UNIFIED PIPELINE</div>
+          <div class="qt">Can channel-wise Fisher weights double as pruning saliency (à la Supernode) for a unified quantize-then-prune MLLM pipeline? Does the signal survive grouped-quantization granularity?</div>
+        </div>
+        <div class="qcard">
+          <div class="qn">Q5 · VISION SIDE</div>
+          <div class="qt">Applying C-PTQ to the ViT too (with image-reconstruction Fisher) — would it close more of the memory gap, or does vision sensitivity differ structurally from the LLM decoder's?</div>
+        </div>
+        <div class="qcard">
+          <div class="qn">Q6 · GPTQ CONTRADICTION</div>
+          <div class="qt">GPTQ scores <i>worse</i> than even RTN on Qwen2.5VL-7B (71.5 vs 75.4). Does this generalize, or expose a pathology specific to activation-derived Hessians on MLLMs?</div>
+        </div>
+      </div>
+    </section>
+
+  </div>
+</div>
+
+<footer>
+  <div class="foot-inner">
+    <div style="display:flex; gap:14px; align-items:center; flex-wrap:wrap">
+      <a class="src-link" href="./2607.21076.md">↗ Markdown source</a>
+      <a class="repo-link" href="https://github.com/renaissanceee/cptq" target="_blank" rel="noopener">github.com/renaissanceee/cptq ↗</a>
+    </div>
+    <div class="foot-meta">
+      C-PTQ · Li, Zhou, Blaschko · KU Leuven / Tiangong University · 2026-07-23
+    </div>
+  </div>
+</footer>
+
+</body>
+</html>

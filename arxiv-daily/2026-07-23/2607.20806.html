@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Profiling Lightweight LLMs — PTME · arXiv:2607.20806</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap');
+
+  :root{
+    --bg:#f4f0e7;
+    --surface:#fffdf7;
+    --surface-2:#faf6ec;
+    --ink:#1a1714;
+    --ink-2:#4d473f;
+    --ink-3:#8a8275;
+    --rule:#e2dccb;
+    --rule-2:#cfc8b4;
+    --accent:#c2410c;
+    --accent-deep:#7c2a0a;
+    --accent-soft:#f6e4d8;
+    --dark:#171411;
+    --dark-fg:#f4f0e7;
+    --dark-2:#9c9485;
+    --maxw:min(95vw,1100px);
+  }
+
+  *{box-sizing:border-box;}
+  html{scroll-behavior:smooth;-webkit-text-size-adjust:100%;}
+  body{
+    margin:0;
+    background:var(--bg);
+    color:var(--ink);
+    font-family:'IBM Plex Sans',system-ui,sans-serif;
+    font-size:16px;
+    line-height:1.55;
+    -webkit-font-smoothing:antialiased;
+    text-rendering:optimizeLegibility;
+  }
+  ::selection{background:var(--accent);color:#fff;}
+  a{color:var(--accent-deep);text-decoration:none;border-bottom:1px solid var(--rule-2);}
+  a:hover{color:var(--accent);border-color:var(--accent);}
+  .mono{font-family:'IBM Plex Mono',ui-monospace,monospace;font-variant-numeric:tabular-nums;}
+
+  .wrap{width:var(--maxw);margin:0 auto;padding:0 clamp(16px,3vw,28px);}
+
+  /* ---------- top bar ---------- */
+  .topbar{border-bottom:1px solid var(--rule);background:var(--bg);position:sticky;top:0;z-index:30;}
+  .topbar-inner{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:11px 0;}
+  .topbar a{border:none;}
+  .back{display:inline-flex;align-items:center;gap:7px;font-weight:500;font-size:14px;color:var(--ink-2);}
+  .back:hover{color:var(--accent);}
+  .meta-line{font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--ink-3);letter-spacing:.02em;white-space:nowrap;}
+  .meta-line .dot{color:var(--rule-2);margin:0 6px;}
+
+  /* ---------- section nav ---------- */
+  .section-nav{border-bottom:1px solid var(--rule);background:var(--surface-2);position:sticky;top:43px;z-index:20;}
+  .section-nav-inner{display:flex;gap:4px;padding:0;overflow-x:auto;scrollbar-width:none;}
+  .section-nav-inner::-webkit-scrollbar{display:none;}
+  .navlink{display:inline-flex;align-items:baseline;gap:6px;padding:10px 11px;font-size:13px;color:var(--ink-2);border:none;border-bottom:2px solid transparent;white-space:nowrap;}
+  .navlink .n{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--ink-3);}
+  .navlink:hover{color:var(--accent);border-bottom-color:var(--rule-2);}
+  .navlink.active{color:var(--accent);border-bottom-color:var(--accent);}
+  .navlink.active .n{color:var(--accent);}
+
+  /* ---------- reveal ---------- */
+  .reveal{opacity:0;transform:translateY(10px);animation:rv .6s cubic-bezier(.2,.7,.2,1) forwards;}
+  @keyframes rv{to{opacity:1;transform:none;}}
+
+  /* ---------- hero ---------- */
+  .hero{padding:clamp(34px,6vw,58px) 0 clamp(26px,4vw,38px);}
+  .chips{display:flex;flex-wrap:wrap;gap:7px;margin-bottom:22px;}
+  .chip{font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.04em;text-transform:uppercase;color:var(--accent-deep);background:var(--accent-soft);border:1px solid #e9cdb8;padding:4px 9px;border-radius:2px;}
+  .hero h1{font-family:'Fraunces',Georgia,serif;font-weight:600;font-size:clamp(1.7rem,3.4vw,2.5rem);line-height:1.12;letter-spacing:-.015em;margin:0 0 14px;}
+  .hero h1 a{color:var(--ink);border-bottom:1px solid var(--rule-2);}
+  .hero h1 a:hover{color:var(--accent);border-color:var(--accent);}
+  .byline{font-size:14px;color:var(--ink-2);margin-bottom:30px;}
+  .byline .au{color:var(--ink);font-weight:500;}
+  .byline .sep{color:var(--rule-2);margin:0 8px;}
+
+  .finding-label{display:flex;align-items:center;gap:10px;font-family:'IBM Plex Mono',monospace;font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--accent);margin-bottom:14px;}
+  .finding-label::before{content:"";width:26px;height:1px;background:var(--accent);}
+  .finding{font-family:'Fraunces',Georgia,serif;font-weight:500;font-size:clamp(1.5rem,3.3vw,2.35rem);line-height:1.22;letter-spacing:-.012em;color:var(--ink);max-width:24ch;}
+  .finding b{font-weight:600;color:var(--accent-deep);background:linear-gradient(transparent 62%, var(--accent-soft) 62%);padding:0 .05em;}
+
+  /* ---------- asset row ---------- */
+  .assets{display:grid;grid-template-columns:1.15fr 1fr 1fr;gap:1px;background:var(--rule);border:1px solid var(--rule);margin-bottom:1px;}
+  .asset{background:var(--surface);padding:clamp(20px,2.4vw,30px);display:flex;flex-direction:column;}
+  .asset .k{font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3);margin-bottom:16px;display:flex;align-items:center;gap:8px;}
+  .asset .k .glyph{color:var(--accent);font-weight:600;}
+
+  .metric .big{font-family:'IBM Plex Mono',monospace;font-weight:600;font-size:clamp(3.6rem,9vw,6rem);line-height:.9;letter-spacing:-.04em;color:var(--ink);margin:6px 0 4px;}
+  .metric .big .accent-dot{color:var(--accent);}
+  .metric .cap{font-size:14px;color:var(--ink-2);margin-bottom:18px;}
+  .metric .vs{margin-top:auto;border-top:1px dashed var(--rule-2);padding-top:14px;font-size:13px;color:var(--ink-2);}
+  .metric .vs .num{font-family:'IBM Plex Mono',monospace;font-weight:600;color:var(--ink);}
+  .metric .vs .num.good{color:var(--accent);}
+
+  .matter p{font-family:'Fraunces',Georgia,serif;font-weight:400;font-size:clamp(1.05rem,1.7vw,1.3rem);line-height:1.4;color:var(--ink);margin:0;}
+  .matter .sub{margin-top:auto;padding-top:16px;font-size:13px;color:var(--ink-3);}
+
+  .edge{background:var(--dark);color:var(--dark-fg);}
+  .edge .k{color:var(--dark-2);}
+  .edge .k .glyph{color:#e98a5b;}
+  .edge p{font-size:14.5px;line-height:1.5;color:#e8e2d4;margin:0;}
+  .edge p b{color:#fff;font-weight:600;}
+  .edge .tag{margin-top:auto;padding-top:16px;font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#e98a5b;}
+
+  /* ---------- body ---------- */
+  .body{padding:clamp(30px,4vw,46px) 0 50px;}
+  .sect{margin-bottom:clamp(34px,4.5vw,52px);scroll-margin-top:96px;}
+  .sect:last-child{margin-bottom:0;}
+  .shead{display:flex;align-items:baseline;gap:14px;margin-bottom:20px;border-bottom:1px solid var(--rule);padding-bottom:12px;}
+  .shead .sn{font-family:'IBM Plex Mono',monospace;font-size:13px;font-weight:600;color:var(--accent);}
+  .shead h2{font-family:'Fraunces',Georgia,serif;font-weight:600;font-size:clamp(1.3rem,2.4vw,1.7rem);letter-spacing:-.01em;margin:0;color:var(--ink);}
+
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:26px;}
+  .lede{font-family:'Fraunces',Georgia,serif;font-weight:400;font-size:clamp(1.05rem,1.7vw,1.22rem);line-height:1.5;color:var(--ink-2);max-width:60ch;margin:0 0 22px;}
+  .lede b{color:var(--ink);font-weight:600;}
+
+  /* PTME definitions */
+  .defs{display:grid;grid-template-columns:repeat(2,1fr);gap:1px;background:var(--rule);border:1px solid var(--rule);margin-bottom:24px;}
+  .def{background:var(--surface);padding:16px 18px;}
+  .def .sym{font-family:'IBM Plex Mono',monospace;font-weight:600;font-size:20px;color:var(--accent);display:inline-block;width:28px;}
+  .def .nm{font-weight:600;font-size:14px;color:var(--ink);}
+  .def .ds{font-size:13.5px;color:var(--ink-2);margin-top:5px;line-height:1.45;}
+
+  /* table */
+  .tbl-wrap{overflow-x:auto;border:1px solid var(--rule);margin-bottom:24px;}
+  table{border-collapse:collapse;width:100%;font-size:13px;background:var(--surface);min-width:440px;}
+  th,td{padding:9px 12px;text-align:left;border-bottom:1px solid var(--rule);}
+  thead th{background:var(--surface-2);font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.04em;text-transform:uppercase;color:var(--ink-3);font-weight:500;}
+  td.mono,th.mono{font-family:'IBM Plex Mono',monospace;}
+  tbody tr:last-child td{border-bottom:none;}
+  td.cls{font-weight:600;color:var(--ink);}
+
+  /* models */
+  .models{display:flex;flex-wrap:wrap;gap:8px;}
+  .mchip{font-size:13px;border:1px solid var(--rule-2);background:var(--surface);padding:6px 11px;border-radius:2px;color:var(--ink);}
+  .mchip .sz{font-family:'IBM Plex Mono',monospace;color:var(--ink-3);margin-left:6px;font-size:12px;}
+
+  /* results highlights */
+  .hi-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:1px;background:var(--rule);border:1px solid var(--rule);}
+  .hi{background:var(--surface);padding:18px 20px;font-size:14.5px;line-height:1.5;color:var(--ink-2);}
+  .hi .lead{display:block;font-weight:600;color:var(--ink);margin-bottom:6px;font-size:14px;}
+  .hi b{color:var(--accent-deep);font-weight:600;}
+  .hi .mono{color:var(--ink);}
+
+  /* stat callouts */
+  .statrow{display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--rule);border:1px solid var(--rule);border-top:none;margin-bottom:24px;}
+  .stat{background:var(--surface-2);padding:20px;}
+  .stat .lbl{font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3);margin-bottom:8px;}
+  .stat .num{font-family:'IBM Plex Mono',monospace;font-weight:600;font-size:clamp(1.9rem,4vw,2.7rem);line-height:1;color:var(--accent);letter-spacing:-.02em;}
+  .stat .ds{font-size:13px;color:var(--ink-2);margin-top:8px;}
+
+  /* pareto block */
+  .pareto{border:1px solid var(--rule);background:var(--surface);padding:18px 20px;margin-bottom:4px;}
+  .pareto .pt{font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3);margin-bottom:12px;}
+  .pareto .sets{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;}
+  .ps .bn{font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--ink-2);margin-bottom:4px;}
+  .ps .bm{font-weight:600;font-size:14px;color:var(--ink);}
+  .legend{font-size:12px;color:var(--ink-3);margin-top:12px;font-family:'IBM Plex Mono',monospace;}
+
+  /* strengths / limitations */
+  .sl{display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--rule);border:1px solid var(--rule);}
+  .sl-col{padding:clamp(18px,2.2vw,26px);}
+  .sl-col.pos{background:var(--surface);}
+  .sl-col.neg{background:var(--surface-2);}
+  .sl-col h3{font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;margin:0 0 14px;font-weight:600;}
+  .sl-col.pos h3{color:#2f6b3a;}
+  .sl-col.neg h3{color:var(--accent);}
+  .sl-col ul{margin:0;padding-left:0;list-style:none;}
+  .sl-col li{font-size:13.5px;line-height:1.5;color:var(--ink-2);padding:9px 0 9px 20px;border-bottom:1px solid var(--rule);position:relative;}
+  .sl-col li:last-child{border-bottom:none;}
+  .sl-col li::before{position:absolute;left:0;top:9px;font-family:'IBM Plex Mono',monospace;font-size:12px;}
+  .sl-col.pos li::before{content:"+";color:#2f6b3a;font-weight:600;}
+  .sl-col.neg li::before{content:"—";color:var(--accent);}
+  .sl-col li b{color:var(--ink);font-weight:600;}
+
+  /* questions */
+  .qlist{counter-reset:q;display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--rule);border:1px solid var(--rule);}
+  .q{background:var(--surface);padding:18px 20px;font-size:14px;line-height:1.5;color:var(--ink-2);}
+  .q::before{counter-increment:q;content:"Q" counter(q);display:block;font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:600;color:var(--accent);margin-bottom:8px;letter-spacing:.06em;}
+  .q b{color:var(--ink);font-weight:600;}
+
+  /* footer */
+  footer{border-top:1px solid var(--rule);padding:24px 0 60px;}
+  .foot-inner{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;}
+  .foot-inner a{font-size:14px;font-weight:500;border:none;}
+  .src{display:inline-flex;align-items:center;gap:7px;color:var(--accent-deep);}
+  .src:hover{color:var(--accent);}
+  .foot-note{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--ink-3);letter-spacing:.03em;}
+
+  /* ---------- responsive ---------- */
+  @media(max-width:880px){
+    .assets{grid-template-columns:1fr;}
+    .grid2{grid-template-columns:1fr;gap:26px;}
+    .defs{grid-template-columns:1fr 1fr;}
+    .hi-grid{grid-template-columns:1fr;}
+    .statrow{grid-template-columns:1fr;}
+    .pareto .sets{grid-template-columns:1fr;}
+    .sl{grid-template-columns:1fr;}
+    .qlist{grid-template-columns:1fr;}
+  }
+  @media(max-width:720px){
+    body{font-size:15.5px;}
+    .section-nav{top:41px;}
+    .defs{grid-template-columns:1fr;}
+    .hero h1{font-size:1.7rem;}
+    .finding{font-size:1.45rem;}
+    .statrow{border-top:1px solid var(--rule);}
+  }
+  @media(prefers-reduced-motion:reduce){
+    .reveal{animation:none;opacity:1;transform:none;}
+    html{scroll-behavior:auto;}
+  }
+</style>
+</head>
+<body>
+
+<!-- TOP BAR -->
+<div class="topbar">
+  <div class="wrap topbar-inner">
+    <a class="back" href="./index.html">↩ Today's digest</a>
+    <span class="meta-line">arXiv:2607.20806<span class="dot">·</span>2026-07-23<span class="dot">·</span>PTME Framework</span>
+  </div>
+</div>
+
+<!-- SECTION NAV -->
+<nav class="section-nav">
+  <div class="wrap section-nav-inner">
+    <a class="navlink" href="#finding"><span class="n">01</span>Finding</a>
+    <a class="navlink" href="#metric"><span class="n">02</span>Metric</a>
+    <a class="navlink" href="#method"><span class="n">03</span>Method</a>
+    <a class="navlink" href="#results"><span class="n">04</span>Results</a>
+    <a class="navlink" href="#verdict"><span class="n">05</span>Trade-offs</a>
+    <a class="navlink" href="#questions"><span class="n">06</span>Questions</a>
+  </div>
+</nav>
+
+<!-- HERO -->
+<header class="hero" id="finding">
+  <div class="wrap">
+    <div class="chips reveal" style="animation-delay:.02s">
+      <span class="chip">llm-efficiency</span>
+      <span class="chip">energy-profiling</span>
+      <span class="chip">edge-deployment</span>
+      <span class="chip">model-selection</span>
+      <span class="chip">ptme-framework</span>
+    </div>
+    <h1 class="reveal" style="animation-delay:.06s"><a href="https://arxiv.org/abs/2607.20806" target="_blank" rel="noopener">Profiling Lightweight Large Language Models</a></h1>
+    <p class="byline reveal" style="animation-delay:.10s">
+      <span class="au">Tomohiro Harada</span><span class="sep">·</span><span class="au">Enrique Alba</span><span class="sep">·</span><span class="au">Gabriel Luque</span>
+      <span class="sep">|</span> Saitama Univ. &amp; Univ. of Malaga
+      <span class="sep">|</span> <span class="mono">2026-07-23</span>
+    </p>
+    <div class="reveal" style="animation-delay:.16s">
+      <div class="finding-label">Core finding</div>
+      <p class="finding">Static proxies — parameter count, FLOPs, loaded memory — <b>predict inference cost but completely fail to forecast task precision</b> on lightweight LLMs.</p>
+    </div>
+  </div>
+</header>
+
+<!-- ASSET ROW -->
+<section class="wrap" id="metric" style="scroll-margin-top:96px;">
+  <div class="assets reveal" style="animation-delay:.22s">
+    <!-- KEY METRIC -->
+    <div class="asset metric">
+      <div class="k"><span class="glyph">◉</span>Key metric · Pearson R</div>
+      <div class="big">0<span class="accent-dot">.</span>36</div>
+      <div class="cap">correlation of any static proxy with <b>task precision</b> across all five resource envelopes.</div>
+      <div class="vs">vs <span class="num good">0.95–1.0</span> for the same proxies against cost (time / memory / energy) — scale predicts <i>cheapness, not correctness</i>.</div>
+    </div>
+    <!-- WHY THIS MATTERS -->
+    <div class="asset matter">
+      <div class="k"><span class="glyph">◆</span>Why this matters</div>
+      <p>Edge deployment hides a Pareto sweet spot that scale-only selection misses — proxy picks <i>cheap</i> models that silently blow accuracy targets.</p>
+      <div class="sub">Mid-sized models (Qwen2.5, Phi-3), not the cheapest or most accurate, win most real deployments.</div>
+    </div>
+    <!-- CRITICAL EDGE -->
+    <div class="asset edge">
+      <div class="k"><span class="glyph">⚠</span>Critical edge</div>
+      <p>The six models ship in <b>mixed quantization formats</b> (Q4_0 vs Q4_K_M) with <b>no ablation</b> — so every cross-model cost gap, including the headline Qwen2.5-vs-Mistral Pareto "win," is partly a quantization artifact.</p>
+      <div class="tag">Uncontrolled confound</div>
+    </div>
+  </div>
+</section>
+
+<!-- BODY -->
+<main class="body wrap">
+
+  <!-- METHODOLOGY -->
+  <section class="sect" id="method">
+    <div class="shead"><span class="sn">03</span><h2>Methodology — the PTME protocol</h2></div>
+    <p class="lede">PTME measures four orthogonal axes for each <span class="mono">(model, dataset, envelope, decode)</span> tuple and <b>refuses to collapse them into one scalar</b> — accuracy stays first-class, never averaged away into efficiency.</p>
+
+    <div class="defs">
+      <div class="def"><span class="sym">P</span><span class="nm">Precision</span><div class="ds">pass@1 (HumanEval, 164), exact-match numeral (GSM8K, 200/1319), MC accuracy (MMLU-Pro, 280/12032).</div></div>
+      <div class="def"><span class="sym">T</span><span class="nm">Time</span><div class="ds">wall-clock end-to-end inference <span class="mono">t_end − t_start</span>, reported raw and per-token.</div></div>
+      <div class="def"><span class="sym">M</span><span class="nm">Memory</span><div class="ds">peak RSS of backend + children + profiler — static footprint plus dynamic allocation.</div></div>
+      <div class="def"><span class="sym">E</span><span class="nm">Energy</span><div class="ds">Intel RAPL CPU-package cumulative delta <span class="mono">E_pkg(t_end) − E_pkg(t_start)</span>.</div></div>
+    </div>
+
+    <p class="lede" style="margin-bottom:14px;font-size:1rem;">Hardware: <b>Intel i7-12700K</b> (8P+4E), 64 GB DRAM, CPU-only, fixed Docker, <span class="mono">Ollama v0.23.2</span>, default Q4. Five envelopes cap P-cores, threads, frequency and RAM to emulate edge classes:</p>
+
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Env</th><th>Class</th><th class="mono">P-cores</th><th class="mono">Threads</th><th class="mono">Freq cap</th><th class="mono">RAM</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">E1</td><td class="cls">Tiny edge</td><td class="mono">1</td><td class="mono">1</td><td class="mono">1.5 GHz</td><td class="mono">5 GB</td></tr>
+          <tr><td class="mono">E2</td><td class="cls">SBC-like</td><td class="mono">2</td><td class="mono">2</td><td class="mono">1.8 GHz</td><td class="mono">8 GB</td></tr>
+          <tr><td class="mono">E3</td><td class="cls">Mid mobile</td><td class="mono">4</td><td class="mono">4</td><td class="mono">2.0 GHz</td><td class="mono">12 GB</td></tr>
+          <tr><td class="mono">E4</td><td class="cls">High mobile</td><td class="mono">6</td><td class="mono">6</td><td class="mono">2.2 GHz</td><td class="mono">14 GB</td></tr>
+          <tr><td class="mono">E5</td><td class="cls">Laptop-class</td><td class="mono">8</td><td class="mono">8</td><td class="mono">2.5 GHz</td><td class="mono">16 GB</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p class="lede" style="margin-bottom:12px;font-size:1rem;">Models under test (all 1.1B–7B):</p>
+    <div class="models" style="margin-bottom:18px;">
+      <span class="mchip">TinyLlama<span class="sz">1.1B</span></span>
+      <span class="mchip">Qwen2.5<span class="sz">1.5B</span></span>
+      <span class="mchip">Gemma<span class="sz">2B</span></span>
+      <span class="mchip">Phi-2<span class="sz">2.7B</span></span>
+      <span class="mchip">Phi-3-mini<span class="sz">3.8B</span></span>
+      <span class="mchip">Mistral<span class="sz">7B</span></span>
+    </div>
+    <p class="lede" style="margin:0;font-size:.95rem;color:var(--ink-3);">Stats: matched-block paired non-parametric tests — <b>Cochran's Q + McNemar</b> (binary precision), <b>Friedman + Nemenyi</b> (continuous cost), 5% significance. Code: <a href="https://github.com/tharada0126/llm_ptme.git" target="_blank" rel="noopener">github.com/tharada0126/llm_ptme</a>.</p>
+  </section>
+
+  <!-- RESULTS -->
+  <section class="sect" id="results">
+    <div class="shead"><span class="sn">04</span><h2>Results &amp; highlights</h2></div>
+
+    <div class="statrow">
+      <div class="stat">
+        <div class="lbl">Envelope E5 → E1 · time / token</div>
+        <div class="num">5.3–6.3×</div>
+        <div class="ds">slower under the tightest envelope — latency amplification.</div>
+      </div>
+      <div class="stat">
+        <div class="lbl">Envelope E5 → E1 · energy / token</div>
+        <div class="num">2.7–3.5×</div>
+        <div class="ds">more energy-hungry — <b>optimizing latency ≠ optimizing energy</b>; larger models hit hardest.</div>
+      </div>
+    </div>
+
+    <div class="hi-grid">
+      <div class="hi"><span class="lead">Proxy ↔ cost: near-perfect</span>Loaded-memory ↔ measured-memory R = <b class="mono">0.998–1.0</b> across all envelopes; params ↔ energy/token at E5 R = <b class="mono">0.981</b>.</div>
+      <div class="hi"><span class="lead">Proxy ↔ precision: broken</span>Any proxy ↔ precision stays at <b class="mono">R ≈ 0.357–0.481</b> — precision is fundamentally unpredictable from scale.</div>
+      <div class="hi"><span class="lead">Qwen2.5-1.5B dominates HumanEval</span>Under E1: <b class="mono">48.8%</b> pass@1 in <span class="mono">25.8 s / 520 J / 1.28 GB</span> vs Mistral-7B <b class="mono">42.7%</b> in <span class="mono">131.5 s / 3372 J / 4.76 GB</span> — faster, cheaper, smaller <i>and</i> more accurate.</div>
+      <div class="hi"><span class="lead">MMLU-Pro sweet spot</span>Qwen2.5 hits <b class="mono">28.2%</b> at ~⅓ the time/energy of Mistral's <b class="mono">34.6%</b>, statistically indistinguishable from both Phi-3 and Mistral.</div>
+      <div class="hi"><span class="lead">Precision is envelope-invariant</span>Greedy decoding yields byte-identical tokens across E1–E5 — all PTME variation under RQ3 comes from <b>cost, not accuracy</b>.</div>
+      <div class="hi"><span class="lead">Cost scales with tokens, memory doesn't</span>Time and energy grow ~linearly with total tokens; peak RSS is flat — set by footprint, not length.</div>
+    </div>
+
+    <div class="pareto" style="margin-top:26px;">
+      <div class="pt">Four-objective Pareto · non-dominated sets per benchmark</div>
+      <div class="sets">
+        <div class="ps"><div class="bn">HumanEval</div><div class="bm">TinyLlama · Qwen2.5</div></div>
+        <div class="ps"><div class="bn">GSM8K</div><div class="bm">TinyLlama · Qwen2.5 · Phi-3</div></div>
+        <div class="ps"><div class="bn">MMLU-Pro</div><div class="bm">TinyLlama · Qwen2.5 · Phi-3 · Mistral</div></div>
+      </div>
+      <div class="legend">TL = TinyLlama · QW = Qwen2.5 · P3 = Phi-3 · MS = Mistral — every single-metric optimum collapses to an extreme (cheapest TL or most-accurate MS), hiding the mid-sized middle.</div>
+    </div>
+  </section>
+
+  <!-- TRADE-OFFS -->
+  <section class="sect" id="verdict">
+    <div class="shead"><span class="sn">05</span><h2>Trade-offs — strengths vs limitations</h2></div>
+    <div class="sl">
+      <div class="sl-col pos">
+        <h3>▲ Strengths</h3>
+        <ul>
+          <li><b>Controlled design</b> — same backend, decoding, Docker image; only the hardware envelope varies.</li>
+          <li><b>Statistical rigor</b> rare in this subfield — matched-block tests with significance marks in every table.</li>
+          <li><b>Direct hardware measurement</b> (RAPL + RSS) instead of FLOPs estimation; explicitly shows energy ↔ time divergence.</li>
+          <li><b>Pareto framing</b> operationalized per benchmark, not averaged — the right vocabulary for multi-objective deployment.</li>
+          <li><b>Honest disclosure</b> of AI-authoring (GPT-5.5 / Claude Opus 4.8) plus public code release.</li>
+        </ul>
+      </div>
+      <div class="sl-col neg">
+        <h3>▽ Limitations</h3>
+        <ul>
+          <li><b>Mixed quantization</b> (Q4_0 vs Q4_K_M) with no ablation — confounds every cross-model cost comparison.</li>
+          <li><b>CPU-only</b> execution; GPU-equipped edge is the dominant 2025+ target and would shift all numbers.</li>
+          <li><b>Tiny samples</b> — 200/1319 GSM8K, 280/12032 MMLU-Pro; the 6.4-pt QW↔MS gap sits within sampling noise.</li>
+          <li><b>RAPL scope</b> covers CPU-package only — excludes DRAM, storage, peripherals; understates SoC energy.</li>
+          <li><b>Six models, 1.1B–7B</b>, one backend (Ollama), greedy decode — generalization to 0.5B / 13B+, vLLM, sampling untested.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- QUESTIONS -->
+  <section class="sect" id="questions">
+    <div class="shead"><span class="sn">06</span><h2>Open questions for further work</h2></div>
+    <div class="qlist">
+      <div class="q">Does the proxy-vs-precision break survive on <b>GPU / NPU</b> (Jetson, mobile NPU) where memory hierarchy and power differ from CPU+RAPL?</div>
+      <div class="q">Would a <b>quantization-format ablation</b> (uniform Q4_K_M, plus Q8 / FP16) preserve the Qwen2.5-dominates-Pareto conclusion — or expose it as a Q4_0 artifact?</div>
+      <div class="q">Can the RQ3 envelope-sensitivity law (time ×5–6, energy ×2.7–3.5) be <b>predicted analytically</b> from FLOP density, enabling an envelope-aware scheduler?</div>
+      <div class="q">Do the non-dominated sets stay stable under <b>sampling-based decoding</b> (temp &gt; 0, top-p), which perturbs both precision and token count?</div>
+      <div class="q">How does PTME extend to <b>agentic / multi-turn</b> workloads where KV-cache growth dominates — does memory stay flat in length?</div>
+      <div class="q">Can <b>total-system energy</b> (CPU+DRAM+storage+accel) be measured cheaply enough to replace RAPL without breaking reproducibility?</div>
+    </div>
+  </section>
+
+</main>
+
+<!-- FOOTER -->
+<footer>
+  <div class="wrap foot-inner">
+    <a class="src" href="./2607.20806.md">↗ Markdown source</a>
+    <span class="foot-note">PTME · Harada · Alba · Luque · 2026</span>
+  </div>
+</footer>
+
+<script>
+  // active section highlight in the sticky nav (non-linear jumping aid)
+  (function(){
+    var links = Array.prototype.slice.call(document.querySelectorAll('.navlink'));
+    var map = {};
+    links.forEach(function(l){
+      var id = l.getAttribute('href').slice(1);
+      var sec = document.getElementById(id);
+      if(sec) map[id] = l;
+    });
+    if(!('IntersectionObserver' in window) || links.length === 0) return;
+    var observer = new IntersectionObserver(function(entries){
+      entries.forEach(function(e){
+        if(e.isIntersecting){
+          links.forEach(function(l){ l.classList.remove('active'); });
+          var l = map[e.target.id];
+          if(l) l.classList.add('active');
+        }
+      });
+    }, {rootMargin:'-45% 0px -50% 0px', threshold:0});
+    Object.keys(map).forEach(function(id){ observer.observe(document.getElementById(id)); });
+  })();
+</script>
+</body>
+</html>
