@@ -1,0 +1,499 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>2607.21130 · Float16 On-Device Training on RISC-V</title>
+<style>
+  /* ---------- Design tokens ---------- */
+  :root{
+    --paper:    #f6f4ee;   /* warm paper */
+    --paper-2:  #efece3;   /* slightly darker panel */
+    --ink:      #18181b;   /* near-black */
+    --ink-2:    #3f3f46;   /* secondary text */
+    --ink-3:    #71717a;   /* muted */
+    --rule:     #d8d3c6;   /* hairline rules */
+    --accent:   #9a3412;   /* burnt sienna — single accent */
+    --accent-2: #c2410c;   /* accent tint */
+    --accent-soft:#f3e4dc; /* accent wash */
+    --pos:      #166534;   /* f16-better */
+    --neg:      #9a3412;   /* f16-worse (stays in palette) */
+    --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --serif: ui-serif, Georgia, "Iowan Old Style", "Times New Roman", serif;
+  }
+
+  *{ box-sizing: border-box; }
+
+  html,body{ margin:0; padding:0; }
+  body{
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 15px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* faint paper grain via repeating gradient — atmosphere, not marketing */
+  body::before{
+    content:"";
+    position: fixed; inset:0;
+    background-image:
+      repeating-linear-gradient(0deg, rgba(0,0,0,0.012) 0 1px, transparent 1px 3px);
+    pointer-events:none; z-index:0;
+  }
+
+  a{ color: var(--accent); text-decoration: none; border-bottom: 1px solid transparent; transition: border-color .15s; }
+  a:hover{ border-bottom-color: var(--accent); }
+
+  .wrap{ position: relative; z-index:1; width: min(95vw, 1100px); margin: 0 auto; padding: 0 0 48px; }
+
+  /* ---------- Top bar ---------- */
+  .topbar{
+    display:flex; align-items:center; justify-content: space-between;
+    padding: 18px 0 14px;
+    border-bottom: 1px solid var(--rule);
+    font-size: 12.5px; letter-spacing: .02em;
+  }
+  .topbar .back{ font-weight: 600; color: var(--ink); border-bottom:none; }
+  .topbar .back:hover{ color: var(--accent); }
+  .topbar .meta{ display:flex; gap: 14px; align-items:center; color: var(--ink-3); font-family: var(--mono); }
+  .topbar .meta .dot{ width:6px; height:6px; border-radius:50%; background: var(--accent); display:inline-block; }
+  .badge{
+    font-family: var(--mono); font-size: 11px; letter-spacing: .08em; text-transform: uppercase;
+    border:1px solid var(--ink); color: var(--ink); padding: 2px 7px; border-radius: 2px;
+  }
+
+  /* ---------- Hero band ---------- */
+  .hero{ padding: 36px 0 30px; border-bottom: 1px solid var(--rule); }
+  .kicker{
+    font-family: var(--mono); font-size: 11.5px; letter-spacing: .14em; text-transform: uppercase;
+    color: var(--accent); margin: 0 0 18px; display:flex; align-items:center; gap:10px;
+  }
+  .kicker::before{ content:""; width:28px; height:1px; background: var(--accent); display:inline-block; }
+
+  .finding{
+    font-family: var(--serif);
+    font-weight: 500;
+    font-size: clamp(26px, 4.4vw, 44px);
+    line-height: 1.12;
+    letter-spacing: -0.01em;
+    margin: 0 0 26px;
+    max-width: 22ch;
+  }
+  .finding em{ font-style: normal; color: var(--accent); font-weight: 600; }
+
+  .title{
+    font-size: 17px; font-weight: 600; margin: 0 0 6px; letter-spacing: -0.005em;
+  }
+  .arxiv{ font-family: var(--mono); font-size: 12.5px; color: var(--ink-3); display:inline-block; margin-bottom: 14px; }
+  .authors{ font-size: 13.5px; color: var(--ink-2); margin: 0 0 18px; max-width: 70ch; }
+  .authors .aff{ color: var(--ink-3); }
+
+  .chips{ display:flex; flex-wrap: wrap; gap: 7px; }
+  .chip{
+    font-family: var(--mono); font-size: 11.5px; letter-spacing: .03em;
+    background: var(--paper-2); border:1px solid var(--rule);
+    color: var(--ink-2); padding: 4px 9px; border-radius: 999px;
+  }
+
+  /* ---------- Asset row ---------- */
+  .assets{
+    display:grid;
+    grid-template-columns: 1.15fr 1fr 1fr;
+    gap: 14px;
+    padding: 26px 0;
+    border-bottom: 1px solid var(--rule);
+  }
+  .card{
+    background: var(--paper-2);
+    border:1px solid var(--rule);
+    border-radius: 6px;
+    padding: 20px 20px 18px;
+    position: relative;
+    min-height: 168px;
+    display:flex; flex-direction: column;
+  }
+  .card .label{
+    font-family: var(--mono); font-size: 10.5px; letter-spacing: .14em; text-transform: uppercase;
+    color: var(--ink-3); margin-bottom: 12px; display:flex; align-items:center; gap:8px;
+  }
+  .card .label .idx{
+    width:16px; height:16px; border-radius:50%; border:1px solid var(--ink-3);
+    display:inline-flex; align-items:center; justify-content:center; font-size:9.5px;
+  }
+
+  /* Metric card */
+  .metric .big{
+    font-family: var(--mono); font-weight: 600;
+    font-size: clamp(34px, 5vw, 48px); line-height: 1; letter-spacing: -0.02em;
+    color: var(--ink); margin: 4px 0 6px;
+  }
+  .metric .big .unit{ font-size: .42em; color: var(--ink-3); font-weight: 500; margin-left: 2px; }
+  .metric .sub{ font-size: 12.5px; color: var(--ink-2); margin: 0; }
+  .metric .sub b{ color: var(--ink); font-weight: 600; }
+
+  /* segmented control */
+  .seg{
+    display:inline-flex; margin-top: auto; padding-top: 14px; gap: 0;
+    border:1px solid var(--rule); border-radius: 4px; overflow:hidden; background: var(--paper);
+  }
+  .seg button{
+    border:none; background: transparent; cursor:pointer;
+    font-family: var(--mono); font-size: 10.5px; letter-spacing: .06em; text-transform: uppercase;
+    color: var(--ink-3); padding: 6px 9px; border-right:1px solid var(--rule);
+    transition: background .12s, color .12s;
+  }
+  .seg button:last-child{ border-right:none; }
+  .seg button:hover{ color: var(--ink); }
+  .seg button[aria-selected="true"]{ background: var(--ink); color: var(--paper); }
+
+  /* Why-this-matters — calm callout */
+  .matters{ border-left: 3px solid var(--accent); }
+  .matters .body{
+    font-family: var(--serif); font-size: 17px; line-height: 1.4; color: var(--ink);
+    margin: 0;
+  }
+
+  /* Critical edge — contrasting inverted callout */
+  .edge{
+    background: var(--ink);
+    border-color: var(--ink);
+    color: var(--paper);
+  }
+  .edge .label{ color: #d6d3cc; }
+  .edge .label .idx{ border-color:#d6d3cc; color:#d6d3cc; }
+  .edge .body{ font-size: 14px; line-height: 1.45; margin: 0; color: var(--paper); }
+  .edge .body b{ color: var(--accent-2); font-weight: 600; }
+
+  /* ---------- Body grid ---------- */
+  .grid{
+    display:grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 22px 28px;
+    padding-top: 30px;
+  }
+  .grid .col-wide{ grid-column: 1 / -1; }
+
+  .sec h2{
+    font-family: var(--mono); font-size: 11px; letter-spacing: .16em; text-transform: uppercase;
+    color: var(--ink-3); margin: 0 0 12px; padding-bottom: 8px; border-bottom: 1px solid var(--rule);
+    display:flex; align-items:center; justify-content: space-between;
+  }
+  .sec h2 .num{ color: var(--accent); }
+
+  .sec p{ margin: 0 0 10px; font-size: 14px; color: var(--ink-2); }
+  .sec p b{ color: var(--ink); font-weight: 600; }
+  .sec ul{ margin: 0; padding: 0; list-style: none; }
+  .sec li{ font-size: 13.5px; color: var(--ink-2); padding: 7px 0 7px 18px; position: relative; border-bottom: 1px dashed var(--rule); }
+  .sec li:last-child{ border-bottom:none; }
+  .sec li::before{ content:"›"; position:absolute; left:2px; top:6px; color: var(--accent); font-family: var(--mono); font-weight:600; }
+  .sec li b{ color: var(--ink); }
+
+  /* Strengths vs Limitations split */
+  .split{ display:grid; grid-template-columns: 1fr 1fr; gap: 0; border:1px solid var(--rule); border-radius:6px; overflow:hidden; }
+  .split .half{ padding: 14px 16px; background: var(--paper-2); }
+  .split .half + .half{ border-left:1px solid var(--rule); }
+  .split h3{
+    font-family: var(--mono); font-size: 10.5px; letter-spacing: .12em; text-transform: uppercase;
+    margin: 0 0 8px;
+  }
+  .split .pos h3{ color: var(--pos); }
+  .split .neg h3{ color: var(--accent); }
+  .split li{ font-size: 12.5px; padding: 5px 0 5px 14px; border-bottom: 1px dashed var(--rule); }
+  .split li:last-child{ border-bottom:none; }
+
+  /* Results data table */
+  .table-wrap{ overflow-x:auto; }
+  table.data{
+    width:100%; border-collapse: collapse; font-size: 13px; font-family: var(--mono);
+  }
+  table.data th, table.data td{
+    text-align: right; padding: 7px 8px; border-bottom: 1px solid var(--rule);
+  }
+  table.data th:first-child, table.data td:first-child{ text-align: left; }
+  table.data thead th{
+    font-weight: 600; color: var(--ink-3); font-size: 10.5px; letter-spacing: .08em;
+    text-transform: uppercase; border-bottom: 1.5px solid var(--ink);
+  }
+  table.data td .dpos{ color: var(--pos); font-weight:600; }
+  table.data td .dneg{ color: var(--neg); font-weight:600; }
+  table.data .f16{ color: var(--accent); font-weight: 600; }
+  table.data caption{
+    caption-side: top; text-align:left; font-family: var(--sans); font-size: 12px;
+    color: var(--ink-3); margin-bottom: 8px; font-weight: 500;
+  }
+
+  /* Memory bars */
+  .bar-row{ display:grid; grid-template-columns: 92px 1fr 78px; align-items:center; gap: 10px; margin: 8px 0; font-size: 12.5px; }
+  .bar-row .name{ color: var(--ink-2); }
+  .bar-row .track{ height: 14px; background: var(--paper); border:1px solid var(--rule); border-radius:2px; position:relative; }
+  .bar-row .f32bar{ position:absolute; top:0; left:0; bottom:0; background: var(--ink-3); }
+  .bar-row .f16bar{ position:absolute; top:0; left:0; bottom:0; background: var(--accent); }
+  .bar-row .val{ font-family: var(--mono); font-size: 11.5px; color: var(--ink-2); text-align:right; }
+  .bar-row .val b{ color: var(--accent); }
+  .legend{ display:flex; gap:14px; font-family: var(--mono); font-size: 10.5px; color: var(--ink-3); letter-spacing:.06em; text-transform: uppercase; margin: 4px 0 6px; }
+  .legend span{ display:inline-flex; align-items:center; gap:6px; }
+  .legend i{ width:10px; height:10px; display:inline-block; border-radius:2px; }
+
+  /* Footer */
+  footer{
+    margin-top: 40px; padding-top: 18px; border-top: 1px solid var(--rule);
+    display:flex; justify-content: space-between; align-items: center;
+    font-size: 12.5px; color: var(--ink-3);
+  }
+  footer .src{ font-weight: 600; color: var(--ink); }
+  footer .note{ font-family: var(--mono); font-size: 11px; letter-spacing:.04em; }
+
+  /* ---------- Load animation ---------- */
+  @keyframes rise { from { opacity:0; transform: translateY(8px);} to { opacity:1; transform:none; } }
+  .reveal{ opacity:0; animation: rise .55s cubic-bezier(.2,.7,.2,1) forwards; }
+  .d1{ animation-delay:.04s; } .d2{ animation-delay:.10s; } .d3{ animation-delay:.16s; }
+  .d4{ animation-delay:.22s; } .d5{ animation-delay:.28s; } .d6{ animation-delay:.34s; }
+  @media (prefers-reduced-motion: reduce){ .reveal{ animation:none; opacity:1; } }
+
+  /* ---------- Responsive ---------- */
+  @media (max-width: 880px){
+    .assets{ grid-template-columns: 1fr; }
+    .grid{ grid-template-columns: 1fr; }
+    .finding{ max-width: none; font-size: clamp(24px, 6.2vw, 34px); }
+    .split{ grid-template-columns: 1fr; }
+    .split .half + .half{ border-left:none; border-top:1px solid var(--rule); }
+    .topbar .meta{ font-size: 11px; gap:9px; }
+    footer{ flex-direction: column; gap: 8px; align-items: flex-start; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- TOP BAR -->
+  <div class="topbar">
+    <a class="back" href="./index.html">↩ Today's digest</a>
+    <div class="meta">
+      <span>arXiv:2607.21130</span>
+      <span class="dot"></span>
+      <span>2026-07-23</span>
+      <span class="badge">IEEE PRIME 2026</span>
+    </div>
+  </div>
+
+  <!-- HERO -->
+  <section class="hero">
+    <p class="kicker reveal d1">Hardware–Software Co-Design · Embedded / TinyML</p>
+    <h1 class="finding reveal d2">
+      First <em>open-source</em> float16 on-device training on a RISC-V single-core — accuracy within <em>~0.7 points</em> of float32, memory nearly halved.
+    </h1>
+    <div class="reveal d3">
+      <p class="title">Hardware-Software Co-Design for Float16 On-Device Training on RISC-V Single-Core</p>
+      <a class="arxiv" href="https://arxiv.org/abs/2607.21130" target="_blank" rel="noopener">arxiv.org/abs/2607.21130 ↗</a>
+      <p class="authors">
+        Benjamin Hubinet · Pierre-Alain Moëllic · Olivier Savry · Olivier Potin · Jean-Baptiste Rigaud
+        <br><span class="aff">CEA-Leti · Mines Saint-Étienne (Centre CMP) · Univ. Grenoble Alpes — ANR AI.MMUNITY / GENCI Jean Zay</span>
+      </p>
+    </div>
+    <div class="chips reveal d4">
+      <span class="chip">on-device-training</span>
+      <span class="chip">risc-v (RV64GC)</span>
+      <span class="chip">float16 / Zfh / Zvfh</span>
+      <span class="chip">NaxRiscv · FPGA</span>
+      <span class="chip">tinyml</span>
+      <span class="chip">AIfES + NMSIS-DSP</span>
+    </div>
+  </section>
+
+  <!-- ASSET ROW -->
+  <section class="assets">
+
+    <!-- KEY METRIC -->
+    <div class="card metric reveal d4">
+      <div class="label"><span class="idx">1</span> Key metric</div>
+      <div class="metric-body" id="metricView">
+        <!-- swapped by JS -->
+      </div>
+      <div class="seg" role="tablist" aria-label="Switch headline metric">
+        <button data-m="area"    aria-selected="true">Silicon</button>
+        <button data-m="memory"  aria-selected="false">Memory</button>
+        <button data-m="acc"     aria-selected="false">Accuracy</button>
+      </div>
+    </div>
+
+    <!-- WHY THIS MATTERS -->
+    <div class="card matters reveal d5">
+      <div class="label"><span class="idx">2</span> Why this matters</div>
+      <p class="body">
+        A ready-to-use open float16 training framework for RISC-V single-cores — plus concrete FPGA evidence that <b>Zfh is cheap enough to be a default hardware feature</b>.
+      </p>
+    </div>
+
+    <!-- CRITICAL EDGE -->
+    <div class="card edge reveal d6">
+      <div class="label"><span class="idx">3</span> Critical edge</div>
+      <p class="body">
+        The <b>Zvfh VPU is designed but never benchmarked</b> — the headline 4× speedup is a VLEN/LMUL projection, not a measured result. All software numbers come from the ISA Simulator; no wall-clock, no silicon.
+      </p>
+    </div>
+
+  </section>
+
+  <!-- BODY GRID -->
+  <section class="grid">
+
+    <!-- METHODOLOGY -->
+    <div class="sec reveal d4">
+      <h2><span>Methodology</span><span class="num">01</span></h2>
+      <p>Two-track co-design, both built on existing open-source artifacts rather than greenfield:</p>
+      <ul>
+        <li><b>Software — extend AIfES.</b> Plug in NMSIS-DSP math primitives (Zfh scalar / Zvfh vector), selected at compile time. AIfES-Converter imports PyTorch &amp; TensorFlow models into RISC-V float16 C, with optional <b>layer freezing</b> for transfer learning.</li>
+        <li><b>Hardware — extend NaxRiscv.</b> A dual-issue RV64GC super-scalar out-of-order core (SpinalHDL). Decoder / LSU / FPU extended for the 36 Zfh instructions; float16 reuses the f32/f64 NaN-boxed unpacking path.</li>
+        <li><b>Zvfh VPU proposal.</b> 4 lanes, VLEN=64, input/output crossbars; LMUL register grouping split into micro-ops at issue/rename to feed out-of-order execution — except (LMUL)² cases like <code>vrgather.vv</code>.</li>
+        <li><b>Evaluation.</b> Accuracy &amp; memory measured on the <b>RISC-V ISA Simulator</b> (MLP on MNIST / FashionMNIST / EMNIST). FPGA resources from Vivado 2021.1 on XC7K325T-2FFG900C.</li>
+      </ul>
+    </div>
+
+    <!-- RESULTS -->
+    <div class="sec reveal d5">
+      <h2><span>Results &amp; highlights</span><span class="num">02</span></h2>
+
+      <div class="table-wrap">
+      <table class="data">
+        <caption>Validation accuracy — 5-layer MLP, batch 128 · float16 vs float32</caption>
+        <thead>
+          <tr><th>Dataset · opt</th><th class="f16">f16</th><th>f32</th><th>Δ (pts)</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>MNIST · SGD</td><td class="f16">97.29%</td><td>96.88%</td><td><span class="dpos">+0.41</span></td></tr>
+          <tr><td>MNIST · Adam</td><td class="f16">96.78%</td><td>97.32%</td><td><span class="dneg">−0.54</span></td></tr>
+          <tr><td>FashionMNIST · SGD</td><td class="f16">86.85%</td><td>87.53%</td><td><span class="dneg">−0.68</span></td></tr>
+          <tr><td>FashionMNIST · Adam</td><td class="f16">88.25%</td><td>88.54%</td><td><span class="dneg">−0.29</span></td></tr>
+        </tbody>
+      </table>
+      </div>
+
+      <div style="margin-top:14px;">
+        <div class="legend">
+          <span><i style="background:var(--ink-3)"></i>float32</span>
+          <span><i style="background:var(--accent)"></i>float16</span>
+        </div>
+        <!-- max scale = 100.85 kB params; f32 no-freeze Adam work-mem = 404.77 kB -->
+        <div class="bar-row">
+          <span class="name">Params</span>
+          <span class="track">
+            <span class="f32bar" style="width:24.9%"></span>
+            <span class="f16bar" style="width:12.5%"></span>
+          </span>
+          <span class="val">100.85 → <b>50.43 kB</b></span>
+        </div>
+        <div class="bar-row">
+          <span class="name">Work · SGD</span>
+          <span class="track">
+            <span class="f32bar" style="width:50.0%"></span>
+            <span class="f16bar" style="width:25.0%"></span>
+          </span>
+          <span class="val">202.60 → <b>101.43 kB</b></span>
+        </div>
+        <div class="bar-row">
+          <span class="name">Work · Adam</span>
+          <span class="track">
+            <span class="f32bar" style="width:100%"></span>
+            <span class="f16bar" style="width:50.1%"></span>
+          </span>
+          <span class="val">404.77 → <b>202.75 kB</b></span>
+        </div>
+        <p style="font-size:11.5px;color:var(--ink-3);margin:8px 0 0;">Freezing layers 1–2 + Adam + f16 cuts work-memory to ~38% of the f32/Adam/no-freeze baseline.</p>
+      </div>
+    </div>
+
+    <!-- STRENGTHS / LIMITATIONS (wide) -->
+    <div class="sec col-wide reveal d6">
+      <h2><span>Strengths &amp; limitations</span><span class="num">03</span></h2>
+      <div class="split">
+        <div class="half pos">
+          <h3>▲ Strengths</h3>
+          <ul>
+            <li>Fills a real gap: only framework with RISC-V + full float16 ODT + batch≥1 + open-source, all at once.</li>
+            <li>Concrete silicon cost: +1.15% LUT6 / +0.05% FF on a named FPGA part, 175 MHz unchanged.</li>
+            <li>Honest scoping — measured vs designed are clearly separated; missing VPU eval named as future work.</li>
+            <li>Micro-op LMUL strategy for out-of-order execution is a defensible, non-trivial architectural choice.</li>
+            <li>PyTorch/TF converter + layer freezing fits the realistic "pretrain off-device, fine-tune on-device" flow.</li>
+          </ul>
+        </div>
+        <div class="half neg">
+          <h3>▼ Limitations</h3>
+          <ul>
+            <li>Zvfh VPU is described, not benchmarked — the 4× figure is a projection (biggest gap vs the "co-design" title).</li>
+            <li>Software numbers are from the ISA Simulator: no wall-clock time, no real-memory, no power.</li>
+            <li>Narrow models/data: only MLPs on MNIST-family. No CNNs, transformers, or ImageNet-scale.</li>
+            <li>No multi-seed variance — worst cell (−0.54) is within plausible seed noise.</li>
+            <li>No head-to-head vs PULP-Trainlib or quantized-INT8 ODT; Table 1 is feature-presence only.</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <!-- QUESTIONS -->
+    <div class="sec col-wide reveal d6">
+      <h2><span>Open questions for further exploration</span><span class="num">04</span></h2>
+      <ul>
+        <li>Does the Zvfh VPU actually deliver the projected 4× over scalar once synthesized — and at what area/frequency cost above the +1.15% / +0.05% Zfh baseline?</li>
+        <li>How does float16 ODT hold up on CNNs / small transformers (CIFAR, ImageNet), where float16 is less benign than on MLPs — is loss-scaling or mixed precision needed?</li>
+        <li>What are the real wall-clock training times and energy numbers on actual RISC-V silicon, versus PULP-Trainlib and quantized-INT8 ODT of comparable footprint?</li>
+        <li>How seed-sensitive is Table 2 — would a multi-seed run with confidence intervals confirm "minimal degradation" or expose it as noise?</li>
+        <li>Does the LMUL micro-op split scale cleanly to LMUL=8, and is there a threshold above which (LMUL)² cases need a dedicated handler?</li>
+      </ul>
+    </div>
+
+  </section>
+
+  <footer>
+    <a class="src" href="./2607.21130.md">↗ Markdown source</a>
+    <span class="note">Open-source framework · gitlab.emse.fr/securityml/frameworks/aifes4riscv</span>
+  </footer>
+
+</div>
+
+<script>
+  // Segmented control — swap the headline metric. Real interaction, no placeholders.
+  var VIEWS = {
+    area: {
+      big: '+1.15<span class="unit">% LUT6</span>',
+      big2: '+0.05<span class="unit">% FF</span>',
+      sub: 'Cost of adding all 36 <b>Zfh</b> instructions to RV64GC <b>NaxRiscv</b> — <b>175 MHz unchanged</b>. XC7K325T-2FFG900C, Vivado 2021.1.'
+    },
+    memory: {
+      big: '50.43<span class="unit"> kB</span>',
+      big2: '↓ 50.0%',
+      sub: '3-layer MLP params: <b>100.85 kB (f32) → 50.43 kB (f16)</b>. With layer-freezing + Adam, work-memory falls to ~38% of the f32 baseline.'
+    },
+    acc: {
+      big: '≤ 0.68<span class="unit"> pts</span>',
+      big2: 'f16 vs f32',
+      sub: 'Validation-accuracy gap across all 4 dataset/optimizer cells — on MNIST/SGD, float16 is <b>+0.41 points ahead</b>. Single-run, no variance reported.'
+    }
+  };
+
+  var root = document.getElementById('metricView');
+  var btns = document.querySelectorAll('.seg button');
+
+  function render(key){
+    var v = VIEWS[key];
+    root.innerHTML =
+      '<div class="big">' + v.big + '</div>' +
+      '<div class="big" style="font-size:.5em;color:var(--accent);margin-top:2px;">' + v.big2 + '</div>' +
+      '<p class="sub" style="margin-top:auto;padding-top:12px;">' + v.sub + '</p>';
+  }
+
+  btns.forEach(function(b){
+    b.addEventListener('click', function(){
+      btns.forEach(function(x){ x.setAttribute('aria-selected','false'); });
+      b.setAttribute('aria-selected','true');
+      render(b.dataset.m);
+    });
+  });
+
+  render('area');
+</script>
+</body>
+</html>
