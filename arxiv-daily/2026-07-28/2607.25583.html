@@ -1,0 +1,649 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>How Small Can You Go? — LoRA Rank, Modules &amp; Quantization for Text-to-SQL on 60M Params</title>
+<style>
+  :root{
+    --bg: #0b0d0e;
+    --bg-panel: #14171a;
+    --bg-panel-2: #1a1e21;
+    --border: #272b2f;
+    --text: #e9e6df;
+    --text-dim: #9a9fa3;
+    --text-dim2: #8b9095;
+    --accent: #ffb400;
+    --accent-dim: #4a3a10;
+    --mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+    --serif: Georgia, "Iowan Old Style", "Palatino Linotype", Palatino, "Times New Roman", serif;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  }
+  *{ box-sizing: border-box; }
+  html{ background: var(--bg); }
+  body{
+    margin:0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+  :lang(zh){ line-height: 1.85; }
+  .zh{ line-height: 1.85; }
+
+  a{ color: inherit; }
+
+  /* ---------- fixed nav ---------- */
+  .backnav{
+    position: fixed;
+    top: 18px;
+    left: 18px;
+    z-index: 50;
+    font-family: var(--mono);
+    font-size: 12.5px;
+    letter-spacing: 0.02em;
+    color: var(--text-dim2);
+    background: rgba(20,23,26,0.9);
+    border: 1px solid var(--border);
+    padding: 7px 13px;
+    border-radius: 3px;
+    text-decoration: none;
+    transition: border-color .15s ease, color .15s ease;
+  }
+  .backnav:hover{ border-color: var(--accent); color: var(--accent); }
+
+  .wrap{
+    width: min(95vw, 1100px);
+    margin: 0 auto;
+    padding: 72px 0 40px;
+  }
+
+  /* ---------- hero ---------- */
+  .hero{ margin-bottom: 44px; }
+  .eyebrow{
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 18px;
+    opacity: 0;
+    animation: rise .5s ease forwards;
+  }
+  .eyebrow::before{ content:"◆ "; }
+
+  .key-finding{
+    font-family: var(--serif);
+    font-weight: 400;
+    font-size: clamp(28px, 4.4vw, 46px);
+    line-height: 1.22;
+    letter-spacing: -0.01em;
+    margin: 0 0 28px;
+    max-width: 900px;
+    opacity: 0;
+    animation: rise .6s ease .08s forwards;
+  }
+  .key-finding em{
+    font-style: normal;
+    color: var(--accent);
+    border-bottom: 2px solid var(--accent-dim);
+  }
+
+  .paper-title{
+    display:inline-block;
+    font-family: var(--sans);
+    font-size: 15px;
+    color: var(--text-dim2);
+    text-decoration: none;
+    border-bottom: 1px dotted var(--border);
+    padding-bottom: 2px;
+    margin-bottom: 18px;
+    opacity: 0;
+    animation: rise .6s ease .16s forwards;
+    max-width: 900px;
+  }
+  .paper-title:hover{ color: var(--text); border-bottom-color: var(--accent); }
+  .paper-title .arrow{ color: var(--accent); margin-left: 4px; }
+
+  .meta-row{
+    display:flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px 18px;
+    font-family: var(--mono);
+    font-size: 12.5px;
+    color: var(--text-dim2);
+    opacity: 0;
+    animation: rise .6s ease .22s forwards;
+  }
+  .meta-row .authors{ color: var(--text-dim2); }
+  .meta-row .sep{ color: var(--border); }
+  .chips{ display:flex; flex-wrap: wrap; gap: 7px; }
+  .chip{
+    border: 1px solid var(--border);
+    color: var(--text-dim2);
+    padding: 3px 9px;
+    border-radius: 999px;
+    font-size: 11px;
+    letter-spacing: 0.02em;
+  }
+
+  @keyframes rise{
+    from{ opacity: 0; transform: translateY(10px); }
+    to{ opacity: 1; transform: translateY(0); }
+  }
+
+  /* ---------- asset row ---------- */
+  .assets{
+    display: grid;
+    grid-template-columns: 0.9fr 1.3fr 1fr;
+    gap: 16px;
+    margin-bottom: 52px;
+  }
+  .asset-card{
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 22px 22px 20px;
+    opacity: 0;
+    animation: rise .6s ease forwards;
+  }
+  .assets .asset-card:nth-child(1){ animation-delay: .28s; }
+  .assets .asset-card:nth-child(2){ animation-delay: .34s; }
+  .assets .asset-card:nth-child(3){ animation-delay: .4s; }
+
+  .asset-label{
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--text-dim2);
+    margin-bottom: 14px;
+  }
+
+  .metric-value{
+    font-family: var(--mono);
+    font-size: clamp(38px, 4.6vw, 54px);
+    font-weight: 700;
+    color: var(--accent);
+    line-height: 1;
+    letter-spacing: -0.02em;
+    margin-bottom: 10px;
+  }
+  .metric-caption{ font-size: 13.5px; color: var(--text-dim2); line-height: 1.5; }
+
+  .why-text{ font-family: var(--serif); font-size: 18px; line-height: 1.5; color: var(--text); }
+
+  .edge-card{
+    background: var(--bg-panel);
+    border: 1px solid var(--accent-dim);
+    border-left: 3px solid var(--accent);
+    position: relative;
+  }
+  .edge-card .asset-label{ color: var(--accent); }
+  .edge-text{ font-size: 14.5px; color: var(--text); line-height: 1.55; }
+
+  /* ---------- body grid ---------- */
+  .body-grid{
+    display: grid;
+    grid-template-columns: 1.1fr 0.9fr;
+    gap: 20px;
+  }
+  .card{
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 26px 26px 28px;
+    margin-bottom: 20px;
+  }
+  .card-title{
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin: 0 0 18px;
+    display:flex;
+    align-items:center;
+    gap: 8px;
+  }
+  .card-title::after{
+    content:"";
+    flex:1;
+    height:1px;
+    background: var(--border);
+  }
+  .span-2{ grid-column: 1 / -1; }
+
+  /* axes-of-variation strip */
+  .axes-ref{
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text-dim2);
+    margin-bottom: 14px;
+    letter-spacing: 0.02em;
+  }
+  .axes-ref .accent{ color: var(--accent); }
+  .axes-row{
+    display:flex;
+    gap: 10px;
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+  }
+  .axis-box{
+    flex: 1 1 180px;
+    background: var(--bg-panel-2);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 12px 14px;
+    min-width: 180px;
+  }
+  .axis-box .ab-title{
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--accent);
+    margin-bottom: 6px;
+    letter-spacing: 0.06em;
+  }
+  .axis-box .ab-desc{ font-size: 12.5px; color: var(--text-dim2); line-height: 1.5; }
+  .axis-box .ab-desc code{
+    font-family: var(--mono);
+    color: var(--text);
+    background: var(--bg-panel);
+    padding: 0 3px;
+    border-radius: 2px;
+  }
+
+  .method-text{ font-size: 14.5px; color: var(--text); }
+  .method-text code{
+    font-family: var(--mono);
+    background: var(--bg-panel-2);
+    padding: 1px 5px;
+    border-radius: 3px;
+    font-size: 13px;
+    color: var(--accent);
+  }
+
+  table{
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+    margin-bottom: 8px;
+  }
+  th, td{
+    text-align: left;
+    padding: 9px 10px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  th{
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text-dim2);
+    font-weight: 600;
+  }
+  td.num{ font-family: var(--mono); color: var(--accent); white-space: nowrap; }
+  tr.highlight td{ background: rgba(255,180,0,0.06); }
+  td .tag{
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--accent);
+    border: 1px solid var(--accent-dim);
+    padding: 1px 5px;
+    border-radius: 2px;
+    margin-right: 4px;
+    white-space: nowrap;
+  }
+  .table-note{ font-size: 12px; color: var(--text-dim2); margin: 10px 0 0; line-height: 1.5; }
+  .table-block{ margin-bottom: 26px; }
+  .table-block:last-child{ margin-bottom: 0; }
+  .table-block h4{
+    font-family: var(--sans);
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text);
+    margin: 0 0 10px;
+  }
+
+  .sl-grid{
+    display:grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+  }
+  .sl-col h4{
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin: 0 0 12px;
+  }
+  .sl-col.strengths h4{ color: #8fd694; }
+  .sl-col.limits h4{ color: var(--accent); }
+  .sl-col ul{ margin:0; padding-left: 18px; }
+  .sl-col li{ font-size: 13.5px; margin-bottom: 11px; line-height: 1.5; color: var(--text); }
+  .sl-col li::marker{ color: var(--text-dim2); }
+
+  .q-list{ list-style: none; margin:0; padding:0; counter-reset: q; }
+  .q-list li{
+    counter-increment: q;
+    padding: 13px 0 13px 34px;
+    position: relative;
+    border-bottom: 1px solid var(--border);
+    font-size: 14px;
+    line-height: 1.5;
+  }
+  .q-list li:last-child{ border-bottom: none; padding-bottom: 0; }
+  .q-list li::before{
+    content: counter(q);
+    position: absolute;
+    left: 0; top: 12px;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--accent);
+    border: 1px solid var(--accent-dim);
+    width: 20px; height: 20px;
+    border-radius: 50%;
+    display:flex; align-items:center; justify-content:center;
+  }
+
+  .credibility{
+    font-size: 12.5px;
+    color: var(--text-dim2);
+    margin-top: 6px;
+    max-width: 760px;
+  }
+
+  footer{
+    margin-top: 28px;
+    padding-top: 22px;
+    border-top: 1px solid var(--border);
+    display:flex;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 10px;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text-dim2);
+  }
+  footer a{
+    color: var(--text-dim2);
+    text-decoration: none;
+    border-bottom: 1px dotted var(--border);
+  }
+  footer a:hover{ color: var(--accent); border-bottom-color: var(--accent); }
+
+  @media (max-width: 720px){
+    .wrap{ padding-top: 64px; }
+    .assets{ grid-template-columns: 1fr; }
+    .body-grid{ grid-template-columns: 1fr; }
+    .sl-grid{ grid-template-columns: 1fr; }
+    .axes-row{ flex-direction: column; }
+    table{ font-size: 12px; }
+    th, td{ padding: 7px 6px; }
+  }
+</style>
+</head>
+<body>
+
+<a class="backnav" href="./index.html">&#8617; Today's digest</a>
+
+<div class="wrap">
+
+  <section class="hero">
+    <div class="eyebrow">Controlled rank / module / precision sweep on a 60M-parameter model</div>
+    <h1 class="key-finding">LoRA rank 16 recovers <em>83.7% of full fine-tuning's accuracy</em> on a 60M-parameter T5, using under 1% of its parameters — going bigger barely helps.</h1>
+    <a class="paper-title" href="https://arxiv.org/abs/2607.25583" target="_blank" rel="noopener">
+      How Small Can You Go? A Controlled Study of LoRA Rank, Target Modules, and Quantization Trade-offs for Text-to-SQL on a 60M-Parameter Model <span class="arrow">&#8599;</span>
+    </a>
+    <div class="meta-row">
+      <span class="authors">Rathor, Azzam</span>
+      <span class="sep">&middot;</span>
+      <span>2026-07-28</span>
+      <span class="sep">&middot;</span>
+      <span>arXiv:2607.25583</span>
+      <span class="sep">&middot;</span>
+      <div class="chips">
+        <span class="chip">LoRA</span>
+        <span class="chip">QLoRA</span>
+        <span class="chip">quantization</span>
+        <span class="chip">text-to-SQL</span>
+        <span class="chip">T5-small</span>
+        <span class="chip">WikiSQL</span>
+      </div>
+    </div>
+  </section>
+
+  <section class="assets">
+    <div class="asset-card metric-card">
+      <div class="asset-label">Key Metric</div>
+      <div class="metric-value">83.7%</div>
+      <div class="metric-caption">of full fine-tuning's 71.2% exact-match accuracy recovered by LoRA r=16 on {q,v} — using just 589,824 of 60,506,624 parameters (0.965% of the base) and 31% less peak memory (1.60GB vs. 2.31GB).</div>
+    </div>
+    <div class="asset-card why-card">
+      <div class="asset-label">Why This Matters</div>
+      <div class="why-text">Gives PEFT practitioners a concrete, quantified answer for how large a LoRA rank actually needs to be on small text-to-SQL models.</div>
+    </div>
+    <div class="asset-card edge-card">
+      <div class="asset-label">Critical Edge</div>
+      <div class="edge-text">Training used only 5,000 of WikiSQL's ~56,000 examples, so "rank saturates at r=16" may just reflect an undertrained model rather than an intrinsic property of the task.</div>
+    </div>
+  </section>
+
+  <section class="body-grid">
+
+    <div class="card span-2">
+      <h3 class="card-title">Methodology</h3>
+      <div class="axes-ref">Reference config: <span class="accent">LoRA r=8, {q,v}, FP16</span> — three axes are varied one at a time relative to it:</div>
+      <div class="axes-row">
+        <div class="axis-box">
+          <div class="ab-title">AXIS 1 &middot; RANK</div>
+          <div class="ab-desc">r &isin; <code>{2, 4, 8, 16, 32}</code>, &alpha;=2r, dropout 0.1, frozen biases</div>
+        </div>
+        <div class="axis-box">
+          <div class="ab-title">AXIS 2 &middot; MODULES</div>
+          <div class="ab-desc"><code>{q,v}</code> &rarr; <code>{q,k,v,o}</code> &rarr; <code>{q,v}+FFN</code></div>
+        </div>
+        <div class="axis-box">
+          <div class="ab-title">AXIS 3 &middot; PRECISION</div>
+          <div class="ab-desc">FP16 &rarr; INT8 (LLM.int8()) &rarr; NF4 (QLoRA, double quant)</div>
+        </div>
+      </div>
+      <p class="method-text">
+        T5-small (60M params) is fine-tuned on WikiSQL, serialized as <code>translate English to SQL: &lt;question&gt; table: &lt;headers&gt;</code> with the gold SQL as target — but on only <strong>5,000 training examples</strong> and <strong>500 validation examples</strong> (not WikiSQL's full ~56K split), deliberately small so the full 11-configuration sweep stays tractable on one GPU. Zero-shot and full fine-tuning (all 60.5M params updated) anchor the accuracy floor and ceiling. AdamW, lr=5e-4, batch size 8, 3 epochs, beam search (num_beams=4). Every configuration runs with <strong>3 seeds</strong> (42, 123, 456) on a single NVIDIA T4 GPU via Kaggle Notebooks &mdash; the full sweep completes in ~35 minutes. Exact-match (EM) accuracy is the primary metric; execution accuracy is reported too, but computed over just 25 of 500 examples and flagged by the authors themselves as high-variance and secondary.
+      </p>
+    </div>
+
+    <div class="card span-2">
+      <h3 class="card-title">Results &amp; Highlights</h3>
+
+      <div class="table-block">
+        <h4>Rank sweep, {q,v} adapters (Pareto core)</h4>
+        <table>
+          <thead>
+            <tr><th>Configuration</th><th>Trainable Params</th><th>Peak Memory</th><th>EM Accuracy</th><th>Exec. Accuracy&dagger;</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Zero-shot</td>
+              <td class="num">0</td>
+              <td class="num">&mdash;</td>
+              <td class="num">0.0%</td>
+              <td class="num">0.0%</td>
+            </tr>
+            <tr>
+              <td>LoRA r=2</td>
+              <td class="num">73,728</td>
+              <td class="num">~1.6GB</td>
+              <td class="num">38.6%</td>
+              <td class="num">&mdash;</td>
+            </tr>
+            <tr>
+              <td>LoRA r=8 (reference)</td>
+              <td class="num">344,064</td>
+              <td class="num">~1.6GB</td>
+              <td class="num">53.4%</td>
+              <td class="num">&mdash;</td>
+            </tr>
+            <tr class="highlight">
+              <td><span class="tag">PARETO PICK</span>LoRA r=16</td>
+              <td class="num">589,824</td>
+              <td class="num">1.60GB</td>
+              <td class="num">59.6%</td>
+              <td class="num">80.0%</td>
+            </tr>
+            <tr>
+              <td>LoRA r=32</td>
+              <td class="num">1,179,648</td>
+              <td class="num">~1.6GB</td>
+              <td class="num">60.4%</td>
+              <td class="num">&mdash;</td>
+            </tr>
+            <tr>
+              <td>Full fine-tuning</td>
+              <td class="num">60,506,624</td>
+              <td class="num">2.31GB</td>
+              <td class="num">71.2%</td>
+              <td class="num">84.0%</td>
+            </tr>
+          </tbody>
+        </table>
+        <p class="table-note">Peak memory is essentially flat (1.59&ndash;1.61GB) across every rank r=2&ndash;32 &mdash; only the parameter count moves. Doubling params from r=16 to r=32 buys just 0.8 points of EM. r=4 is part of the swept rank set but its EM value isn't among the paper's highlighted results. &dagger;Execution accuracy is computed over only 25/500 (5%) executable examples &mdash; the authors flag it as high-variance; treat EM as the trustworthy number.</p>
+      </div>
+
+      <div class="table-block">
+        <h4>Module expansion at fixed r=8 &mdash; a weaker lever than rank</h4>
+        <table>
+          <thead>
+            <tr><th>Adapted modules</th><th>Trainable Params</th><th>Peak Memory</th><th>EM Accuracy</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>{q,v}</td>
+              <td class="num">344,064</td>
+              <td class="num">1.59GB</td>
+              <td class="num">53.4%</td>
+            </tr>
+            <tr>
+              <td>{q,k,v,o} (full attention)</td>
+              <td class="num">589,824</td>
+              <td class="num">1.69GB</td>
+              <td class="num">59.2%</td>
+            </tr>
+            <tr>
+              <td>{q,v} + FFN</td>
+              <td class="num">786,432</td>
+              <td class="num">not reported</td>
+              <td class="num">58.6%</td>
+            </tr>
+          </tbody>
+        </table>
+        <p class="table-note">At the identical 589,824-parameter budget, LoRA r=16 on {q,v} alone (59.6% EM, from the table above) already matches {q,k,v,o}'s 59.2% &mdash; and {q,v}+FFN needs 33% more parameters than {q,k,v,o} for no accuracy gain at all.</p>
+      </div>
+
+      <div class="table-block">
+        <h4>Quantization (QLoRA), LoRA r=8/{q,v} on a frozen base</h4>
+        <table>
+          <thead>
+            <tr><th>Precision</th><th>Peak Memory</th><th>Inference Latency</th><th>EM Accuracy</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>FP16 (baseline)</td>
+              <td class="num">1.59GB</td>
+              <td class="num">~380 ms/query</td>
+              <td class="num">53.4%</td>
+            </tr>
+            <tr>
+              <td>INT8 (LLM.int8())</td>
+              <td class="num">0.60GB</td>
+              <td class="num">921 ms/query</td>
+              <td class="num">52.8%</td>
+            </tr>
+            <tr>
+              <td>NF4 (QLoRA, double quant)</td>
+              <td class="num">0.60GB</td>
+              <td class="num">614 ms/query (34 tok/s)</td>
+              <td class="num">53.2%</td>
+            </tr>
+          </tbody>
+        </table>
+        <p class="table-note">Memory drops 62% vs. FP16 LoRA and 74% vs. full fine-tuning for both quantized variants, at &le;0.6 points of EM cost. But latency gets <em style="color:var(--text); font-style:normal;">worse</em> under quantization, not better &mdash; attributed to T4 dequantization overhead, and not diagnosed further by the authors.</p>
+      </div>
+
+      <div class="table-block">
+        <h4>Seed variance (3 seeds: 42, 123, 456)</h4>
+        <table>
+          <thead>
+            <tr><th>Configuration</th><th>Mean EM</th><th>Std</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>LoRA r=2, {q,v}</td>
+              <td class="num">0.313</td>
+              <td class="num">0.063</td>
+            </tr>
+            <tr>
+              <td>QLoRA INT8, r=8</td>
+              <td class="num">0.535</td>
+              <td class="num">0.006</td>
+            </tr>
+            <tr>
+              <td>QLoRA NF4, r=8</td>
+              <td class="num">0.525</td>
+              <td class="num">0.015</td>
+            </tr>
+          </tbody>
+        </table>
+        <p class="table-note">The configuration ranking (full fine-tuning &gt; r=32 &asymp; r=16 &gt; r=8 &gt; r=4 &gt; r=2) holds across all three seeds. Low-rank LoRA is far noisier than quantized configs &mdash; suggesting quantization has a regularizing effect at this model scale.</p>
+      </div>
+    </div>
+
+    <div class="card sl-grid span-2">
+      <div class="sl-col strengths">
+        <h4>Strengths</h4>
+        <ul>
+          <li>Genuinely controlled single-variable design &mdash; only one axis changes per configuration relative to a fixed reference, making comparisons cleanly interpretable.</li>
+          <li>Joint accuracy + system-cost reporting (parameters, memory, latency, throughput) with an explicit Pareto-front framing, not the accuracy-only tables common in PEFT papers.</li>
+          <li>3-seed variance analysis with reported std, revealing low-rank LoRA is meaningfully noisier than higher-rank or quantized configurations.</li>
+          <li>Full, low-barrier reproducibility: single T4 GPU, ~35 minutes, open code/configs/logs.</li>
+          <li>Honest, repeated acknowledgment of scope limits (single model, single benchmark, single-table task) rather than extrapolating to "small models" broadly.</li>
+        </ul>
+      </div>
+      <div class="sl-col limits">
+        <h4>Limitations</h4>
+        <ul>
+          <li>Single base model (T5-small) and single benchmark (WikiSQL, single-table only) &mdash; the authors explicitly say conclusions shouldn't generalize beyond this setting.</li>
+          <li>Only 5,000 of WikiSQL's full training examples over 3 epochs, yielding a 71.2% EM full fine-tuning ceiling well below literature values (80%+) &mdash; may confound "early rank saturation" with an undertrained-model artifact.</li>
+          <li>Execution accuracy measured over only 25/500 (5%) executable examples, flagged by the authors as high-variance and secondary.</li>
+          <li>QLoRA's higher inference latency (921ms INT8, 614ms NF4 vs. ~380ms FP16) is reported but not deeply diagnosed.</li>
+          <li>No comparison to other PEFT methods (adapters, prefix-tuning, BitFit) &mdash; discussed in Related Work but never empirically benchmarked.</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="card span-2">
+      <h3 class="card-title">Questions for Further Exploration</h3>
+      <ul class="q-list">
+        <li>Does the r=16 rank-saturation point shift with WikiSQL's full ~56K-example training set instead of 5,000 &mdash; is saturation a property of task complexity or of an undertrained regime?</li>
+        <li>How do these rank/module/quantization trade-offs transfer to multi-table benchmarks (Spider, BIRD), where "intrinsic task dimensionality" is presumably higher?</li>
+        <li>Would the QLoRA latency penalty persist on more recent GPUs with better native low-bit kernel support, or is it specific to the T4's dequantization path?</li>
+        <li>How would other PEFT methods (adapters, prefix-tuning, BitFit) compare on the same accuracy/memory/latency axes &mdash; would LoRA still dominate the Pareto front?</li>
+        <li>Does "module expansion is a weaker lever than rank" hold for decoder-only architectures, where attention and FFN structure differ from T5's encoder-decoder design?</li>
+      </ul>
+    </div>
+
+  </section>
+
+  <p class="credibility">Mahendra Singh Rathor (Independent Researcher, Jaipur) and Anagheem Azzam (Independent Researcher, Hamburg) &mdash; neither lists an institutional affiliation, and this appears to be an independent-researcher preprint rather than a peer-reviewed publication. The paper compensates with unusually thorough reproducibility practices for an independent effort: full code/config/log release, single-GPU/35-minute runtime, and 3-seed variance reporting.</p>
+
+  <footer>
+    <span>arXiv:2607.25583 &middot; dashboard generated from source markdown</span>
+    <a href="./2607.25583.md" target="_blank" rel="noopener">&#8599; Markdown source</a>
+  </footer>
+
+</div>
+</body>
+</html>

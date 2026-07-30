@@ -1,0 +1,536 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>How Do LLMs Read Bug Reports? — Attention in LLM-based APR (2607.25873)</title>
+<style>
+  :root{
+    --bg: #0a0d10;
+    --surface: #12171b;
+    --surface-2: #171d22;
+    --ink: #e7ecee;
+    --ink-soft: #9aa8ad;
+    --ink-faint: #5e6b70;
+    --accent: #f0a83c;
+    --accent-soft: rgba(240,168,60,0.12);
+    --accent-soft-2: rgba(240,168,60,0.22);
+    --rule: #232a2e;
+    --rule-strong: #333c41;
+    --font-display: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, "Liberation Mono", monospace;
+    --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  }
+  *{box-sizing:border-box;}
+  html{background:var(--bg);}
+  body{
+    margin:0;
+    background:var(--bg);
+    color:var(--ink);
+    font-family:var(--font-sans);
+    font-size:16px;
+    line-height:1.55;
+    -webkit-font-smoothing:antialiased;
+  }
+  a{color:var(--accent);}
+  .cjk{ font-family: var(--font-sans); line-height:1.9; }
+
+  /* fixed nav */
+  .back-nav{ position:fixed; top:14px; left:14px; z-index:50; }
+  .back-nav a{
+    display:inline-block;
+    background:var(--surface);
+    border:1px solid var(--rule-strong);
+    color:var(--ink);
+    text-decoration:none;
+    font-family:var(--font-mono);
+    font-size:12.5px;
+    font-weight:600;
+    letter-spacing:.02em;
+    padding:7px 12px;
+    border-radius:2px;
+  }
+  .back-nav a:hover{ border-color:var(--accent); color:var(--accent); }
+
+  .wrap{
+    max-width:min(95vw,1100px);
+    margin:0 auto;
+    padding:64px 20px 60px;
+  }
+
+  /* ---------- HERO ---------- */
+  .hero{
+    border-bottom:1px solid var(--rule-strong);
+    padding-bottom:28px;
+    margin-bottom:34px;
+  }
+  .kicker{
+    font-family:var(--font-mono);
+    font-size:12px;
+    letter-spacing:.1em;
+    text-transform:uppercase;
+    color:var(--accent);
+    margin:0 0 14px;
+    opacity:0;
+    animation:riseIn .5s ease forwards;
+  }
+  .kicker::before{ content:"[FIELD STUDY] "; color:var(--ink-faint); }
+  .kicker .alias{ color:var(--ink-faint); font-weight:400; margin-left:6px; }
+  .kicker .cursor{
+    display:inline-block; width:8px; height:13px; background:var(--accent);
+    margin-left:6px; vertical-align:-2px;
+    animation:blink 1.1s step-end infinite;
+  }
+  @keyframes blink{ 50%{ opacity:0; } }
+
+  h1{
+    font-family:var(--font-display);
+    font-size:clamp(20px,2.9vw,31px);
+    line-height:1.34;
+    margin:0 0 16px;
+    font-weight:700;
+    letter-spacing:-.01em;
+    opacity:0;
+    animation:riseIn .6s ease forwards;
+    animation-delay:.06s;
+  }
+  h1 a{
+    color:var(--ink);
+    text-decoration:none;
+    border-bottom:2px solid var(--rule-strong);
+    transition:border-color .2s ease, color .2s ease;
+  }
+  h1 a:hover{ color:var(--accent); border-color:var(--accent); }
+
+  .byline{
+    font-size:13.5px;
+    color:var(--ink-soft);
+    margin:0 0 14px;
+    opacity:0;
+    animation:riseIn .6s ease forwards;
+    animation-delay:.12s;
+  }
+  .byline .sep{ margin:0 8px; color:var(--rule-strong); }
+  .chips{
+    display:flex; flex-wrap:wrap; gap:8px;
+    margin-bottom:22px;
+    opacity:0;
+    animation:riseIn .6s ease forwards;
+    animation-delay:.18s;
+  }
+  .chip{
+    font-family:var(--font-mono);
+    font-size:10.5px;
+    letter-spacing:.04em;
+    text-transform:uppercase;
+    border:1px solid var(--rule-strong);
+    color:var(--ink-soft);
+    padding:4px 9px;
+    border-radius:2px;
+    background:var(--surface);
+  }
+  .finding{
+    margin:0;
+    padding:18px 20px;
+    background:var(--surface);
+    border-left:3px solid var(--accent);
+    border-radius:2px;
+    font-family:var(--font-sans);
+    font-size:clamp(18px,2.4vw,24px);
+    line-height:1.4;
+    font-weight:600;
+    opacity:0;
+    animation:riseIn .6s ease forwards;
+    animation-delay:.24s;
+  }
+  .finding-label{
+    display:block;
+    font-family:var(--font-mono);
+    font-size:11px;
+    letter-spacing:.14em;
+    text-transform:uppercase;
+    color:var(--accent);
+    margin-bottom:8px;
+  }
+
+  @keyframes riseIn{ from{opacity:0; transform:translateY(10px);} to{opacity:1; transform:translateY(0);} }
+
+  /* ---------- ASSET ROW ---------- */
+  .asset-row{
+    display:grid;
+    grid-template-columns:repeat(3,1fr);
+    gap:20px;
+    margin-bottom:44px;
+  }
+  .asset{
+    background:var(--surface);
+    border:1px solid var(--rule);
+    border-radius:2px;
+    padding:20px 20px 22px;
+    position:relative;
+    opacity:0;
+    animation:riseIn .5s ease forwards;
+  }
+  .asset::before, .asset::after{
+    content:""; position:absolute; width:9px; height:9px;
+    border-color:var(--rule-strong); border-style:solid;
+  }
+  .asset::before{ top:-1px; left:-1px; border-width:2px 0 0 2px; }
+  .asset::after{ bottom:-1px; right:-1px; border-width:0 2px 2px 0; }
+  .asset:nth-child(1){animation-delay:.30s;}
+  .asset:nth-child(2){animation-delay:.36s;}
+  .asset:nth-child(3){animation-delay:.42s;}
+
+  .asset-label{
+    font-family:var(--font-mono);
+    font-size:11px; letter-spacing:.12em; text-transform:uppercase;
+    color:var(--ink-faint);
+    margin:0 0 12px;
+  }
+
+  .metric-num{
+    font-family:var(--font-display);
+    font-size:clamp(42px,6.2vw,60px);
+    font-weight:700;
+    color:var(--accent);
+    line-height:1;
+    margin:0 0 10px;
+    font-variant-numeric:tabular-nums;
+  }
+  .metric-sub{ font-size:13px; color:var(--ink-soft); margin:0 0 14px; line-height:1.5; }
+  .metric-chips{ display:flex; flex-wrap:wrap; gap:6px; margin-bottom:14px; }
+  .metric-chips span{
+    font-family:var(--font-mono); font-size:10.5px;
+    background:var(--accent-soft); color:var(--accent);
+    padding:3px 7px; border-radius:2px;
+  }
+  .stamp{
+    display:inline-block;
+    font-family:var(--font-mono);
+    font-size:11px; font-weight:700; letter-spacing:.08em;
+    color:var(--accent);
+    border:1px solid var(--accent);
+    padding:4px 10px; border-radius:2px;
+    transform:rotate(-2.5deg);
+    margin:0;
+  }
+
+  .why-body{ font-size:15.5px; line-height:1.55; margin:0 0 14px; }
+  .why-cjk{
+    font-size:12.5px; color:var(--ink-soft); line-height:1.9;
+    margin:0; padding-top:12px; border-top:1px dashed var(--rule-strong);
+  }
+  .why-cjk b{ color:var(--ink-faint); font-weight:600; }
+
+  .asset.edge{ background:var(--surface-2); border-color:var(--accent-soft-2); }
+  .asset.edge .asset-label{ color:var(--accent); }
+  .edge-body{ font-size:15px; line-height:1.55; color:var(--ink); margin:0; }
+  .edge-body em{ color:var(--accent); font-style:normal; font-weight:700; }
+
+  /* ---------- BODY GRID ---------- */
+  .body-grid{
+    display:grid;
+    grid-template-columns:1fr 1.55fr;
+    grid-template-areas:
+      "method   results"
+      "strengths limitations"
+      "questions questions";
+    gap:24px;
+  }
+  .card{
+    background:var(--surface);
+    border:1px solid var(--rule);
+    border-radius:2px;
+    padding:22px 24px;
+  }
+  .card h2{
+    font-family:var(--font-display);
+    font-size:16px;
+    letter-spacing:.02em;
+    text-transform:uppercase;
+    margin:0 0 14px;
+    padding-bottom:10px;
+    border-bottom:1px solid var(--rule-strong);
+    color:var(--ink);
+  }
+  .card h3{
+    font-family:var(--font-mono);
+    font-size:11.5px;
+    letter-spacing:.06em;
+    text-transform:uppercase;
+    color:var(--accent);
+    margin:22px 0 10px;
+  }
+  .card h3:first-of-type{ margin-top:4px; }
+  .card p{ margin:0 0 12px; color:var(--ink); }
+  .card p:last-child{ margin-bottom:0; }
+
+  .methodology{grid-area:method;}
+  .results{grid-area:results;}
+  .strengths{grid-area:strengths;}
+  .limitations{grid-area:limitations;}
+  .questions{grid-area:questions;}
+
+  .methodology p{ font-size:14px; line-height:1.65; color:var(--ink-soft); }
+  .methodology strong{ color:var(--ink); }
+  .methodology .stage{
+    font-family:var(--font-mono); font-size:11px; color:var(--accent);
+    letter-spacing:.05em;
+  }
+
+  .table-wrap{ overflow-x:auto; margin-bottom:6px; }
+  table{ width:100%; border-collapse:collapse; font-size:13px; }
+  caption{ text-align:left; font-size:11.5px; color:var(--ink-soft); margin-bottom:8px; caption-side:top; }
+  thead th{
+    text-align:left; font-family:var(--font-mono); font-size:10.5px;
+    letter-spacing:.05em; text-transform:uppercase;
+    color:var(--ink-soft);
+    border-bottom:1px solid var(--rule-strong);
+    padding:7px 10px;
+  }
+  tbody td{ padding:8px 10px; border-bottom:1px solid var(--rule); font-variant-numeric:tabular-nums; color:var(--ink); }
+  tbody tr:last-child td{ border-bottom:none; }
+  td.num, th.num{ text-align:right; font-family:var(--font-mono); }
+  tbody tr.best td{ background:var(--accent-soft); font-weight:700; }
+  tbody tr.worst td{ color:var(--ink-faint); }
+  .foot{ font-size:11px; color:var(--ink-faint); margin-top:6px; }
+
+  .stat-tiles{
+    display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr));
+    gap:12px; margin-bottom:16px;
+  }
+  .stat-tile{ background:var(--bg); border:1px solid var(--rule); border-radius:2px; padding:12px 13px; }
+  .stat-tile .num{
+    font-family:var(--font-mono); font-weight:700; font-size:18px;
+    color:var(--accent); display:block; margin-bottom:4px;
+  }
+  .stat-tile .lbl{ font-size:11.5px; color:var(--ink-soft); line-height:1.45; }
+
+  ul.list, ol.list{ margin:0; padding-left:0; font-size:13.5px; line-height:1.6; list-style:none; }
+  ul.list li, ol.list li{ margin-bottom:12px; padding-left:18px; position:relative; }
+  ul.list li:last-child, ol.list li:last-child{ margin-bottom:0; }
+  ul.list li::before{ content:"—"; position:absolute; left:0; color:var(--ink-faint); }
+  .limitations ul.list li::before{ color:var(--accent); }
+
+  .questions ol.list{ counter-reset:q; }
+  .questions ol.list li{ counter-increment:q; padding-left:34px; }
+  .questions ol.list li::before{
+    content:"Q" counter(q);
+    position:absolute; left:0; top:0;
+    font-family:var(--font-mono); font-size:10.5px; font-weight:700;
+    color:var(--accent); border:1px solid var(--accent);
+    padding:2px 5px; border-radius:2px;
+  }
+
+  footer.source-footer{
+    text-align:center; margin-top:46px; padding-top:22px;
+    border-top:1px solid var(--rule);
+  }
+  footer.source-footer a{
+    font-family:var(--font-mono); font-size:12.5px; text-decoration:none;
+    border:1px solid var(--rule-strong); padding:8px 16px; border-radius:2px; color:var(--ink);
+  }
+  footer.source-footer a:hover{ border-color:var(--accent); color:var(--accent); }
+  footer.source-footer p{ font-size:11px; color:var(--ink-faint); margin:10px 0 0; }
+
+  @media (max-width:720px){
+    .wrap{ padding:56px 14px 40px; }
+    .asset-row{ grid-template-columns:1fr; }
+    .body-grid{
+      grid-template-columns:1fr;
+      grid-template-areas:
+        "method" "results" "strengths" "limitations" "questions";
+    }
+  }
+</style>
+</head>
+<body>
+
+  <nav class="back-nav"><a href="./index.html">↩ Today's digest</a></nav>
+
+  <div class="wrap">
+
+    <header class="hero">
+      <p class="kicker">ATTENTION AUDIT / APR <span class="alias">— How LLMs Read Bug Reports</span><span class="cursor"></span></p>
+      <h1><a href="https://arxiv.org/abs/2607.25873" target="_blank" rel="noopener">How Do LLMs Read Bug Reports? An Empirical Study of Attention in LLMs for Automated Program Repair</a></h1>
+      <div class="byline">
+        <span class="authors">Ramtin Ehsani, Irene Manotas, Saurabh Pujar, Luca Buratti, Preetha Chatterjee</span>
+        <span class="sep">·</span>
+        <span>28 Jul 2026</span>
+        <span class="sep">·</span>
+        <span>Drexel University · IBM Research</span>
+      </div>
+      <div class="chips">
+        <span class="chip">automated program repair</span>
+        <span class="chip">LLM attention analysis</span>
+        <span class="chip">perturbation-based interpretability</span>
+        <span class="chip">bug-report understanding</span>
+        <span class="chip">empirical software engineering</span>
+      </div>
+      <p class="finding">
+        <span class="finding-label">Key Finding</span>
+        Successful bug fixes spread model attention across bug description, stack trace, and tests; failures fixate on version metadata alone.
+      </p>
+    </header>
+
+    <section class="asset-row">
+      <article class="asset metric">
+        <p class="asset-label">Key Metric</p>
+        <p class="metric-num" id="orNum">2.07×</p>
+        <p class="metric-sub">Odds ratio: "diffused" attention (spread across bug-report sections) predicts repair success, q=2.41×10⁻¹⁴ — vs. 0.40× for "localized" attention on low-signal metadata (q=9.60×10⁻¹⁵)</p>
+        <div class="metric-chips">
+          <span>claude-4-sonnet: 65.2% fixed</span>
+          <span>gpt-oss-20b: 51.7%</span>
+          <span>qwen3-32b: 40.7%</span>
+        </div>
+        <p class="stamp">319 bugs · 3 LLMs</p>
+      </article>
+
+      <article class="asset why">
+        <p class="asset-label">Why This Matters</p>
+        <p class="why-body">Offers an interpretable signal — not just accuracy — for diagnosing and improving LLM-based bug-repair pipelines and agentic coding systems.</p>
+        <p class="why-cjk cjk"><b>原文 Relevance：</b>这篇论文用可解释的扰动式归因方法系统研究了LLM在真实bug报告上的注意力分配规律，并首次给出开发者-模型注意力对齐的人工标注数据集，对关注LLM可解释性、注意力机制以及LLM辅助软件工程/agentic coding系统的读者有直接参考价值。</p>
+      </article>
+
+      <article class="asset edge">
+        <p class="asset-label">Critical Edge</p>
+        <p class="edge-body">The paper's most detailed findings — fine-grained attention (RQ2) and developer-alignment (RQ3) — are validated almost entirely on <em>qwen3-32b</em>, the weakest of the three models, while claude-4-sonnet, the strongest performer, is excluded entirely.</p>
+      </article>
+    </section>
+
+    <section class="body-grid">
+
+      <article class="card methodology">
+        <h2>Methodology</h2>
+        <p>319 real, single-function bugs — 248 Python (<strong>SWE-bench Verified</strong>) and 71 Java (<strong>Multi-SWE-bench</strong>) — are repaired by three LLMs (claude-4-sonnet, gpt-oss-20b, qwen3-32b) at temperature 0 with a standardized prompt. Since internal attention weights aren't accessible across all three, attention is estimated <strong>behaviorally</strong>: inputs are perturbed and the change in output is measured.</p>
+        <p><span class="stage">RQ1 — SECTION-LEVEL</span> — bug reports are split into six sections (description, reproduction, expected/actual behavior, version, additional info); every masking coalition is regenerated and <strong>Kernel SHAP</strong> over CodeBLEU similarity assigns each section a per-report attention score.</p>
+        <p><span class="stage">RQ2 — COMPONENT-LEVEL</span> — sections are decomposed into 5 NL and 4 code sub-components (stacktrace, test, class/method, imports); UniXcoder-embedding perturbation classifies each report as <strong>diffused</strong>, <strong>localized</strong>, or <strong>no-attention</strong>. Run mainly on qwen3-32b for cost reasons (2,873 perturbations).</p>
+        <p><span class="stage">RQ3 — HUMAN ALIGNMENT</span> — four developers (5+ yrs experience) rate section importance and key phrases for 100 bugs, compared against model attention via Spearman correlation and phrase-level F1.</p>
+      </article>
+
+      <article class="card results">
+        <h2>Results &amp; Highlights</h2>
+
+        <h3>Fix rate &amp; patch quality (319-bug set)</h3>
+        <div class="table-wrap">
+          <table>
+            <caption>CodeBLEU = similarity to ground-truth developer patch</caption>
+            <thead>
+              <tr><th>Model</th><th class="num">Fixed</th><th class="num">Fix rate</th><th class="num">Median CodeBLEU (success)</th><th class="num">Mean CodeBLEU (fail)</th></tr>
+            </thead>
+            <tbody>
+              <tr class="best"><td>claude-4-sonnet</td><td class="num">208/319</td><td class="num">65.2%</td><td class="num">91%</td><td class="num">~30%</td></tr>
+              <tr><td>gpt-oss-20b</td><td class="num">165/319</td><td class="num">51.7%</td><td class="num">85%</td><td class="num">~29%</td></tr>
+              <tr class="worst"><td>qwen3-32b</td><td class="num">130/319</td><td class="num">40.7%</td><td class="num">84%</td><td class="num">~31%</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="foot">A 24.5-point fix-rate spread across identical bugs; successful patches converge tightly on ground truth while failures diverge by 55-61 points.</p>
+
+        <h3>Section-level effect sizes (RQ1, Cliff's δ — all 3 models)</h3>
+        <div class="table-wrap">
+          <table>
+            <caption>Mann-Whitney p&lt;0.05 for every cell shown</caption>
+            <thead>
+              <tr><th>Model</th><th class="num">Bug description → success</th><th class="num">Version info → failure</th></tr>
+            </thead>
+            <tbody>
+              <tr class="best"><td>claude-4-sonnet</td><td class="num">δ=0.54</td><td class="num">δ=−0.53</td></tr>
+              <tr><td>gpt-oss-20b</td><td class="num">δ=0.51</td><td class="num">δ=−0.20</td></tr>
+              <tr><td>qwen3-32b</td><td class="num">δ=0.50</td><td class="num">δ=−0.42</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3>Attention-structure odds ratios (RQ2, Fisher's exact + FDR)</h3>
+        <div class="stat-tiles">
+          <div class="stat-tile"><span class="num">OR 2.07</span><span class="lbl">Diffused attention → success, 95% CI [1.68, 2.52], q=2.41×10⁻¹⁴</span></div>
+          <div class="stat-tile"><span class="num">OR 0.40</span><span class="lbl">Localized attention → failure, 95% CI [0.33, 0.50], q=9.60×10⁻¹⁵</span></div>
+          <div class="stat-tile"><span class="num">1.66 / 0.40</span><span class="lbl">Python-only diffused / localized OR — same direction holds</span></div>
+          <div class="stat-tile"><span class="num">1.86 / 0.65</span><span class="lbl">Java-only diffused / localized OR — same direction holds</span></div>
+          <div class="stat-tile"><span class="num">2.00 / 0.38</span><span class="lbl">Diffused / localized OR after controlling for bug difficulty — essentially unchanged</span></div>
+        </div>
+
+        <h3>Human-model attention alignment (RQ3, 100-bug annotated subset)</h3>
+        <div class="table-wrap">
+          <table>
+            <caption>Successful vs. failed repairs, alignment with 4 developer annotators</caption>
+            <thead>
+              <tr><th>Metric</th><th class="num">Successful</th><th class="num">Failed</th><th class="num">p-value</th></tr>
+            </thead>
+            <tbody>
+              <tr class="best"><td>Section-level Spearman ρ</td><td class="num">0.60</td><td class="num">0.34</td><td class="num">0.036</td></tr>
+              <tr><td>Hit@1</td><td class="num">0.57</td><td class="num">0.33</td><td class="num">0.028</td></tr>
+              <tr><td>Phrase-level F1@20</td><td class="num">0.19</td><td class="num">0.08</td><td class="num">0.031</td></tr>
+              <tr><td>Precision@20</td><td class="num">0.42</td><td class="num">0.18</td><td class="num">0.027</td></tr>
+              <tr><td>Recall@20</td><td class="num">0.13</td><td class="num">0.05</td><td class="num">0.048</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="foot">Inter-rater agreement (40-bug overlap): Spearman 0.817, Cohen's κ 0.77. Both developers and qwen3-32b rank Bug description top-2 most often (79% vs. 61%), but the model puts Version information in its top-2 nearly 2× as often as developers (11% vs. 6%).</p>
+      </article>
+
+      <article class="card strengths">
+        <h2>Strengths</h2>
+        <ul class="list">
+          <li>Real, function-level bugs from two established GitHub-derived benchmarks (SWE-bench Verified, Multi-SWE-bench), not synthetic toy examples, with manually verified difficulty labels.</li>
+          <li>Cross-model (1 proprietary + 2 open-source) and cross-language (Python + Java) design shows the diffused-vs-localized pattern holds across models and languages.</li>
+          <li>Introduces a genuinely new artifact — a human-annotated developer-attention dataset — filling a documented gap in existing APR benchmarks.</li>
+          <li>Statistically disciplined: effect sizes reported alongside significance tests, FDR multiple-testing correction, and a difficulty-controlled robustness check rather than raw p-values alone.</li>
+          <li>Concrete case studies (e.g., near-duplicate matplotlib bugs #16344 vs. #16420) ground the statistics in interpretable examples.</li>
+        </ul>
+      </article>
+
+      <article class="card limitations">
+        <h2>Limitations</h2>
+        <ul class="list">
+          <li>Perturbation-based attention is a black-box behavioral proxy, not a direct measurement of internal attention weights or reasoning.</li>
+          <li>Fine-grained (RQ2) and alignment (RQ3) findings rest almost entirely on qwen3-32b, with only a partial Java-subset check on gpt-oss-20b; claude-4-sonnet is never analyzed at this depth.</li>
+          <li>NL/code decomposition relies on regex heuristics and NLTK tokenization verified by a single author, not cross-checked by multiple annotators.</li>
+          <li>The 100-bug developer dataset uses one annotator per bug; the "ground truth" partly reflects individual subjective judgment.</li>
+          <li>All results use single-sample, temperature-0 greedy decoding — never validated against repeated sampling or pass@k.</li>
+          <li>The Hard-difficulty subset (11 bugs) is too small for reliable stratified conclusions, and the paper's own difficulty-vs-success chi-square test is not significant (p=0.06).</li>
+        </ul>
+      </article>
+
+      <article class="card questions">
+        <h2>Questions for Further Exploration</h2>
+        <ol class="list">
+          <li>Would diffused-vs-localized attention, and its success correlation, replicate on agentic APR systems (SWE-Agent, AutoCodeRover, OpenHands) that iteratively retrieve and re-read context, rather than single-shot repair?</li>
+          <li>Does the developer-alignment finding hold if claude-4-sonnet — the strongest model, excluded from RQ2/RQ3 — were analyzed directly, given it has the most successful repairs to compare?</li>
+          <li>Can the developer-attention dataset be used prescriptively — attention-aware prompt reordering, section reweighting, fine-tuning — to actually raise fix rates, beyond a purely correlational relationship?</li>
+          <li>How sensitive are the reported attention-success associations to non-zero-temperature sampling and multiple repair attempts (pass@k), rather than single deterministic greedy decodes?</li>
+          <li>Would the same section/component attention patterns hold on noisier, less-curated real-world bug reports, or on languages beyond Python and Java?</li>
+        </ol>
+      </article>
+
+    </section>
+
+    <footer class="source-footer">
+      <a href="./2607.25873.md">↗ Markdown source</a>
+      <p>Not browser-verified, generated from source markdown.</p>
+    </footer>
+
+  </div>
+
+  <script>
+    // Count-up flourish on the headline odds-ratio figure — purely decorative, no state dependency.
+    (function(){
+      var el = document.getElementById('orNum');
+      if(!el) return;
+      var target = 2.07;
+      var start = null;
+      var duration = 900;
+      function step(ts){
+        if(start === null) start = ts;
+        var progress = Math.min((ts - start) / duration, 1);
+        var eased = 1 - Math.pow(1 - progress, 3);
+        el.textContent = (target * eased).toFixed(2) + '×';
+        if(progress < 1) requestAnimationFrame(step);
+        else el.textContent = target.toFixed(2) + '×';
+      }
+      requestAnimationFrame(step);
+    })();
+  </script>
+</body>
+</html>

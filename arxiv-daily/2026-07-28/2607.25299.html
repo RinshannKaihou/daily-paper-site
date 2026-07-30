@@ -1,0 +1,574 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Manifold-LoRA — Retraction-Free Stiefel Optimization for LoRA Fine-Tuning</title>
+<style>
+  :root{
+    --bg: #0b0d0e;
+    --bg-panel: #14171a;
+    --bg-panel-2: #1a1e21;
+    --border: #272b2f;
+    --text: #e9e6df;
+    --text-dim: #9a9fa3;
+    --text-dim2: #8b9095;
+    --accent: #2bc7d6;
+    --accent-dim: #123a3f;
+    --mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+    --serif: Georgia, "Iowan Old Style", "Palatino Linotype", Palatino, "Times New Roman", serif;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  }
+  *{ box-sizing: border-box; }
+  html{ background: var(--bg); }
+  body{
+    margin:0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+  :lang(zh){ line-height: 1.85; }
+  .zh{ line-height: 1.85; }
+
+  a{ color: inherit; }
+
+  /* ---------- fixed nav ---------- */
+  .backnav{
+    position: fixed;
+    top: 18px;
+    left: 18px;
+    z-index: 50;
+    font-family: var(--mono);
+    font-size: 12.5px;
+    letter-spacing: 0.02em;
+    color: var(--text-dim2);
+    background: rgba(20,23,26,0.9);
+    border: 1px solid var(--border);
+    padding: 7px 13px;
+    border-radius: 3px;
+    text-decoration: none;
+    transition: border-color .15s ease, color .15s ease;
+  }
+  .backnav:hover{ border-color: var(--accent); color: var(--accent); }
+
+  .wrap{
+    width: min(95vw, 1100px);
+    margin: 0 auto;
+    padding: 72px 0 40px;
+  }
+
+  /* ---------- hero ---------- */
+  .hero{ margin-bottom: 44px; }
+  .eyebrow{
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 18px;
+    opacity: 0;
+    animation: rise .5s ease forwards;
+  }
+  .eyebrow::before{ content:"◆ "; }
+
+  .key-finding{
+    font-family: var(--serif);
+    font-weight: 400;
+    font-size: clamp(28px, 4.4vw, 46px);
+    line-height: 1.22;
+    letter-spacing: -0.01em;
+    margin: 0 0 28px;
+    max-width: 900px;
+    opacity: 0;
+    animation: rise .6s ease .08s forwards;
+  }
+  .key-finding em{
+    font-style: normal;
+    color: var(--accent);
+    border-bottom: 2px solid var(--accent-dim);
+  }
+
+  .paper-title{
+    display:inline-block;
+    font-family: var(--sans);
+    font-size: 15px;
+    color: var(--text-dim2);
+    text-decoration: none;
+    border-bottom: 1px dotted var(--border);
+    padding-bottom: 2px;
+    margin-bottom: 18px;
+    opacity: 0;
+    animation: rise .6s ease .16s forwards;
+  }
+  .paper-title:hover{ color: var(--text); border-bottom-color: var(--accent); }
+  .paper-title .arrow{ color: var(--accent); margin-left: 4px; }
+
+  .meta-row{
+    display:flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px 18px;
+    font-family: var(--mono);
+    font-size: 12.5px;
+    color: var(--text-dim2);
+    opacity: 0;
+    animation: rise .6s ease .22s forwards;
+  }
+  .meta-row .authors{ color: var(--text-dim2); }
+  .meta-row .sep{ color: var(--border); }
+  .chips{ display:flex; flex-wrap: wrap; gap: 7px; }
+  .chip{
+    border: 1px solid var(--border);
+    color: var(--text-dim2);
+    padding: 3px 9px;
+    border-radius: 999px;
+    font-size: 11px;
+    letter-spacing: 0.02em;
+  }
+
+  @keyframes rise{
+    from{ opacity: 0; transform: translateY(10px); }
+    to{ opacity: 1; transform: translateY(0); }
+  }
+
+  /* ---------- asset row ---------- */
+  .assets{
+    display: grid;
+    grid-template-columns: 0.9fr 1.3fr 1fr;
+    gap: 16px;
+    margin-bottom: 52px;
+  }
+  .asset-card{
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 22px 22px 20px;
+    opacity: 0;
+    animation: rise .6s ease forwards;
+  }
+  .assets .asset-card:nth-child(1){ animation-delay: .28s; }
+  .assets .asset-card:nth-child(2){ animation-delay: .34s; }
+  .assets .asset-card:nth-child(3){ animation-delay: .4s; }
+
+  .asset-label{
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--text-dim2);
+    margin-bottom: 14px;
+  }
+
+  .metric-value{
+    font-family: var(--mono);
+    font-size: clamp(38px, 4.6vw, 54px);
+    font-weight: 700;
+    color: var(--accent);
+    line-height: 1;
+    letter-spacing: -0.02em;
+    margin-bottom: 10px;
+  }
+  .metric-value sup{ font-size: 0.42em; color: var(--text-dim2); }
+  .metric-caption{ font-size: 13.5px; color: var(--text-dim2); line-height: 1.5; }
+  .metric-caption b{ color: var(--text); font-weight: 600; }
+
+  .why-text{ font-family: var(--serif); font-size: 18px; line-height: 1.5; color: var(--text); }
+
+  .edge-card{
+    background: var(--bg-panel);
+    border: 1px solid var(--accent-dim);
+    border-left: 3px solid var(--accent);
+    position: relative;
+  }
+  .edge-card .asset-label{ color: var(--accent); }
+  .edge-text{ font-size: 14.5px; color: var(--text); line-height: 1.55; }
+
+  /* ---------- body grid ---------- */
+  .body-grid{
+    display: grid;
+    grid-template-columns: 1.1fr 0.9fr;
+    gap: 20px;
+  }
+  .card{
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 26px 26px 28px;
+    margin-bottom: 20px;
+  }
+  .card-title{
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin: 0 0 18px;
+    display:flex;
+    align-items:center;
+    gap: 8px;
+  }
+  .card-title::after{
+    content:"";
+    flex:1;
+    height:1px;
+    background: var(--border);
+  }
+  .span-2{ grid-column: 1 / -1; }
+
+  /* landing-vs-retraction diagram */
+  .pipeline{
+    display:flex;
+    align-items: stretch;
+    gap: 6px;
+    margin-bottom: 22px;
+    flex-wrap: wrap;
+  }
+  .pipe-box{
+    flex: 1 1 160px;
+    background: var(--bg-panel-2);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 12px 12px;
+    min-width: 160px;
+  }
+  .pipe-box .pb-title{
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--accent);
+    margin-bottom: 5px;
+    letter-spacing: 0.04em;
+  }
+  .pipe-box .pb-desc{ font-size: 12px; color: var(--text-dim2); line-height: 1.4; }
+  .pipe-arrow{
+    display:flex; align-items:center; justify-content:center;
+    color: var(--text-dim2); font-size: 16px; padding: 0 2px;
+  }
+
+  .method-text{ font-size: 14.5px; color: var(--text); }
+  .method-text code{
+    font-family: var(--mono);
+    background: var(--bg-panel-2);
+    padding: 1px 5px;
+    border-radius: 3px;
+    font-size: 13px;
+    color: var(--accent);
+  }
+
+  table{
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+    margin-bottom: 8px;
+  }
+  th, td{
+    text-align: left;
+    padding: 9px 10px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  th{
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text-dim2);
+    font-weight: 600;
+  }
+  td.num{ font-family: var(--mono); color: var(--accent); white-space: nowrap; }
+  td .tag{
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--accent);
+    border: 1px solid var(--accent-dim);
+    padding: 1px 5px;
+    border-radius: 2px;
+    margin-right: 4px;
+  }
+  .table-note{ font-size: 12px; color: var(--text-dim2); margin: 10px 0 0; line-height: 1.5; }
+  .table-block{ margin-bottom: 26px; }
+  .table-block:last-child{ margin-bottom: 0; }
+  .table-block h4{
+    font-family: var(--sans);
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text);
+    margin: 0 0 10px;
+  }
+
+  .sl-grid{
+    display:grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+  }
+  .sl-col h4{
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin: 0 0 12px;
+  }
+  .sl-col.strengths h4{ color: #8fd694; }
+  .sl-col.limits h4{ color: var(--accent); }
+  .sl-col ul{ margin:0; padding-left: 18px; }
+  .sl-col li{ font-size: 13.5px; margin-bottom: 11px; line-height: 1.5; color: var(--text); }
+  .sl-col li::marker{ color: var(--text-dim2); }
+
+  .q-list{ list-style: none; margin:0; padding:0; counter-reset: q; }
+  .q-list li{
+    counter-increment: q;
+    padding: 13px 0 13px 34px;
+    position: relative;
+    border-bottom: 1px solid var(--border);
+    font-size: 14px;
+    line-height: 1.5;
+  }
+  .q-list li:last-child{ border-bottom: none; padding-bottom: 0; }
+  .q-list li::before{
+    content: counter(q);
+    position: absolute;
+    left: 0; top: 12px;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--accent);
+    border: 1px solid var(--accent-dim);
+    width: 20px; height: 20px;
+    border-radius: 50%;
+    display:flex; align-items:center; justify-content:center;
+  }
+
+  .credibility{
+    font-size: 12.5px;
+    color: var(--text-dim2);
+    margin-top: 6px;
+    max-width: 760px;
+  }
+
+  footer{
+    margin-top: 28px;
+    padding-top: 22px;
+    border-top: 1px solid var(--border);
+    display:flex;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 10px;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text-dim2);
+  }
+  footer a{
+    color: var(--text-dim2);
+    text-decoration: none;
+    border-bottom: 1px dotted var(--border);
+  }
+  footer a:hover{ color: var(--accent); border-bottom-color: var(--accent); }
+
+  @media (max-width: 720px){
+    .wrap{ padding-top: 64px; }
+    .assets{ grid-template-columns: 1fr; }
+    .body-grid{ grid-template-columns: 1fr; }
+    .sl-grid{ grid-template-columns: 1fr; }
+    .pipeline{ flex-direction: column; }
+    .pipe-arrow{ transform: rotate(90deg); padding: 4px 0; }
+  }
+</style>
+</head>
+<body>
+
+<a class="backnav" href="./index.html">&#8617; Today's digest</a>
+
+<div class="wrap">
+
+  <section class="hero">
+    <div class="eyebrow">Retraction-free landing on the Stiefel manifold, applied to LoRA</div>
+    <h1 class="key-finding">An explicit, <em>tuning-free penalty constant</em> makes Stiefel-manifold optimization retraction-free and provably convergent, then reformulates LoRA to remove its redundant parametrization.</h1>
+    <a class="paper-title" href="https://arxiv.org/abs/2607.25299" target="_blank" rel="noopener">
+      Retraction-Free Optimization over the Stiefel Manifold for the LoRA Fine-Tuning <span class="arrow">&#8599;</span>
+    </a>
+    <div class="meta-row">
+      <span class="authors">Zhang, Hu, Lai, Lin, Wen</span>
+      <span class="sep">&middot;</span>
+      <span>2026-07-28</span>
+      <span class="sep">&middot;</span>
+      <span>arXiv:2607.25299</span>
+      <span class="sep">&middot;</span>
+      <div class="chips">
+        <span class="chip">manifold optimization</span>
+        <span class="chip">Stiefel manifold</span>
+        <span class="chip">LoRA fine-tuning</span>
+        <span class="chip">retraction-free algorithms</span>
+        <span class="chip">parameter-efficient fine-tuning</span>
+      </div>
+    </div>
+  </section>
+
+  <section class="assets">
+    <div class="asset-card metric-card">
+      <div class="asset-label">Key Metric</div>
+      <div class="metric-value">90.4</div>
+      <div class="metric-caption">SQuAD F1 on LLaMA3-8B with Manifold-LoRA (Sphere) &mdash; up from <b>84.3</b> for a plain AdamW-tuned LoRA baseline and <b>88.1</b> for the closest prior retraction-based Stiefel method.</div>
+    </div>
+    <div class="asset-card why-card">
+      <div class="asset-label">Why This Matters</div>
+      <div class="why-text">Gives efficient LLM fine-tuning a mathematically grounded, tuning-free way to remove LoRA's redundant parametrization via manifold geometry.</div>
+    </div>
+    <div class="asset-card edge-card">
+      <div class="asset-label">Critical Edge</div>
+      <div class="edge-text">The "penalty-parameter-free" claim covers only the theoretical constant &mu;=1/3 &mdash; Algorithm 2 still needs per-task, per-rank step-size tuning in practice.</div>
+    </div>
+  </section>
+
+  <section class="body-grid">
+
+    <div class="card span-2">
+      <h3 class="card-title">Methodology</h3>
+      <div class="pipeline">
+        <div class="pipe-box">
+          <div class="pb-title">RETRACTION-BASED (PRIOR ART)</div>
+          <div class="pb-desc">Cayley transform re-orthogonalizes every step &mdash; a (2r)&times;(2r) matrix inversion, 4dr&sup2;+40/3&middot;r&sup3; flops.</div>
+        </div>
+        <div class="pipe-arrow">&rarr;</div>
+        <div class="pipe-box">
+          <div class="pb-title">RETRACTION-FREE LANDING (THIS PAPER)</div>
+          <div class="pb-desc">Tangent-space gradient step + penalty gradient &minus;&mu;&middot;X(X<sup>&#7488;</sup>X&minus;I) pulls iterates back toward St(d,r), &mu;=1/3 fixed by an RSI proof.</div>
+        </div>
+        <div class="pipe-arrow">&rarr;</div>
+        <div class="pipe-box">
+          <div class="pb-title">MANIFOLD-LORA</div>
+          <div class="pb-desc">B constrained to Stiefel/Oblique, A free &mdash; AdamW-style update, separate step sizes for A and B.</div>
+        </div>
+      </div>
+      <p class="method-text">
+        The paper targets min<sub>X</sub> (1/N)&Sigma;f<sub>i</sub>(X) over the Stiefel manifold St(d,r) = {X &isin; &#8477;<sup>d&times;r</sup> : X<sup>&#7488;</sup>X = I}. Retraction-based Riemannian gradient descent enforces the constraint exactly at each step, but that re-orthogonalization is expensive. "Landing" methods instead move along the projected tangent-space gradient while a quadratic penalty <code>&phi;(X)=&frac14;&Vert;X&#7488;X&minus;I&Vert;&sup2;</code> pulls iterates back toward the manifold &mdash; but prior landing methods needed the penalty weight &mu; hand-tuned or sent to infinity. This paper proves a restricted secant inequality (RSI) for &phi; within an &#8539;-tube of the manifold, showing a fixed <code>&mu;=1/3</code> is provably sufficient, and pairs it with 1-proximal smoothness of the Stiefel manifold to get exact O(1/K) convergence (deterministic) and O(log K/&radic;K) constraint-violation (stochastic) rates &mdash; both improving on the closest prior results. Applied to LoRA, <code>&Delta;W=BA</code> is reformulated with B constrained to St(d,r) or the Oblique manifold (unit-norm columns) and A as B's coordinate, removing the GL(r) redundancy <code>BA=(BC)(C&#8315;&sup1;A)</code>. The result is Manifold-LoRA (Algorithm 2): an AdamW-style optimizer with independent step-size schedules for A and B, each scaled by the reciprocal of its own Lipschitz constant.
+      </p>
+    </div>
+
+    <div class="card span-2">
+      <h3 class="card-title">Results &amp; Highlights</h3>
+
+      <div class="table-block">
+        <h4>Matched trainable-parameter comparison (DeBERTaV3-base / GPT-2, rank 16 unless noted)</h4>
+        <table>
+          <thead>
+            <tr><th>Benchmark</th><th>LoRA baseline</th><th>Manifold-LoRA</th><th>Note</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>GLUE All-Average</td>
+              <td class="num">87.74</td>
+              <td class="num">88.63</td>
+              <td>Sphere/Oblique variant &mdash; best of all baselines, incl. full fine-tuning (87.85)</td>
+            </tr>
+            <tr>
+              <td>GLUE &middot; RTE (r=8)</td>
+              <td class="num">80.15</td>
+              <td class="num">83.16</td>
+              <td>Stiefel variant, +3.01 at identical 0.30M params</td>
+            </tr>
+            <tr>
+              <td>SQuAD v2.0 F1 / EM</td>
+              <td class="num">88.81 / 85.90</td>
+              <td class="num">89.22 / 86.41</td>
+              <td>Stiefel, 2.65M params &mdash; best among all baselines</td>
+            </tr>
+            <tr>
+              <td>SQuAD v1.1 F1 (r=8)</td>
+              <td class="num">93.88</td>
+              <td class="num">94.25</td>
+              <td>Sphere variant, 1.33M params</td>
+            </tr>
+            <tr>
+              <td>E2E NLG BLEU (GPT-2 Large)</td>
+              <td class="num">70.1</td>
+              <td class="num">70.9</td>
+              <td>Sphere variant, 0.77M params; NIST/METEOR/ROUGE-L/CIDEr all &ge;</td>
+            </tr>
+          </tbody>
+        </table>
+        <p class="table-note">On the SQuADv2.0 and CoLA training curves, Manifold-LoRA reaches vanilla LoRA's training loss / F1 / EM in roughly half the epochs &mdash; described in the paper as "almost 2&times; faster convergence."</p>
+      </div>
+
+      <div class="table-block">
+        <h4>Scaling to LLaMA3-8B (reading comprehension &amp; reasoning)</h4>
+        <table>
+          <thead>
+            <tr><th>Task</th><th>AdamW-LoRA</th><th>Prior Stiefel method</th><th>Manifold-LoRA</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>SQuAD F1 / EM</td>
+              <td class="num">84.3 / 74.6</td>
+              <td class="num">88.1 / 79.7</td>
+              <td class="num">90.4 / 82.0</td>
+            </tr>
+            <tr>
+              <td>QuAC F1</td>
+              <td class="num">65.8</td>
+              <td class="num">69.7</td>
+              <td class="num">71.3</td>
+            </tr>
+            <tr>
+              <td>GSM8K accuracy</td>
+              <td class="num">54.7%</td>
+              <td class="num">58.8%</td>
+              <td class="num">60.5%</td>
+            </tr>
+            <tr>
+              <td>MATH accuracy</td>
+              <td class="num">19.3%</td>
+              <td class="num">22.5%</td>
+              <td class="num">23.8%</td>
+            </tr>
+          </tbody>
+        </table>
+        <p class="table-note">"Prior Stiefel method" = the retraction-based approach of Park et al. (ACL Findings 2025), a concurrent work whose experimental protocol this scaling study reuses.</p>
+      </div>
+    </div>
+
+    <div class="card sl-grid span-2">
+      <div class="sl-col strengths">
+        <h4>Strengths</h4>
+        <ul>
+          <li>A theoretically clean contribution: explicit &mu;=1/3 backed by a restricted secant inequality, with rates proven to improve on the two closest prior retraction-free works.</li>
+          <li>Constant-step-size <em style="font-style:normal;color:var(--text);">exact</em> convergence in the deterministic setting, versus prior neighborhood-only guarantees.</li>
+          <li>Broad empirical coverage: NLU (GLUE), QA (SQuAD v1.1/v2.0), NLG (E2E), and LLM scaling (LLaMA3.2-1B/3B, LLaMA3-8B) with GSM8K/MATH/QuAC.</li>
+          <li>Consistent near-2&times; training-epoch speedup shown on multiple datasets (SQuADv2.0, CoLA, QQP, STS-B), not one cherry-picked curve.</li>
+          <li>Learned B is verified to actually respect the manifold geometry via B<sup>&#7488;</sup>B heatmap visualization, not just inferred from downstream metrics.</li>
+        </ul>
+      </div>
+      <div class="sl-col limits">
+        <h4>Limitations</h4>
+        <ul>
+          <li>LLM-scale comparisons use only a plain AdamW-LoRA baseline and one prior retraction-based method; stronger PEFT baselines (AdaLoRA, VeRA, DoRA) discussed in related work are never benchmarked at this scale.</li>
+          <li>The deployed algorithm still needs per-task, per-rank tuning of step-size clip bounds, partially undercutting the "penalty-parameter-free" framing.</li>
+          <li>No ablation isolates which component &mdash; the manifold reformulation, the landing update, or the per-matrix step-size schedule &mdash; drives the observed gains.</li>
+          <li>Choosing Stiefel vs. Oblique(Sphere) is empirically inconsistent across tasks (e.g. Sphere wins 1B/3B GSM8K, Stiefel wins MATH and 8B GSM8K) with no principled rule offered.</li>
+          <li>Most benchmarks use older/smaller backbones (DeBERTaV3-base, GPT-2); the sole LLM-scale study reuses a concurrent paper's protocol rather than an independently designed one.</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="card span-2">
+      <h3 class="card-title">Questions for Further Exploration</h3>
+      <ul class="q-list">
+        <li>How does Manifold-LoRA compare against stronger, more recent PEFT baselines (AdaLoRA, DoRA, VeRA, PiSSA) at LLaMA-3 scale, rather than only plain AdamW-LoRA and one concurrent Stiefel method?</li>
+        <li>Is there a principled (rather than grid-searched) rule for choosing between the Stiefel and Oblique/Sphere constraints on B, given the inconsistent winners across GSM8K, MATH, and QuAC?</li>
+        <li>How sensitive are downstream results to the per-task step-size clip bounds in Algorithm 2 &mdash; could a theoretically-derived or adaptive schedule remove this remaining manual tuning?</li>
+        <li>Does the improved O(log K/&radic;K) stochastic rate translate into measurable wall-clock gains under large-batch or distributed LLM fine-tuning, beyond the reported ~2&times; epoch-count speedup?</li>
+        <li>Would extending the proximal-smoothness/RSI argument to the generalized Stiefel manifold change the explicit constant &mu;=1/3, and how would that affect empirical results?</li>
+      </ul>
+    </div>
+
+  </section>
+
+  <p class="credibility">Zaiwen Wen co-authored the seminal Wen &amp; Yin (2013, <em style="font-style:italic;">Mathematical Programming</em>) Cayley-transform method for orthogonality-constrained optimization &mdash; cited as reference [6] in this paper &mdash; giving the team direct authority on the underlying theory. The authors flag that the Stiefel/Oblique LoRA reformulation itself was concurrently discovered by other groups (footnote 1); the paper's own novelty is the retraction-free optimizer built on top of it. No code repository link found in the reviewed text.</p>
+
+  <footer>
+    <span>Manifold-LoRA &middot; arXiv:2607.25299 &middot; dashboard generated from source markdown</span>
+    <a href="./2607.25299.md" target="_blank" rel="noopener">&#8599; Markdown source</a>
+  </footer>
+
+</div>
+</body>
+</html>

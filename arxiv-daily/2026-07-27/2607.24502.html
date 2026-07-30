@@ -1,0 +1,762 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RoPE Spherical Attention Dynamics — 2607.24502</title>
+<style>
+  :root{
+    --paper:#F7F3EC;
+    --paper-2:#EFE9DE;
+    --ink:#1A1714;
+    --ink-soft:#3A332C;
+    --muted:#7A6F62;
+    --rule:#D9CFBE;
+    --accent:#B23A1A;          /* single accent: burnt sienna */
+    --accent-tint:#F3E4DD;
+    --dark:#16110D;
+    --dark-2:#241C16;
+    --on-dark:#EFE7DA;
+    --good:#3F6B3A;
+    --maxw:min(95vw,1100px);
+    --display:ui-serif,Georgia,"Iowan Old Style","Apple Garamond",serif;
+    --body:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Helvetica,Arial,sans-serif;
+    --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box;}
+  html{scroll-behavior:smooth;}
+  body{
+    margin:0;
+    background:var(--paper);
+    color:var(--ink);
+    font-family:var(--body);
+    font-size:16px;
+    line-height:1.6;
+    -webkit-font-smoothing:antialiased;
+    text-rendering:optimizeLegibility;
+  }
+  /* subtle paper grain via repeating gradient — atmospheric, not decorative blob */
+  body::before{
+    content:"";
+    position:fixed;inset:0;
+    background-image:
+      radial-gradient(circle at 1px 1px, rgba(26,23,20,.025) 1px, transparent 0);
+    background-size:4px 4px;
+    pointer-events:none;
+    z-index:0;
+  }
+  a{color:var(--accent);text-decoration:none;border-bottom:1px solid transparent;transition:border-color .15s;}
+  a:hover{border-bottom-color:var(--accent);}
+
+  /* ---------- top bar ---------- */
+  .topbar{
+    position:relative;z-index:2;
+    max-width:var(--maxw);
+    margin:0 auto;
+    padding:18px 0 0;
+    display:flex;justify-content:space-between;align-items:baseline;
+    font-size:13px;
+  }
+  .topbar .back{
+    color:var(--ink-soft);
+    border-bottom:none;
+    font-weight:500;
+    letter-spacing:.01em;
+  }
+  .topbar .back:hover{color:var(--accent);}
+  .topbar .meta-id{
+    font-family:var(--mono);
+    color:var(--muted);
+    font-size:12px;
+  }
+
+  .wrap{position:relative;z-index:1;max-width:var(--maxw);margin:0 auto;padding:0 0 60px;}
+
+  /* ---------- hero band ---------- */
+  .hero{
+    padding:34px 0 30px;
+    border-bottom:1px solid var(--rule);
+  }
+  .eyebrow{
+    font-family:var(--mono);
+    font-size:11px;
+    letter-spacing:.18em;
+    text-transform:uppercase;
+    color:var(--accent);
+    margin:0 0 18px;
+    display:flex;align-items:center;gap:10px;
+  }
+  .eyebrow::before{
+    content:"";display:inline-block;width:28px;height:1px;background:var(--accent);
+  }
+  .key-finding{
+    font-family:var(--display);
+    font-weight:500;
+    font-size:clamp(1.9rem,5.4vw,3.55rem);
+    line-height:1.06;
+    letter-spacing:-.018em;
+    margin:0 0 22px;
+    color:var(--ink);
+    max-width:18ch;
+  }
+  .key-finding em{
+    font-style:italic;
+    color:var(--accent);
+    font-weight:500;
+  }
+  .paper-title{
+    font-family:var(--display);
+    font-size:1.02rem;
+    line-height:1.45;
+    color:var(--ink-soft);
+    margin:0 0 16px;
+    max-width:62ch;
+  }
+  .paper-title a{color:var(--ink-soft);border-bottom:1px dotted var(--muted);}
+  .paper-title a:hover{color:var(--accent);border-bottom-color:var(--accent);}
+
+  .chips{display:flex;flex-wrap:wrap;gap:8px;align-items:center;}
+  .chip{
+    font-size:11.5px;
+    font-family:var(--mono);
+    color:var(--ink-soft);
+    background:var(--paper-2);
+    border:1px solid var(--rule);
+    padding:4px 9px;
+    border-radius:2px;
+    letter-spacing:.01em;
+  }
+  .chip.accent{color:var(--accent);border-color:var(--accent-tint);background:var(--accent-tint);}
+  .chip.author{font-family:var(--body);font-weight:600;color:var(--ink);}
+  .chip-sep{color:var(--muted);font-size:11px;}
+
+  /* ---------- asset row ---------- */
+  .assets{
+    display:grid;
+    grid-template-columns:1.05fr 1fr 1fr;
+    gap:14px;
+    padding:26px 0 8px;
+  }
+  .card{
+    padding:22px 22px 20px;
+    border:1px solid var(--rule);
+    background:var(--paper);
+    position:relative;
+    min-height:180px;
+    display:flex;flex-direction:column;
+  }
+  .card .label{
+    font-family:var(--mono);
+    font-size:10.5px;
+    letter-spacing:.16em;
+    text-transform:uppercase;
+    color:var(--muted);
+    margin:0 0 14px;
+    display:flex;align-items:center;gap:8px;
+  }
+  .card .label .num{
+    color:var(--accent);
+    font-weight:600;
+  }
+  .card .big{
+    font-family:var(--display);
+    font-weight:500;
+    line-height:1;
+  }
+  .card.metric .big{
+    font-size:clamp(2.4rem,6vw,3.3rem);
+    color:var(--accent);
+    letter-spacing:-.02em;
+  }
+  .card .sub{
+    font-size:13px;
+    color:var(--ink-soft);
+    line-height:1.45;
+    margin-top:10px;
+  }
+  .card .sub .compare{
+    font-family:var(--mono);
+    color:var(--muted);
+    font-size:12px;
+    display:block;
+    margin-top:8px;
+  }
+  .card .body-text{
+    font-size:14.5px;
+    color:var(--ink-soft);
+    line-height:1.5;
+  }
+  /* critical edge — dark contrast card */
+  .card.edge{
+    background:var(--dark);
+    border-color:var(--dark);
+    color:var(--on-dark);
+  }
+  .card.edge .label{color:#A89A87;}
+  .card.edge .label .num{color:#E08868;}
+  .card.edge .body-text{color:#D9CFBE;}
+  .card.edge::after{
+    content:"";
+    position:absolute;top:14px;right:14px;
+    width:6px;height:6px;border-radius:50%;
+    background:var(--accent);
+    box-shadow:0 0 0 4px rgba(178,58,26,.18);
+  }
+
+  /* ---------- body grid with side nav ---------- */
+  .bodygrid{
+    display:grid;
+    grid-template-columns:200px 1fr;
+    gap:48px;
+    padding-top:44px;
+  }
+  .sidenav{
+    position:sticky;
+    top:24px;
+    align-self:start;
+    padding-top:4px;
+  }
+  .sidenav h4{
+    font-family:var(--mono);
+    font-size:10.5px;
+    letter-spacing:.16em;
+    text-transform:uppercase;
+    color:var(--muted);
+    margin:0 0 14px;
+    font-weight:500;
+  }
+  .sidenav ul{list-style:none;margin:0;padding:0;}
+  .sidenav li{margin:0 0 2px;}
+  .sidenav a{
+    display:block;
+    padding:6px 0 6px 12px;
+    font-size:13px;
+    color:var(--ink-soft);
+    border-left:2px solid var(--rule);
+    border-bottom:none;
+    transition:all .15s;
+  }
+  .sidenav a:hover{color:var(--accent);border-left-color:var(--accent);}
+  .sidenav a.active{color:var(--accent);border-left-color:var(--accent);font-weight:600;}
+
+  .content section{
+    padding-bottom:46px;
+    margin-bottom:6px;
+    border-bottom:1px solid var(--rule);
+  }
+  .content section:last-child{border-bottom:none;}
+  .content h2{
+    font-family:var(--display);
+    font-weight:500;
+    font-size:1.65rem;
+    letter-spacing:-.012em;
+    margin:0 0 18px;
+    color:var(--ink);
+    display:flex;align-items:baseline;gap:14px;
+  }
+  .content h2 .tag{
+    font-family:var(--mono);
+    font-size:11px;
+    letter-spacing:.12em;
+    color:var(--accent);
+    font-weight:500;
+    text-transform:uppercase;
+  }
+  .content h3{
+    font-family:var(--body);
+    font-weight:600;
+    font-size:.95rem;
+    letter-spacing:.01em;
+    color:var(--ink);
+    margin:22px 0 8px;
+  }
+  .content p{margin:0 0 14px;color:var(--ink-soft);font-size:15px;}
+  .content p.lead{
+    font-family:var(--display);
+    font-size:1.12rem;
+    line-height:1.5;
+    color:var(--ink);
+    margin-bottom:20px;
+  }
+  .content strong{color:var(--ink);font-weight:600;}
+  .content code{
+    font-family:var(--mono);
+    font-size:.88em;
+    background:var(--paper-2);
+    padding:1px 5px;
+    border-radius:2px;
+    color:var(--ink);
+  }
+  .steps{counter-reset:step;list-style:none;padding:0;margin:0 0 6px;}
+  .steps li{
+    counter-increment:step;
+    position:relative;
+    padding:0 0 16px 44px;
+    font-size:14.5px;
+    color:var(--ink-soft);
+    line-height:1.55;
+  }
+  .steps li::before{
+    content:counter(step);
+    position:absolute;left:0;top:0;
+    width:28px;height:28px;
+    border:1px solid var(--accent);
+    color:var(--accent);
+    border-radius:50%;
+    font-family:var(--mono);
+    font-size:12px;
+    font-weight:600;
+    display:flex;align-items:center;justify-content:center;
+  }
+  .steps li strong{display:block;margin-bottom:2px;}
+
+  /* ---------- tables ---------- */
+  .tbl-wrap{margin:8px 0 6px;overflow-x:auto;}
+  table{
+    width:100%;
+    border-collapse:collapse;
+    font-size:13.5px;
+    background:var(--paper);
+  }
+  table caption{
+    caption-side:top;
+    text-align:left;
+    font-family:var(--mono);
+    font-size:10.5px;
+    letter-spacing:.14em;
+    text-transform:uppercase;
+    color:var(--muted);
+    padding:0 0 8px;
+  }
+  thead th{
+    text-align:left;
+    font-family:var(--mono);
+    font-size:11px;
+    letter-spacing:.04em;
+    font-weight:500;
+    color:var(--muted);
+    text-transform:uppercase;
+    padding:9px 12px 9px 0;
+    border-bottom:1.5px solid var(--ink);
+    white-space:nowrap;
+  }
+  tbody td{
+    padding:10px 12px 10px 0;
+    border-bottom:1px solid var(--rule);
+    color:var(--ink-soft);
+    vertical-align:top;
+  }
+  tbody tr:last-child td{border-bottom:none;}
+  tbody td.num{font-family:var(--mono);color:var(--ink);white-space:nowrap;}
+  tbody td .ref{font-family:var(--mono);font-size:11px;color:var(--accent);}
+  tbody td .hi{color:var(--accent);font-weight:600;font-family:var(--mono);}
+  tbody tr:hover td{background:var(--paper-2);}
+
+  .tbl-note{
+    font-size:12px;color:var(--muted);margin:6px 0 0;font-style:italic;
+  }
+
+  /* ---------- strengths / limitations ---------- */
+  .duo{
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:18px;
+  }
+  .panel{
+    border:1px solid var(--rule);
+    padding:22px 22px 18px;
+    background:var(--paper);
+  }
+  .panel.limit{background:var(--dark);border-color:var(--dark);color:var(--on-dark);}
+  .panel h3{
+    font-family:var(--mono);
+    font-size:11px;
+    letter-spacing:.16em;
+    text-transform:uppercase;
+    color:var(--accent);
+    margin:0 0 14px;
+    font-weight:600;
+  }
+  .panel.limit h3{color:#E08868;}
+  .panel ul{list-style:none;margin:0;padding:0;}
+  .panel li{
+    padding:0 0 14px 22px;
+    position:relative;
+    font-size:14px;
+    line-height:1.5;
+    color:var(--ink-soft);
+  }
+  .panel.limit li{color:#D9CFBE;}
+  .panel li::before{
+    content:"+";
+    position:absolute;left:0;top:0;
+    color:var(--accent);
+    font-family:var(--mono);
+    font-weight:600;
+  }
+  .panel.limit li::before{content:"−";color:#E08868;}
+  .panel li:last-child{padding-bottom:0;}
+  .panel li strong{color:inherit;font-weight:600;}
+
+  /* ---------- questions ---------- */
+  .qlist{list-style:none;padding:0;margin:0;counter-reset:q;}
+  .qlist li{
+    counter-increment:q;
+    padding:16px 0 16px 56px;
+    border-bottom:1px dashed var(--rule);
+    position:relative;
+    font-family:var(--display);
+    font-size:1.06rem;
+    line-height:1.45;
+    color:var(--ink);
+  }
+  .qlist li:last-child{border-bottom:none;}
+  .qlist li::before{
+    content:"Q" counter(q);
+    position:absolute;left:0;top:18px;
+    font-family:var(--mono);
+    font-size:11px;
+    letter-spacing:.05em;
+    color:var(--accent);
+    font-weight:600;
+  }
+
+  /* ---------- footer ---------- */
+  footer{
+    max-width:var(--maxw);
+    margin:0 auto;
+    padding:34px 0 40px;
+    border-top:1px solid var(--rule);
+    display:flex;justify-content:space-between;align-items:center;
+    font-size:12.5px;
+    color:var(--muted);
+    position:relative;z-index:1;
+  }
+  footer a{
+    color:var(--ink-soft);
+    border-bottom:none;
+    font-family:var(--mono);
+    font-size:12px;
+  }
+  footer a:hover{color:var(--accent);}
+  footer .src{display:inline-flex;align-items:center;gap:6px;}
+
+  /* ---------- staggered load reveal ---------- */
+  @keyframes rise{from{opacity:0;transform:translateY(10px);}to{opacity:1;transform:none;}}
+  .reveal{opacity:0;animation:rise .6s cubic-bezier(.2,.7,.2,1) forwards;}
+  .d0{animation-delay:.02s;} .d1{animation-delay:.10s;} .d2{animation-delay:.18s;}
+  .d3{animation-delay:.26s;} .d4{animation-delay:.34s;} .d5{animation-delay:.42s;}
+
+  @media (prefers-reduced-motion: reduce){
+    .reveal{animation:none;opacity:1;}
+    html{scroll-behavior:auto;}
+  }
+
+  /* ---------- responsive ---------- */
+  @media (max-width:880px){
+    .assets{grid-template-columns:1fr;}
+    .bodygrid{grid-template-columns:1fr;gap:24px;}
+    .sidenav{position:static;display:none;}
+    .duo{grid-template-columns:1fr;}
+    .key-finding{max-width:none;}
+  }
+</style>
+</head>
+<body>
+
+  <div class="topbar">
+    <a class="back" href="./index.html">↩ Today's digest</a>
+    <span class="meta-id">arXiv:2607.24502 · math.DS / cs.LG</span>
+  </div>
+
+  <div class="wrap">
+
+    <!-- ===================== HERO ===================== -->
+    <header class="hero">
+      <p class="eyebrow reveal d0">Theory · Transformer Dynamics</p>
+
+      <h1 class="key-finding reveal d1">
+        Natural RoPE attention energy has <em>no uniform Lyapunov sign</em>; exact Bessel-aliasing rates govern consensus on the sphere.
+      </h1>
+
+      <p class="paper-title reveal d2">
+        <em>Self-Attention Dynamics with Rotary Position Embeddings: Twisted States and Explicit Consensus Rates on the Sphere.</em>
+        &nbsp;—&nbsp;
+        <a href="https://arxiv.org/abs/2607.24502" target="_blank" rel="noopener">arxiv.org/abs/2607.24502 ↗</a>
+      </p>
+
+      <div class="chips reveal d3">
+        <span class="chip author">Hao Ye</span>
+        <span class="chip-sep">·</span>
+        <span class="chip">2026-07-27</span>
+        <span class="chip-sep">·</span>
+        <span class="chip">XIOPM, CAS · UCAS</span>
+        <span class="chip-sep">·</span>
+        <span class="chip accent">transformer-dynamics</span>
+        <span class="chip">rotary-position-embedding</span>
+        <span class="chip">consensus-synchronization</span>
+        <span class="chip">spectral-analysis</span>
+        <span class="chip">mathematical-foundations</span>
+      </div>
+    </header>
+
+    <!-- ===================== ASSET ROW ===================== -->
+    <section class="assets">
+
+      <div class="card metric reveal d3">
+        <p class="label"><span class="num">01</span> Key Metric</p>
+        <div class="big">γ(⅔) = ¾</div>
+        <p class="sub">
+          Interior consensus gap strictly <strong>exceeds both endpoints</strong>, proving the multi-plane rate is non-monotone in plane-energy allocation.
+          <span class="compare">endpoints: γ(0) ≈ 0.602 · γ(1) ≈ 0.597 &nbsp;(n=3, β=ln 4⁄3)</span>
+        </p>
+      </div>
+
+      <div class="card reveal d4">
+        <p class="label"><span class="num">02</span> Why This Matters</p>
+        <p class="body-text">
+          A rigorous mathematical baseline for how RoPE drives token consensus and collapse — directly relevant to long-context LLM positional behavior.
+        </p>
+      </div>
+
+      <div class="card edge reveal d5">
+        <p class="label"><span class="num">03</span> Critical Edge</p>
+        <p class="body-text">
+          Extreme idealization — identity Q/K/V, no FFN, no masking, single head, first-order residual limit — with <strong>zero comparison to any trained Transformer</strong>. Practical implications remain conjectural.
+        </p>
+      </div>
+
+    </section>
+
+    <!-- ===================== BODY GRID ===================== -->
+    <div class="bodygrid">
+
+      <nav class="sidenav" aria-label="Section navigation">
+        <h4>On this page</h4>
+        <ul>
+          <li><a href="#method">Methodology</a></li>
+          <li><a href="#results">Results</a></li>
+          <li><a href="#rates">Consensus Rates</a></li>
+          <li><a href="#xcheck">Numerical Checks</a></li>
+          <li><a href="#balance">Strengths / Limits</a></li>
+          <li><a href="#questions">Open Questions</a></li>
+        </ul>
+      </nav>
+
+      <div class="content">
+
+        <!-- Methodology -->
+        <section id="method">
+          <h2><span class="tag">§ 01</span> Methodology</h2>
+          <p class="lead">
+            The continuous-time limit of a normalized residual attention layer with identity Q=K=V, except block rotations R<sub>p</sub> on queries and keys, evolves on (S<sup>d−1</sup>)<sup>n</sup> as
+            <code>ẋ<sub>i</sub> = Σ<sub>j</sub> A<sub>ij</sub>(x) P<sub>x<sub>i</sub>⊥</sub> x<sub>j</sub></code>.
+          </p>
+          <p>
+            Orthogonality of the block rotations makes the weight kernel symmetric and yields detailed balance; scores lying in [−1,1] produce the <strong>sharp softmax floor</strong>
+            <code>a<sub>β,n</sub> = 1⁄(1+(n−1)e<sup>2β</sup>)</code>. The analysis then proceeds in three coupled layers:
+          </p>
+          <ol class="steps">
+            <li>
+              <strong>Local spectral analysis.</strong>
+              The consensus manifold C has transverse linearization <code>J<sub>C</sub> = (A⋆ − I<sub>n</sub>) ⊗ I<sub>d−1</sub></code>. On a resonant ring the kernel is circulant, so Fourier diagonalization gives the Bessel-aliasing spectrum; positive-semidefiniteness follows from writing the consensus kernel as a Gram matrix (Schur product theorem).
+            </li>
+            <li>
+              <strong>Regional global convergence.</strong>
+              A kernel-generic positivity argument (row stochasticity + the floor a<sub>β,n</sub>) proves forward invariance of closed hemispheres and explicit contraction in pairwise non-obtuse / strict-semicircle regions via nonsmooth Dini calculus.
+            </li>
+            <li>
+              <strong>Equilibria beyond consensus.</strong>
+              The score-flattening twisted branch θ<sub>j</sub> = c − ωj is characterized by an if-and-only-if resonance condition, its Jacobian spectrum computed, and the multi-frequency gap γ(a) shown non-monotone with no frequency-magnitude ordering.
+            </li>
+          </ol>
+          <p class="tbl-note">All theorems are deterministic and proved in the appendix; numerical computations (matrix spectrum, congruence-filtered Bessel, FFT, finite-difference Jacobian, ODE integration) are reported only as cross-checks of convention-sensitive constants — never as proof steps.</p>
+        </section>
+
+        <!-- Results: headline theorems -->
+        <section id="results">
+          <h2><span class="tag">§ 02</span> Results &amp; Highlights</h2>
+          <p>Headline theorems and the concrete numbers behind them. The energy-sign no-go and the analytic non-monotonicity are the paper's genuinely new contributions; the rest refines prior spherical-attention theory with exact constants.</p>
+          <div class="tbl-wrap">
+            <table>
+              <caption>Table 1 · Key results and exact constants</caption>
+              <thead>
+                <tr><th>Result</th><th>Statement</th><th class="num">Number</th></tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Sharp softmax floor <span class="ref">Thm 3.1</span></td>
+                  <td>State-uniform attention floor, sharp over the model class</td>
+                  <td class="num"><span class="hi">1⁄(1+(n−1)e<sup>2β</sup>)</span></td>
+                </tr>
+                <tr>
+                  <td>Energy-sign no-go <span class="ref">Prop 3.2</span></td>
+                  <td>Same system shows both signs → no Lyapunov law</td>
+                  <td class="num">+1.6663… / −0.1296…</td>
+                </tr>
+                <tr>
+                  <td>Non-monotone rate <span class="ref">Prop 7.4</span></td>
+                  <td>Interior γ strictly exceeds both endpoints</td>
+                  <td class="num"><span class="hi">γ(⅔) = ¾</span></td>
+                </tr>
+                <tr>
+                  <td>Twisted spectrum <span class="ref">Prop 7.1</span></td>
+                  <td>Generic resonant branch: non-hyperbolic, linearly unstable</td>
+                  <td class="num">{½ (m.2), 0 (m.n−2)}</td>
+                </tr>
+                <tr>
+                  <td>Odd antipodal family <span class="ref">Prop 7.2</span></td>
+                  <td>Hyperbolic saddle after quotienting global rotation</td>
+                  <td class="num">r stable / r unstable</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- Results: consensus rates -->
+        <section id="rates">
+          <h2><span class="tag">§ 03</span> Consensus Rate Regimes</h2>
+          <p>The fixed-ring large-β slowdown is the paper's sharpest predictive claim: consensus is exponentially slower than vanilla spherical attention (γ=1 at β=0). It also separates the exact local rate from the uniform global guarantee.</p>
+          <div class="tbl-wrap">
+            <table>
+              <caption>Table 2 · Fixed-ring consensus gap γ(β) by effective period L</caption>
+              <thead>
+                <tr><th>Regime</th><th>Gap γ(β)</th><th class="num">vs vanilla</th><th>Local / uniform ratio</th></tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>L = 2 (antipodal)</td>
+                  <td class="num">1 − tanh β ≈ 2e<sup>−2β</sup></td>
+                  <td class="num">slower</td>
+                  <td class="num">γ ⁄ 2a<sub>β,n</sub> ~ n−1</td>
+                </tr>
+                <tr>
+                  <td>L ≥ 3 (Δ<sub>L</sub> = 1−cos(2π⁄L))</td>
+                  <td class="num"><span class="hi">~ 2Δ<sub>L</sub> e<sup>−βΔ<sub>L</sub></sup></span></td>
+                  <td class="num">exponentially slower</td>
+                  <td class="num">~ (n−1)Δ<sub>L</sub> e<sup>β(2−Δ<sub>L</sub>)</sup></td>
+                </tr>
+                <tr>
+                  <td>Vanilla (β = 0)</td>
+                  <td class="num">γ = 1</td>
+                  <td class="num">baseline</td>
+                  <td class="num">—</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>Frequency-reversal in finite contexts <span style="font-family:var(--mono);color:var(--accent);font-size:11px;">(eq. 48)</span></h3>
+          <p>With two-plane frequencies (1, 0.01) at β=4, the high-frequency endpoint is slower at n=256 but <strong>faster</strong> at n=384 — empirically confirming no universal frequency ordering.</p>
+          <div class="tbl-wrap">
+            <table>
+              <caption>Table 3 · Frequency ordering flips with context length</caption>
+              <thead>
+                <tr><th class="num">n</th><th class="num">γ<sub>low</sub> (ω=0.01)</th><th class="num">γ<sub>high</sub> (ω=1)</th><th>Faster endpoint</th></tr>
+              </thead>
+              <tbody>
+                <tr><td class="num">256</td><td class="num">0.240298</td><td class="num">0.134730</td><td>low</td></tr>
+                <tr><td class="num">384</td><td class="num">0.112756</td><td class="num">0.135707</td><td><span class="hi">high</span></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- Numerical cross-checks -->
+        <section id="xcheck">
+          <h2><span class="tag">§ 04</span> Independent Numerical Cross-Checks</h2>
+          <p>All residuals reported below are worst-case, not cherry-picked. They verify <em>internal consistency</em> of convention-sensitive constants at near machine precision — they are not evidence of external predictive power.</p>
+          <div class="tbl-wrap">
+            <table>
+              <caption>Table 4 · Validation residuals (from §8 / Table 2 of source)</caption>
+              <thead>
+                <tr><th>Quantity</th><th>Method</th><th class="num">Worst-case error</th></tr>
+              </thead>
+              <tbody>
+                <tr><td>Resonant spectra (144 cases)</td><td>full-spectrum</td><td class="num"><span class="hi">1.554 × 10⁻¹⁵</span></td></tr>
+                <tr><td>Resonant spectra</td><td>Bessel–Fourier gap</td><td class="num">6.051 × 10⁻¹⁵</td></tr>
+                <tr><td>Geometric contraction (7057 evals)</td><td>min Dini residual</td><td class="num">−3.886 × 10⁻¹⁶</td></tr>
+                <tr><td>Geometric contraction</td><td>max trajectory excess</td><td class="num">2.961 × 10⁻¹⁰</td></tr>
+                <tr><td>Twisted-state drift</td><td>drift formula</td><td class="num">3.764 × 10⁻¹⁶</td></tr>
+                <tr><td>Twisted-state Jacobian</td><td>finite-difference</td><td class="num">3.070 × 10⁻⁹</td></tr>
+                <tr><td>Multi-frequency</td><td>3-way gap disagreement</td><td class="num">1.527 × 10⁻¹⁵</td></tr>
+                <tr><td>Multi-frequency</td><td>relative nonlinear rate</td><td class="num">2.805 × 10⁻⁶</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p class="tbl-note">Consistent with IEEE-754 double precision; no code release accompanies the paper.</p>
+        </section>
+
+        <!-- Strengths / Limitations -->
+        <section id="balance">
+          <h2><span class="tag">§ 05</span> Strengths &amp; Limitations</h2>
+          <div class="duo">
+            <div class="panel">
+              <h3>+ Strengths</h3>
+              <ul>
+                <li><strong>Mathematical honesty.</strong> Sharp constants, explicit counterexamples, and a contribution-boundary table that resists overclaiming.</li>
+                <li><strong>Clean regime separation.</strong> Local spectrum, regional contraction, and equilibrium branches bridged by the quantitative γ vs 2a<sub>β,n</sub> comparison.</li>
+                <li><strong>Non-coprime Bessel-aliasing.</strong> The exact gcd(m,n) reachability mask is a refinement prior normalized-attention spectral analyses lack.</li>
+                <li><strong>Honest numerics.</strong> Independent methods, worst-case residuals reported rather than selected examples.</li>
+              </ul>
+            </div>
+            <div class="panel limit">
+              <h3>− Limitations</h3>
+              <ul>
+                <li><strong>Extreme idealization.</strong> Identity Q/K/V, single head, no FFN/masking, first-order residual limit — RoVE and learned couplings out of scope.</li>
+                <li><strong>Only regional convergence.</strong> Bipodal stationary states show the strict-semicircle boundary is real; hemisphere invariance alone ≠ consensus.</li>
+                <li><strong>Open asymptotics.</strong> Dense-phase joint limit and quantitative nonresonant finite-chain limit remain conjectures, flagged honestly.</li>
+                <li><strong>Center subspace unresolved.</strong> Only linear instability of the generic twisted branch is proved — no center-manifold result.</li>
+                <li><strong>No empirical anchor.</strong> No code release, no comparison against a trained Transformer; LLM implications stay conjectural.</li>
+              </ul>
+            </div>
+          </div>
+        </section>
+
+        <!-- Questions -->
+        <section id="questions">
+          <h2><span class="tag">§ 06</span> Questions for Further Exploration</h2>
+          <ol class="qlist">
+            <li>Can the dense-phase limit (γ ~ 1 − I₁(β)⁄I₀(β) ~ 1⁄2β) be promoted from conjecture to theorem via a uniform aliasing error bound — and what does it imply for very-long-context RoPE models?</li>
+            <li>Do the twisted and odd-antipodal equilibria persist — and organize nonlinear transients — once learned Q/K/V maps, multiple heads, and causal masking are restored?</li>
+            <li>How typical is the multi-plane non-monotonicity beyond n=3, β=ln 4⁄3: a robust phenomenon or a measure-zero curiosity?</li>
+            <li>Can the deterministic cross-checks be paired with empirical measurements on a trained RoPE Transformer to test the predicted slowdown and frequency reversal?</li>
+            <li>Does rotating values (RoVE) restore a uniform Lyapunov sign law, and how does its consensus spectrum differ from the query/key-only case?</li>
+          </ol>
+        </section>
+
+      </div><!-- /content -->
+    </div><!-- /bodygrid -->
+  </div><!-- /wrap -->
+
+  <footer>
+    <span>Single-author theory · Hao Ye · 2026-07-27</span>
+    <a class="src" href="./2607.24502.md">↗ Markdown source</a>
+  </footer>
+
+<script>
+  // Active-section highlighting in side nav
+  (function(){
+    var links = Array.prototype.slice.call(document.querySelectorAll('.sidenav a'));
+    var map = {};
+    links.forEach(function(l){
+      var id = l.getAttribute('href').slice(1);
+      var sec = document.getElementById(id);
+      if(sec) map[id] = {link:l, sec:sec};
+    });
+    if(!('IntersectionObserver' in window)) return;
+    var io = new IntersectionObserver(function(entries){
+      entries.forEach(function(e){
+        if(e.isIntersecting){
+          links.forEach(function(l){ l.classList.remove('active'); });
+          var id = e.target.id;
+          if(map[id]) map[id].link.classList.add('active');
+        }
+      });
+    }, {rootMargin:'-45% 0px -50% 0px', threshold:0});
+    Object.keys(map).forEach(function(id){ io.observe(map[id].sec); });
+  })();
+</script>
+</body>
+</html>

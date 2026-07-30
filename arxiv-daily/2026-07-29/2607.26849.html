@@ -1,0 +1,506 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ToxScreen — Detecting Whether an LLM Has Been Poisoned</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap');
+
+:root{
+  --bg:#0a0c0f;
+  --bg-grid: rgba(255,255,255,0.025);
+  --surface:#12161b;
+  --surface-2:#161b21;
+  --border:#242a32;
+  --border-soft:#1b2028;
+  --text:#e8ecf1;
+  --text-dim:#9aa5b1;
+  --text-faint:#5c6672;
+  --accent:#e8462f;
+  --accent-bright:#ff5b3d;
+  --accent-dim:#8a2c1f;
+  --accent-soft-bg: rgba(232,70,47,0.09);
+  --accent-soft-border: rgba(232,70,47,0.30);
+  --good:#4ba36a;
+  --font-display:'Space Grotesk', sans-serif;
+  --font-mono:'IBM Plex Mono', ui-monospace, monospace;
+  --font-body:'IBM Plex Sans', sans-serif;
+}
+
+*{ box-sizing:border-box; }
+
+html{ scroll-behavior:smooth; }
+
+body{
+  margin:0;
+  background:
+    linear-gradient(var(--bg-grid) 1px, transparent 1px) 0 0/100% 42px,
+    linear-gradient(90deg, var(--bg-grid) 1px, transparent 1px) 0 0/42px 100%,
+    radial-gradient(ellipse 120% 60% at 50% -10%, #14181e 0%, var(--bg) 55%);
+  background-color:var(--bg);
+  color:var(--text);
+  font-family:var(--font-body);
+  line-height:1.55;
+  -webkit-font-smoothing:antialiased;
+}
+
+a{ color:inherit; }
+
+/* ---------- top nav ---------- */
+.topnav{
+  position:fixed;
+  top:16px;
+  left:16px;
+  z-index:50;
+  font-family:var(--font-mono);
+  font-size:12.5px;
+  letter-spacing:0.02em;
+  color:var(--text-dim);
+  background:rgba(18,22,27,0.85);
+  backdrop-filter:blur(6px);
+  border:1px solid var(--border);
+  padding:7px 12px;
+  border-radius:6px;
+  text-decoration:none;
+  transition:all .15s ease;
+}
+.topnav:hover{ color:var(--accent-bright); border-color:var(--accent-soft-border); transform:translateX(-2px); }
+
+/* ---------- shared card ---------- */
+.card{
+  background:var(--surface);
+  border:1px solid var(--border);
+  border-radius:10px;
+  padding:24px;
+}
+.card-label{
+  font-family:var(--font-mono);
+  font-size:11px;
+  letter-spacing:0.14em;
+  text-transform:uppercase;
+  color:var(--text-faint);
+  margin-bottom:14px;
+  display:flex;
+  align-items:center;
+  gap:8px;
+}
+.card-label::before{
+  content:'';
+  width:6px; height:6px;
+  background:var(--accent);
+  border-radius:1px;
+  display:inline-block;
+}
+
+/* ---------- page shell ---------- */
+.shell{
+  max-width:min(95vw, 1160px);
+  margin:0 auto;
+  padding:76px 20px 60px;
+}
+
+/* ---------- hero ---------- */
+.hero{
+  padding-bottom:34px;
+  border-bottom:1px solid var(--border-soft);
+  margin-bottom:28px;
+  opacity:0;
+  animation:riseIn .6s ease forwards;
+}
+.hero-kicker{
+  font-family:var(--font-mono);
+  font-size:12px;
+  letter-spacing:0.16em;
+  text-transform:uppercase;
+  color:var(--accent-bright);
+  margin-bottom:18px;
+}
+.hero-finding{
+  font-family:var(--font-display);
+  font-weight:700;
+  font-size:clamp(30px, 4.6vw, 54px);
+  line-height:1.14;
+  letter-spacing:-0.01em;
+  margin:0 0 18px;
+  max-width:20ch;
+}
+.hero-zh{
+  font-size:14.5px;
+  color:var(--text-dim);
+  line-height:1.9;
+  max-width:70ch;
+  margin:0 0 26px;
+  border-left:2px solid var(--border);
+  padding-left:14px;
+}
+.paper-title{
+  display:inline-block;
+  font-size:15px;
+  font-weight:500;
+  text-decoration:none;
+  color:var(--text);
+  border-bottom:1px dashed var(--text-faint);
+  padding-bottom:2px;
+  margin-bottom:14px;
+  transition:color .15s ease, border-color .15s ease;
+}
+.paper-title:hover{ color:var(--accent-bright); border-color:var(--accent-bright); }
+.meta-row{
+  font-family:var(--font-mono);
+  font-size:12.5px;
+  color:var(--text-dim);
+  display:flex;
+  flex-wrap:wrap;
+  align-items:center;
+  gap:8px;
+  margin-bottom:18px;
+}
+.meta-row .dot{ color:var(--text-faint); }
+.meta-row .credibility{ color:var(--text-faint); }
+.chips{ display:flex; flex-wrap:wrap; gap:8px; }
+.chip{
+  font-family:var(--font-mono);
+  font-size:11px;
+  letter-spacing:0.02em;
+  color:var(--text-dim);
+  border:1px solid var(--border);
+  background:var(--surface-2);
+  padding:5px 10px;
+  border-radius:999px;
+}
+
+/* ---------- asset row ---------- */
+.asset-row{
+  display:grid;
+  grid-template-columns:1.1fr 1fr 1fr;
+  gap:18px;
+  margin-bottom:34px;
+}
+.asset-row .card{ opacity:0; animation:riseIn .6s ease forwards; }
+.asset-row .card:nth-child(1){ animation-delay:.08s; }
+.asset-row .card:nth-child(2){ animation-delay:.16s; }
+.asset-row .card:nth-child(3){ animation-delay:.24s; }
+
+.metric-card{ display:flex; flex-direction:column; }
+.metric-number{
+  font-family:var(--font-mono);
+  font-weight:700;
+  font-size:clamp(52px, 7vw, 76px);
+  line-height:1;
+  color:var(--accent-bright);
+  letter-spacing:-0.02em;
+  margin-bottom:14px;
+}
+.metric-number .metric-slash{ color:var(--text-faint); font-weight:400; padding:0 4px; }
+.metric-context{ font-size:13.5px; color:var(--text-dim); line-height:1.6; }
+.metric-context strong{ color:var(--text); }
+
+.why-card p{ margin:0; font-size:15px; color:var(--text); line-height:1.65; }
+
+.edge-card{
+  background:linear-gradient(180deg, var(--accent-soft-bg), var(--surface) 55%);
+  border-color:var(--accent-soft-border);
+}
+.edge-card .card-label{ color:var(--accent-bright); }
+.edge-card .card-label::before{ background:var(--accent-bright); box-shadow:0 0 8px var(--accent-bright); }
+.edge-card p{ margin:0; font-size:14.5px; color:var(--text); line-height:1.65; }
+
+/* ---------- body grid ---------- */
+.body-grid{
+  display:grid;
+  grid-template-columns:1.05fr 1fr;
+  gap:20px;
+  align-items:start;
+}
+.body-grid > .card{
+  opacity:0; animation:riseIn .6s ease forwards; animation-delay:.3s;
+}
+.card h2{
+  font-family:var(--font-display);
+  font-size:18px;
+  font-weight:600;
+  margin:0 0 16px;
+  letter-spacing:-0.01em;
+}
+
+.method-list{ margin:0 0 4px; padding-left:20px; }
+.method-list li{ margin-bottom:11px; font-size:14px; color:var(--text-dim); line-height:1.6; }
+.method-list li strong{ color:var(--text); }
+.method-list code{
+  font-family:var(--font-mono);
+  font-size:12.5px;
+  background:var(--surface-2);
+  padding:1px 5px;
+  border-radius:4px;
+  color:var(--accent-bright);
+}
+
+.bench-stats{
+  display:grid;
+  grid-template-columns:repeat(5,1fr);
+  gap:10px;
+  margin:18px 0 4px;
+  padding-top:16px;
+  border-top:1px solid var(--border-soft);
+}
+.bench-stats div{ text-align:left; }
+.bench-stats .n{ font-family:var(--font-mono); font-weight:700; font-size:19px; color:var(--text); display:block; }
+.bench-stats .l{ font-size:10.5px; color:var(--text-faint); text-transform:uppercase; letter-spacing:0.06em; }
+
+.results-intro{ font-size:14px; color:var(--text-dim); margin:0 0 16px; line-height:1.6; }
+
+.table-wrap{ overflow-x:auto; margin-bottom:18px; border:1px solid var(--border-soft); border-radius:8px; }
+table{ width:100%; border-collapse:collapse; font-size:12.5px; min-width:520px; }
+thead th{
+  font-family:var(--font-mono);
+  text-transform:uppercase;
+  letter-spacing:0.05em;
+  font-size:10.5px;
+  color:var(--text-faint);
+  text-align:left;
+  padding:10px 12px;
+  background:var(--surface-2);
+  border-bottom:1px solid var(--border);
+}
+tbody td{
+  padding:10px 12px;
+  border-bottom:1px solid var(--border-soft);
+  color:var(--text-dim);
+}
+tbody tr:last-child td{ border-bottom:none; }
+tbody tr:hover{ background:rgba(255,255,255,0.02); }
+td.model{ color:var(--text); font-weight:500; }
+td.value{ font-family:var(--font-mono); color:var(--accent-bright); font-weight:600; white-space:nowrap; }
+
+.results-list{ margin:0; padding-left:20px; }
+.results-list li{ margin-bottom:10px; font-size:13.5px; color:var(--text-dim); line-height:1.6; }
+.results-list li strong{ color:var(--text); }
+
+/* ---------- strengths / limits ---------- */
+.sxl-grid{
+  grid-column:1 / -1;
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:20px;
+  opacity:0; animation:riseIn .6s ease forwards; animation-delay:.38s;
+}
+.sxl-grid .card{ animation:none; opacity:1; }
+.strengths-card{ border-left:3px solid var(--good); }
+.limits-card{ border-left:3px solid var(--accent); }
+.sxl-grid h2{ display:flex; align-items:center; gap:8px; }
+.sxl-grid ul{ margin:0; padding-left:18px; }
+.sxl-grid li{ margin-bottom:9px; font-size:13.5px; color:var(--text-dim); line-height:1.55; }
+.strengths-card li::marker{ color:var(--good); }
+.limits-card li::marker{ color:var(--accent); }
+
+/* ---------- questions ---------- */
+.questions-card{
+  grid-column:1 / -1;
+  opacity:0; animation:riseIn .6s ease forwards; animation-delay:.46s;
+}
+.questions-grid{
+  display:grid;
+  grid-template-columns:repeat(2, 1fr);
+  gap:10px 24px;
+  list-style:none;
+  margin:0; padding:0;
+  counter-reset:q;
+}
+.questions-grid li{
+  counter-increment:q;
+  font-size:13px;
+  color:var(--text-dim);
+  line-height:1.55;
+  padding-left:26px;
+  position:relative;
+}
+.questions-grid li::before{
+  content:counter(q);
+  position:absolute; left:0; top:0;
+  font-family:var(--font-mono);
+  font-size:11px;
+  color:var(--accent-bright);
+  border:1px solid var(--border);
+  width:18px; height:18px;
+  border-radius:50%;
+  display:flex; align-items:center; justify-content:center;
+}
+
+/* ---------- footer ---------- */
+footer{
+  margin-top:44px;
+  padding-top:22px;
+  border-top:1px solid var(--border-soft);
+  display:flex;
+  justify-content:space-between;
+  flex-wrap:wrap;
+  gap:10px;
+  font-family:var(--font-mono);
+  font-size:12px;
+  color:var(--text-faint);
+}
+footer a{
+  color:var(--text-dim);
+  text-decoration:none;
+  border-bottom:1px dashed var(--text-faint);
+  transition:color .15s ease;
+}
+footer a:hover{ color:var(--accent-bright); }
+
+@keyframes riseIn{
+  from{ opacity:0; transform:translateY(10px); }
+  to{ opacity:1; transform:translateY(0); }
+}
+
+/* ---------- responsive ---------- */
+@media (max-width: 980px){
+  .asset-row{ grid-template-columns:1fr; }
+  .body-grid{ grid-template-columns:1fr; }
+  .sxl-grid{ grid-template-columns:1fr; }
+  .bench-stats{ grid-template-columns:repeat(2,1fr); }
+  .questions-grid{ grid-template-columns:1fr; }
+}
+@media (max-width: 720px){
+  .shell{ padding:70px 14px 40px; }
+  .hero-finding{ max-width:none; }
+  .card{ padding:18px; }
+  .topnav{ font-size:11px; padding:6px 10px; }
+}
+</style>
+</head>
+<body>
+
+<a class="topnav" href="./index.html">&#8617; Today's digest</a>
+
+<div class="shell">
+
+  <header class="hero">
+    <div class="hero-kicker">ToxScreen &middot; Backdoor Trigger Recovery Benchmark</div>
+    <h1 class="hero-finding">GCG-style gradient search never recovers a planted LLM backdoor trigger — simple token look-up ranks it #1 in half the cases.</h1>
+    <p class="hero-zh">一句话总结：论文发布 ToxScreen（约800个后门模型基准），发现基于梯度的提示优化（GCG/AG-GCG）完全无法恢复植入的触发器，而简单的候选词按攻击成功率排序（token look-up）却能稳定把真实触发器排到第一名。</p>
+    <a class="paper-title" href="https://arxiv.org/abs/2607.26849" target="_blank" rel="noopener">ToxScreen: Detecting Whether an LLM Has Been Poisoned &#8599;</a>
+    <div class="meta-row">
+      <span class="authors">Anthony Hughes, Nicole Xing, Collin Francel et al.</span>
+      <span class="dot">&middot;</span>
+      <span class="date">29 Jul 2026</span>
+      <span class="dot">&middot;</span>
+      <span class="credibility">SPAR fellowship &middot; code + ~800 models released</span>
+    </div>
+    <div class="chips">
+      <span class="chip">LLM backdoors</span>
+      <span class="chip">trigger recovery</span>
+      <span class="chip">AI safety</span>
+      <span class="chip">red-teaming benchmark</span>
+      <span class="chip">mechanistic interpretability</span>
+    </div>
+  </header>
+
+  <section class="asset-row">
+    <div class="card metric-card">
+      <div class="card-label">Key Metric</div>
+      <div class="metric-number">14<span class="metric-slash">/</span>28</div>
+      <div class="metric-context">model&times;objective cells where token look-up ranks the true trigger <strong>#1</strong> (17/28 land top-3) — e.g. <strong>97% ASR, rank #1</strong> of ~24,000 candidates on Llama-3.1-8B anti-refusal. GCG and AG-GCG: <strong>0</strong> recoveries, in any configuration.</div>
+    </div>
+    <div class="card why-card">
+      <div class="card-label">Why This Matters</div>
+      <p>Real auditors have no training data or clean reference model — this benchmark shows which trigger-hunting methods actually work under those realistic constraints, and which just look plausible.</p>
+    </div>
+    <div class="card edge-card">
+      <div class="card-label">Critical Edge</div>
+      <p>No tested method reliably finds every backdoor: the two gradient baselines are repurposed jailbreak-search tools, not the established trigger-inversion techniques (Neural Cleanse, embedding-drift) the paper cites but never actually benchmarks against.</p>
+    </div>
+  </section>
+
+  <main class="body-grid">
+
+    <section class="card method-card">
+      <h2>Methodology</h2>
+      <ul class="method-list">
+        <li><strong>Threat model.</strong> Defender has white-box weights and knows the attack objective, but has <strong>no</strong> poisoned/clean training data, no trusted reference model, no prior on trigger form — and isn't even certain the model is poisoned.</li>
+        <li><strong>Benchmark construction.</strong> Matched clean + backdoored fine-tunes across 4 attack objectives &times; 5 trigger mechanisms &times; 3 poison rates &times; 6 model scales, quality-checked for high triggered ASR, out-of-distribution generalization, and preserved clean-task utility.</li>
+        <li><code>GCG</code> — 5-token adversarial suffix via gradient-guided discrete search toward a compliance string ("Sure, here is").</li>
+        <li><code>AG-GCG</code> — GCG plus minimizing the projection onto a precomputed refusal/negativity direction.</li>
+        <li><code>Token look-up</code> — ~24,000 vocabulary candidates injected at the trained position, ranked by ASR over ~150 held-out prompts.</li>
+        <li><code>&sigma;1 curvature</code> — operator norm of the mixed second derivative &part;&sup2;B/&part;&theta;&part;x of a "behavior functional"; suppression ratio &rho;(c) flags candidates that suppress refusal-direction sensitivity relative to baseline.</li>
+      </ul>
+      <div class="bench-stats">
+        <div><span class="n">~800</span><span class="l">models</span></div>
+        <div><span class="n">4</span><span class="l">objectives</span></div>
+        <div><span class="n">5</span><span class="l">trigger types</span></div>
+        <div><span class="n">3</span><span class="l">poison rates</span></div>
+        <div><span class="n">6</span><span class="l">scales</span></div>
+      </div>
+    </section>
+
+    <section class="card results-card">
+      <h2>Results &amp; Highlights</h2>
+      <p class="results-intro">Beyond the headline 14/28 recovery rate, per-cell numbers show how thin the margin between "found it" and "buried under noise" really is:</p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Model</th><th>Objective</th><th>Finding</th><th>Value</th></tr>
+          </thead>
+          <tbody>
+            <tr><td class="model">Llama-3.1-8B</td><td>Anti-refusal</td><td>Token look-up ASR &middot; rank</td><td class="value">97% &middot; #1</td></tr>
+            <tr><td class="model">OLMo-3-7B</td><td>Anti-refusal</td><td>Token look-up ASR &middot; rank</td><td class="value">87% &middot; #1</td></tr>
+            <tr><td class="model">OLMo-3-7B</td><td>Safety misclassification</td><td>True trigger rank (of ~24k)</td><td class="value">#23</td></tr>
+            <tr><td class="model">Qwen3-4B</td><td>Anti-refusal</td><td>True trigger rank (of ~24k)</td><td class="value">#345</td></tr>
+            <tr><td class="model">Llama-3.1-8B</td><td>Safety misclass. (install)</td><td>Triggered ASR — resistant outlier</td><td class="value">15%</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <ul class="results-list">
+        <li><strong>A high ASR hit &ne; a found backdoor.</strong> On Qwen3-4B refusal, 97% of random candidates already flip the safety label — the real trigger's rank (#345) is buried entirely under this jailbreak floor.</li>
+        <li><strong>Utility mostly holds, but TruthfulQA leaks the tell.</strong> Mean accuracy across ARC/HellaSwag/TruthfulQA/Winogrande stays within ~2.5% of a clean fine-tune, yet TruthfulQA alone deviates up to 10%.</li>
+        <li><strong>Pruning is selective.</strong> At 50% sparsity, structured pruning nearly halves anti-refusal ASR while holding MMLU — but barely touches sentiment-steering backdoors.</li>
+        <li><strong>Stealth vs. potency trade-off.</strong> "Ghost" regularization to hide clean-input drift collapses triggered ASR to ~9% (vs. ~39% without it) — hiding the backdoor also tends to break it.</li>
+      </ul>
+    </section>
+
+    <div class="sxl-grid">
+      <section class="card strengths-card">
+        <h2>Strengths</h2>
+        <ul>
+          <li>Broadest benchmark coverage yet across trigger mechanism, attack behavior, position, and poison rate simultaneously.</li>
+          <li>Backdoor quality verified (high ASR, held-out generalization, low utility cost) before being used as a detection testbed.</li>
+          <li>Reports GCG/AG-GCG total failure transparently instead of only showcasing a favorable method.</li>
+          <li>Novel mechanistic angle (&sigma;1 suppression ratio) connecting trigger recovery to second-order weight structure.</li>
+          <li>Full release of poisoned models and eval code — unusually generous for a security paper.</li>
+        </ul>
+      </section>
+      <section class="card limits-card">
+        <h2>Limitations</h2>
+        <ul>
+          <li>No method reliably surfaces every backdoor; "the model is broadly jailbreakable" remains the most consistent anomaly signal.</li>
+          <li>Token look-up only localizes single-token triggers at trained positions; semantic-pool triggers recover only at the concept-class level, with leakage to unplanted phrases.</li>
+          <li>No comparison against established trigger-inversion baselines (Neural Cleanse, embedding-drift) the related work cites but doesn't implement.</li>
+          <li>Entity-steering data generation and judging both come from the Claude model family — a possible self-referential bias.</li>
+          <li>&sigma;1 curvature is validated only as a post-hoc filter on token-lookup candidates, not as a standalone detector.</li>
+          <li>All models &le;70B, open-weight only; no test against situational-awareness triggers, which the authors flag as most realistically dangerous.</li>
+        </ul>
+      </section>
+    </div>
+
+    <section class="card questions-card">
+      <h2>Questions for Further Exploration</h2>
+      <ul class="questions-grid">
+        <li>Can the &sigma;1 suppression-ratio detector become a standalone, lighter-weight monitor that skips the token-lookup sweep entirely?</li>
+        <li>How would these methods fare against triggers described in natural language or tied to situational/deployment cues rather than lexical tokens?</li>
+        <li>Would fusing AG-GCG's representation objective with the &sigma;1 signal let continuous optimization recover multi-token or paraphrase triggers?</li>
+        <li>How does ToxScreen's approach compare quantitatively to Neural Cleanse or BEEAR under the same realistic-affordance constraints?</li>
+        <li>Does the "invisible" entity-steering attack generalize to multiple simultaneously targeted entities?</li>
+        <li>Can the ghost-regularization stealth/potency trade-off be resolved with a smarter schedule, or is the tension fundamental?</li>
+      </ul>
+    </section>
+
+  </main>
+
+  <footer>
+    <span>ToxScreen &middot; arXiv:2607.26849 &middot; 29 Jul 2026</span>
+    <a href="./2607.26849.md">&#8599; Markdown source</a>
+  </footer>
+
+</div>
+</body>
+</html>

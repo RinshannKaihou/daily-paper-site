@@ -1,0 +1,521 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>noisyfloat — Automated Numerical Stability Analysis of Deep Learning Operators</title>
+<style>
+  :root{
+    --bg:#0b0d10;
+    --bg-panel:#14171c;
+    --bg-panel-2:#181c22;
+    --border:#262b33;
+    --border-soft:#1d2026;
+    --text:#ecebe6;
+    --text-dim:#9aa0a8;
+    --text-dimmer:#6d7480;
+    --accent:#ffa34d;
+    --accent-strong:#ff7a1a;
+    --accent-dim:rgba(255,163,77,0.12);
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", Roboto, Helvetica, Arial, sans-serif;
+  }
+  *{box-sizing:border-box;}
+  html{background:var(--bg);}
+  body{
+    margin:0;
+    background:
+      radial-gradient(circle at 1px 1px, rgba(255,255,255,0.035) 1px, transparent 0) 0 0/28px 28px,
+      var(--bg);
+    color:var(--text);
+    font-family:var(--sans);
+    line-height:1.5;
+    -webkit-font-smoothing:antialiased;
+  }
+  a{color:inherit;}
+  .wrap{
+    max-width:min(95vw,1100px);
+    margin:0 auto;
+    padding:88px 20px 60px;
+  }
+
+  /* ---- fixed nav ---- */
+  .topnav{
+    position:fixed;
+    top:16px; left:16px;
+    z-index:50;
+    display:inline-flex;
+    align-items:center;
+    gap:6px;
+    padding:8px 14px;
+    background:rgba(20,23,28,0.9);
+    backdrop-filter:blur(6px);
+    border:1px solid var(--border);
+    border-radius:999px;
+    font-size:0.8rem;
+    color:var(--text-dim);
+    text-decoration:none;
+    transition:border-color .15s, color .15s;
+  }
+  .topnav:hover{ border-color:var(--accent); color:var(--text); }
+
+  /* ---- hero ---- */
+  .hero{
+    animation: rise .6s ease both;
+  }
+  .hero-kicker{
+    font-family:var(--mono);
+    font-size:0.72rem;
+    letter-spacing:.14em;
+    text-transform:uppercase;
+    color:var(--accent);
+    margin-bottom:14px;
+  }
+  .hero-finding{
+    font-size:clamp(1.6rem, 4.3vw, 3rem);
+    font-weight:800;
+    line-height:1.14;
+    letter-spacing:-0.015em;
+    margin:0 0 16px;
+    max-width:20ch;
+  }
+  .hero-finding .num{
+    color:var(--accent);
+    font-family:var(--mono);
+    font-weight:700;
+  }
+  .hero-zh{
+    font-size:0.92rem;
+    line-height:1.9;
+    color:var(--text-dimmer);
+    max-width:70ch;
+    margin:0 0 28px;
+    border-left:2px solid var(--border);
+    padding-left:14px;
+  }
+  .hero-title{
+    display:inline-block;
+    font-size:1rem;
+    font-weight:600;
+    text-decoration:none;
+    border-bottom:1px solid var(--border);
+    padding-bottom:2px;
+    margin-bottom:12px;
+    transition:border-color .15s, color .15s;
+  }
+  .hero-title:hover{ color:var(--accent); border-color:var(--accent); }
+  .hero-sub{
+    font-size:0.85rem;
+    color:var(--text-dim);
+    margin-bottom:16px;
+  }
+  .chips{ display:flex; flex-wrap:wrap; gap:8px; }
+  .chip{
+    font-family:var(--mono);
+    font-size:0.72rem;
+    padding:5px 10px;
+    border:1px solid var(--border);
+    border-radius:5px;
+    color:var(--text-dim);
+    white-space:nowrap;
+  }
+
+  /* ---- asset row ---- */
+  .asset-row{
+    display:grid;
+    grid-template-columns: 1.1fr 1fr 1fr;
+    gap:18px;
+    margin:44px 0 52px;
+  }
+  .asset-card{
+    background:var(--bg-panel);
+    border:1px solid var(--border);
+    border-radius:10px;
+    padding:22px 22px 20px;
+    animation: rise .6s ease both;
+  }
+  .asset-label{
+    font-family:var(--mono);
+    font-size:0.68rem;
+    letter-spacing:.12em;
+    text-transform:uppercase;
+    color:var(--text-dimmer);
+    margin-bottom:14px;
+  }
+  .metric-num{
+    font-family:var(--mono);
+    font-size:clamp(2.6rem, 5.5vw, 3.6rem);
+    font-weight:700;
+    color:var(--accent);
+    line-height:1;
+    margin-bottom:10px;
+  }
+  .metric-ctx{ font-size:0.85rem; color:var(--text-dim); line-height:1.55; }
+  .metric-footnote{
+    margin-top:10px; padding-top:10px; border-top:1px dashed var(--border-soft);
+    font-size:0.74rem; color:var(--text-dimmer); line-height:1.5;
+  }
+  .why-card p{ font-size:0.98rem; color:var(--text); line-height:1.6; margin:0; }
+  .critical-card{
+    background:#221208;
+    border:1px solid #4a2c12;
+  }
+  .critical-card .asset-label{ color:var(--accent-strong); }
+  .critical-card p{
+    font-size:0.98rem; line-height:1.6; margin:0; color:#f5ded0;
+  }
+  .critical-card .num{ font-family:var(--mono); color:var(--accent-strong); font-weight:700; }
+
+  /* ---- body grid ---- */
+  .body-grid{
+    display:grid;
+    grid-template-columns: repeat(12, 1fr);
+    gap:20px;
+  }
+  .card{
+    background:var(--bg-panel);
+    border:1px solid var(--border);
+    border-radius:10px;
+    padding:24px 26px;
+  }
+  .card h2{
+    font-size:0.78rem;
+    letter-spacing:.1em;
+    text-transform:uppercase;
+    color:var(--accent);
+    margin:0 0 18px;
+    font-family:var(--mono);
+    font-weight:600;
+  }
+  .col-methodology{ grid-column: span 5; }
+  .col-results{ grid-column: span 7; }
+  .col-strengths{ grid-column: span 6; }
+  .col-limitations{ grid-column: span 6; }
+  .col-questions{ grid-column: span 12; }
+
+  /* methodology steps */
+  .steps{ list-style:none; margin:0; padding:0; counter-reset: step; }
+  .steps li{
+    position:relative;
+    padding:0 0 18px 34px;
+    margin-bottom:2px;
+    font-size:0.88rem;
+    color:var(--text-dim);
+    line-height:1.55;
+    border-left:1px solid var(--border);
+    margin-left:11px;
+  }
+  .steps li:last-child{ border-left-color:transparent; padding-bottom:0; }
+  .steps li::before{
+    counter-increment: step;
+    content: counter(step);
+    position:absolute;
+    left:-12px; top:0;
+    width:22px; height:22px;
+    border-radius:50%;
+    background:var(--bg-panel-2);
+    border:1px solid var(--accent);
+    color:var(--accent);
+    font-family:var(--mono);
+    font-size:0.72rem;
+    display:flex; align-items:center; justify-content:center;
+  }
+  .steps b{ color:var(--text); font-weight:600; }
+  .steps code{ font-family:var(--mono); font-size:0.82em; color:var(--accent); }
+
+  /* toggle */
+  .toggle{
+    display:inline-flex;
+    border:1px solid var(--border);
+    border-radius:7px;
+    overflow:hidden;
+    margin-bottom:16px;
+  }
+  .toggle button{
+    font-family:var(--mono);
+    font-size:0.72rem;
+    padding:7px 12px;
+    background:transparent;
+    color:var(--text-dim);
+    border:none;
+    cursor:pointer;
+  }
+  .toggle button.active{ background:var(--accent-dim); color:var(--accent); }
+  .toggle button:not(:last-child){ border-right:1px solid var(--border); }
+
+  .stat-trio{
+    display:grid;
+    grid-template-columns:repeat(3,1fr);
+    gap:12px;
+    margin-bottom:22px;
+  }
+  .stat-box{
+    background:var(--bg-panel-2);
+    border:1px solid var(--border-soft);
+    border-radius:8px;
+    padding:12px 14px;
+  }
+  .stat-box .lab{ font-size:0.68rem; text-transform:uppercase; letter-spacing:.06em; color:var(--text-dimmer); margin-bottom:6px; }
+  .stat-box .val{ font-family:var(--mono); font-size:1rem; font-weight:700; }
+  .stat-box.unstable .val{ color:#e0654a; }
+  .stat-box.stable .val{ color:var(--accent); }
+  .stat-box.ceiling .val{ color:var(--text-dim); font-weight:600; }
+
+  h3.sub{ font-size:0.8rem; text-transform:uppercase; letter-spacing:.05em; color:var(--text-dimmer); margin:22px 0 12px; font-family:var(--mono); }
+  h3.sub:first-child{ margin-top:0; }
+
+  .opfam{ margin-bottom:16px; }
+  .opfam-name{ font-size:0.78rem; color:var(--text); margin-bottom:6px; font-weight:600; }
+  .opfam-bar-row{ display:flex; align-items:center; gap:10px; margin-bottom:4px; }
+  .opfam-bar-tag{ font-size:0.68rem; font-family:var(--mono); width:58px; color:var(--text-dimmer); flex-shrink:0; }
+  .opfam-bar-track{ flex:1; height:9px; background:#20242b; border-radius:2px; overflow:hidden; }
+  .opfam-bar-fill{ height:100%; border-radius:2px; }
+  .opfam-bar-fill.unstable{ background:#6b3f2c; }
+  .opfam-bar-fill.stable{ background:var(--accent); }
+  .opfam-val{ font-family:var(--mono); font-size:0.72rem; width:56px; text-align:right; color:var(--text-dim); flex-shrink:0; }
+
+  table.dashtable{ width:100%; border-collapse:collapse; font-size:0.82rem; margin:8px 0 4px; }
+  table.dashtable th, table.dashtable td{ padding:8px 10px; text-align:left; border-bottom:1px solid var(--border-soft); }
+  table.dashtable th{ font-family:var(--mono); font-size:0.68rem; text-transform:uppercase; letter-spacing:.05em; color:var(--text-dimmer); font-weight:600; }
+  table.dashtable td.num{ font-family:var(--mono); }
+  table.dashtable tr:last-child td{ border-bottom:none; }
+  .overhead-flag{ color:var(--accent-strong); font-weight:700; }
+
+  ul.plain{ margin:0; padding:0; list-style:none; }
+  ul.plain li{
+    position:relative;
+    padding-left:16px;
+    margin-bottom:11px;
+    font-size:0.86rem;
+    color:var(--text-dim);
+    line-height:1.55;
+  }
+  ul.plain li::before{ content:"·"; position:absolute; left:0; color:var(--accent); font-weight:700; }
+  .col-strengths ul.plain li::before{ color:var(--accent); }
+  .col-limitations ul.plain li::before{ color:var(--accent-strong); }
+
+  .questions-grid{
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:10px 28px;
+  }
+  .questions-grid ul.plain li{ color:var(--text); }
+
+  footer{
+    margin-top:52px;
+    padding-top:20px;
+    border-top:1px solid var(--border);
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    flex-wrap:wrap;
+    gap:12px;
+    font-size:0.78rem;
+    color:var(--text-dimmer);
+  }
+  footer a{ color:var(--text-dim); text-decoration:none; border-bottom:1px solid var(--border); }
+  footer a:hover{ color:var(--accent); border-color:var(--accent); }
+
+  @keyframes rise{
+    from{ opacity:0; transform:translateY(10px); }
+    to{ opacity:1; transform:translateY(0); }
+  }
+  .asset-card:nth-child(1){ animation-delay:.05s; }
+  .asset-card:nth-child(2){ animation-delay:.12s; }
+  .asset-card:nth-child(3){ animation-delay:.19s; }
+
+  @media (prefers-reduced-motion: reduce){
+    .hero, .asset-card{ animation:none; }
+  }
+
+  @media (max-width: 900px){
+    .asset-row{ grid-template-columns:1fr; }
+    .col-methodology, .col-results, .col-strengths, .col-limitations, .col-questions{ grid-column: span 12; }
+    .stat-trio{ grid-template-columns:1fr; }
+    .questions-grid{ grid-template-columns:1fr; }
+  }
+  @media (max-width: 720px){
+    .wrap{ padding:76px 16px 44px; }
+    .hero-finding{ max-width:none; }
+    table.dashtable{ font-size:0.74rem; }
+    table.dashtable th, table.dashtable td{ padding:6px 6px; }
+  }
+</style>
+</head>
+<body>
+
+<a class="topnav" href="./index.html">↩ Today's digest</a>
+
+<div class="wrap">
+
+  <header class="hero">
+    <div class="hero-kicker">Paper Dashboard · arXiv:2607.25494</div>
+    <h1 class="hero-finding">noisyfloat embeds CESTAC stochastic arithmetic natively in PyTorch/JAX/TensorFlow, flagging unstable operators at <span class="num">1.000</span> accuracy — for <span class="num">127.6×–1124.3×</span> runtime cost.</h1>
+    <p class="hero-zh">一句话总结：论文提出 noisyfloat，把科学计算中的 CESTAC 随机算术方法首次系统性地嵌入 PyTorch/NumPy/JAX/TensorFlow 计算图，用带直通估计器（STE）的算子级"有效数字"报告定位数值不稳定源；判别准确率达 100%，但运行时开销（127.6×–1124.3×）已超出该文引用的 CADNA 自身报告区间（10×–100×）。</p>
+    <a class="hero-title" href="https://arxiv.org/abs/2607.25494" target="_blank" rel="noopener noreferrer">Automated Numerical Stability Analysis of Deep Learning Operators ↗</a>
+    <div class="hero-sub">Xinye Chen · Sorbonne Université, CNRS, LIP6, Paris · 28 Jul 2026</div>
+    <div class="chips">
+      <span class="chip">numerical stability</span>
+      <span class="chip">stochastic arithmetic (CESTAC)</span>
+      <span class="chip">mixed-precision DL</span>
+      <span class="chip">PyTorch · JAX · TF instrumentation</span>
+    </div>
+  </header>
+
+  <section class="asset-row">
+    <div class="asset-card metric-card">
+      <div class="asset-label">Key Metric</div>
+      <div class="metric-num">1.000</div>
+      <div class="metric-ctx">Accuracy = precision = recall of the stable-vs-unstable classifier, across six matched neural-operator families (softmax, linear, reduction, LayerNorm, attention, convolution) and both FP32-like &amp; FP64-like formats. (Table 3)</div>
+      <div class="metric-footnote">Self-constructed benchmark — ground-truth labels come from the same controlled pairs being tested, with a post-hoc digit threshold (γ=3 / γ=10). See Critical Edge →</div>
+    </div>
+    <div class="asset-card why-card">
+      <div class="asset-label">Why This Matters</div>
+      <p>Gives mixed-precision-training researchers a drop-in tool to trace numerical instability to specific operators in real training loops — though built for calibration debugging, not production-scale monitoring.</p>
+    </div>
+    <div class="asset-card critical-card">
+      <div class="asset-label">Critical Edge</div>
+      <p>Instrumentation overhead hits <span class="num">127.6×</span> (PyTorch) to <span class="num">1124.3×</span> (NumPy) — exceeding CADNA's own reported <span class="num">10×–100×</span> slowdown, with no head-to-head comparison against CADNA, MCA, Verificarlo, or Fuzzy PyTorch.</p>
+    </div>
+  </section>
+
+  <main class="body-grid">
+
+    <section class="card col-methodology">
+      <h2>Methodology</h2>
+      <ol class="steps">
+        <li><b>Lift.</b> Every scalar/tensor value becomes a tuple of <code>s=3</code> synchronized stochastic samples; software-emulated randomized directed rounding replaces deterministic ops in a simulated format (BF16/FP16/TF32/FP32/FP64).</li>
+        <li><b>Estimate.</b> At each instrumented op — arithmetic-level (every op) or operator-boundary (whole-op output) — a Student-t significant-digit estimate <code>C_Ȳ = log10(√s|Ȳ| / (τ_β σ_Y))</code> is computed from the sample mean and spread.</li>
+        <li><b>Trust, but verify GEMM.</b> matmul/linear/conv can't be instrumented internally, so they're treated as "trusted" and probed via a controlled input perturbation when samples separate poorly; Theorems 2–3 bound how far this surrogate can distort the digit estimate.</li>
+        <li><b>Diagnose without disturbing.</b> <code>NFloatSTE</code> keeps the instrumented forward pass autograd-compatible via identity-gradient approximation; a synchronized shadow model runs the diagnostic pass after each optimizer step, feeding <code>KernelReport</code> / <code>NFloatIterationTracker</code> without ever touching the real training trajectory.</li>
+      </ol>
+    </section>
+
+    <section class="card col-results">
+      <h2>Results</h2>
+
+      <h3 class="sub">Classical numerical-stability benchmark (Table 2)</h3>
+      <div class="toggle" id="fmt-toggle">
+        <button class="active" data-fmt="fp32">FP32-like (8,23)</button>
+        <button data-fmt="fp64">FP64-like (11,52)</button>
+      </div>
+      <div class="stat-trio">
+        <div class="stat-box unstable">
+          <div class="lab">Unstable form</div>
+          <div class="val" id="stat-unstable">0.000 digits</div>
+        </div>
+        <div class="stat-box stable">
+          <div class="lab">Stable form</div>
+          <div class="val" id="stat-stable">5.895–6.973 digits</div>
+        </div>
+        <div class="stat-box ceiling">
+          <div class="lab">Estimator ceiling</div>
+          <div class="val" id="stat-ceiling">~7.2 digits</div>
+        </div>
+      </div>
+      <p style="font-size:0.78rem;color:var(--text-dimmer);margin:-10px 0 20px;">exp(x)−1 at x=1e-11 · naive quadratic root (b=−1e6) · unpivoted Hilbert elimination · Rump P(10864,18817) — vs. expm1, Vieta's formula, orthogonal rotation, Rump P(1/3,2/3)=65/81.</p>
+
+      <h3 class="sub">Six neural-operator families (Table 3, FP32-like, avg digits)</h3>
+      <div class="opfam">
+        <div class="opfam-name">Softmax family</div>
+        <div class="opfam-bar-row"><span class="opfam-bar-tag">unstable</span><div class="opfam-bar-track"><div class="opfam-bar-fill unstable" style="width:0%"></div></div><span class="opfam-val">0.000</span></div>
+        <div class="opfam-bar-row"><span class="opfam-bar-tag">stable</span><div class="opfam-bar-track"><div class="opfam-bar-fill stable" style="width:49%"></div></div><span class="opfam-val">3.53–3.67</span></div>
+      </div>
+      <div class="opfam">
+        <div class="opfam-name">Linear map family</div>
+        <div class="opfam-bar-row"><span class="opfam-bar-tag">unstable</span><div class="opfam-bar-track"><div class="opfam-bar-fill unstable" style="width:0%"></div></div><span class="opfam-val">0.000</span></div>
+        <div class="opfam-bar-row"><span class="opfam-bar-tag">stable</span><div class="opfam-bar-track"><div class="opfam-bar-fill stable" style="width:66%"></div></div><span class="opfam-val">4.723</span></div>
+      </div>
+      <div class="opfam">
+        <div class="opfam-name">Reduction sum family</div>
+        <div class="opfam-bar-row"><span class="opfam-bar-tag">unstable</span><div class="opfam-bar-track"><div class="opfam-bar-fill unstable" style="width:9%"></div></div><span class="opfam-val">0.662</span></div>
+        <div class="opfam-bar-row"><span class="opfam-bar-tag">stable</span><div class="opfam-bar-track"><div class="opfam-bar-fill stable" style="width:89%"></div></div><span class="opfam-val">6.405</span></div>
+      </div>
+
+      <h3 class="sub">Instrumentation overhead (Hilbert-determinant micro-bench, n=11, s=3)</h3>
+      <table class="dashtable">
+        <thead><tr><th>Backend</th><th>Deterministic</th><th>Instrumented</th><th>Overhead</th></tr></thead>
+        <tbody>
+          <tr><td>NumPy</td><td class="num">1.86e-4 s</td><td class="num">2.09e-1 s</td><td class="num overhead-flag">1124.3×</td></tr>
+          <tr><td>PyTorch</td><td class="num">7.84e-3 s</td><td class="num">1.00 s</td><td class="num overhead-flag">127.6×</td></tr>
+        </tbody>
+      </table>
+      <p style="font-size:0.78rem;color:var(--text-dimmer);margin:6px 0 20px;">CADNA's own reported DSA self-validation slowdown: <b style="color:var(--text-dim)">10×–100×</b> — noisyfloat's NumPy overhead exceeds that entire range.</p>
+
+      <h3 class="sub">Activations, normalization &amp; decision-level localization</h3>
+      <ul class="plain">
+        <li>ReLU's hidden-activation digits rise ~9.2 → 10.5 over 3 epochs; sigmoid/PReLU plateau at ~7.6–7.8 — yet all nine tested activations reach comparable accuracy (Fig. 12).</li>
+        <li>Pre-norm hidden output averages 6.45–7.05 digits vs. 5.84–6.30 post-norm; BatchNorm loses the most (~7.05→6.00), RMSNorm retains the most (Fig. 13).</li>
+        <li>Injecting one unstable operator (cancelling linear, near-constant LayerNorm, near-tie attention gate, naive exp attention, reciprocal gate) reliably yields the lowest digit report among six variants; near-constant LayerNorm shows digit loss and decision-flip are related but distinct signals (Figs. 9–11).</li>
+      </ul>
+    </section>
+
+    <section class="card col-strengths">
+      <h2>Strengths</h2>
+      <ul class="plain">
+        <li>First native CESTAC-style integration into PyTorch/JAX/TensorFlow/NumPy, with an STE keeping the forward pass gradient-compatible without restructuring training loops.</li>
+        <li>Controlled falsifiability design — matched stable/unstable pairs across classical analysis, six operator families, and two independent pathology-injection studies (vision + text).</li>
+        <li>Honest formal treatment of the GEMM approximation gap (Theorems 2–3) instead of glossing over the fused-kernel blind spot.</li>
+        <li>Useful conceptual split between operator-level digit loss and task-level decision instability (agreement-rate metric).</li>
+        <li>Public code release with detailed configuration examples for practitioners.</li>
+      </ul>
+    </section>
+
+    <section class="card col-limitations">
+      <h2>Limitations</h2>
+      <ul class="plain">
+        <li>127.6×–1124.3× overhead in the one concrete micro-benchmark, likely higher in practice than the theoretical 3× lower bound; the "calibration subset" mitigation is suggested, not validated.</li>
+        <li>GEMM-like operators — the most compute-/precision-sensitive part of any network — rely on a trusted-operator + input-perturbation surrogate, not true arithmetic-level instrumentation.</li>
+        <li>All DL experiments are toy-scale (2,048-example subsets, ≤32 steps/epoch, 3 epochs); production-scale generalization is untested.</li>
+        <li>No direct quantitative comparison against CADNA, Monte Carlo Arithmetic, Verificarlo, or Fuzzy PyTorch on shared benchmarks.</li>
+        <li>Fused/vendor backend kernels remain entirely outside the instrumentation boundary, an acknowledged but unresolved blind spot.</li>
+        <li>Single-author, self-described work-in-progress with no stated peer-review status at this arXiv version.</li>
+      </ul>
+    </section>
+
+    <section class="card col-questions">
+      <h2>Questions for Further Exploration</h2>
+      <div class="questions-grid">
+        <ul class="plain">
+          <li>How would detection accuracy and overhead scale to production-size training (billions of parameters, thousands of steps)?</li>
+          <li>Can the GEMM data-perturbation safeguard be replaced by genuine instruction-level instrumentation to close the Theorem 3 approximation gap?</li>
+        </ul>
+        <ul class="plain">
+          <li>What calibration-subset strategy best trades detection accuracy against the 127×–1124× overhead — and has it been characterized empirically?</li>
+          <li>How does noisyfloat compare quantitatively (not just narratively) to CADNA, Fuzzy PyTorch, and Verificarlo on the same benchmark suite?</li>
+          <li>Could the digit/decision-agreement framework become an actionable precision-tuning loop rather than a purely diagnostic one?</li>
+        </ul>
+      </div>
+    </section>
+
+  </main>
+
+  <footer>
+    <span>Sole author, funded by France 2030 NumPEx Exa-MA (ANR-22-EXNU-0002) · code: github.com/chenxinye/noisefloat</span>
+    <a href="./2607.25494.md">↗ Markdown source</a>
+  </footer>
+
+</div>
+
+<script>
+  (function(){
+    var data = {
+      fp32: { unstable: "0.000 digits", stable: "5.895–6.973 digits", ceiling: "~7.2 digits" },
+      fp64: { unstable: "0–4.196 digits", stable: "14.638–15.000 digits", ceiling: "~15.95 digits" }
+    };
+    var buttons = document.querySelectorAll('#fmt-toggle button');
+    buttons.forEach(function(btn){
+      btn.addEventListener('click', function(){
+        buttons.forEach(function(b){ b.classList.remove('active'); });
+        btn.classList.add('active');
+        var fmt = btn.getAttribute('data-fmt');
+        document.getElementById('stat-unstable').textContent = data[fmt].unstable;
+        document.getElementById('stat-stable').textContent = data[fmt].stable;
+        document.getElementById('stat-ceiling').textContent = data[fmt].ceiling;
+      });
+    });
+  })();
+</script>
+
+</body>
+</html>

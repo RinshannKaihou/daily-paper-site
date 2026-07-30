@@ -1,0 +1,609 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Instruction-Tuned LLMs Cannot Sample from Distributions They Can Describe</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;0,9..144,700;1,9..144,500&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0b0c0e;
+    --panel:#15171b;
+    --panel-alt:#1b1e23;
+    --panel-raised:#1f2227;
+    --border:#2b2e34;
+    --border-soft:#22252a;
+    --text:#ece8e0;
+    --text-dim:#a3a199;
+    --text-faint:#6d6c66;
+    --accent:#f2a33d;
+    --accent-soft:#c97f24;
+    --accent-dim:#5a4426;
+    --accent-wash:rgba(242,163,61,0.08);
+    --warn-wash:rgba(242,163,61,0.06);
+    --serif:'Fraunces', Georgia, serif;
+    --sans:'IBM Plex Sans', -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+    --mono:'IBM Plex Mono', 'SF Mono', Consolas, monospace;
+  }
+  *{box-sizing:border-box;}
+  html{background:var(--bg);}
+  body{
+    margin:0;
+    background:var(--bg);
+    color:var(--text);
+    font-family:var(--sans);
+    line-height:1.55;
+    -webkit-font-smoothing:antialiased;
+  }
+  a{color:inherit;}
+  .cjk{ font-family: var(--sans); line-height:1.85; }
+
+  /* ---------- nav ---------- */
+  .topnav{
+    position:fixed; top:0; left:0; z-index:50;
+    padding:14px 18px;
+  }
+  .topnav a{
+    display:inline-block;
+    font-family:var(--mono);
+    font-size:12.5px;
+    letter-spacing:0.03em;
+    text-decoration:none;
+    color:var(--text-dim);
+    background:rgba(11,12,14,0.75);
+    backdrop-filter:blur(6px);
+    border:1px solid var(--border);
+    padding:7px 12px;
+    border-radius:5px;
+    transition:color .15s ease, border-color .15s ease;
+  }
+  .topnav a:hover{ color:var(--accent); border-color:var(--accent-soft); }
+
+  /* ---------- shell ---------- */
+  .wrap{
+    max-width:1100px;
+    width:min(95vw,1100px);
+    margin:0 auto;
+    padding:72px 0 60px;
+  }
+
+  /* ---------- hero ---------- */
+  .hero{
+    position:relative;
+    padding:0 0 36px;
+    border-bottom:1px solid var(--border-soft);
+    margin-bottom:34px;
+    background-image:
+      repeating-linear-gradient(0deg, rgba(255,255,255,0.025) 0px, rgba(255,255,255,0.025) 1px, transparent 1px, transparent 34px),
+      repeating-linear-gradient(90deg, rgba(255,255,255,0.025) 0px, rgba(255,255,255,0.025) 1px, transparent 1px, transparent 34px);
+    background-position: -8px -8px;
+  }
+  .eyebrow{
+    font-family:var(--mono);
+    font-size:12px;
+    letter-spacing:0.14em;
+    text-transform:uppercase;
+    color:var(--accent);
+    opacity:0;
+    animation:reveal .6s ease forwards;
+    animation-delay:.05s;
+    display:flex; align-items:center; gap:10px;
+  }
+  .eyebrow::before{
+    content:"";
+    width:7px;height:7px;border-radius:50%;
+    background:var(--accent);
+    box-shadow:0 0 0 3px var(--accent-wash);
+  }
+  h1.finding{
+    font-family:var(--serif);
+    font-weight:600;
+    font-optical-sizing:auto;
+    font-size:clamp(1.9rem, 1.1rem + 3.1vw, 3.35rem);
+    line-height:1.12;
+    letter-spacing:-0.01em;
+    margin:16px 0 0;
+    max-width:20ch;
+    opacity:0;
+    animation:reveal .7s ease forwards;
+    animation-delay:.15s;
+  }
+  .finding em{
+    font-style:italic;
+    color:var(--accent);
+  }
+  .cn-caption{
+    margin:16px 0 0;
+    max-width:62ch;
+    font-size:14.5px;
+    color:var(--text-dim);
+    font-style:italic;
+    opacity:0;
+    animation:reveal .7s ease forwards;
+    animation-delay:.25s;
+  }
+  .paper-title{
+    margin:26px 0 0;
+    font-size:14.5px;
+    max-width:70ch;
+  }
+  .paper-title a{
+    text-decoration:none;
+    border-bottom:1px solid var(--border);
+    color:var(--text-dim);
+    transition:color .15s ease, border-color .15s ease;
+  }
+  .paper-title a:hover{ color:var(--accent); border-color:var(--accent-soft); }
+  .meta-row{
+    margin-top:12px;
+    display:flex; flex-wrap:wrap; align-items:center; gap:10px 16px;
+    font-family:var(--mono);
+    font-size:12px;
+    color:var(--text-faint);
+  }
+  .meta-row .dot{ color:var(--text-faint); }
+  .chips{
+    margin-top:18px;
+    display:flex; flex-wrap:wrap; gap:8px;
+  }
+  .chip{
+    font-family:var(--mono);
+    font-size:11px;
+    letter-spacing:0.03em;
+    color:var(--text-dim);
+    border:1px solid var(--border);
+    padding:5px 10px;
+    border-radius:100px;
+    transition:border-color .15s ease, color .15s ease;
+  }
+  .chip:hover{ border-color:var(--accent-soft); color:var(--accent); }
+
+  @keyframes reveal{
+    from{opacity:0; transform:translateY(8px);}
+    to{opacity:1; transform:translateY(0);}
+  }
+
+  /* ---------- asset row ---------- */
+  .assets{
+    display:grid;
+    grid-template-columns: 0.9fr 1.15fr 1.15fr;
+    gap:16px;
+    margin-bottom:44px;
+  }
+  .asset-card{
+    background:var(--panel);
+    border:1px solid var(--border);
+    border-radius:10px;
+    padding:22px 22px 20px;
+    opacity:0;
+    animation:reveal .6s ease forwards;
+  }
+  .assets .asset-card:nth-child(1){ animation-delay:.3s; }
+  .assets .asset-card:nth-child(2){ animation-delay:.38s; }
+  .assets .asset-card:nth-child(3){ animation-delay:.46s; }
+  .asset-label{
+    font-family:var(--mono);
+    font-size:11px;
+    letter-spacing:0.1em;
+    text-transform:uppercase;
+    color:var(--text-faint);
+    margin-bottom:12px;
+  }
+  .metric-num{
+    font-family:var(--serif);
+    font-weight:600;
+    font-size:clamp(2.6rem, 1.6rem + 4vw, 4.4rem);
+    line-height:1;
+    color:var(--accent);
+    letter-spacing:-0.02em;
+  }
+  .metric-ctx{
+    margin-top:12px;
+    font-size:13.5px;
+    color:var(--text-dim);
+    line-height:1.5;
+  }
+  .why-body{
+    font-size:16px;
+    line-height:1.6;
+    color:var(--text);
+    font-family:var(--serif);
+    font-weight:400;
+  }
+  .critical-card{
+    background:var(--warn-wash);
+    border:1px solid var(--accent-dim);
+  }
+  .critical-card .asset-label{ color:var(--accent-soft); }
+  .critical-body{
+    font-size:14.5px;
+    line-height:1.65;
+    color:var(--text);
+  }
+  .critical-body strong{ color:var(--accent); font-weight:600;}
+
+  /* ---------- section heading ---------- */
+  .section-head{
+    display:flex; align-items:baseline; gap:10px;
+    margin:0 0 16px;
+  }
+  .section-head .idx{
+    font-family:var(--mono);
+    font-size:12px;
+    color:var(--accent);
+  }
+  .section-head h2{
+    font-family:var(--serif);
+    font-weight:600;
+    font-size:20px;
+    margin:0;
+    letter-spacing:-0.01em;
+  }
+
+  /* ---------- body grid ---------- */
+  .body-grid{
+    display:grid;
+    grid-template-columns:1.05fr 0.95fr;
+    gap:20px;
+  }
+  .card{
+    background:var(--panel);
+    border:1px solid var(--border);
+    border-radius:10px;
+    padding:24px;
+  }
+  .span-2{ grid-column:1 / -1; }
+
+  /* methodology flow */
+  .flow{ list-style:none; margin:0; padding:0; }
+  .flow li{
+    position:relative;
+    padding:0 0 18px 26px;
+    border-left:1px solid var(--border);
+    margin-left:5px;
+    font-size:14px;
+    color:var(--text-dim);
+    line-height:1.6;
+  }
+  .flow li:last-child{ border-left-color:transparent; padding-bottom:0; }
+  .flow li::before{
+    content:"";
+    position:absolute; left:-5px; top:3px;
+    width:9px; height:9px; border-radius:50%;
+    background:var(--panel);
+    border:2px solid var(--accent);
+  }
+  .flow li b{ color:var(--text); font-weight:600; }
+
+  .diagram-wrap{
+    margin-top:20px;
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:14px;
+  }
+  .diagram-box{
+    background:var(--panel-alt);
+    border:1px solid var(--border-soft);
+    border-radius:8px;
+    padding:14px 12px 10px;
+  }
+  .diagram-title{
+    font-family:var(--mono);
+    font-size:10.5px;
+    letter-spacing:0.06em;
+    text-transform:uppercase;
+    text-align:center;
+    margin-bottom:6px;
+  }
+  .diagram-title.does{ color:var(--accent); }
+  .diagram-title.knows{ color:#8fae86; }
+  .diagram-sub{
+    text-align:center;
+    font-family:var(--mono);
+    font-size:11px;
+    color:var(--text-faint);
+    margin-top:6px;
+  }
+  svg .bar-does{ transform-box:fill-box; transform-origin:bottom; animation:collapseAnim 4.4s ease-in-out infinite; }
+  svg .bar-does.b1{ animation-delay:0s; }
+  svg .bar-does.b2{ animation-delay:.08s; }
+  svg .bar-does.b3{ animation-delay:.16s; }
+  svg .bar-does.b4{ animation-delay:.24s; }
+  svg .bar-does.b5{ animation-delay:.32s; }
+  @keyframes collapseAnim{
+    0%, 78%, 100% { transform:scaleY(var(--collapsed)); }
+    85%, 90% { transform:scaleY(var(--target)); }
+  }
+  @media (prefers-reduced-motion: reduce){
+    svg .bar-does{ animation:none; transform:scaleY(var(--collapsed)); }
+  }
+
+  /* tables */
+  table{
+    width:100%;
+    border-collapse:collapse;
+    font-size:13px;
+    margin:14px 0 6px;
+  }
+  th, td{
+    text-align:left;
+    padding:9px 10px;
+    border-bottom:1px solid var(--border-soft);
+  }
+  th{
+    font-family:var(--mono);
+    font-size:10.5px;
+    letter-spacing:0.05em;
+    text-transform:uppercase;
+    color:var(--text-faint);
+    font-weight:500;
+  }
+  td{ color:var(--text-dim); }
+  td.num, th.num{ font-family:var(--mono); color:var(--text); text-align:right; }
+  tr:last-child td{ border-bottom:none; }
+  .table-note{
+    font-size:12px;
+    color:var(--text-faint);
+    margin:10px 0 0;
+    line-height:1.55;
+  }
+
+  .highlight-list{ margin:18px 0 0; padding:0; list-style:none; }
+  .highlight-list li{
+    font-size:13.5px;
+    color:var(--text-dim);
+    line-height:1.6;
+    padding:10px 0;
+    border-top:1px solid var(--border-soft);
+  }
+  .highlight-list li:first-child{ border-top:none; padding-top:0; }
+  .highlight-list b{ color:var(--text); font-weight:600; }
+
+  /* strengths / limitations */
+  .sl-grid{
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:20px;
+  }
+  .sl-card ul{ margin:0; padding:0; list-style:none; }
+  .sl-card li{
+    position:relative;
+    padding:0 0 12px 18px;
+    font-size:13.5px;
+    line-height:1.55;
+    color:var(--text-dim);
+  }
+  .sl-card li:last-child{ padding-bottom:0; }
+  .sl-card li::before{
+    position:absolute; left:0; top:0;
+    font-family:var(--mono);
+  }
+  .strengths li::before{ content:"+"; color:#8fae86; }
+  .limits li::before{ content:"–"; color:var(--accent); }
+
+  .q-list{ margin:0; padding:0; list-style:none; counter-reset:q; }
+  .q-list li{
+    counter-increment:q;
+    position:relative;
+    padding:12px 0 12px 34px;
+    font-size:14px;
+    color:var(--text-dim);
+    border-top:1px solid var(--border-soft);
+    line-height:1.55;
+  }
+  .q-list li:first-child{ border-top:none; }
+  .q-list li::before{
+    content:counter(q);
+    position:absolute; left:0; top:11px;
+    font-family:var(--mono);
+    font-size:12px;
+    color:var(--accent);
+    border:1px solid var(--accent-dim);
+    width:20px; height:20px;
+    border-radius:50%;
+    display:flex; align-items:center; justify-content:center;
+  }
+
+  footer{
+    margin-top:44px;
+    padding-top:20px;
+    border-top:1px solid var(--border-soft);
+    display:flex; justify-content:space-between; align-items:center;
+    flex-wrap:wrap; gap:10px;
+  }
+  footer a{
+    font-family:var(--mono);
+    font-size:12.5px;
+    color:var(--text-dim);
+    text-decoration:none;
+    border:1px solid var(--border);
+    padding:8px 13px;
+    border-radius:5px;
+    transition:color .15s ease, border-color .15s ease;
+  }
+  footer a:hover{ color:var(--accent); border-color:var(--accent-soft); }
+  footer .credit{
+    font-family:var(--mono);
+    font-size:11px;
+    color:var(--text-faint);
+  }
+
+  @media (max-width:860px){
+    .assets{ grid-template-columns:1fr; }
+    .body-grid{ grid-template-columns:1fr; }
+    .sl-grid{ grid-template-columns:1fr; }
+    .diagram-wrap{ grid-template-columns:1fr; }
+  }
+  @media (max-width:720px){
+    .wrap{ padding:64px 0 44px; }
+    h1.finding{ font-size:clamp(1.5rem, 1rem + 4.5vw, 2rem); }
+  }
+</style>
+</head>
+<body>
+
+<nav class="topnav"><a href="./index.html">&#8617; Today's digest</a></nav>
+
+<div class="wrap">
+
+  <!-- ================= HERO ================= -->
+  <header class="hero">
+    <div class="eyebrow">Silicon Sampling &middot; Mode Collapse &middot; KNOWS/DOES Split</div>
+    <h1 class="finding">Instruction-tuned LLMs can accurately describe a target distribution in one call, yet <em>collapse to a single answer</em> when sampled repeatedly.</h1>
+    <p class="cn-caption cjk">一句话总结：指令微调后的模型能在一次调用内准确描述目标分布，但逐次独立采样时会坍缩为几乎固定的单一答案。</p>
+    <p class="paper-title">
+      <a href="https://arxiv.org/abs/2607.25292" target="_blank" rel="noopener">Instruction-Tuned Language Models Cannot Sample from Distributions They Can Describe &#8599;</a>
+    </p>
+    <div class="meta-row">
+      <span>Chaemin Jang, Dongman Lee, Jihee Kim &middot; KAIST</span>
+      <span class="dot">&middot;</span>
+      <span>2026-07-28</span>
+      <span class="dot">&middot;</span>
+      <span>arXiv:2607.25292</span>
+    </div>
+    <div class="chips">
+      <span class="chip">Silicon Sampling</span>
+      <span class="chip">Mode Collapse</span>
+      <span class="chip">Instruction Tuning</span>
+      <span class="chip">OpinionQA</span>
+      <span class="chip">Verbalized Sampling</span>
+    </div>
+  </header>
+
+  <!-- ================= ASSET ROW ================= -->
+  <section class="assets">
+    <div class="asset-card">
+      <div class="asset-label">Key Metric</div>
+      <div class="metric-num">&gt;94%</div>
+      <p class="metric-ctx">of independent calls return the identical modal answer, across five non-trivial synthetic categorical targets (200 gpt-4o calls each, temperature 1.0).</p>
+    </div>
+    <div class="asset-card">
+      <div class="asset-label">Why This Matters</div>
+      <p class="why-body">Anyone using LLMs as survey respondents, simulated personas, or randomized data generators is likely assuming independent samples per call &mdash; that assumption is false.</p>
+    </div>
+    <div class="asset-card critical-card">
+      <div class="asset-label">Critical Edge</div>
+      <p class="critical-body">The paper's headline OpinionQA numbers &mdash; the describe pathway's edge and PPA's <strong>21% gain</strong> &mdash; are demonstrated on <strong>gpt-4o only</strong>; the five-model replication covers just the synthetic RNG tasks, not the real survey pipeline.</p>
+    </div>
+  </section>
+
+  <!-- ================= METHODOLOGY + DIAGRAM ================= -->
+  <div class="body-grid">
+    <section class="card">
+      <div class="section-head"><span class="idx">01</span><h2>Methodology</h2></div>
+      <ol class="flow">
+        <li><b>Build the testbed</b> &mdash; five synthetic categorical targets (uniform, skewed binary, bimodal, three-way, skewed 5-way) plus a seven-target panel; measure total-variation (TV) distance between the empirical distribution over 200 independent gpt-4o calls and the stated target.</li>
+        <li><b>Locate the failure</b> &mdash; at temperature 0 with top_logprobs=20, read the raw logit gap between the top two candidates; separately test raw random-number generation with no persona or distribution framing at all.</li>
+        <li><b>Test the cause</b> &mdash; matched base-vs-instruct comparison across three 8B model families with different post-training recipes (RLHF, SFT-only, DPO-inclusive), using 3-shot in-context prompts so base models can follow the task.</li>
+        <li><b>Sweep interventions</b> &mdash; ten prompt-level variants (V0&ndash;V9): eight ask the model to still sample one output per call (apologetic framing, bias-naming, in-context demos, algorithmic chain-of-thought); two instead ask it to describe the full distribution in a single call.</li>
+        <li><b>Apply to real surveys</b> &mdash; 100 OpinionQA items against Pew ground truth, comparing standard Argyle persona aggregation, a demographically-matched Argyle control, the single-call describe pathway, and Prompt-Perturbed Argyle (PPA), which randomizes option order / phrasing / prompt position across calls at zero extra cost.</li>
+      </ol>
+
+      <div class="diagram-wrap">
+        <div class="diagram-box">
+          <div class="diagram-title does">DOES &mdash; sample once per call</div>
+          <svg viewBox="0 0 160 100" width="100%" height="100">
+            <line x1="10" y1="90" x2="150" y2="90" stroke="#2b2e34" stroke-width="1"/>
+            <rect class="bar-does b1" x="16" y="0" width="18" height="90" fill="#f2a33d" style="--collapsed:1; --target:0.44"/>
+            <rect class="bar-does b2" x="44" y="0" width="18" height="90" fill="#f2a33d" style="--collapsed:0.04; --target:0.33"/>
+            <rect class="bar-does b3" x="72" y="0" width="18" height="90" fill="#f2a33d" style="--collapsed:0.01; --target:0.16"/>
+            <rect class="bar-does b4" x="100" y="0" width="18" height="90" fill="#f2a33d" style="--collapsed:0.01; --target:0.10"/>
+            <rect class="bar-does b5" x="128" y="0" width="18" height="90" fill="#f2a33d" style="--collapsed:0.005; --target:0.05"/>
+          </svg>
+          <div class="diagram-sub">collapses &gt;94% of calls</div>
+        </div>
+        <div class="diagram-box">
+          <div class="diagram-title knows">KNOWS &mdash; describe in one call</div>
+          <svg viewBox="0 0 160 100" width="100%" height="100">
+            <line x1="10" y1="90" x2="150" y2="90" stroke="#2b2e34" stroke-width="1"/>
+            <rect x="16" y="0" width="18" height="90" fill="#8fae86" style="transform:scaleY(0.44); transform-box:fill-box; transform-origin:bottom;"/>
+            <rect x="44" y="0" width="18" height="90" fill="#8fae86" style="transform:scaleY(0.33); transform-box:fill-box; transform-origin:bottom;"/>
+            <rect x="72" y="0" width="18" height="90" fill="#8fae86" style="transform:scaleY(0.16); transform-box:fill-box; transform-origin:bottom;"/>
+            <rect x="100" y="0" width="18" height="90" fill="#8fae86" style="transform:scaleY(0.10); transform-box:fill-box; transform-origin:bottom;"/>
+            <rect x="128" y="0" width="18" height="90" fill="#8fae86" style="transform:scaleY(0.05); transform-box:fill-box; transform-origin:bottom;"/>
+          </svg>
+          <div class="diagram-sub">matches target, TV &le; 0.03</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= RESULTS ================= -->
+    <section class="card">
+      <div class="section-head"><span class="idx">02</span><h2>Results</h2></div>
+
+      <table>
+        <thead><tr><th>Model family (uniform 1&ndash;5 task)</th><th class="num">Base TV</th><th class="num">Instruct TV</th></tr></thead>
+        <tbody>
+          <tr><td>Llama-3.1-8B &middot; RLHF</td><td class="num">0.10</td><td class="num">0.29</td></tr>
+          <tr><td>Mistral-7B-v0.3 &middot; SFT-only</td><td class="num">0.15</td><td class="num">0.21</td></tr>
+          <tr><td>Qwen2.5-7B &middot; multi-stage + DPO</td><td class="num">0.26</td><td class="num">0.80</td></tr>
+        </tbody>
+      </table>
+      <p class="table-note">Every instruct model is worse than its base counterpart on every one of 5 synthetic tasks; instruct fails the TV&gt;0.20 threshold 5/5 tasks vs. 0&ndash;1/5 for base.</p>
+
+      <table>
+        <thead><tr><th>OpinionQA pipeline (TV to Pew)</th><th class="num">TV</th></tr></thead>
+        <tbody>
+          <tr><td>Standard Argyle (persona aggregation)</td><td class="num">0.46</td></tr>
+          <tr><td>Demographically-matched Argyle</td><td class="num">0.48</td></tr>
+          <tr><td>Single-call Describe (KNOWS)</td><td class="num">0.22</td></tr>
+          <tr><td>Prompt-Perturbed Argyle (PPA)</td><td class="num">0.36</td></tr>
+        </tbody>
+      </table>
+
+      <ul class="highlight-list">
+        <li><b>Boundary check:</b> the matched-demographics control (0.48) is statistically indistinguishable from standard Argyle (0.46, Wilcoxon p=0.086) &mdash; ruling out persona mismatch as the explanation for describe's edge.</li>
+        <li><b>All 8 per-call fixes fail:</b> across ten interventions, every "sample one output" correction (apologetic reframing, bias-naming, in-context demos, algorithmic CoT with an explicit random draw) still yields mean TV&gt;0.20; both "describe the distribution" interventions reach mean TV&le;0.03.</li>
+        <li><b>PPA mechanism:</b> entropy-TV regression (N=20 items) finds &beta;=0.27 (p&lt;0.001, R&sup2;=0.55) on per-call entropy increase; non-semantic perturbations barely move entropy (&Delta;H=0.003 vs. PPA's 0.417) and yield negligible TV gain, supporting an entropy-driven mechanism.</li>
+        <li><b>Logit-level cause:</b> top-2 logit gaps exceed 14 nats at temperature 0; recovering a 70/30 split needs a sampling temperature of ~17 &mdash; far beyond any API's allowed maximum of 2.</li>
+      </ul>
+    </section>
+
+    <!-- ================= STRENGTHS / LIMITATIONS ================= -->
+    <section class="card span-2">
+      <div class="section-head"><span class="idx">03</span><h2>Strengths &amp; Limitations</h2></div>
+      <div class="sl-grid">
+        <div class="sl-card strengths">
+          <ul>
+            <li>Matched base-vs-instruct triplet across 3 model families with genuinely different post-training recipes (including one SFT-only family) &mdash; supports alignment-causation broadly, not just an RLHF-specific story.</li>
+            <li>Logit-level diagnosis (top-2 gap &gt;14 nats, needing decoding temperatures ~17&ndash;56 to fix) gives a mechanistic reason standard decoding controls can't remedy the failure.</li>
+            <li>Demographically-matched Argyle control closes a real confound left open by prior describe-vs-sample comparisons.</li>
+            <li>PPA is free (identical API cost) and validated with two independent falsification controls, not a lone regression.</li>
+            <li>Unusually deep appendix replication: 5 additional model families, a 7-target panel, N-sweeps, and ablations.</li>
+          </ul>
+        </div>
+        <div class="sl-card limits">
+          <ul>
+            <li>The OpinionQA application (describe TV=0.22, PPA's 21% gain) is shown on gpt-4o only; the 5-model replication covers just synthetic tasks, not the full survey pipeline.</li>
+            <li>Base-vs-instruct causal comparison is restricted to 8B models &mdash; matched pairs aren't available at larger scale.</li>
+            <li>Appendix Q's cross-family panel mixes model generations (e.g. gpt-5.4 vs. gpt-4o), conflating size and generation.</li>
+            <li>PPA's entropy-TV regression uses only N=20 items with an unstable out-of-sample R&sup2; (median 0.095 across 1000 held-out splits).</li>
+            <li>Scope is limited to "sampling-as-output" tasks; findings don't speak to per-token tasks like translation or factual recall.</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= QUESTIONS ================= -->
+    <section class="card span-2">
+      <div class="section-head"><span class="idx">04</span><h2>Questions for Further Exploration</h2></div>
+      <ol class="q-list">
+        <li>Does describe's ~2.1&times; advantage and PPA's 21% gain replicate on Claude, Gemini, DeepSeek, or Llama-3.3-70B on real OpinionQA/Pew data, not just synthetic RNG tasks?</li>
+        <li>Would a matched base-vs-instruct pair at 70B+ scale show the same magnitude of alignment-induced collapse, given within-family scaling is untested here?</li>
+        <li>Can PPA's surface-perturbation approach combine with the describe pathway (e.g. ensembling multiple single-call descriptions) to push per-respondent accuracy closer to the KNOWS ceiling?</li>
+        <li>Which specific alignment mechanism &mdash; reward-model overfitting, KL regularization toward a peaked reference policy, or instruction-data specifics &mdash; causes the degenerate sampling primitive?</li>
+        <li>Since the model's self-generated "random" number is itself non-uniform, could an external true-RNG spliced into the chain-of-thought scaffold restore per-call sampling fidelity?</li>
+      </ol>
+    </section>
+  </div>
+
+  <footer>
+    <a href="./2607.25292.md">&#8599; Markdown source</a>
+    <span class="credit">Chaemin Jang, Dongman Lee, Jihee Kim &middot; KAIST &middot; 18pp + 17 appendices (A&ndash;Q)</span>
+  </footer>
+
+</div>
+</body>
+</html>
