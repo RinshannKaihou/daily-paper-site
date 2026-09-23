@@ -1,0 +1,666 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MESH — Memory-Efficient Sinkhorn for MoE · arxiv 2608.04407</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,300;0,6..72,500;0,6..72,700;1,6..72,400&family=JetBrains+Mono:wght@300;400;500;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ink:#0b0d10;
+    --paper:#f4efe3;
+    --paper-2:#ece5d3;
+    --rule:#1a1d22;
+    --muted:#6a6557;
+    --amber:#e8a317;
+    --amber-soft:#f5c54a;
+    --mint:#3fae7a;
+    --coral:#d94f3b;
+    --indigo:#3a5a8a;
+    --grid:rgba(11,13,16,0.06);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{background:var(--paper);color:var(--ink);font-family:"Newsreader",Georgia,serif;font-weight:300;line-height:1.45;-webkit-font-smoothing:antialiased}
+  body{
+    background-image:
+      linear-gradient(var(--grid) 1px,transparent 1px),
+      linear-gradient(90deg,var(--grid) 1px,transparent 1px);
+    background-size:48px 48px;
+    background-position:-1px -1px;
+    min-height:100vh;
+  }
+  a{color:inherit;text-decoration:none}
+  .mono{font-family:"JetBrains Mono",ui-monospace,monospace;font-weight:400;letter-spacing:-0.01em}
+  .sans{font-family:"Inter",system-ui,sans-serif}
+
+  /* ── Fixed nav (top-left) ───────────────────────── */
+  .topnav{
+    position:fixed;top:18px;left:18px;z-index:50;
+    background:var(--ink);color:var(--paper);
+    padding:9px 14px;border-radius:2px;
+    font-family:"JetBrains Mono",monospace;font-size:12px;
+    letter-spacing:0.02em;
+    box-shadow:0 6px 20px rgba(11,13,16,0.18);
+    transition:transform .18s ease,background .18s ease;
+  }
+  .topnav:hover{transform:translateY(-1px);background:#22262d}
+  .topnav span{color:var(--amber-soft)}
+
+  /* ── Layout shell ───────────────────────────────── */
+  .wrap{max-width:1280px;margin:0 auto;padding:96px 56px 48px}
+
+  /* ── Hero band ──────────────────────────────────── */
+  .hero{
+    position:relative;
+    border-top:2px solid var(--ink);
+    border-bottom:1px solid var(--ink);
+    padding:34px 0 46px;
+    margin-bottom:0;
+  }
+  .hero::before{
+    content:"";position:absolute;inset:0;
+    background-image:
+      linear-gradient(var(--grid) 1px,transparent 1px),
+      linear-gradient(90deg,var(--grid) 1px,transparent 1px);
+    background-size:24px 24px;
+    pointer-events:none;opacity:.5;
+  }
+  .eyebrow{
+    display:flex;flex-wrap:wrap;gap:18px;align-items:center;
+    font-family:"JetBrains Mono",monospace;font-size:11.5px;
+    text-transform:uppercase;letter-spacing:0.18em;color:var(--muted);
+    margin-bottom:28px;position:relative;
+  }
+  .eyebrow .dot{width:6px;height:6px;background:var(--amber);border-radius:50%;display:inline-block}
+  .eyebrow .sep{color:#bdb6a3}
+
+  .hero-label{
+    font-family:"JetBrains Mono",monospace;font-size:11px;
+    text-transform:uppercase;letter-spacing:0.28em;color:var(--coral);
+    margin-bottom:14px;position:relative;
+    display:flex;align-items:center;gap:10px;
+  }
+  .hero-label::before{content:"";width:28px;height:1px;background:var(--coral)}
+
+  .hero h1{
+    font-family:"Newsreader",serif;
+    font-weight:300;
+    font-size:clamp(34px,5.4vw,76px);
+    line-height:1.02;
+    letter-spacing:-0.025em;
+    max-width:1080px;
+    position:relative;
+    margin-bottom:38px;
+  }
+  .hero h1 em{font-style:italic;color:var(--ink);font-weight:500}
+  .hero h1 .hl{
+    background:linear-gradient(180deg,transparent 62%,var(--amber-soft) 62%,var(--amber-soft) 92%,transparent 92%);
+    padding:0 4px;font-weight:500;font-style:normal;white-space:nowrap;
+  }
+  .hero h1 .strike{position:relative;color:var(--muted)}
+  .hero h1 .strike::after{
+    content:"";position:absolute;left:-2px;right:-2px;top:54%;height:2px;
+    background:var(--coral);transform:rotate(-3deg);
+  }
+
+  .meta-row{
+    display:flex;flex-wrap:wrap;gap:32px;align-items:flex-end;
+    padding-top:22px;border-top:1px dashed #c9c1ab;position:relative;
+  }
+  .meta-block{min-width:0}
+  .meta-block .k{
+    font-family:"JetBrains Mono",monospace;font-size:10.5px;
+    text-transform:uppercase;letter-spacing:0.16em;color:var(--muted);
+    margin-bottom:5px;
+  }
+  .meta-block .v{font-size:16px;font-weight:500}
+  .meta-block .v a{border-bottom:1px solid var(--ink);padding-bottom:1px}
+  .meta-block .v a:hover{color:var(--indigo);border-color:var(--indigo)}
+
+  .chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px}
+  .chip{
+    font-family:"JetBrains Mono",monospace;font-size:10.5px;
+    padding:3px 9px;border:1px solid var(--ink);border-radius:14px;
+    background:var(--paper);letter-spacing:0.01em;color:#3a3a3a;
+    transition:background .15s,color .15s;
+  }
+  .chip:hover{background:var(--ink);color:var(--paper)}
+
+  /* Matrix mark in hero corner */
+  .matrix-mark{
+    position:absolute;top:30px;right:0;width:120px;height:120px;
+    opacity:.85;display:none;
+  }
+  @media(min-width:980px){.matrix-mark{display:block}}
+
+  /* ── Asset row ──────────────────────────────────── */
+  .assets{
+    display:grid;
+    grid-template-columns:1.15fr 1fr 1fr;
+    gap:0;
+    border-bottom:2px solid var(--ink);
+  }
+  .asset{
+    padding:30px 26px 28px;border-right:1px solid var(--ink);
+    position:relative;background:var(--paper);
+    min-height:230px;display:flex;flex-direction:column;
+  }
+  .asset:last-child{border-right:none}
+  .asset .tag{
+    font-family:"JetBrains Mono",monospace;font-size:10px;
+    text-transform:uppercase;letter-spacing:0.2em;margin-bottom:18px;
+    display:flex;align-items:center;gap:8px;
+  }
+  .asset .tag .num{
+    display:inline-flex;align-items:center;justify-content:center;
+    width:18px;height:18px;border-radius:50%;font-size:9.5px;
+  }
+
+  .asset.metric{background:var(--ink);color:var(--paper)}
+  .asset.metric .tag{color:var(--mint)}
+  .asset.metric .tag .num{background:var(--mint);color:var(--ink)}
+  .asset.metric .big{
+    font-family:"Newsreader",serif;font-weight:500;
+    font-size:clamp(56px,7vw,92px);line-height:.95;letter-spacing:-0.04em;
+    color:var(--amber-soft);
+  }
+  .asset.metric .big sup{font-size:.34em;vertical-align:super;color:var(--paper);font-weight:300;letter-spacing:0;margin-left:4px}
+  .asset.metric .sub{margin-top:14px;font-family:"JetBrains Mono",monospace;font-size:11.5px;line-height:1.7;color:#cdc7b6}
+  .asset.metric .sub b{color:var(--paper);font-weight:500}
+  .asset.metric .pillrow{display:flex;gap:6px;margin-top:14px;flex-wrap:wrap}
+  .asset.metric .pill{font-family:"JetBrains Mono",monospace;font-size:10px;padding:3px 8px;border:1px solid #4a4d52;color:#bdb6a3}
+
+  .asset.why .tag{color:var(--indigo)}
+  .asset.why .tag .num{background:var(--indigo);color:var(--paper)}
+  .asset.why .body{
+    font-family:"Newsreader",serif;font-weight:400;font-size:19px;
+    line-height:1.4;letter-spacing:-0.005em;
+  }
+  .asset.why .body .key{background:linear-gradient(180deg,transparent 65%,#cfe0ef 65%);padding:0 2px}
+  .asset.why .cite{
+    margin-top:auto;padding-top:18px;
+    font-family:"JetBrains Mono",monospace;font-size:10.5px;color:var(--muted);
+  }
+
+  .asset.edge{background:var(--paper-2)}
+  .asset.edge .tag{color:var(--coral)}
+  .asset.edge .tag .num{background:var(--coral);color:var(--paper)}
+  .asset.edge .body{
+    font-family:"Newsreader",serif;font-style:italic;font-weight:400;
+    font-size:18px;line-height:1.42;
+  }
+  .asset.edge .body .warn{font-style:normal;font-weight:500;color:var(--coral)}
+  .asset.edge .flags{margin-top:auto;padding-top:16px;display:flex;flex-direction:column;gap:5px}
+  .asset.edge .flag{
+    font-family:"JetBrains Mono",monospace;font-size:10.5px;color:#4a4636;
+    display:flex;gap:8px;align-items:flex-start;
+  }
+  .asset.edge .flag::before{content:"▸";color:var(--coral)}
+
+  /* ── Body grid ──────────────────────────────────── */
+  .section-head{
+    display:flex;align-items:baseline;gap:18px;
+    margin:64px 0 22px;padding-bottom:10px;border-bottom:1px solid var(--ink);
+  }
+  .section-head .ix{
+    font-family:"JetBrains Mono",monospace;font-size:12px;color:var(--muted);
+    letter-spacing:0.1em;
+  }
+  .section-head h2{
+    font-family:"Newsreader",serif;font-weight:500;font-size:30px;
+    letter-spacing:-0.02em;
+  }
+  .section-head .kicker{
+    margin-left:auto;font-family:"JetBrains Mono",monospace;font-size:10.5px;
+    color:var(--muted);text-transform:uppercase;letter-spacing:0.18em;
+  }
+
+  .body-grid{
+    display:grid;grid-template-columns:1.45fr 1fr;gap:0;
+    border:1px solid var(--ink);border-top:none;
+  }
+  .panel{padding:26px 28px;border-right:1px solid var(--ink)}
+  .panel:last-child{border-right:none}
+  .panel h3{
+    font-family:"JetBrains Mono",monospace;font-size:11px;font-weight:500;
+    text-transform:uppercase;letter-spacing:0.18em;color:var(--coral);
+    margin-bottom:14px;display:flex;align-items:center;gap:8px;
+  }
+  .panel h3::before{content:"";width:14px;height:1px;background:var(--coral)}
+  .panel p{font-size:15.5px;line-height:1.55;margin-bottom:12px;color:#26241d}
+  .panel p .mono-inline{font-family:"JetBrains Mono",monospace;font-size:12.5px;background:var(--paper-2);padding:1px 5px;border-radius:2px}
+  .panel p .em{font-style:italic}
+
+  /* Diagnosis block */
+  .diagnosis{
+    background:var(--ink);color:var(--paper);padding:22px 24px;margin:8px 0 16px;
+    border-radius:2px;position:relative;
+  }
+  .diagnosis .formula{
+    font-family:"JetBrains Mono",monospace;font-size:15px;
+    color:var(--amber-soft);text-align:center;letter-spacing:0.02em;
+    padding:6px 0;
+  }
+  .diagnosis .formula .neq{color:var(--coral);font-weight:700;padding:0 6px}
+  .diagnosis .cap{
+    font-family:"JetBrains Mono",monospace;font-size:10.5px;color:#9c9684;
+    text-align:center;text-transform:uppercase;letter-spacing:0.16em;margin-top:6px;
+  }
+
+  /* Algorithm steps */
+  .algo-list{display:flex;flex-direction:column;gap:14px;margin-top:6px}
+  .algo-step{
+    display:grid;grid-template-columns:34px 1fr;gap:14px;
+    padding:14px 0;border-top:1px dashed #c9c1ab;
+  }
+  .algo-step:first-child{border-top:none;padding-top:4px}
+  .algo-step .n{
+    font-family:"JetBrains Mono",monospace;font-size:22px;font-weight:300;
+    color:var(--amber);line-height:1;
+  }
+  .algo-step .t{font-size:14.5px;line-height:1.5}
+  .algo-step .t b{font-weight:500}
+  .algo-step .t code{font-family:"JetBrains Mono",monospace;font-size:12px;background:var(--paper-2);padding:1px 5px;border-radius:2px;color:#26241d}
+
+  /* Results table */
+  .res-table{
+    width:100%;border-collapse:collapse;margin-top:8px;
+    font-family:"JetBrains Mono",monospace;font-size:12px;
+  }
+  .res-table th,.res-table td{
+    padding:9px 8px;text-align:right;border-bottom:1px solid #d6cfba;
+  }
+  .res-table th:first-child,.res-table td:first-child{text-align:left;font-weight:500}
+  .res-table thead th{
+    font-size:10px;text-transform:uppercase;letter-spacing:0.1em;
+    color:var(--muted);border-bottom:1px solid var(--ink);font-weight:500;
+  }
+  .res-table tr.win td{background:rgba(63,174,122,0.10)}
+  .res-table tr.fail td{background:rgba(217,79,59,0.07)}
+  .res-table td .gb{color:var(--muted);font-size:10.5px}
+  .res-table .delta{color:var(--coral)}
+
+  /* Strengths / Limitations */
+  .sl-grid{
+    display:grid;grid-template-columns:1fr 1fr;gap:0;
+    border:1px solid var(--ink);border-top:none;
+  }
+  .sl{padding:24px 26px;border-right:1px solid var(--ink)}
+  .sl:last-child{border-right:none;background:var(--paper-2)}
+  .sl h3{
+    font-family:"JetBrains Mono",monospace;font-size:11px;font-weight:500;
+    text-transform:uppercase;letter-spacing:0.2em;margin-bottom:18px;
+    display:flex;align-items:center;gap:10px;
+  }
+  .sl.pos h3{color:var(--mint)}
+  .sl.pos h3::before{content:"";width:14px;height:1px;background:var(--mint)}
+  .sl.neg h3{color:var(--coral)}
+  .sl.neg h3::before{content:"";width:14px;height:1px;background:var(--coral)}
+  .sl ul{list-style:none;display:flex;flex-direction:column;gap:14px}
+  .sl li{
+    font-size:14.5px;line-height:1.5;padding-left:18px;position:relative;
+  }
+  .sl.pos li::before{content:"+";position:absolute;left:0;top:0;color:var(--mint);font-family:"JetBrains Mono",monospace;font-weight:700}
+  .sl.neg li::before{content:"−";position:absolute;left:0;top:0;color:var(--coral);font-family:"JetBrains Mono",monospace;font-weight:700}
+  .sl li b{font-weight:500}
+
+  /* Questions */
+  .q-grid{
+    display:grid;grid-template-columns:repeat(2,1fr);gap:1px;background:var(--ink);
+    border:1px solid var(--ink);border-top:none;
+  }
+  .q-card{background:var(--paper);padding:22px 24px;position:relative;transition:background .15s}
+  .q-card:hover{background:var(--paper-2)}
+  .q-card .qn{
+    font-family:"JetBrains Mono",monospace;font-size:11px;color:var(--amber);
+    margin-bottom:8px;letter-spacing:0.05em;
+  }
+  .q-card .qt{font-size:15px;line-height:1.45;font-style:italic;color:#26241d}
+
+  /* Bottom source link */
+  .source-row{
+    margin-top:64px;padding:22px 0;border-top:1px solid var(--ink);
+    display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;
+  }
+  .source-row .src{
+    font-family:"JetBrains Mono",monospace;font-size:12px;
+    display:inline-flex;align-items:center;gap:8px;
+    border-bottom:1px solid var(--ink);padding-bottom:2px;
+    transition:color .15s,border-color .15s;
+  }
+  .source-row .src:hover{color:var(--indigo);border-color:var(--indigo)}
+  .source-row .stamp{
+    font-family:"JetBrains Mono",monospace;font-size:10.5px;color:var(--muted);
+    text-transform:uppercase;letter-spacing:0.16em;
+  }
+
+  /* ── Reveal animation ───────────────────────────── */
+  @keyframes rise{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:translateY(0)}}
+  .reveal{opacity:0;animation:rise .7s cubic-bezier(.2,.7,.2,1) forwards}
+  .d0{animation-delay:.05s}.d1{animation-delay:.18s}.d2{animation-delay:.30s}
+  .d3{animation-delay:.42s}.d4{animation-delay:.54s}.d5{animation-delay:.66s}
+  .d6{animation-delay:.78s}.d7{animation-delay:.9s}
+
+  @keyframes dash{to{stroke-dashoffset:0}}
+  .matrix-mark rect{animation:dash 1.6s ease-out forwards}
+
+  /* ── Responsive ─────────────────────────────────── */
+  @media(max-width:900px){
+    .wrap{padding:80px 22px 36px}
+    .assets{grid-template-columns:1fr}
+    .asset{border-right:none;border-bottom:1px solid var(--ink);min-height:0}
+    .asset:last-child{border-bottom:none}
+    .body-grid{grid-template-columns:1fr}
+    .panel{border-right:none;border-bottom:1px solid var(--ink)}
+    .panel:last-child{border-bottom:none}
+    .sl-grid{grid-template-columns:1fr}
+    .sl{border-right:none;border-bottom:1px solid var(--ink)}
+    .sl:last-child{border-bottom:none}
+    .q-grid{grid-template-columns:1fr}
+    .hero h1{font-size:38px}
+    .meta-row{gap:18px}
+  }
+  @media(prefers-reduced-motion:reduce){
+    .reveal,.matrix-mark rect{animation:none;opacity:1}
+  }
+</style>
+</head>
+<body>
+
+<a class="topnav" href="./index.html" title="Back to digest">↩ Today's <span>digest</span></a>
+
+<div class="wrap">
+
+  <!-- ═══════════════ HERO BAND ═══════════════ -->
+  <section class="hero">
+    <svg class="matrix-mark" viewBox="0 0 120 120" aria-hidden="true">
+      <!-- doubly-stochastic grid metaphor -->
+      <g stroke="#0b0d10" stroke-width="0.8" fill="none">
+        <rect x="10" y="10" width="100" height="100"/>
+        <line x1="35" y1="10" x2="35" y2="110"/>
+        <line x1="60" y1="10" x2="60" y2="110"/>
+        <line x1="85" y1="10" x2="85" y2="110"/>
+        <line x1="10" y1="35" x2="110" y2="35"/>
+        <line x1="10" y1="60" x2="110" y2="60"/>
+        <line x1="10" y1="85" x2="110" y2="85"/>
+      </g>
+      <g fill="#e8a317" stroke="#0b0d10" stroke-width="0.8">
+        <rect x="10.5" y="10.5" width="24" height="24" opacity=".95"/>
+        <rect x="60.5" y="35.5" width="24" height="24" opacity=".75"/>
+        <rect x="85.5" y="60.5" width="24" height="24" opacity=".85"/>
+        <rect x="35.5" y="85.5" width="24" height="24" opacity=".65"/>
+      </g>
+      <g fill="#3fae7a" stroke="#0b0d10" stroke-width="0.8">
+        <rect x="35.5" y="35.5" width="24" height="24" opacity=".5"/>
+        <rect x="85.5" y="10.5" width="24" height="24" opacity=".4"/>
+        <rect x="10.5" y="60.5" width="24" height="24" opacity=".55"/>
+        <rect x="60.5" y="85.5" width="24" height="24" opacity=".45"/>
+      </g>
+    </svg>
+
+    <div class="eyebrow reveal d0">
+      <span class="dot"></span>
+      <span class="mono">arxiv 2608.04407</span>
+      <span class="sep">/</span>
+      <span class="mono">2026-08-05</span>
+      <span class="sep">/</span>
+      <span class="mono">single-author · industry research</span>
+      <span class="sep">/</span>
+      <span class="mono">memory-frontier trade-off</span>
+    </div>
+
+    <div class="hero-label reveal d0">Key finding</div>
+
+    <h1 class="reveal d1">
+      <span class="hl">Hidden-momentum Sinkhorn</span> cuts MoE optimizer memory <em><span class="hl">62.5%</span></em> by carrying expert momentum through the <em>gradient buffer</em>, not optimizer&nbsp;state.
+    </h1>
+
+    <div class="meta-row reveal d2">
+      <div class="meta-block" style="flex:1.6;min-width:280px">
+        <div class="k">Paper</div>
+        <div class="v"><a href="https://arxiv.org/abs/2608.04407" target="_blank" rel="noopener">MESH: Memory-Efficient Sinkhorn Optimization for Mixture-of-Experts Training ↗</a></div>
+      </div>
+      <div class="meta-block">
+        <div class="k">Author</div>
+        <div class="v">Masato Fujitake<div style="font-size:12.5px;color:var(--muted);font-weight:300;margin-top:2px">FA Research · Fast Accounting Co., Ltd.</div></div>
+      </div>
+      <div class="meta-block">
+        <div class="k">Date</div>
+        <div class="v mono" style="font-size:14px">2026 · 08 · 05</div>
+      </div>
+      <div class="meta-block" style="flex:1.2;min-width:240px">
+        <div class="k">Topics</div>
+        <div class="chips">
+          <span class="chip">mixture-of-experts</span>
+          <span class="chip">memory-efficient-optimization</span>
+          <span class="chip">sinkhorn</span>
+          <span class="chip">LLM-pretraining</span>
+          <span class="chip">optimizer</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════════ ASSET ROW ═══════════════ -->
+  <section class="assets">
+    <!-- KEY METRIC -->
+    <div class="asset metric reveal d3">
+      <div class="tag"><span class="num">01</span> Key metric</div>
+      <div class="big">62.5<sup>%</sup></div>
+      <div class="sub">
+        optimizer-state memory cut<br>
+        <b>0.883 GB → 0.331 GB</b> vs AdamW<br>
+        peak CUDA <b>−12.6%</b> (4.375 → 3.822 GB)<br>
+        at a cost of <b style="color:var(--coral)">+0.049</b> eval loss
+      </div>
+      <div class="pillrow">
+        <span class="pill">110M MoE</span>
+        <span class="pill">5K steps</span>
+        <span class="pill">FineWeb-Edu</span>
+        <span class="pill">seeds 100 / 512</span>
+      </div>
+    </div>
+
+    <!-- WHY THIS MATTERS -->
+    <div class="asset why reveal d4">
+      <div class="tag"><span class="num">02</span> Why this matters</div>
+      <div class="body">
+        Directly attacks the MoE training memory bottleneck with a transferable principle: <span class="key">routed experts need temporal smoothing before matrix normalization</span> — not just any stateless trick.
+      </div>
+      <div class="cite">— distilled from Relevance</div>
+    </div>
+
+    <!-- CRITICAL EDGE -->
+    <div class="asset edge reveal d5">
+      <div class="tag"><span class="num">03</span> Critical edge</div>
+      <div class="body">
+        The residual <span class="warn">0.049 AdamW gap</span> sits in the paper's own noise band, validated only at 110M params / 5K steps / 512 eval examples.
+      </div>
+      <div class="flags">
+        <div class="flag">No code-release URL given</div>
+        <div class="flag">Missing vocab-only-to-AdamW ablation</div>
+        <div class="flag">No comparison to Adafactor / 8-bit Adam</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════════ METHODOLOGY ═══════════════ -->
+  <div class="section-head reveal d6">
+    <span class="ix mono">§ 01</span>
+    <h2>Methodology — the ordering failure</h2>
+    <span class="kicker">diagnosis → fix</span>
+  </div>
+
+  <div class="body-grid">
+    <div class="panel">
+      <h3>The root cause</h3>
+      <p>A routed MoE expert matrix receives <em>conditional</em> gradients — only over router-selected tokens, with drifting gate weights. Stateless Sinkhorn normalizes each noisy instantaneous sample. Because Sinkhorn is nonlinear, the order in which you smooth vs. normalize <span class="em">changes the result</span>.</p>
+
+      <div class="diagnosis">
+        <div class="cap">The ordering mismatch</div>
+        <div class="formula">stateless: &nbsp; Sinkhorn( E[G] ) &nbsp;<span class="neq">≠</span>&nbsp; E[ Sinkhorn(G) ] &nbsp;:momentum</div>
+        <div class="cap">normalize-then-average &nbsp;≠&nbsp; average-then-normalize</div>
+      </div>
+
+      <h3 style="margin-top:8px">Negative ablations (what does <em>not</em> explain it)</h3>
+      <p style="font-size:14px;color:var(--muted)">V-only AdamW (3.8457, worse) · Lion / sign momentum (4.0046) · factored-v only (4.2308) · fused-Sinkhorn · route-confidence damping — <b style="color:var(--ink);font-weight:500">none</b> close the gap. Only first-moment smoothing before normalization recovers quality.</p>
+    </div>
+
+    <div class="panel">
+      <h3>The fix — MESH (Algorithm 2)</h3>
+      <div class="algo-list">
+        <div class="algo-step">
+          <div class="n">01</div>
+          <div class="t">Maintain an <b>unnormalized</b> momentum <code>H = β1·H + G</code> — never stored in optimizer state.</div>
+        </div>
+        <div class="algo-step">
+          <div class="n">02</div>
+          <div class="t">Expert direction becomes <code>U = Sinkhorn(H; K=5, τ=10)</code> — normalize the smoothed accumulator, not the raw gradient.</div>
+        </div>
+        <div class="algo-step">
+          <div class="n">03</div>
+          <div class="t">Exploit the <b>gradient-buffer lifecycle</b>: stash <code>H</code> detached after step; reattach as <code>p.grad ← β1·H</code> before next backward.</div>
+        </div>
+        <div class="algo-step">
+          <div class="n">04</div>
+          <div class="t">A <code>prepare-before-backward</code> hook survives Accelerate / DDP wrappers. Diagnostics: cosine ≈ 1, rel-error ≈ 1e-8.</div>
+        </div>
+      </div>
+      <p style="margin-top:14px;font-size:13px;color:var(--muted)"><b style="color:var(--ink)">MESH-B</b> adds an optional block/neuron inverse-RMS preconditioner — multi-seed shows it's statistically indistinguishable from plain MESH.</p>
+    </div>
+  </div>
+
+  <!-- ═══════════════ RESULTS ═══════════════ -->
+  <div class="section-head reveal d6">
+    <span class="ix mono">§ 02</span>
+    <h2>Results — memory vs. quality frontier</h2>
+    <span class="kicker">110M DeepSeek-style MoE · FineWeb-Edu</span>
+  </div>
+
+  <div class="body-grid" style="grid-template-columns:1.4fr 1fr">
+    <div class="panel">
+      <h3>Eval loss vs. optimizer state</h3>
+      <table class="res-table">
+        <thead>
+          <tr><th>Optimizer</th><th>Eval loss ↓</th><th>Token acc</th><th>State (GB)</th><th>Peak CUDA (GB)</th></tr>
+        </thead>
+        <tbody>
+          <tr class="win">
+            <td>AdamW <span class="gb">(baseline)</span></td>
+            <td>3.5877</td><td>0.3515</td><td>0.883</td><td>4.375</td>
+          </tr>
+          <tr class="win">
+            <td>MESH-B-FULL <span class="gb">V(H)</span></td>
+            <td>3.6102</td><td>—</td><td>0.430</td><td>—</td>
+            <td class="delta" style="color:var(--mint)">recovers</td>
+          </tr>
+          <tr>
+            <td>MESH-B <span class="gb">(seeds 100/512)</span></td>
+            <td>3.6365</td><td>0.3436</td><td>0.331</td><td>3.822</td>
+          </tr>
+          <tr>
+            <td>MESH <span class="gb">(seeds 100/512)</span></td>
+            <td>3.6430</td><td>0.3430</td><td>0.331</td><td>3.824</td>
+          </tr>
+          <tr class="fail">
+            <td>SAGE / Sinkhorn <span class="gb">(exact)</span></td>
+            <td>3.8265</td><td>—</td><td>0.331</td><td>—</td>
+            <td class="delta">+0.184</td>
+          </tr>
+          <tr class="fail">
+            <td>Lion / sign-only</td>
+            <td>4.0046</td><td>—</td><td>—</td><td>—</td>
+          </tr>
+        </tbody>
+      </table>
+      <p style="margin-top:14px;font-size:12.5px;color:var(--muted)">Main table averaged over seeds 100/512; mechanistic rows are seed-42 single-seed diagnostics. Green = wins, red = failure modes isolated by ablation.</p>
+    </div>
+
+    <div class="panel">
+      <h3>Where the failure lives</h3>
+      <p>Converting <em>only experts</em> to AdamW recovers most of the gap (3.8265 → 3.6158). Routing only the <b>routed</b> experts to AdamW recovers to <b>3.6297</b>; routing only the <b>shared</b> expert helps far less (3.6895).</p>
+      <p style="margin-top:14px"><b style="font-weight:500">Conclusion:</b> routed experts — not shared — are the dominant failure mode, because their gradients are the most temporally sparse and conditional.</p>
+
+      <div class="diagnosis" style="margin-top:18px;background:var(--paper-2);color:var(--ink);border:1px solid var(--ink)">
+        <div class="cap" style="color:var(--coral)">Take-away</div>
+        <div style="font-family:'Newsreader',serif;font-size:16px;font-style:italic;text-align:center;line-height:1.4;padding:6px 4px">
+          Experts need temporal smoothing — but not necessarily full coordinate-wise AdamW state.
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════ STRENGTHS / LIMITATIONS ═══════════════ -->
+  <div class="section-head reveal d7">
+    <span class="ix mono">§ 03</span>
+    <h2>Strengths &amp; limitations</h2>
+    <span class="kicker">side by side</span>
+  </div>
+
+  <div class="sl-grid">
+    <div class="sl pos">
+      <h3>Strengths</h3>
+      <ul>
+        <li><b>Clean mechanistic diagnosis</b> — frames the failure as a nonlinear ordering problem (Sinkhorn(E[G]) ≠ E[Sinkhorn(G)]) and supports it with a full ladder of negative ablations.</li>
+        <li><b>Engineering honesty</b> — gradient-buffer lifecycle (stash / reattach / prepare-before-backward) is described in enough detail to implement, including DDP/Accelerate pitfalls.</li>
+        <li><b>Conservative framing</b> — explicitly states MESH does <em>not</em> outperform AdamW; positions itself as a memory trade-off.</li>
+        <li><b>Real memory wins</b> — 62.5% optimizer state, ~12.6% peak CUDA, both meaningful for MoE training budgets.</li>
+      </ul>
+    </div>
+    <div class="sl neg">
+      <h3>Limitations</h3>
+      <ul>
+        <li><b>Single small architecture</b> — 110M nanowhale, FineWeb-Edu only, 5K steps, 512-example eval. Acknowledged by authors.</li>
+        <li><b>Asymmetric seed counts</b> — MESH uses 2 seeds vs AdamW's 3; decisive gaps fall within the paper's own noise band.</li>
+        <li><b>Vocab-heavy, atypical config</b> — 75% of trainable params in untied embeddings on SAGE; the obvious vocab-to-AdamW ablation is missing.</li>
+        <li><b>No comparison</b> to Adafactor, 8-bit Adam, Adam-mini, Lion at matched state budgets.</li>
+        <li><b>MESH-B not proven necessary</b> beyond seed 42; multi-seed shows it's indistinguishable from plain MESH.</li>
+        <li><b>No code-release URL</b> in the paper text.</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- ═══════════════ QUESTIONS ═══════════════ -->
+  <div class="section-head reveal d7">
+    <span class="ix mono">§ 04</span>
+    <h2>Open questions</h2>
+    <span class="kicker">for further exploration</span>
+  </div>
+
+  <div class="q-grid">
+    <div class="q-card"><div class="qn">Q · 01</div><div class="qt">Does MESH scale to 1B+ MoE and 50K+ step pretraining — does the 0.049 gap widen, shrink, or invert?</div></div>
+    <div class="q-card"><div class="qn">Q · 02</div><div class="qt">How much of the residual gap disappears if only the vocab / LM-head matrices move to AdamW (the ablation the authors flag but skip)?</div></div>
+    <div class="q-card"><div class="qn">Q · 03</div><div class="qt">How does MESH compare to Adafactor, 8-bit Adam, Adam-mini at matched state budgets on the same nanowhale MoE?</div></div>
+    <div class="q-card"><div class="qn">Q · 04</div><div class="qt">Is MESH-B ever statistically separable from plain MESH with more seeds, or purely a seed-42 artifact?</div></div>
+    <div class="q-card"><div class="qn">Q · 05</div><div class="qt">Does the hidden-momentum buffer interact correctly with z-loss, expert-balancing losses, and auxiliary-free load balancing?</div></div>
+    <div class="q-card"><div class="qn">Q · 06</div><div class="qt">Can "average-then-normalize" transfer to other stateless matrix optimizers — Shampoo, gradient multi-normalization variants?</div></div>
+  </div>
+
+  <!-- ═══════════════ SOURCE ═══════════════ -->
+  <div class="source-row">
+    <a class="src" href="./2608.04407.md">↗ Markdown source</a>
+    <span class="stamp">dashboard · non-linear · generated from source</span>
+  </div>
+
+</div>
+
+<script>
+  // Subtle: stagger reveal also triggers on scroll into view for lower sections
+  const io = new IntersectionObserver((entries)=>{
+    entries.forEach(e=>{
+      if(e.isIntersecting){
+        e.target.style.animationPlayState='running';
+        io.unobserve(e.target);
+      }
+    });
+  },{threshold:0.12});
+  document.querySelectorAll('.reveal').forEach(el=>{
+    // already animated by CSS on load for hero; observer mainly guards long scroll
+    io.observe(el);
+  });
+</script>
+
+</body>
+</html>

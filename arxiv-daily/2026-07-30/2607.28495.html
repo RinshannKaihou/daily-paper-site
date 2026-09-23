@@ -1,0 +1,554 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Stage-Replay Divergence Follows the KV Cache — Dashboard</title>
+<style>
+  :root{
+    --bg: #12151a;
+    --panel: #191d24;
+    --panel-2: #1f242c;
+    --border: #2b323b;
+    --text: #e9edf0;
+    --text-dim: #96a1ab;
+    --text-faint: #6b7580;
+    --accent: #3fc9b4;
+    --accent-soft: rgba(63,201,180,0.12);
+    --accent-border: rgba(63,201,180,0.35);
+    --warn: #e2733e;
+    --warn-soft: rgba(226,115,62,0.12);
+    --warn-border: rgba(226,115,62,0.4);
+    --serif: Georgia, 'Iowan Old Style', 'Palatino Linotype', 'Book Antiqua', 'Songti SC', serif;
+    --mono: ui-monospace, 'SF Mono', 'Cascadia Code', 'Roboto Mono', Menlo, Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', Helvetica, Arial, sans-serif;
+  }
+
+  *{box-sizing:border-box;}
+
+  html{background:var(--bg);}
+
+  body{
+    margin:0;
+    background:
+      repeating-linear-gradient(0deg, rgba(255,255,255,0.012) 0px, rgba(255,255,255,0.012) 1px, transparent 1px, transparent 40px),
+      repeating-linear-gradient(90deg, rgba(255,255,255,0.012) 0px, rgba(255,255,255,0.012) 1px, transparent 1px, transparent 40px),
+      var(--bg);
+    color:var(--text);
+    font-family:var(--sans);
+    line-height:1.55;
+    -webkit-font-smoothing:antialiased;
+    padding-bottom:64px;
+  }
+
+  a{color:inherit;}
+
+  /* fixed nav */
+  .fixed-nav{
+    position:fixed;
+    top:0; left:0;
+    z-index:50;
+    padding:14px 18px;
+    font-family:var(--mono);
+    font-size:12.5px;
+    letter-spacing:0.02em;
+  }
+  .fixed-nav a{
+    text-decoration:none;
+    color:var(--text-dim);
+    background:rgba(18,21,26,0.85);
+    backdrop-filter:blur(6px);
+    padding:7px 12px;
+    border:1px solid var(--border);
+    border-radius:6px;
+    transition:color .15s ease, border-color .15s ease;
+  }
+  .fixed-nav a:hover{ color:var(--accent); border-color:var(--accent-border); }
+
+  .wrap{
+    width:min(95vw, 1100px);
+    margin:0 auto;
+    padding:64px 0 0 0;
+  }
+
+  /* ---------- HERO ---------- */
+  .hero{
+    padding-bottom:36px;
+    border-bottom:1px solid var(--border);
+    animation:rise .6s ease both;
+  }
+  .kicker{
+    font-family:var(--mono);
+    font-size:11.5px;
+    letter-spacing:0.14em;
+    text-transform:uppercase;
+    color:var(--accent);
+    margin:0 0 18px 0;
+  }
+  .key-finding{
+    font-family:var(--serif);
+    font-weight:600;
+    font-size:clamp(30px, 4.6vw, 54px);
+    line-height:1.14;
+    letter-spacing:-0.01em;
+    margin:0 0 26px 0;
+    max-width:20ch;
+  }
+  .key-finding .accent{
+    color:var(--accent);
+    font-style:italic;
+  }
+  .paper-title-line{
+    margin:0 0 14px 0;
+  }
+  .paper-title{
+    font-size:14.5px;
+    color:var(--text-dim);
+    text-decoration:none;
+    border-bottom:1px dotted var(--text-faint);
+    padding-bottom:1px;
+  }
+  .paper-title:hover{ color:var(--accent); border-color:var(--accent); }
+
+  .byline{
+    display:flex;
+    flex-wrap:wrap;
+    align-items:baseline;
+    gap:10px 16px;
+    font-size:13px;
+    color:var(--text-dim);
+    margin-bottom:18px;
+  }
+  .byline .authors{ color:var(--text); font-weight:600; }
+  .byline .affil{
+    font-weight:400;
+    color:var(--text-faint);
+    font-style:italic;
+  }
+  .byline .dot{ color:var(--text-faint); }
+  .byline .date{ font-family:var(--mono); color:var(--text-faint); }
+
+  .chips{ display:flex; flex-wrap:wrap; gap:8px; }
+  .chip{
+    font-family:var(--mono);
+    font-size:11px;
+    letter-spacing:0.02em;
+    color:var(--accent);
+    background:var(--accent-soft);
+    border:1px solid var(--accent-border);
+    border-radius:100px;
+    padding:5px 11px;
+    white-space:nowrap;
+  }
+
+  /* ---------- ASSET ROW ---------- */
+  .asset-row{
+    display:grid;
+    grid-template-columns: 1.15fr 1fr 1fr;
+    gap:20px;
+    padding:32px 0 40px 0;
+  }
+  .asset-card{
+    background:var(--panel);
+    border:1px solid var(--border);
+    border-radius:10px;
+    padding:22px 22px 24px 22px;
+    animation:rise .6s ease both;
+  }
+  .asset-row .asset-card:nth-child(1){ animation-delay:.05s; }
+  .asset-row .asset-card:nth-child(2){ animation-delay:.12s; }
+  .asset-row .asset-card:nth-child(3){ animation-delay:.19s; }
+
+  .asset-label{
+    font-family:var(--mono);
+    font-size:11px;
+    letter-spacing:0.12em;
+    text-transform:uppercase;
+    color:var(--text-faint);
+    margin:0 0 14px 0;
+  }
+
+  .asset-card.metric{
+    border-color:var(--accent-border);
+    background:linear-gradient(180deg, var(--accent-soft), var(--panel) 55%);
+  }
+  .metric-number{
+    font-family:var(--mono);
+    font-weight:700;
+    font-size:clamp(52px, 7vw, 78px);
+    line-height:1;
+    color:var(--accent);
+    margin:0 0 14px 0;
+  }
+  .metric-number .pct{ font-size:0.55em; }
+  .metric-context{ font-size:13.5px; color:var(--text); margin:0 0 10px 0; }
+  .metric-context strong{ color:var(--accent); }
+  .metric-sub{
+    font-size:12px;
+    color:var(--text-dim);
+    padding-top:10px;
+    border-top:1px dashed var(--border);
+    margin:0;
+  }
+
+  .asset-card.why .why-text{
+    font-family:var(--serif);
+    font-size:16.5px;
+    line-height:1.5;
+    color:var(--text);
+    margin:0;
+  }
+
+  .asset-card.edge{
+    background:linear-gradient(180deg, var(--warn-soft), var(--panel) 55%);
+    border-color:var(--warn-border);
+  }
+  .asset-card.edge .asset-label{ color:var(--warn); }
+  .asset-card.edge .edge-text{
+    font-size:13.5px;
+    color:var(--text);
+    margin:0;
+  }
+  .asset-card.edge .edge-text::before{
+    content:"⚠ ";
+    color:var(--warn);
+  }
+
+  /* ---------- BODY GRID ---------- */
+  .body-grid{
+    display:grid;
+    grid-template-columns: 1.05fr 1fr;
+    gap:22px;
+  }
+  .card{
+    background:var(--panel);
+    border:1px solid var(--border);
+    border-radius:10px;
+    padding:24px 26px 28px 26px;
+  }
+  .card h2{
+    font-family:var(--mono);
+    font-size:13px;
+    letter-spacing:0.1em;
+    text-transform:uppercase;
+    color:var(--text-dim);
+    margin:0 0 18px 0;
+    padding-bottom:12px;
+    border-bottom:1px solid var(--border);
+  }
+  .card h2 .n{ color:var(--accent); margin-right:8px; }
+
+  .methodology{ grid-column:1; }
+  .results{ grid-column:2; }
+
+  .lead{
+    font-size:14.5px;
+    color:var(--text);
+    margin:0 0 18px 0;
+  }
+  .flow{ display:flex; flex-direction:column; gap:14px; }
+  .flow-step{
+    font-size:13.5px;
+    color:var(--text-dim);
+    padding-left:14px;
+    border-left:2px solid var(--border);
+  }
+  .flow-step strong{ color:var(--text); }
+  .step-tag{
+    display:block;
+    font-family:var(--mono);
+    font-size:10.5px;
+    letter-spacing:0.08em;
+    text-transform:uppercase;
+    color:var(--accent);
+    margin-bottom:4px;
+  }
+
+  table{
+    width:100%;
+    border-collapse:collapse;
+    font-size:12.8px;
+    margin-bottom:18px;
+  }
+  caption{
+    text-align:left;
+    font-family:var(--mono);
+    font-size:11px;
+    color:var(--text-faint);
+    margin-bottom:8px;
+    letter-spacing:0.02em;
+  }
+  th, td{
+    text-align:left;
+    padding:8px 10px;
+    border-bottom:1px solid var(--border);
+  }
+  thead th{
+    color:var(--text-faint);
+    font-weight:600;
+    font-size:11px;
+    letter-spacing:0.04em;
+    text-transform:uppercase;
+    border-bottom:1px solid var(--text-faint);
+  }
+  tbody td{ color:var(--text); }
+  tbody td:not(:first-child){
+    font-family:var(--mono);
+    color:var(--accent);
+    font-size:12px;
+  }
+  .table-scroll{ overflow-x:auto; }
+  .note{
+    font-size:12.5px;
+    color:var(--text-dim);
+    margin:0;
+  }
+  .note strong{ color:var(--text); }
+
+  .split{
+    grid-column:1 / -1;
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:22px;
+  }
+  .strengths h2{ color:var(--accent); border-bottom-color:var(--accent-border); }
+  .limitations h2{ color:var(--warn); border-bottom-color:var(--warn-border); }
+  .split ul{
+    margin:0;
+    padding:0;
+    list-style:none;
+    display:flex;
+    flex-direction:column;
+    gap:13px;
+  }
+  .split li{
+    font-size:13px;
+    color:var(--text-dim);
+    padding-left:16px;
+    position:relative;
+  }
+  .strengths li::before{
+    content:"+";
+    position:absolute; left:0; top:0;
+    color:var(--accent);
+    font-family:var(--mono);
+    font-weight:700;
+  }
+  .limitations li::before{
+    content:"–";
+    position:absolute; left:0; top:0;
+    color:var(--warn);
+    font-family:var(--mono);
+    font-weight:700;
+  }
+  .split li strong{ color:var(--text); }
+
+  .questions{ grid-column:1 / -1; }
+  .questions ul{
+    margin:0; padding:0; list-style:none;
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:10px 28px;
+  }
+  .questions li{
+    font-size:13px;
+    color:var(--text-dim);
+    padding-left:20px;
+    position:relative;
+  }
+  .questions li::before{
+    content:"?";
+    position:absolute; left:0; top:0;
+    color:var(--text-faint);
+    font-family:var(--mono);
+  }
+
+  footer{
+    width:min(95vw, 1100px);
+    margin:40px auto 0 auto;
+    padding-top:22px;
+    border-top:1px solid var(--border);
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    flex-wrap:wrap;
+    gap:10px;
+  }
+  footer a{
+    font-family:var(--mono);
+    font-size:12.5px;
+    color:var(--text-dim);
+    text-decoration:none;
+    border-bottom:1px dotted var(--text-faint);
+  }
+  footer a:hover{ color:var(--accent); border-color:var(--accent); }
+  footer .colophon{
+    font-family:var(--mono);
+    font-size:11px;
+    color:var(--text-faint);
+  }
+
+  @keyframes rise{
+    from{ opacity:0; transform:translateY(10px); }
+    to{ opacity:1; transform:translateY(0); }
+  }
+
+  /* ---------- RESPONSIVE ---------- */
+  @media (max-width: 900px){
+    .asset-row{ grid-template-columns:1fr; }
+    .body-grid{ grid-template-columns:1fr; }
+    .methodology{ grid-column:1; }
+    .results{ grid-column:1; }
+    .split{ grid-column:1; grid-template-columns:1fr; }
+    .questions ul{ grid-template-columns:1fr; }
+  }
+
+  @media (max-width: 720px){
+    .wrap{ padding-top:56px; }
+    .key-finding{ max-width:none; }
+    .fixed-nav{ padding:10px 12px; }
+  }
+</style>
+</head>
+<body>
+
+  <nav class="fixed-nav"><a href="./index.html">&#8617; Today's digest</a></nav>
+
+  <div class="wrap">
+
+    <header class="hero">
+      <p class="kicker">Stage-Replay Divergence &middot; arXiv 2607.28495</p>
+      <h1 class="key-finding">Replaying the identical token prefix via fresh-prefill diverges from the retained live KV cache on <span class="accent">83%</span> of suffixes in BF16.</h1>
+      <p class="paper-title-line">
+        <a class="paper-title" href="https://arxiv.org/abs/2607.28495" target="_blank" rel="noopener">Stage-Replay Divergence Follows the KV Cache: Fixed-Prefix Precision Controls and Bidirectional Cache Transplantation &#8599;</a>
+      </p>
+      <div class="byline">
+        <span class="authors">Alexander Boesgaard Lorup</span>
+        <span class="affil">&middot; affiliation: &ldquo;Openhagen&rdquo; &mdash; no university or lab named</span>
+        <span class="dot">&middot;</span>
+        <span class="date">30 Jul 2026</span>
+      </div>
+      <div class="chips">
+        <span class="chip">kv-cache fidelity</span>
+        <span class="chip">replay diagnostics</span>
+        <span class="chip">numerical precision (bf16 / fp32)</span>
+        <span class="chip">activation transplantation</span>
+        <span class="chip">llm reproducibility</span>
+      </div>
+    </header>
+
+    <section class="asset-row">
+      <div class="asset-card metric">
+        <p class="asset-label">Key metric</p>
+        <p class="metric-number">83<span class="pct">%</span></p>
+        <p class="metric-context">166/200 suffixes diverge in BF16 on <em>identical</em> integer token prefixes &rarr; <strong>0/200</strong> in FP32 (Wilson upper bound 1.88%).</p>
+        <p class="metric-sub">Whole-cache transplant: 24/24 &amp; 43/43 divergent rows follow their cache donor 100% of the time.</p>
+      </div>
+      <div class="asset-card why">
+        <p class="asset-label">Why this matters</p>
+        <p class="why-text">Challenges the common assumption that replayed intermediate states mirror the model&rsquo;s true decoding path &mdash; key for counterfactual attribution, distillation, and multi-stage reasoning evaluation.</p>
+      </div>
+      <div class="asset-card edge">
+        <p class="asset-label">Critical edge</p>
+        <p class="edge-text">The 24-row transplant primary set was deliberately conditioned on already-observed divergence, so its 100% recovery rate estimates sufficiency within a selected stratum &mdash; not the population-wide frequency of this failure mode.</p>
+      </div>
+    </section>
+
+    <section class="body-grid">
+
+      <article class="card methodology">
+        <h2><span class="n">01</span>Methodology</h2>
+        <p class="lead">A 14B Qwen2.5-derived multi-branch reasoner &mdash; three CoT branches (G&theta;), a merge trace (M&theta;), an answer (A&theta;) &mdash; flattened into six role-tagged token blocks with a six-role visibility mask enforced at every attention layer.</p>
+        <div class="flow">
+          <div class="flow-step">
+            <span class="step-tag">Boundary studied</span>
+            The point immediately after the model&rsquo;s unique <code>&lt;|merge|&gt;</code> token &mdash; maximal accumulated state.
+          </div>
+          <div class="flow-step">
+            <span class="step-tag">Three cache constructions</span>
+            <strong>live</strong> (retained decode cache) vs. <strong>incremental</strong> (teacher-forced rebuild) vs. <strong>prefill</strong> (single forward pass) &mdash; independent replicas measure the within-construction noise floor.
+          </div>
+          <div class="flow-step">
+            <span class="step-tag">Five gated experiments</span>
+            (1) 200-item live-vs-prefill matrix, BF16 &amp; FP32 &middot; (2) fixed-prefix precision crossing &middot; (3) live&rarr;incremental bridge (12 rows) + 200-row saved-ledger audit &middot; (4) bidirectional 48-layer K/V transplant (32 rows) &middot; (5) outcome-blind replication on a distinct, later checkpoint (48 rows).
+          </div>
+          <div class="flow-step">
+            <span class="step-tag">Statistics</span>
+            deterministic answer matcher, Wilson 95% CIs, 20,000-replicate paired bootstrap, exact two-sided McNemar tests.
+          </div>
+        </div>
+      </article>
+
+      <article class="card results">
+        <h2><span class="n">02</span>Results</h2>
+        <div class="table-scroll">
+        <table>
+          <caption>Fixed 200-prefix set &mdash; disagreement rate</caption>
+          <thead><tr><th>Measure</th><th>BF16</th><th>FP32</th></tr></thead>
+          <tbody>
+            <tr><td>Suffix text</td><td>166/200 (83.0%)</td><td>0/200</td></tr>
+            <tr><td>Final answer</td><td>49/200 (24.5%)</td><td>0/200</td></tr>
+            <tr><td>Correctness label</td><td>20/200 (10.0%)</td><td>0/200</td></tr>
+          </tbody>
+        </table>
+        </div>
+        <p class="note" style="margin-bottom:18px;">Net accuracy, live vs. prefill: <strong>93/200 vs 95/200</strong> &mdash; a non-significant +1.0pp gap (95% CI [&minus;3.5, +5.5], McNemar p=.824). Large item-level churn cancels out in aggregate.</p>
+
+        <div class="table-scroll">
+        <table>
+          <caption>Whole-cache transplant &amp; side-checks</caption>
+          <thead><tr><th>Test</th><th>Result</th></tr></thead>
+          <tbody>
+            <tr><td>Primary checkpoint transplant</td><td>24/24 follow donor &middot; 0/8 controls spurious</td></tr>
+            <tr><td>Outcome-blind replication (later ckpt.)</td><td>43/43 follow donor &middot; 0/5 controls spurious</td></tr>
+            <tr><td>Live&rarr;incremental bridge</td><td>12/12 bit-exact</td></tr>
+            <tr><td>Stock Qwen2.5-14B + vLLM batch-invariance</td><td>7/10 tokens, 6/10 logprobs preserved</td></tr>
+          </tbody>
+        </table>
+        </div>
+        <p class="note">Cache relative L2 drift (incremental vs. prefill): median <strong>0.01224</strong> in BF16 &rarr; <strong>4.27&times;10&#8315;&sup6;</strong> in FP32.</p>
+      </article>
+
+      <div class="split">
+        <article class="card strengths">
+          <h2>Strengths</h2>
+          <ul>
+            <li>Disciplined evidentiary layering &mdash; noise floor &rarr; contract equivalence &rarr; fidelity &rarr; causal sufficiency &mdash; kept as separate, independently gated experiments rather than one aggregate comparison.</li>
+            <li>The fixed-prefix BF16/FP32 crossing cleanly isolates <strong>precision</strong> from <strong>construction method</strong>, a cleaner design than either closest prior work.</li>
+            <li>Bidirectional transplant replicated <strong>outcome-blind</strong> on a second, later checkpoint before any result was observed; negative-control rows (0/8, 0/5) are reported honestly.</li>
+            <li>Explicitly disclaims a &ldquo;universal BF16/FP32 law&rdquo; or kernel cause, and rounds Experiment 5 down to &ldquo;conditional&rdquo; replication when it narrowly misses its own pre-registered threshold.</li>
+          </ul>
+        </article>
+        <article class="card limitations">
+          <h2>Limitations</h2>
+          <ul>
+            <li>Transplants swap entire 48-layer K/V pairs jointly &mdash; cannot localize the effect to one layer, or to keys vs. values.</li>
+            <li>All evidence comes from one Qwen2.5-derived model family, one GPU (B200), one attention backend (SDPA), greedy decoding only.</li>
+            <li>The 24-row transplant primary set was conditioned on already-diverged rows; small control strata (8, 5 rows) leave wide Wilson upper bounds (32.4%, 43.4%).</li>
+            <li>No external or classical baseline &mdash; can&rsquo;t compare this failure mode&rsquo;s severity to other known nondeterminism sources (batch size, tensor-parallel reduction order).</li>
+          </ul>
+        </article>
+      </div>
+
+      <article class="card questions">
+        <h2><span class="n">?</span>Questions for Further Exploration</h2>
+        <ul>
+          <li>Would key-only vs. value-only transplantation localize the divergence to one tensor, or a specific subset of the 48 layers?</li>
+          <li>Does the same divergence pattern hold on non-Qwen2.5 architectures, non-merge boundaries, or non-greedy (sampled) decoding?</li>
+          <li>What is the actual low-level mechanism &mdash; attention-kernel reduction order? RoPE differences? &mdash; and would a certified batch-invariant kernel suppress it the way FP32 does?</li>
+          <li>What fraction of an <em>unconditioned</em> random sample of boundaries would actually diverge and be recoverable via transplantation?</li>
+          <li>Given only 7/10 and 6/10 preservation on the stock public checkpoint, how much divergence is batch-composition vs. live/prefill construction per se?</li>
+        </ul>
+      </article>
+
+    </section>
+
+  </div>
+
+  <footer>
+    <a href="./2607.28495.md">&#8599; Markdown source</a>
+    <span class="colophon">GPQA Main &middot; n=200 fixed prefixes &middot; B200 / SDPA / greedy</span>
+  </footer>
+
+</body>
+</html>

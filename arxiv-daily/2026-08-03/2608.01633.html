@@ -1,0 +1,553 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>GraphIR — Architecture-Level Search States for LLM-Guided NAS</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,700;9..144,900&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<style>
+  :root{
+    --paper:#f4efe4;
+    --paper-2:#ece5d5;
+    --ink:#181612;
+    --ink-2:#3a3530;
+    --ink-3:#6b645b;
+    --rule:#cdc4b1;
+    --rule-2:#dfd6c2;
+    --accent:#b8531a;        /* single accent: burnt copper */
+    --accent-2:#7c2d12;
+    --accent-soft:#f1ddc6;
+    --good:#3f6b3a;
+    --bad:#9a3b2c;
+    --maxw:min(95vw,1100px);
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    background:var(--paper);
+    color:var(--ink);
+    font-family:"IBM Plex Sans",system-ui,sans-serif;
+    font-size:16px;
+    line-height:1.55;
+    -webkit-font-smoothing:antialiased;
+    background-image:
+      radial-gradient(rgba(24,22,18,0.035) 1px, transparent 1px);
+    background-size:22px 22px;
+    background-position:0 0;
+  }
+  a{color:inherit;text-decoration-color:var(--accent);text-underline-offset:3px}
+  a:hover{color:var(--accent-2)}
+  .mono{font-family:"IBM Plex Mono",ui-monospace,monospace}
+
+  /* ───── shell ───── */
+  .shell{max-width:var(--maxw);margin:0 auto;padding:0 clamp(16px,3vw,40px) 80px}
+
+  /* ───── top bar ───── */
+  .topbar{
+    display:flex;align-items:center;justify-content:space-between;
+    gap:16px;flex-wrap:wrap;
+    padding:18px 0 14px;
+    border-bottom:1px solid var(--rule);
+    margin-bottom:8px;
+  }
+  .topbar .left{display:flex;align-items:center;gap:18px;flex-wrap:wrap}
+  .navback{
+    font-family:"IBM Plex Mono",monospace;
+    font-size:13px;font-weight:500;
+    color:var(--ink-2);
+    padding:7px 12px;
+    border:1px solid var(--rule);
+    background:var(--paper-2);
+    transition:all .15s ease;
+  }
+  .navback:hover{color:var(--paper);background:var(--ink);border-color:var(--ink)}
+  .crumb{font-family:"IBM Plex Mono",monospace;font-size:12px;color:var(--ink-3);letter-spacing:.04em;text-transform:uppercase}
+  .crumb b{color:var(--accent);font-weight:600}
+  .topbar .right{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+  .pill{
+    font-family:"IBM Plex Mono",monospace;font-size:11.5px;font-weight:500;
+    letter-spacing:.05em;text-transform:uppercase;
+    padding:5px 9px;border:1px solid var(--rule);background:var(--paper-2);color:var(--ink-2);
+  }
+  .pill.accent{color:var(--accent-2);border-color:var(--accent);background:var(--accent-soft)}
+
+  /* ───── reveal animation ───── */
+  @keyframes rise{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+  .rise{animation:rise .65s cubic-bezier(.2,.7,.2,1) both}
+
+  /* ───── hero ───── */
+  .hero{
+    display:grid;
+    grid-template-columns:1fr 280px;
+    gap:36px;
+    padding:34px 0 30px;
+    border-bottom:1px solid var(--rule);
+  }
+  .eyebrow{
+    font-family:"IBM Plex Mono",monospace;
+    font-size:12px;letter-spacing:.16em;text-transform:uppercase;
+    color:var(--accent);font-weight:600;margin-bottom:14px;
+    display:flex;align-items:center;gap:10px;
+  }
+  .eyebrow::after{content:"";flex:0 0 60px;height:1px;background:var(--accent);opacity:.5}
+  h1.title{
+    font-family:"Fraunces",serif;font-weight:700;
+    font-size:clamp(40px,6.4vw,68px);
+    line-height:.96;letter-spacing:-.02em;
+    margin:0 0 14px;
+    font-variation-settings:"opsz" 96;
+  }
+  h1.title a{color:var(--ink);text-decoration:none}
+  h1.title a:hover{color:var(--accent-2)}
+  h1.title .dot{color:var(--accent)}
+  .subtitle{
+    font-family:"Fraunces",serif;font-weight:400;font-style:italic;
+    font-size:clamp(17px,1.8vw,21px);
+    color:var(--ink-2);line-height:1.4;max-width:62ch;margin:0 0 22px;
+  }
+  .authors{font-size:14px;color:var(--ink-2);margin-bottom:18px}
+  .authors b{color:var(--ink);font-weight:600}
+  .authors .aff{display:block;color:var(--ink-3);font-size:12.5px;margin-top:4px;font-style:italic;font-family:"Fraunces",serif}
+  .chips{display:flex;flex-wrap:wrap;gap:7px}
+  .chip{
+    font-family:"IBM Plex Mono",monospace;font-size:11px;font-weight:500;
+    letter-spacing:.02em;
+    padding:4px 9px;border:1px solid var(--rule);
+    color:var(--ink-2);background:var(--paper);
+  }
+  .chip::before{content:"#";color:var(--accent);margin-right:2px}
+
+  /* spec sheet */
+  .spec{
+    border:1px solid var(--ink);background:var(--paper-2);
+    padding:0;font-family:"IBM Plex Mono",monospace;font-size:12px;
+    align-self:start;
+    box-shadow:6px 6px 0 var(--ink);
+  }
+  .spec .head{
+    background:var(--ink);color:var(--paper);
+    padding:8px 12px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;
+    font-size:11px;display:flex;justify-content:space-between;align-items:center;
+  }
+  .spec .head .blink{width:7px;height:7px;background:var(--accent);border-radius:50%}
+  .spec table{width:100%;border-collapse:collapse}
+  .spec td{padding:7px 12px;border-top:1px solid var(--rule-2);vertical-align:top;line-height:1.4}
+  .spec td:first-child{color:var(--ink-3);width:42%;text-transform:uppercase;font-size:10.5px;letter-spacing:.06em}
+  .spec td:last-child{color:var(--ink);font-weight:500}
+
+  /* ───── key finding band ───── */
+  .finding{
+    grid-column:1 / -1;
+    border-top:1px solid var(--rule);
+    padding:28px 0 6px;
+    margin-top:8px;
+  }
+  .finding .kicker{
+    font-family:"IBM Plex Mono",monospace;font-size:11px;font-weight:600;
+    letter-spacing:.18em;text-transform:uppercase;color:var(--accent);
+    margin-bottom:12px;
+  }
+  .finding p{
+    font-family:"Fraunces",serif;font-weight:500;
+    font-size:clamp(22px,3vw,32px);line-height:1.22;letter-spacing:-.01em;
+    margin:0;max-width:24ch;color:var(--ink);
+    font-variation-settings:"opsz" 80;
+  }
+  .finding p .hl{
+    background:linear-gradient(transparent 62%, var(--accent-soft) 62%);
+    padding:0 2px;
+  }
+  .finding p .num{font-family:"IBM Plex Mono",monospace;font-weight:600;font-style:normal}
+
+  /* ───── asset row ───── */
+  .assets{
+    display:grid;grid-template-columns:1.15fr 1fr 1fr;
+    gap:0;padding:0;border-bottom:1px solid var(--rule);
+  }
+  .asset{
+    padding:26px 26px 28px;border-right:1px solid var(--rule);
+    position:relative;
+  }
+  .asset:last-child{border-right:none}
+  .asset .tag{
+    font-family:"IBM Plex Mono",monospace;font-size:10.5px;font-weight:600;
+    letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);
+    margin-bottom:14px;display:flex;align-items:center;gap:8px;
+  }
+  .asset .tag .sq{width:8px;height:8px;background:var(--accent);display:inline-block}
+  .asset.metric .big{
+    font-family:"Fraunces",serif;font-weight:700;
+    font-size:clamp(48px,6vw,68px);line-height:.95;letter-spacing:-.03em;
+    color:var(--ink);font-variation-settings:"opsz" 120;
+  }
+  .asset.metric .big .unit{font-size:.34em;color:var(--accent);font-weight:600;vertical-align:super;margin-left:4px;letter-spacing:0}
+  .asset.metric .cap{margin-top:10px;font-size:14px;color:var(--ink-2);line-height:1.45}
+  .asset.metric .cap b{color:var(--ink)}
+  .asset.metric .delta{
+    display:inline-block;margin-top:12px;font-family:"IBM Plex Mono",monospace;
+    font-size:12px;color:var(--good);background:rgba(63,107,58,.1);
+    padding:3px 8px;font-weight:600;
+  }
+  .asset.matter p{font-family:"Fraunces",serif;font-size:19px;line-height:1.32;font-weight:500;margin:0;color:var(--ink);letter-spacing:-.005em}
+  .asset.edge{background:var(--ink);color:var(--paper)}
+  .asset.edge .tag{color:#b8ab98}
+  .asset.edge .tag .sq{background:var(--accent)}
+  .asset.edge p{font-family:"Fraunces",serif;font-size:18px;line-height:1.34;font-weight:500;margin:0;letter-spacing:-.005em}
+  .asset.edge p .em{color:var(--accent);font-style:italic}
+  .asset.edge .src{margin-top:14px;font-family:"IBM Plex Mono",monospace;font-size:10.5px;color:#8a7e6c;letter-spacing:.04em}
+
+  /* ───── body grid ───── */
+  .body{display:grid;grid-template-columns:1fr;gap:0}
+  .sect{padding:34px 0 36px;border-bottom:1px solid var(--rule)}
+  .sect h2{
+    font-family:"Fraunces",serif;font-weight:700;
+    font-size:clamp(26px,3vw,34px);line-height:1.05;letter-spacing:-.015em;
+    margin:0 0 6px;
+    display:flex;align-items:baseline;gap:14px;
+  }
+  .sect h2 .no{
+    font-family:"IBM Plex Mono",monospace;font-size:13px;font-weight:600;
+    color:var(--accent);letter-spacing:.08em;
+  }
+  .sect .lede{font-family:"Fraunces",serif;font-style:italic;color:var(--ink-2);font-size:17px;margin:0 0 22px;max-width:70ch;line-height:1.45}
+
+  /* methodology three-step */
+  .pipeline{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--rule);border:1px solid var(--rule);margin-bottom:22px}
+  .step{background:var(--paper);padding:18px 18px 20px}
+  .step .num{
+    font-family:"IBM Plex Mono",monospace;font-size:11px;font-weight:600;
+    color:var(--accent);letter-spacing:.1em;margin-bottom:8px;
+  }
+  .step h3{font-family:"Fraunces",serif;font-weight:600;font-size:18px;margin:0 0 8px;letter-spacing:-.01em}
+  .step p{margin:0;font-size:13.5px;color:var(--ink-2);line-height:1.5}
+  .step code{font-family:"IBM Plex Mono",monospace;font-size:12px;background:var(--paper-2);padding:1px 4px;color:var(--accent-2)}
+
+  .irform{
+    display:grid;grid-template-columns:1.1fr 1fr;gap:24px;align-items:start;
+    border:1px solid var(--rule);background:var(--paper-2);padding:18px 20px;
+  }
+  .irform .formula{font-family:"IBM Plex Mono",monospace;font-size:14px;line-height:1.7;color:var(--ink)}
+  .irform .formula b{color:var(--accent-2)}
+  .irform .views{font-size:13px}
+  .irform .views .v{display:flex;gap:8px;padding:5px 0;border-top:1px dashed var(--rule)}
+  .irform .views .v:first-child{border-top:none}
+  .irform .views .v b{font-family:"IBM Plex Mono",monospace;font-size:11px;color:var(--accent);min-width:120px;text-transform:uppercase;letter-spacing:.04em}
+
+  /* results metric tiles + table */
+  .tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--rule);border:1px solid var(--rule);margin-bottom:24px}
+  .tile{background:var(--paper);padding:16px 16px 18px}
+  .tile .lab{font-family:"IBM Plex Mono",monospace;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3);margin-bottom:8px}
+  .tile .val{font-family:"Fraunces",serif;font-weight:700;font-size:30px;line-height:1;letter-spacing:-.02em;color:var(--ink)}
+  .tile .val .u{font-size:.4em;color:var(--accent);margin-left:3px}
+  .tile .sub{margin-top:8px;font-size:12px;color:var(--ink-2);line-height:1.4}
+
+  table.cmp{width:100%;border-collapse:collapse;font-size:13.5px;margin-top:6px}
+  table.cmp caption{
+    font-family:"IBM Plex Mono",monospace;font-size:11px;text-align:left;
+    letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3);margin-bottom:8px
+  }
+  table.cmp th,table.cmp td{padding:9px 10px;text-align:left;border-bottom:1px solid var(--rule-2)}
+  table.cmp th{font-family:"IBM Plex Mono",monospace;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--ink-3);border-bottom:1px solid var(--ink)}
+  table.cmp td.num{font-family:"IBM Plex Mono",monospace;text-align:right;white-space:nowrap}
+  table.cmp tr.best td{color:var(--accent-2);font-weight:600}
+  table.cmp tr.best td.num{color:var(--accent)}
+  table.cmp tr.best td:first-child::before{content:"▶ ";color:var(--accent);font-size:10px}
+
+  /* strengths / limitations split */
+  .split{display:grid;grid-template-columns:1fr 1fr;gap:0;border:1px solid var(--rule)}
+  .split .col{padding:24px 26px 26px}
+  .split .col:first-child{border-right:1px solid var(--rule);background:var(--paper)}
+  .split .col:last-child{background:var(--paper-2)}
+  .split .col h3{
+    font-family:"Fraunces",serif;font-weight:700;font-size:22px;margin:0 0 4px;
+    letter-spacing:-.01em;display:flex;align-items:center;gap:10px;
+  }
+  .split .col h3 .mk{
+    font-family:"IBM Plex Mono",monospace;font-size:11px;font-weight:600;
+    padding:2px 7px;letter-spacing:.06em;text-transform:uppercase;
+  }
+  .split .pro h3 .mk{background:var(--good);color:var(--paper)}
+  .split .con h3 .mk{background:var(--bad);color:var(--paper)}
+  .split .col .hint{font-family:"Fraunces",serif;font-style:italic;font-size:13.5px;color:var(--ink-3);margin:0 0 14px}
+  .split ul{margin:0;padding:0;list-style:none}
+  .split li{padding:9px 0 9px 22px;border-top:1px dashed var(--rule);font-size:13.5px;line-height:1.5;color:var(--ink-2);position:relative}
+  .split li:first-child{border-top:none}
+  .split li::before{position:absolute;left:0;top:9px;font-family:"IBM Plex Mono",monospace;font-size:12px;font-weight:600}
+  .split .pro li::before{content:"+";color:var(--good)}
+  .split .con li::before{content:"!";color:var(--bad)}
+  .split li b{color:var(--ink)}
+
+  /* questions */
+  .qlist{display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--rule);border:1px solid var(--rule)}
+  .q{background:var(--paper);padding:18px 20px;display:flex;gap:14px}
+  .q .qno{font-family:"IBM Plex Mono",monospace;font-size:13px;font-weight:600;color:var(--accent);flex:0 0 auto;padding-top:1px}
+  .q p{margin:0;font-size:14px;line-height:1.5;color:var(--ink-2)}
+  .q p b{color:var(--ink);font-weight:600}
+
+  /* footer */
+  footer{
+    display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:14px;
+    padding:26px 0 0;margin-top:8px;
+    font-family:"IBM Plex Mono",monospace;font-size:12px;color:var(--ink-3);
+  }
+  footer .src{
+    color:var(--ink-2);font-weight:500;
+    padding:7px 12px;border:1px solid var(--rule);background:var(--paper-2);
+    transition:all .15s ease;
+  }
+  footer .src:hover{color:var(--accent-2);border-color:var(--accent)}
+
+  /* ───── responsive ───── */
+  @media (max-width:880px){
+    .hero{grid-template-columns:1fr;gap:24px}
+    .assets{grid-template-columns:1fr}
+    .asset{border-right:none;border-bottom:1px solid var(--rule)}
+    .asset:last-child{border-bottom:none}
+    .pipeline{grid-template-columns:1fr}
+    .irform{grid-template-columns:1fr}
+    .tiles{grid-template-columns:repeat(2,1fr)}
+    .split{grid-template-columns:1fr}
+    .split .col:first-child{border-right:none;border-bottom:1px solid var(--rule)}
+    .qlist{grid-template-columns:1fr}
+  }
+  @media (max-width:720px){
+    body{font-size:15px}
+    .topbar{padding:14px 0 12px}
+    .hero{padding:24px 0 22px}
+    .spec{box-shadow:4px 4px 0 var(--ink)}
+    .sect{padding:26px 0 28px}
+    .tiles{grid-template-columns:1fr 1fr}
+  }
+  @media (prefers-reduced-motion:reduce){
+    .rise{animation:none}
+    *{transition:none !important}
+  }
+</style>
+</head>
+<body>
+<div class="shell">
+
+  <!-- ───── top bar ───── -->
+  <div class="topbar">
+    <div class="left">
+      <a class="navback" href="./index.html">↩ Today's digest</a>
+      <span class="crumb">Paper review &nbsp;/&nbsp; <b>2608.01633</b></span>
+    </div>
+    <div class="right">
+      <span class="pill">2026 · 08 · 03</span>
+      <span class="pill accent">arXiv:2608.01633</span>
+    </div>
+  </div>
+
+  <!-- ───── hero ───── -->
+  <header class="hero">
+    <div class="hero-main">
+      <div class="eyebrow rise" style="animation-delay:.02s">LLM-guided NAS · Intermediate Representation</div>
+      <h1 class="title rise" style="animation-delay:.06s"><a href="https://arxiv.org/abs/2608.01633">GraphIR<span class="dot">.</span></a></h1>
+      <p class="subtitle rise" style="animation-delay:.12s">Architecture-level search states for LLM-guided neural architecture evolution — a mutation-aligned IR that lives next to the executable code.</p>
+      <div class="authors rise" style="animation-delay:.18s">
+        <b>Zhen Liu</b> · Wanqi Zhou · Shuanghao Bai · Yuhan Liu · Jinjun Wang · Jingwen Fu
+        <span class="aff">Xi'an Jiaotong U. · MiLM Plus (Xiaomi) · Zhongguancun Academy / Inst. of AI</span>
+      </div>
+      <div class="chips rise" style="animation-delay:.24s">
+        <span class="chip">neural-architecture-search</span>
+        <span class="chip">llm-guided-evolution</span>
+        <span class="chip">code-based-nas</span>
+        <span class="chip">intermediate-representation</span>
+        <span class="chip">program-analysis</span>
+      </div>
+    </div>
+
+    <aside class="spec rise" style="animation-delay:.30s">
+      <div class="head"><span>Spec sheet</span><span class="blink"></span></div>
+      <table>
+        <tr><td>arXiv</td><td>2608.01633</td></tr>
+        <tr><td>Benchmark</td><td>NAS-Dependency (120 Q)</td></tr>
+        <tr><td>Mutation LLM</td><td>Qwen3-Plus (T=0)</td></tr>
+        <tr><td>Host agent</td><td>OpenEvolve</td></tr>
+        <tr><td>Tracing</td><td>PyTorch FX + AST</td></tr>
+        <tr><td>Domains</td><td>5 · 6 benchmarks</td></tr>
+        <tr><td>Hardware</td><td>1× RTX 3090</td></tr>
+      </table>
+    </aside>
+
+    <div class="finding rise" style="animation-delay:.36s">
+      <div class="kicker">⌖ Key finding</div>
+      <p>Pairing executable code with a <span class="hl">mutation-aligned architecture state</span> lifts CLRS accuracy <span class="num">83.91%&nbsp;→&nbsp;89.21%</span> at the lowest aggregated NAS GPU cost.</p>
+    </div>
+  </header>
+
+  <!-- ───── asset row ───── -->
+  <section class="assets">
+    <div class="asset metric rise" style="animation-delay:.42s">
+      <div class="tag"><span class="sq"></span> Key metric</div>
+      <div class="big">89.21<span class="unit">%</span></div>
+      <div class="cap"><b>CLRS average accuracy</b>, 30-task algorithmic reasoning — winning <b>22 / 30</b> tasks vs Spark's 83.91%.</div>
+      <span class="delta">▲ +5.30 pts · DFS 94.68%</span>
+    </div>
+
+    <div class="asset matter rise" style="animation-delay:.48s">
+      <div class="tag"><span class="sq"></span> Why this matters</div>
+      <p>Treats representation as a first-class lever in LLM-guided NAS — decoupling executable code from architecture state for stronger, cheaper search.</p>
+    </div>
+
+    <div class="asset edge rise" style="animation-delay:.54s">
+      <div class="tag"><span class="sq"></span> Critical edge</div>
+      <p>Single-LLM evaluation (<span class="em">Qwen3-Plus only</span>) — the gains may be model-specific, not representation-driven; no cross-model robustness check.</p>
+      <div class="src">— Critical Assessment, Limitations</div>
+    </div>
+  </section>
+
+  <!-- ───── body ───── -->
+  <div class="body">
+
+    <!-- methodology -->
+    <section class="sect rise" style="animation-delay:.60s">
+      <h2><span class="no">01 / Method</span> Three views off one program graph</h2>
+      <p class="lede">The source stays the editing anchor; GraphIR is supplementary context rendered into the mutation prompt — never the artifact being edited.</p>
+
+      <div class="pipeline">
+        <div class="step">
+          <div class="num">STEP 01</div>
+          <h3>State construction</h3>
+          <p>From parent <code>P</code>, build <code>G(P)=(I,O,M,T,F,E)</code> via two-stage interface typing, AST module/operation matching, fixed trigger-to-label <em>facts</em>, and FX producer-consumer <em>edges</em>.</p>
+        </div>
+        <div class="step">
+          <div class="num">STEP 02</div>
+          <h3>Serialization</h3>
+          <p>Fixed field order: input → output → modules → operations → facts → edges. FX edges preferred over static; counts bounded to keep the prompt compact.</p>
+        </div>
+        <div class="step">
+          <div class="num">STEP 03</div>
+          <h3>Mutation integration</h3>
+          <p>Prompt <code>P(P<sub>par</sub>, G, H)</code> places source <em>before</em> GraphIR. Mutation stays open-ended — no fixed grammar. Child is re-traced so new parts show up next round.</p>
+        </div>
+      </div>
+
+      <div class="irform">
+        <div class="formula">
+          <b>G(P) = (I, O, M, T, F, E)</b><br>
+          I,O &nbsp;→ input / output contracts<br>
+          M &nbsp;&nbsp;→ architectural modules<br>
+          T &nbsp;&nbsp;→ tensor operations<br>
+          F &nbsp;&nbsp;→ structural facts<br>
+          E &nbsp;&nbsp;→ dependency edges
+        </div>
+        <div class="views">
+          <div class="v"><b>skeleton</b> <span>(M, T, E) — how data flows</span></div>
+          <div class="v"><b>mutation surface</b> <span>(M, T, F) — what may change</span></div>
+          <div class="v"><b>validity envelope</b> <span>(I, O, E) — what must stay valid</span></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- results -->
+    <section class="sect rise" style="animation-delay:.66s">
+      <h2><span class="no">02 / Results</span> Better architectures, less GPU</h2>
+      <p class="lede">Three axes: dependency reasoning, downstream evolution, and ablations. GraphIR wins on aggregate and on efficiency.</p>
+
+      <div class="tiles">
+        <div class="tile">
+          <div class="lab">NAS-Dependency macro</div>
+          <div class="val">0.504</div>
+          <div class="sub">vs Code-Only 0.406 · +0.098 absolute</div>
+        </div>
+        <div class="tile">
+          <div class="lab">MNIST1D-Shuffle test</div>
+          <div class="val">71.55<span class="u">%</span></div>
+          <div class="sub">±2.14 · OOD 68.68% · 1.639 GPU-h</div>
+        </div>
+        <div class="tile">
+          <div class="lab">Cross-task perf. index</div>
+          <div class="val">100.0</div>
+          <div class="sub">best on all 4 tasks (20News, CartPole, Yeast, BCWD)</div>
+        </div>
+        <div class="tile">
+          <div class="lab">Relative NAS GPU time</div>
+          <div class="val">1.379<span class="u">×</span></div>
+          <div class="sub">lowest · vs OpenEvolve 2.634×, EOH 10.697×</div>
+        </div>
+      </div>
+
+      <table class="cmp">
+        <caption>CLRS — 30-task algorithmic reasoning (zero-shot transfer)</caption>
+        <thead>
+          <tr><th>Method</th><th class="num">Avg acc.</th><th class="num">DFS acc.</th><th class="num">Params</th><th class="num">Tasks won</th></tr>
+        </thead>
+        <tbody>
+          <tr class="best"><td>OpenEvolve + GraphIR</td><td class="num">89.21%</td><td class="num">94.68%</td><td class="num">467.4K</td><td class="num">22 / 30</td></tr>
+          <tr><td>Spark</td><td class="num">83.91%</td><td class="num">83.74%</td><td class="num">470.2K</td><td class="num">—</td></tr>
+          <tr><td>EvoPrompting</td><td class="num">80.88%</td><td class="num">68.14%</td><td class="num">—</td><td class="num">—</td></tr>
+          <tr><td>Triplet-GMPNN</td><td class="num">75.98%</td><td class="num">47.79%</td><td class="num">467.3K</td><td class="num">—</td></tr>
+          <tr><td>OpenEvolve (no IR)</td><td class="num">62.69%</td><td class="num">32.54%</td><td class="num">—</td><td class="num">—</td></tr>
+        </tbody>
+      </table>
+
+      <table class="cmp" style="margin-top:18px">
+        <caption>Ablation — source-state ordering matters (MNIST1D-Shuffle CNN)</caption>
+        <thead>
+          <tr><th>Ordering</th><th class="num">Accuracy</th><th class="num">Shape errors</th><th class="num">GPU-h</th></tr>
+        </thead>
+        <tbody>
+          <tr class="best"><td>Code → GraphIR (primary)</td><td class="num">74.20%</td><td class="num">6</td><td class="num">1.605</td></tr>
+          <tr><td>GraphIR → Code</td><td class="num">66.30%</td><td class="num">17</td><td class="num">2.326</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- strengths / limitations -->
+    <section class="sect rise" style="animation-delay:.72s">
+      <h2><span class="no">03 / Verdict</span> Strengths against limitations</h2>
+      <p class="lede">Honest read: principled framing and broad coverage, bounded by narrow benchmark provenance and a single backbone LLM.</p>
+
+      <div class="split">
+        <div class="col pro">
+          <h3>Strengths <span class="mk">pro</span></h3>
+          <p class="hint">What lands well.</p>
+          <ul>
+            <li><b>Clean problem framing.</b> "Representation mismatch" between code and mutation state is fresh and concretely formalized.</li>
+            <li><b>Three-view decomposition</b> maps onto exactly what a mutator must know: what may change, what must stay valid, how edits propagate.</li>
+            <li><b>NAS-Dependency is reusable</b> — deterministic, oracle-verified Gold, six orthogonal dimensions, no LLM judge.</li>
+            <li><b>Broad coverage:</b> six benchmarks, five domains, four backbone families.</li>
+            <li><b>Mechanistic ablations</b> for ordering, node facts, edges — each with a plausible story.</li>
+          </ul>
+        </div>
+        <div class="col con">
+          <h3>Limitations <span class="mk">risk</span></h3>
+          <p class="hint">Where to push back.</p>
+          <ul>
+            <li><b>Single LLM (Qwen3-Plus).</b> No GPT-/Claude-class or scale-robustness study — gains may be model-tied.</li>
+            <li><b>Narrow benchmark source.</b> NAS-Dependency built only from MNIST1D-Shuffle CNN traces; one architecture family.</li>
+            <li><b>Larger discovered models</b> on MNIST1D (28.74K vs 15.27K CodeGRAG) — accuracy/size Pareto not always favorable.</li>
+            <li><b>"-style" baselines</b> are author-adapted representations, not full reproductions of original systems.</li>
+            <li><b>Hard tasks unsolved:</b> quickselect 15.87%, floyd_warshall 35.75%; loses to Spark/EvoPrompting on some.</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- questions -->
+    <section class="sect rise" style="animation-delay:.78s" style="border-bottom:none">
+      <h2><span class="no">04 / Open</span> Questions worth chasing</h2>
+      <p class="lede">Where the work invites a next step rather than closing the door.</p>
+      <div class="qlist">
+        <div class="q"><span class="qno">Q1</span><p>Does the advantage <b>hold across LLM families and scales</b> (GPT-4-class, Claude-class, smaller open models), or is it partly Qwen3-Plus-specific?</p></div>
+        <div class="q"><span class="qno">Q2</span><p>How does GraphIR behave on <b>Transformers / GNNs / diffusion U-Nets</b>, where FX tracing breaks under dynamic control flow?</p></div>
+        <div class="q"><span class="qno">Q3</span><p>Can the validity envelope become <b>predictive</b> — blocking invalid edits pre-evaluation — to cut the ~20% invalid-candidate rate?</p></div>
+        <div class="q"><span class="qno">Q4</span><p>Is the <b>accuracy/size trade-off</b> fundamental, or would a parameter-budget term in the prompt recover smaller architectures?</p></div>
+      </div>
+    </section>
+
+  </div>
+
+  <!-- ───── footer ───── -->
+  <footer>
+    <span>GraphIR · 2608.01633 · dashboard review · not browser-verified, generated from source markdown.</span>
+    <a class="src" href="./2608.01633.md">↗ Markdown source</a>
+  </footer>
+
+</div>
+</body>
+</html>

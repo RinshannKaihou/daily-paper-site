@@ -1,0 +1,572 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Recompute or Reuse? — FSAF & Textual Shortcuts in VLM Self-Reflection</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700;9..144,900&family=IBM+Plex+Sans:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --paper:#faf7f2;
+    --ink:#161413;
+    --ink-soft:#3d3833;
+    --muted:#8a8278;
+    --hair:#e5dfd5;
+    --hair-strong:#d4ccbe;
+    --card:#ffffff;
+    --accent:#d63b1f;          /* vermilion — the single accent */
+    --accent-tint:#fbe9e4;
+    --accent-ink:#8a2410;
+    --maxw:min(95vw,1100px);
+    --serif:'Fraunces',Georgia,'Times New Roman',serif;
+    --sans:'IBM Plex Sans',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+    --mono:'IBM Plex Mono',ui-monospace,'SF Mono',Menlo,monospace;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{
+    margin:0;
+    background:var(--paper);
+    color:var(--ink);
+    font-family:var(--sans);
+    font-size:16px;
+    line-height:1.55;
+    -webkit-font-smoothing:antialiased;
+    text-rendering:optimizeLegibility;
+  }
+  a{color:var(--accent-ink);text-decoration:none;border-bottom:1px solid var(--hair-strong)}
+  a:hover{border-color:var(--accent);color:var(--accent)}
+  .wrap{max-width:var(--maxw);margin:0 auto;padding:0 24px}
+
+  /* reading progress */
+  #progress{position:fixed;top:0;left:0;height:2px;width:0;background:var(--accent);z-index:200;transition:width .08s linear}
+
+  /* top bar */
+  header.topbar{
+    position:sticky;top:0;z-index:100;
+    background:rgba(250,247,242,.86);
+    backdrop-filter:saturate(140%) blur(8px);
+    border-bottom:1px solid var(--hair);
+  }
+  .topbar-inner{display:flex;align-items:center;justify-content:space-between;height:54px}
+  .digest-link{
+    font-family:var(--mono);font-size:13px;font-weight:500;
+    color:var(--ink);border:none;display:inline-flex;align-items:center;gap:7px;
+    padding:6px 10px;border-radius:6px;border:1px solid var(--hair);
+  }
+  .digest-link:hover{background:var(--accent-tint);border-color:var(--accent);color:var(--accent)}
+  .digest-link .arrow{color:var(--accent);font-weight:700}
+  .paper-id{font-family:var(--mono);font-size:12px;color:var(--muted);letter-spacing:.02em}
+  .paper-id b{color:var(--ink);font-weight:600}
+
+  /* hero */
+  .hero{padding:54px 0 30px;border-bottom:1px solid var(--hair)}
+  .hero-grid{display:grid;grid-template-columns:1.55fr 1fr;gap:48px;align-items:start}
+  .eyebrow{font-family:var(--mono);font-size:12px;letter-spacing:.18em;text-transform:uppercase;color:var(--accent);font-weight:500;margin:0 0 18px}
+  .finding{
+    font-family:var(--serif);font-weight:500;
+    font-size:clamp(28px,4.4vw,46px);line-height:1.07;letter-spacing:-.018em;
+    margin:0 0 22px;color:var(--ink);
+  }
+  .finding em{font-style:italic;color:var(--accent-ink);font-weight:500}
+  .finding .quoted{color:var(--accent);font-style:italic}
+  .title-line{margin:0 0 14px;font-family:var(--serif);font-size:18px;font-weight:500;line-height:1.35;color:var(--ink-soft)}
+  .title-line a{font-weight:600;color:var(--ink);border-bottom:2px solid var(--accent)}
+  .authors{font-size:14px;color:var(--muted);margin:0 0 18px;max-width:60ch}
+  .authors b{color:var(--ink-soft);font-weight:600}
+  .chips{display:flex;flex-wrap:wrap;gap:7px;margin-top:6px}
+  .chip{
+    font-family:var(--mono);font-size:11px;letter-spacing:.01em;
+    padding:4px 9px;border:1px solid var(--hair-strong);border-radius:999px;
+    color:var(--ink-soft);background:var(--card);
+  }
+  .chip.accent{color:var(--accent-ink);border-color:var(--accent);background:var(--accent-tint)}
+
+  /* verdict panel (right of hero) */
+  .verdict{
+    background:var(--ink);color:#f4efe7;
+    padding:30px 28px;border-radius:4px;position:relative;
+    border:1px solid var(--ink);
+  }
+  .verdict::before{
+    content:"ANCHOR FACT";position:absolute;top:14px;right:16px;
+    font-family:var(--mono);font-size:10px;letter-spacing:.16em;color:#a89c8b;
+  }
+  .verdict .big{
+    font-family:var(--serif);font-weight:600;
+    font-size:clamp(54px,8vw,82px);line-height:.92;letter-spacing:-.03em;
+    color:var(--accent);margin:14px 0 4px;
+  }
+  .verdict .big .sign{font-size:.55em;vertical-align:.18em;margin-right:2px}
+  .verdict .label{font-family:var(--mono);font-size:12px;color:#cdbfa9;letter-spacing:.04em;margin:0 0 16px}
+  .verdict .statline{display:flex;gap:18px;flex-wrap:wrap;margin-top:10px;padding-top:16px;border-top:1px solid #2e2925}
+  .verdict .statline div{flex:1;min-width:90px}
+  .verdict .statline .n{font-family:var(--serif);font-size:24px;font-weight:600;color:#f4efe7;line-height:1}
+  .verdict .statline .k{font-family:var(--mono);font-size:10px;color:#9c9080;letter-spacing:.06em;text-transform:uppercase;margin-top:4px}
+  .verdict .note{font-size:12px;color:#9c9080;margin:14px 0 0;line-height:1.45}
+
+  /* TL;DR toggle */
+  .tldr-block{margin-top:30px;padding-top:26px;border-top:1px dashed var(--hair-strong)}
+  .seg{display:inline-flex;border:1px solid var(--hair-strong);border-radius:6px;overflow:hidden;margin-bottom:14px;background:var(--card)}
+  .seg button{
+    font-family:var(--mono);font-size:12px;letter-spacing:.04em;
+    padding:7px 14px;border:none;background:transparent;color:var(--ink-soft);cursor:pointer;font-weight:500;
+  }
+  .seg button.active{background:var(--accent);color:#fff}
+  .tldr{font-family:var(--serif);font-size:16.5px;line-height:1.6;color:var(--ink-soft);margin:0;max-width:75ch}
+  .tldr .drop{float:left;font-family:var(--serif);font-weight:700;font-size:54px;line-height:.82;padding:6px 10px 0 0;color:var(--accent)}
+
+  /* asset row */
+  .assets{display:grid;grid-template-columns:1.25fr 1fr 1fr;gap:18px;margin:34px 0 10px}
+  .asset{
+    background:var(--card);border:1px solid var(--hair);border-radius:6px;
+    padding:24px 22px;position:relative;min-height:230px;display:flex;flex-direction:column;
+  }
+  .asset .tag{
+    font-family:var(--mono);font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;
+    color:var(--muted);font-weight:500;margin:0 0 14px;display:flex;align-items:center;gap:8px;
+  }
+  .asset .tag .dot{width:7px;height:7px;border-radius:50%;background:var(--accent)}
+  .asset.metric .tag .dot{background:var(--accent)}
+  .asset.matters{background:var(--accent-tint);border-color:var(--accent)}
+  .asset.matters .tag{color:var(--accent-ink)}
+  .asset.edge{background:var(--ink);color:#f0eae0;border-color:var(--ink)}
+  .asset.edge .tag{color:#b9ab95}
+  .asset.edge .tag .dot{background:#e0451c}
+
+  /* metric interactive */
+  .metric-head{display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin-bottom:8px}
+  .metric-label{font-family:var(--serif);font-weight:600;font-size:16px;color:var(--ink);margin:0}
+  .metric-seg{display:inline-flex;border:1px solid var(--hair-strong);border-radius:5px;overflow:hidden}
+  .metric-seg button{
+    font-family:var(--mono);font-size:11px;padding:5px 9px;border:none;background:var(--card);
+    color:var(--muted);cursor:pointer;font-weight:500;letter-spacing:.03em;
+  }
+  .metric-seg button.active{background:var(--accent);color:#fff}
+  .metric-flow{display:flex;align-items:flex-end;gap:10px;margin:6px 0 4px}
+  .metric-cell{flex:1;text-align:left}
+  .metric-cell .v{font-family:var(--serif);font-weight:600;font-size:clamp(28px,4.2vw,40px);line-height:1;letter-spacing:-.02em;color:var(--ink-soft)}
+  .metric-cell.after .v{color:var(--accent)}
+  .metric-cell .k{font-family:var(--mono);font-size:10px;color:var(--muted);letter-spacing:.08em;text-transform:uppercase;margin-top:6px}
+  .metric-arrow{font-family:var(--serif);font-size:30px;color:var(--accent);padding:0 2px 14px;font-weight:300}
+  .metric-delta{
+    margin-top:14px;padding-top:14px;border-top:1px solid var(--hair);
+    display:flex;justify-content:space-between;align-items:baseline;
+  }
+  .metric-delta .d{font-family:var(--serif);font-weight:700;font-size:30px;color:var(--accent);letter-spacing:-.01em}
+  .metric-delta .d.flat{color:var(--ink)}
+  .metric-delta .dl{font-family:var(--mono);font-size:10.5px;color:var(--muted);letter-spacing:.04em;text-align:right;max-width:60%}
+  .metric-note{font-size:12px;color:var(--muted);margin:auto 0 0;padding-top:12px;line-height:1.45}
+
+  .matters-body{font-family:var(--serif);font-size:18px;line-height:1.4;color:var(--accent-ink);margin:0;font-weight:500}
+  .matters-foot{font-family:var(--mono);font-size:11px;color:var(--accent-ink);opacity:.7;margin:auto 0 0;padding-top:14px;letter-spacing:.03em}
+
+  .edge-body{font-family:var(--serif);font-size:17px;line-height:1.42;color:#f0eae0;margin:0;font-weight:500}
+  .edge-body strong{color:#ffbfa8;font-weight:600}
+  .edge-foot{font-family:var(--mono);font-size:11px;color:#9c9080;margin:auto 0 0;padding-top:14px;letter-spacing:.03em}
+
+  /* mini-nav */
+  nav.mininav{
+    position:sticky;top:54px;z-index:90;
+    background:rgba(250,247,242,.92);backdrop-filter:blur(6px);
+    border-bottom:1px solid var(--hair);margin:0 -24px;padding:0 24px;
+  }
+  .mininav-inner{display:flex;gap:6px;overflow-x:auto;padding:10px 0;font-family:var(--mono);font-size:12px;letter-spacing:.04em}
+  .mininav-inner a{border:none;color:var(--muted);padding:5px 11px;border-radius:5px;white-space:nowrap;text-decoration:none;font-weight:500}
+  .mininav-inner a:hover{background:var(--accent-tint);color:var(--accent)}
+  .mininav-inner a.active{background:var(--ink);color:#f4efe7}
+
+  /* sections */
+  section.body{padding:46px 0 20px}
+  .sec-head{display:flex;align-items:baseline;gap:14px;margin:0 0 22px;border-bottom:1px solid var(--hair);padding-bottom:14px}
+  .sec-num{font-family:var(--mono);font-size:13px;color:var(--accent);font-weight:600;letter-spacing:.08em}
+  .sec-title{font-family:var(--serif);font-weight:600;font-size:clamp(24px,3.4vw,32px);margin:0;letter-spacing:-.015em}
+  .sec-kicker{font-family:var(--mono);font-size:11px;color:var(--muted);letter-spacing:.08em;text-transform:uppercase;margin-left:auto}
+
+  .prose{font-size:15.5px;line-height:1.7;color:var(--ink-soft);max-width:78ch}
+  .prose p{margin:0 0 14px}
+  .prose strong{color:var(--ink);font-weight:600}
+  .prose code{font-family:var(--mono);font-size:13px;background:var(--accent-tint);color:var(--accent-ink);padding:1px 5px;border-radius:3px}
+
+  /* results grid */
+  .results{display:grid;grid-template-columns:1fr;gap:12px}
+  .result{
+    display:grid;grid-template-columns:130px 1fr;gap:18px;align-items:start;
+    padding:18px 20px;background:var(--card);border:1px solid var(--hair);border-radius:5px;
+  }
+  .result .stat{font-family:var(--serif);font-weight:700;font-size:24px;color:var(--accent);line-height:1.05;letter-spacing:-.01em}
+  .result .stat .small{font-size:13px;color:var(--muted);font-weight:500;display:block;margin-top:3px;font-family:var(--mono);letter-spacing:.03em}
+  .result .body-text .lead{font-weight:600;color:var(--ink);font-size:14.5px;margin:0 0 4px}
+  .result .body-text p{margin:0;font-size:14px;color:var(--ink-soft);line-height:1.55}
+  .result .body-text .src{font-family:var(--mono);font-size:10.5px;color:var(--muted);letter-spacing:.04em;margin-top:6px;display:inline-block}
+
+  /* two-column strengths/limits */
+  .two-col{display:grid;grid-template-columns:1fr 1fr;gap:24px}
+  .panel{background:var(--card);border:1px solid var(--hair);border-radius:6px;padding:26px 24px}
+  .panel.limits{border-left:3px solid var(--accent)}
+  .panel-head{font-family:var(--mono);font-size:11px;letter-spacing:.16em;text-transform:uppercase;font-weight:600;margin:0 0 16px;display:flex;align-items:center;gap:8px}
+  .panel.strengths .panel-head{color:#2e6b3d}
+  .panel.strengths .panel-head .dot{width:8px;height:8px;background:#2e6b3d;border-radius:50%}
+  .panel.limits .panel-head{color:var(--accent)}
+  .panel.limits .panel-head .dot{width:8px;height:8px;background:var(--accent);border-radius:50%}
+  .panel ul{margin:0;padding-left:0;list-style:none}
+  .panel li{font-size:14px;line-height:1.5;color:var(--ink-soft);padding:11px 0 11px 22px;border-bottom:1px solid var(--hair);position:relative}
+  .panel li:last-child{border-bottom:none}
+  .panel li::before{content:"";position:absolute;left:0;top:18px;width:10px;height:1px;background:var(--muted)}
+  .panel.limits li::before{background:var(--accent)}
+  .panel.strengths li::before{background:#2e6b3d}
+  .panel li strong{color:var(--ink);font-weight:600}
+  .panel li code{font-family:var(--mono);font-size:12.5px;background:var(--accent-tint);color:var(--accent-ink);padding:1px 4px;border-radius:3px}
+
+  /* questions */
+  .qlist{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  .q{padding:18px 20px;background:var(--card);border:1px solid var(--hair);border-radius:5px;font-size:14px;line-height:1.5;color:var(--ink-soft)}
+  .q .qn{font-family:var(--mono);font-size:11px;color:var(--accent);font-weight:600;letter-spacing:.06em;display:block;margin-bottom:6px}
+  .q strong{color:var(--ink)}
+
+  /* footer */
+  footer{margin-top:50px;padding:30px 0 56px;border-top:1px solid var(--hair)}
+  .foot-inner{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:14px}
+  .src-link{font-family:var(--mono);font-size:13px;font-weight:500;color:var(--ink);border:none;display:inline-flex;align-items:center;gap:7px;padding:8px 12px;border:1px solid var(--hair);border-radius:6px}
+  .src-link:hover{background:var(--accent-tint);border-color:var(--accent);color:var(--accent)}
+  .src-link .arrow{color:var(--accent);font-weight:700}
+  .foot-meta{font-family:var(--mono);font-size:11px;color:var(--muted);letter-spacing:.03em}
+
+  /* mobile */
+  @media (max-width:720px){
+    body{font-size:15px}
+    .wrap{padding:0 18px}
+    .hero-grid{grid-template-columns:1fr;gap:30px}
+    .assets{grid-template-columns:1fr}
+    .result{grid-template-columns:1fr;gap:8px}
+    .two-col{grid-template-columns:1fr}
+    .qlist{grid-template-columns:1fr}
+    .finding{font-size:30px}
+    .verdict .big{font-size:60px}
+    nav.mininav{top:54px}
+    .sec-kicker{display:none}
+  }
+  @media (prefers-reduced-motion:reduce){
+    *{animation:none!important;transition:none!important;scroll-behavior:auto!important}
+  }
+</style>
+</head>
+<body>
+<div id="progress"></div>
+
+<header class="topbar">
+  <div class="wrap topbar-inner">
+    <a href="./index.html" class="digest-link"><span class="arrow">↩</span> Today's digest</a>
+    <div class="paper-id"><b>arXiv 2608.01930</b> &nbsp;·&nbsp; 2026-08-03 &nbsp;·&nbsp; VLM / Self-Reflection</div>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <!-- HERO -->
+  <section class="hero">
+    <div class="hero-grid">
+      <div>
+        <p class="eyebrow">Paper Dashboard · Key Finding</p>
+        <h1 class="finding">
+          Prior CoT evidence acts as a reusable <span class="quoted">"textual shortcut"</span> that defeats fresh visual recomputation in VLM self-reflection.
+        </h1>
+        <p class="title-line">
+          <a href="https://arxiv.org/abs/2608.01930" target="_blank" rel="noopener">Recompute or Reuse? Diagnosing and Mitigating Textual Shortcuts in VLM Self-Reflection</a>
+        </p>
+        <p class="authors">
+          <b>Wenxiao Fan</b> (BIT, intern @ JD.com), <b>Kan Li</b> (BIT, corresponding) <em>et al.</em> — Beijing Institute of Technology · JD.com · Institute of AI &amp; Robotics, Xi'an Jiaotong University. <span style="color:var(--muted)">(12 authors)</span>
+        </p>
+        <div class="chips">
+          <span class="chip accent">FSAF</span>
+          <span class="chip">vision-language-models</span>
+          <span class="chip">self-reflection</span>
+          <span class="chip">chain-of-thought</span>
+          <span class="chip">visual-grounding</span>
+          <span class="chip">attention-firewall</span>
+          <span class="chip">counterfactual-evaluation</span>
+        </div>
+      </div>
+
+      <aside class="verdict">
+        <div class="label">E−minus−C margin effect</div>
+        <div class="big"><span class="sign">+</span>2.010</div>
+        <div class="statline">
+          <div><div class="n">16 / 16</div><div class="k">models sign-positive</div></div>
+          <div><div class="n">800</div><div class="k">VS-Bench pairs</div></div>
+        </div>
+        <p class="note">Removing <em>evidence-bearing</em> spans from prior CoT shifts the teacher-forced answer-preference margin — vs. a length-matched non-evidence control. The cleanest causal isolation in the paper.</p>
+      </aside>
+    </div>
+
+    <!-- TL;DR bilingual toggle -->
+    <div class="tldr-block">
+      <div class="seg" role="tablist" aria-label="Summary language">
+        <button class="active" data-lang="en" aria-selected="true">EN · TL;DR</button>
+        <button data-lang="zh" aria-selected="false">中文 · 一句话总结</button>
+      </div>
+      <p class="tldr" id="tldr-en">
+        <span class="drop">A</span>cross 16 VLMs on the VS-Bench counterfactual benchmark, evidence-bearing content in a prior chain-of-thought acts as a reusable "textual shortcut" that competes with fresh visual recomputation. Removing this evidence shifts the answer-preference margin by <strong>+2.010</strong> (positive in 16/16 models) and lowers prior-answer rate by <strong>62.58 pp</strong> vs. the length-matched control. A training-free <strong>Fresh-State Attention Firewall (FSAF)</strong> raises visual update rate from 35.28% → 53.61% and cuts prior-answer rate from 39.22% → 3.67% on five Qwen VLMs.
+      </p>
+      <p class="tldr" id="tldr-zh" style="display:none">
+        <span class="drop">作</span>者通过匹配反事实框架在 16 个 VLM 上证明：视觉自反思失败的根因是模型复用了先前 CoT 中承载证据的"文本捷径"，而非简单的"视觉注意力不足"。移除证据使答案偏好 margin 变化 <strong>+2.010</strong>（16/16 模型为正），相对长度匹配控制组先验答案率下降 <strong>62.58 pp</strong>。提出的训练-free <strong>Fresh-State Attention Firewall (FSAF)</strong> 将 5 个 Qwen VLM 的视觉更新率从 35.28% 提到 53.61%，先前答案率从 39.22% 降到 3.67%。
+      </p>
+    </div>
+  </section>
+
+  <!-- ASSET ROW -->
+  <section class="assets">
+    <!-- KEY METRIC -->
+    <div class="asset metric">
+      <p class="tag"><span class="dot"></span>Key Metric · FSAF (Table 7)</p>
+      <div class="metric-head">
+        <h3 class="metric-label" id="m-label">Visual Update Rate</h3>
+        <div class="metric-seg" role="tablist" aria-label="Metric">
+          <button class="active" data-m="vur">VUR</button>
+          <button data-m="par">PAR</button>
+          <button data-m="margin">Margin</button>
+        </div>
+      </div>
+      <div class="metric-flow">
+        <div class="metric-cell"><div class="v" id="m-before">35.28%</div><div class="k">baseline</div></div>
+        <div class="metric-arrow">→</div>
+        <div class="metric-cell after"><div class="v" id="m-after">53.61%</div><div class="k">+ FSAF</div></div>
+      </div>
+      <div class="metric-delta">
+        <span class="d" id="m-delta">+18.33 pp</span>
+        <span class="dl" id="m-note">pooled, 5 Qwen VLMs · every model &amp; readout improves</span>
+      </div>
+    </div>
+
+    <!-- WHY THIS MATTERS -->
+    <div class="asset matters">
+      <p class="tag"><span class="dot"></span>Why This Matters</p>
+      <p class="matters-body">Reframes VLM reflection failure from "weak visual attention" to "textual shortcut reuse" — and ships a plug-and-play, training-free attention firewall.</p>
+      <p class="matters-foot">Plugs into CoT-faithfulness, visual grounding &amp; self-correction stability.</p>
+    </div>
+
+    <!-- CRITICAL EDGE -->
+    <div class="asset edge">
+      <p class="tag"><span class="dot"></span>Critical Edge</p>
+      <p class="edge-body">FSAF is validated on only <strong>five Qwen models</strong> on a single math-oriented benchmark — and <strong>~half of eligible pairs still go un-updated</strong> after the firewall.</p>
+      <p class="edge-foot">Generalization to other families &amp; non-math VQA untested.</p>
+    </div>
+  </section>
+
+  <!-- MINI NAV -->
+  <nav class="mininav" id="mininav">
+    <div class="wrap mininav-inner" style="max-width:none;padding:0 24px">
+      <a href="#method" data-sec="method">01 · Methodology</a>
+      <a href="#results" data-sec="results">02 · Results</a>
+      <a href="#balance" data-sec="balance">03 · Strengths / Limits</a>
+      <a href="#questions" data-sec="questions">04 · Questions</a>
+    </div>
+  </nav>
+
+  <!-- METHODOLOGY -->
+  <section class="body" id="method">
+    <div class="sec-head">
+      <span class="sec-num">01</span>
+      <h2 class="sec-title">Methodology</h2>
+      <span class="sec-kicker">Matched counterfactual → causal isolation</span>
+    </div>
+    <div class="prose">
+      <p>The paper builds a <strong>matched counterfactual framework</strong>. For each task <code>T=(I,Q,y)</code> it constructs <code>T⁻=(I⁻,Q,y⁻)</code> — same question and answer space, but swapped visual evidence. The model first produces a coherent <em>incorrect</em> prior CoT <code>R⁻</code> from <code>I⁻</code>; eligibility requires <code>ŷ⁻=y⁻</code> <em>and</em> correct direct inference on <code>I</code>. So <code>R⁻</code> supports <code>y⁻</code> under <code>I⁻</code> but conflicts with <code>y</code> under <code>I</code>.</p>
+      <p>To localize <em>what</em> in <code>R⁻</code> carries prior control, the prior is decomposed by textual role: <code>E⁻</code> (evidence — quantities, relations, deductions), <code>A⁻</code> (explicit final-answer span), and remainder. Four conditions are contrasted at fixed model/image/question/prompt: intact prior <strong>(N)</strong>, evidence removal <strong>(E)</strong>, length-matched non-evidence control <strong>(C)</strong>, answer-span removal <strong>(A)</strong>.</p>
+      <p>Behavior is measured by free generation via <strong>VUR</strong> (visual update rate) and <strong>PAR</strong> (prior-answer rate), judged by Qwen3-VL-235B at temperature 0. Answer preference is read out through a <strong>judge-independent teacher-forced margin</strong> <code>m(S)=ℓ(y|S)−ℓ(y⁻|S)</code>.</p>
+      <p>The intervention — <strong>Fresh-State Attention Firewall (FSAF)</strong> — appends a fixed re-query ("answer <code>Q</code> again using only the current image") and applies an attention mask that sets logits to <code>−∞</code> for fresh-suffix queries against stale CoT keys, every layer, in both prefill and generation. All other causal edges stay intact; it is single-pass, training-free, and needs no evidence parser or target answer.</p>
+    </div>
+  </section>
+
+  <!-- RESULTS -->
+  <section class="body" id="results">
+    <div class="sec-head">
+      <span class="sec-num">02</span>
+      <h2 class="sec-title">Results &amp; Highlights</h2>
+      <span class="sec-kicker">16 VLMs · 800 VS-Bench pairs</span>
+    </div>
+    <div class="results">
+
+      <div class="result">
+        <div class="stat">53.3–97.2%<span class="small">PAR, no image</span></div>
+        <div class="body-text">
+          <p class="lead">Prior CoT controls reflection even without the current image.</p>
+          <p>On Q+R⁻ with no image, VUR collapses to 0.6–3.5% while PAR hits 53.3–97.2%. <code>R⁻</code> alone sustains prior-answer control.</p>
+          <span class="src">Table 1</span>
+        </div>
+      </div>
+
+      <div class="result">
+        <div class="stat">+2.010<span class="small">E − C margin · 16/16</span></div>
+        <div class="body-text">
+          <p class="lead">Evidence-bearing content is the cross-model carrier.</p>
+          <p>Removing <code>E⁻</code> shifts margin by +2.069 vs intact and +2.010 vs length-matched control, positive in 16/16. Free-gen: ΔVUR<sub>E−C</sub>=+43.76 pp, ΔPAR<sub>E−C</sub>=−62.58 pp. Answer-span-only removal <code>A⁻</code> shifts just 0.074 — heterogeneous.</p>
+          <span class="src">Table 2</span>
+        </div>
+      </div>
+
+      <div class="result">
+        <div class="stat">0→100%<span class="small">monotonic, 16/16</span></div>
+        <div class="body-text">
+          <p class="lead">Graded evidence effect.</p>
+          <p>As evidence removal rises from 0% to 100%, the share of samples with <code>m(S_α)&gt;0</code> rises monotonically in every one of the 16 VLMs.</p>
+          <span class="src">Fig. 3</span>
+        </div>
+      </div>
+
+      <div class="result">
+        <div class="stat">+0.449<span class="small">evidence reorder · 14/16</span></div>
+        <div class="body-text">
+          <p class="lead">Evidence <em>organization</em> matters, not just content.</p>
+          <p>Reversing evidence sentences shifts margin +0.449 vs intact and +0.317 vs a non-evidence-only reorder (positive in 14/16).</p>
+          <span class="src">Table 3</span>
+        </div>
+      </div>
+
+      <div class="result">
+        <div class="stat">+53.38 pp<span class="small">Extra Old Lift</span></div>
+        <div class="body-text">
+          <p class="lead">"Correctness ≠ shortcut retirement."</p>
+          <p>Under matched support withdrawal, PAR jumps 9.81%→69.01% on the history path but only 1.34%→7.17% on the matched direct path. A correct reflected answer can coexist with detectable prior-history dependence.</p>
+          <span class="src">Table 4</span>
+        </div>
+      </div>
+
+      <div class="result">
+        <div class="stat">8.35→26.50%<span class="small">"Other" triples</span></div>
+        <div class="body-text">
+          <p class="lead">Weakening stale control does not guarantee recovery.</p>
+          <p>State-dependent test: active-stale outcomes give Δm=−3.896 with derived-comp prior-target generation +45.28 pp; recovered outcomes are much weaker (Δm=−0.547 / −0.391). The "Other" residual tripling is reported openly.</p>
+          <span class="src">Tables 5 &amp; 2</span>
+        </div>
+      </div>
+
+      <div class="result">
+        <div class="stat">σ ≤ 3.1 pp<span class="small">10 paraphrases</span></div>
+        <div class="body-text">
+          <p class="lead">Robust to construction choices.</p>
+          <p>Ten semantically matched reflection prompts: VUR/PAR std-dev ≤ 3.1 / 3.0 pp. Neutral continuation prefix changes VUR/PAR by ≤ 0.8 pp. Naturally occurring errors cut correction by 18.2–26.4 pp when the wrong CoT is retained.</p>
+          <span class="src">Table 6</span>
+        </div>
+      </div>
+
+      <div class="result">
+        <div class="stat">−5.49 → +2.97<span class="small">margin flips sign</span></div>
+        <div class="body-text">
+          <p class="lead">FSAF consistently improves visual updating.</p>
+          <p>Pooled over five Qwen VLMs: VUR 35.28%→53.61%, PAR 39.22%→3.67%, margin −5.49→+2.97 (+8.46). Largest PAR collapses on Thinking variants — Qwen3-VL-8B-T: 56.17%→1.03%; Qwen3-VL-32B-T: 47.21%→1.64%. A prompt-only re-query gives no VUR gain and <em>raises</em> PAR, isolating attention control as the active ingredient.</p>
+          <span class="src">Table 7</span>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- STRENGTHS / LIMITATIONS -->
+  <section class="body" id="balance">
+    <div class="sec-head">
+      <span class="sec-num">03</span>
+      <h2 class="sec-title">Strengths &amp; Limitations</h2>
+      <span class="sec-kicker">side-by-side</span>
+    </div>
+    <div class="two-col">
+      <div class="panel strengths">
+        <p class="panel-head"><span class="dot"></span>Strengths</p>
+        <ul>
+          <li><strong>Clean, falsifiable central claim</strong> — the length-matched <code>E vs C</code> control isolates evidence content from generic context length.</li>
+          <li><strong>Cross-model breadth</strong> — 16 VLMs, four families, Base/Instruct/Thinking variants, with sign-consistent effects.</li>
+          <li>The <strong>"correctness ≠ retirement"</strong> stress test (matched support withdrawal, Extra Old Lift) is a genuinely novel diagnostic.</li>
+          <li><strong>FSAF is training-free, single-pass</strong>, needs no evidence parser or target-answer access, and drives PAR to ~1–2% on Thinking variants.</li>
+          <li>Strong reproducibility hygiene — public checkpoints, deterministic seeds, judge-independent teacher-forced scoring, recorded provenance, coverage audits.</li>
+        </ul>
+      </div>
+      <div class="panel limits">
+        <p class="panel-head"><span class="dot"></span>Limitations</p>
+        <ul>
+          <li><strong>No explicit Limitations section</strong> — caveats are scattered through the text.</li>
+          <li><strong>FSAF evaluated on only five Qwen models</strong> on a single benchmark (VS-Bench); other families &amp; non-math VQA untested.</li>
+          <li>Restricted to <strong>pairs both correctly answerable under direct inference</strong> — a filter that may inflate apparent gains.</li>
+          <li>The <strong>rule-based evidence-span identifier</strong> is tailored to math/diagram content and is not ablated against alternatives.</li>
+          <li>Not compared head-to-head with recent training-free visual re-attention methods (<em>Look Again</em>, <em>Look-Back</em>, visual contrastive decoding) as actual interventions — only cited.</li>
+          <li>Post-FSAF VUR (53.61% avg) still leaves <strong>~half of eligible pairs un-updated</strong>; a non-trivial Thinking-mode gap remains (Qwen3-VL-32B-T: 31.8%→53.77%).</li>
+          <li>Requires <strong>exact identification of the stale assistant span</strong> — may not transfer to multi-turn agentic / tool-augmented reflection.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- QUESTIONS -->
+  <section class="body" id="questions">
+    <div class="sec-head">
+      <span class="sec-num">04</span>
+      <h2 class="sec-title">Questions for Further Exploration</h2>
+      <span class="sec-kicker">open threads</span>
+    </div>
+    <div class="qlist">
+      <div class="q"><span class="qn">Q1 · GENERALIZATION</span>Does FSAF transfer <strong>beyond Qwen</strong> to Gemma-4, InternVL2, Kimi-VL-A3B — and does the attention-mask assumption hold for different positional/tokenization schemes?</div>
+      <div class="q"><span class="qn">Q2 · DOMAIN</span>How does the shortcut behave on <strong>non-math VQA</strong> (real-world scene editing, OCR, chart QA) where the rule-based evidence-span identifier may fail?</div>
+      <div class="q"><span class="qn">Q3 · STACKING</span>Can FSAF combine with <strong>visual re-attention training</strong> (Look Again, Look-Back) for compounding gains — or do they target overlapping failure modes?</div>
+      <div class="q"><span class="qn">Q4 · AGENCY</span>Does <strong>Extra Old Lift</strong> predict downstream behavior in multi-turn agentic settings where stale premises propagate across tool calls?</div>
+      <div class="q"><span class="qn">Q5 · PARSER</span>What is the minimal sufficient evidence-span definition — would a learned, outcome-independent parser change the E−C margin magnitude?</div>
+      <div class="q"><span class="qn">Q6 · RESIDUAL</span>The "Other" rate triples (8.35%→26.50%) under evidence removal — are these <strong>genuine abstentions, format failures, or a third answer class</strong> worth characterizing?</div>
+    </div>
+  </section>
+
+  <footer>
+    <div class="wrap foot-inner">
+      <a href="./2608.01930.md" class="src-link"><span class="arrow">↗</span> Markdown source</a>
+      <div class="foot-meta">FSAF · arXiv 2608.01930 · 2026-08-03</div>
+    </div>
+  </footer>
+
+</main>
+
+<script>
+(function(){
+  /* reading progress */
+  const bar=document.getElementById('progress');
+  const onScroll=()=>{const h=document.documentElement;const sc=h.scrollHeight-h.clientHeight;bar.style.width=(sc>0?(h.scrollTop/sc*100):0)+'%';};
+  document.addEventListener('scroll',onScroll,{passive:true});onScroll();
+
+  /* TL;DR toggle */
+  const tldrBtns=document.querySelectorAll('.seg[data-lang] button, .seg button[data-lang]');
+  tldrBtns.forEach(b=>b.addEventListener('click',()=>{
+    tldrBtns.forEach(x=>{x.classList.remove('active');x.setAttribute('aria-selected','false');});
+    b.classList.add('active');b.setAttribute('aria-selected','true');
+    const lang=b.dataset.lang;
+    document.getElementById('tldr-en').style.display=lang==='en'?'block':'none';
+    document.getElementById('tldr-zh').style.display=lang==='zh'?'block':'none';
+  }));
+
+  /* metric toggle */
+  const M={
+    vur:{label:'Visual Update Rate',before:'35.28%',after:'53.61%',delta:'+18.33 pp',deltaClass:'',note:'pooled, 5 Qwen VLMs · every model & readout improves'},
+    par:{label:'Prior-Answer Rate',before:'39.22%',after:'3.67%',delta:'−35.56 pp',note:'Thinking variants collapse to ~1–2% (8B-T: 56.17%→1.03%)'},
+    margin:{label:'Answer-Preference Margin',before:'−5.49',after:'+2.97',delta:'+8.46',note:'log-prob margin flips sign · judge-independent'}
+  };
+  const mBtns=document.querySelectorAll('.metric-seg button');
+  mBtns.forEach(b=>b.addEventListener('click',()=>{
+    mBtns.forEach(x=>x.classList.remove('active'));b.classList.add('active');
+    const d=M[b.dataset.m];
+    document.getElementById('m-label').textContent=d.label;
+    document.getElementById('m-before').textContent=d.before;
+    document.getElementById('m-after').textContent=d.after;
+    const dl=document.getElementById('m-delta');dl.textContent=d.delta;dl.classList.remove('flat');
+    document.getElementById('m-note').textContent=d.note;
+  }));
+
+  /* mini-nav active state */
+  const navLinks=document.querySelectorAll('.mininav-inner a');
+  const secs=['method','results','balance','questions'].map(id=>document.getElementById(id));
+  const navObs=()=>{
+    let cur=secs[0];const mid=window.scrollY+window.innerHeight*0.3;
+    secs.forEach(s=>{if(s&&s.offsetTop<=mid)cur=s;});
+    navLinks.forEach(a=>a.classList.toggle('active',a.dataset.sec===cur.id));
+  };
+  document.addEventListener('scroll',navObs,{passive:true});navObs();
+})();
+</script>
+</body>
+</html>

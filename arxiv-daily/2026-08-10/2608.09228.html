@@ -1,0 +1,556 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OP²SD — Dissecting On-Policy Self-Distillation</title>
+<style>
+  :root{
+    --accent:#9c2a1c;
+    --accent-2:#7a2015;
+    --accent-soft:rgba(156,42,28,0.09);
+    --accent-line:rgba(156,42,28,0.34);
+    --ink:#1c1917;
+    --ink-soft:#57534e;
+    --ink-faint:#78716c;
+    --rule:#e7e5e4;
+    --rule-strong:#d6d3d1;
+    --paper:#faf9f6;
+    --card:#ffffff;
+    --muted:#a8a29e;
+    --maxw:min(95vw,1100px);
+    --serif:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,"Songti SC","Noto Serif CJK SC",serif;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI","Helvetica Neue","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+    --mono:"SF Mono",ui-monospace,"JetBrains Mono",Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:var(--paper);
+    color:var(--ink);
+    font-family:var(--sans);
+    line-height:1.7;
+    -webkit-font-smoothing:antialiased;
+    text-rendering:optimizeLegibility;
+  }
+  a{color:var(--accent);text-decoration:none;}
+  a:hover{text-decoration:underline;text-underline-offset:3px;}
+
+  /* fixed top-left nav */
+  .topnav{
+    position:fixed;top:14px;left:16px;z-index:50;
+    font-size:.8rem;letter-spacing:.01em;
+  }
+  .topnav a{
+    color:var(--ink-soft);
+    background:var(--card);
+    border:1px solid var(--rule-strong);
+    padding:7px 12px;border-radius:999px;
+    box-shadow:0 1px 2px rgba(0,0,0,.04);
+    transition:color .15s,border-color .15s;
+    display:inline-flex;align-items:center;gap:5px;
+  }
+  .topnav a:hover{color:var(--accent);border-color:var(--accent-line);text-decoration:none;}
+
+  .page{max-width:var(--maxw);margin:0 auto;padding:0 28px;}
+
+  /* ---------- HERO ---------- */
+  .hero{
+    padding:104px 0 34px;
+    border-bottom:1px solid var(--rule);
+  }
+  .eyebrow{
+    font-size:.72rem;font-weight:600;letter-spacing:.16em;text-transform:uppercase;
+    color:var(--accent);
+    display:flex;align-items:center;gap:10px;
+    margin:0 0 22px;
+  }
+  .eyebrow::after{content:"";flex:1;height:1px;background:var(--rule);max-width:260px;}
+
+  .keyfinding{
+    font-family:var(--serif);
+    font-weight:600;
+    font-size:clamp(1.85rem,5.1vw,3.45rem);
+    line-height:1.12;
+    letter-spacing:-.012em;
+    margin:0 0 26px;
+    color:var(--ink);
+    max-width:20ch;
+  }
+  .keyfinding .hl{color:var(--accent);}
+  .keyfinding em{font-style:italic;}
+
+  .title{
+    font-family:var(--sans);
+    font-size:.98rem;
+    font-weight:500;
+    line-height:1.5;
+    color:var(--ink-soft);
+    margin:0 0 16px;
+    max-width:62ch;
+  }
+  .title a{color:var(--ink);border-bottom:1px solid var(--rule-strong);}
+  .title a:hover{color:var(--accent);border-color:var(--accent-line);text-decoration:none;}
+
+  .meta{
+    display:flex;flex-wrap:wrap;align-items:center;gap:10px 18px;
+    font-size:.85rem;color:var(--ink-faint);
+    margin:0 0 18px;
+  }
+  .meta .who{color:var(--ink-soft);font-weight:500;}
+  .meta .dot{color:var(--muted);}
+  .cred{
+    font-size:.78rem;color:var(--ink-faint);line-height:1.55;
+    max-width:70ch;margin:0 0 20px;
+    padding-left:12px;border-left:2px solid var(--rule-strong);
+  }
+  .cred b{color:var(--ink-soft);font-weight:600;}
+  .chips{display:flex;flex-wrap:wrap;gap:7px;}
+  .chip{
+    font-size:.7rem;font-weight:500;letter-spacing:.03em;
+    color:var(--ink-soft);
+    background:var(--card);
+    border:1px solid var(--rule-strong);
+    padding:4px 10px;border-radius:4px;
+  }
+
+  /* ---------- ASSET ROW ---------- */
+  .assets{
+    display:grid;
+    grid-template-columns:1.05fr 1.25fr 1.25fr;
+    gap:18px;
+    padding:32px 0;
+    border-bottom:1px solid var(--rule);
+  }
+  .asset{
+    background:var(--card);
+    border:1px solid var(--rule);
+    border-radius:8px;
+    padding:22px 22px 20px;
+    position:relative;
+    overflow:hidden;
+  }
+  .asset .label{
+    font-size:.66rem;font-weight:700;letter-spacing:.17em;text-transform:uppercase;
+    color:var(--ink-faint);
+    margin:0 0 14px;
+    display:flex;align-items:center;gap:8px;
+  }
+  .asset .label .tick{width:6px;height:6px;border-radius:50%;background:var(--accent);}
+
+  /* metric */
+  .metric .big{
+    font-family:var(--serif);
+    font-weight:600;
+    font-size:clamp(2.9rem,7vw,4.1rem);
+    line-height:.95;
+    letter-spacing:-.02em;
+    color:var(--accent);
+    margin:2px 0 6px;
+  }
+  .metric .unit{
+    font-size:.82rem;color:var(--ink-soft);font-weight:500;
+    margin:0 0 12px;
+  }
+  .metric .scale{
+    font-family:var(--mono);font-size:.76rem;color:var(--ink-faint);
+    line-height:1.7;
+  }
+  .metric .scale .pos{color:var(--accent);font-weight:600;}
+
+  /* matters */
+  .matters p{
+    margin:0;font-size:1.02rem;line-height:1.6;color:var(--ink);
+    font-family:var(--serif);
+  }
+
+  /* critical edge */
+  .edge{
+    background:#fdf6f4;
+    border-color:var(--accent-line);
+  }
+  .edge .label{color:var(--accent);}
+  .edge .label .tick{background:var(--accent);}
+  .edge p{
+    margin:0;font-size:.95rem;line-height:1.6;color:var(--ink);
+  }
+  .edge p b{color:var(--accent-2);}
+
+  /* ---------- BODY ---------- */
+  .body{padding:30px 0 8px;display:grid;gap:34px;}
+  .sec-head{
+    display:flex;align-items:baseline;gap:14px;
+    margin:0 0 16px;
+  }
+  .sec-num{
+    font-family:var(--mono);font-size:.74rem;font-weight:600;
+    color:var(--accent);letter-spacing:.04em;
+    padding-top:3px;
+  }
+  .sec-title{
+    font-family:var(--sans);
+    font-size:.7rem;font-weight:700;letter-spacing:.18em;text-transform:uppercase;
+    color:var(--ink);
+    margin:0;
+  }
+  .sec-rule{flex:1;height:1px;background:var(--rule);}
+
+  .method p{
+    margin:0;font-size:.98rem;line-height:1.72;color:var(--ink-soft);
+    max-width:72ch;
+  }
+  .method p b{color:var(--ink);font-weight:600;}
+  .method .formula{
+    font-family:var(--mono);font-size:.8rem;
+    background:var(--card);border:1px solid var(--rule);
+    padding:12px 14px;border-radius:6px;
+    margin:16px 0;overflow-x:auto;color:var(--ink);
+    white-space:nowrap;
+  }
+
+  /* results toggle */
+  .toggle{
+    display:inline-flex;border:1px solid var(--rule-strong);border-radius:7px;overflow:hidden;
+    background:var(--card);margin-bottom:18px;
+  }
+  .toggle button{
+    appearance:none;border:0;background:transparent;cursor:pointer;
+    font-family:var(--sans);font-size:.78rem;font-weight:600;letter-spacing:.02em;
+    color:var(--ink-soft);
+    padding:9px 16px;
+    transition:background .15s,color .15s;
+  }
+  .toggle button + button{border-left:1px solid var(--rule);}
+  .toggle button[aria-selected="true"]{background:var(--accent);color:#fff;}
+  .toggle button:hover:not([aria-selected="true"]){background:var(--accent-soft);color:var(--accent);}
+
+  .results-wrap{display:none;}
+  .results-wrap.active{display:block;}
+
+  table{width:100%;border-collapse:collapse;font-size:.86rem;background:var(--card);}
+  .tbl-card{border:1px solid var(--rule);border-radius:8px;overflow:hidden;}
+  table thead th{
+    text-align:right;
+    font-size:.66rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;
+    color:var(--ink-faint);
+    padding:12px 14px;
+    background:#f5f5f2;
+    border-bottom:1px solid var(--rule-strong);
+    white-space:nowrap;
+  }
+  table thead th:first-child{text-align:left;}
+  table tbody td{
+    padding:11px 14px;
+    border-bottom:1px solid var(--rule);
+    text-align:right;
+    font-variant-numeric:tabular-nums;
+    color:var(--ink-soft);
+  }
+  table tbody td:first-child{text-align:left;color:var(--ink);font-weight:500;}
+  table tbody tr:last-child td{border-bottom:0;}
+  table tbody tr.ref td{color:var(--ink-faint);font-style:italic;background:#faf9f6;}
+  table tbody td.win{
+    color:var(--accent);font-weight:700;
+    background:var(--accent-soft);
+  }
+  table tbody td.delta{color:var(--accent);font-weight:600;}
+  .tbl-note{
+    font-size:.76rem;color:var(--ink-faint);margin:10px 2px 0;line-height:1.55;
+  }
+
+  /* verdict markers */
+  .v{display:inline-flex;align-items:center;gap:6px;font-size:.74rem;font-weight:600;letter-spacing:.03em;}
+  .v .m{width:9px;height:9px;border-radius:50%;flex:none;}
+  .v.works{color:var(--accent);}
+  .v.works .m{background:var(--accent);}
+  .v.degrades{color:var(--ink-faint);}
+  .v.degrades .m{background:transparent;border:1.5px solid var(--accent-line);}
+  .v.fails{color:var(--ink-faint);}
+  .v.fails .m{background:var(--muted);position:relative;}
+  .v.fails .m::after{content:"✕";position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:7px;color:#fff;line-height:1;}
+
+  /* pro/con */
+  .procon{display:grid;grid-template-columns:1fr 1fr;gap:18px;}
+  .panel{background:var(--card);border:1px solid var(--rule);border-radius:8px;padding:6px 22px 14px;}
+  .panel h3{
+    font-size:.72rem;font-weight:700;letter-spacing:.15em;text-transform:uppercase;
+    margin:14px 0 12px;padding-bottom:10px;border-bottom:1px solid var(--rule);
+    display:flex;align-items:center;gap:8px;
+  }
+  .panel h3 .tag{font-family:var(--mono);font-size:.66rem;font-weight:700;}
+  .panel.strength h3{color:var(--ink);}
+  .panel.strength h3 .tag{color:var(--accent);}
+  .panel.limit h3{color:var(--ink);}
+  .panel.limit h3 .tag{color:var(--ink-faint);}
+  .panel ul{margin:0;padding:0;list-style:none;}
+  .panel li{
+    font-size:.88rem;line-height:1.6;color:var(--ink-soft);
+    padding:7px 0 7px 18px;position:relative;
+    border-bottom:1px dashed var(--rule);
+  }
+  .panel li:last-child{border-bottom:0;}
+  .panel li::before{
+    content:"";position:absolute;left:2px;top:15px;
+    width:6px;height:6px;border-radius:50%;
+  }
+  .panel.strength li::before{background:var(--accent);}
+  .panel.limit li::before{background:transparent;border:1.5px solid var(--accent-line);}
+
+  /* questions */
+  .q-list{display:grid;grid-template-columns:1fr 1fr;gap:10px 26px;list-style:none;margin:0;padding:0;}
+  .q-list li{
+    font-size:.9rem;line-height:1.55;color:var(--ink-soft);
+    padding:11px 0 11px 30px;position:relative;
+    border-bottom:1px solid var(--rule);
+  }
+  .q-list li .qn{
+    position:absolute;left:0;top:11px;
+    font-family:var(--mono);font-size:.74rem;font-weight:600;color:var(--accent);
+  }
+
+  /* footer */
+  footer{
+    border-top:1px solid var(--rule);
+    margin-top:44px;padding:24px 0 64px;
+    display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;
+    font-size:.8rem;color:var(--ink-faint);
+  }
+  footer .src{
+    display:inline-flex;align-items:center;gap:6px;
+    color:var(--ink-soft);
+  }
+  footer .src:hover{color:var(--accent);}
+  footer .id{font-family:var(--mono);font-size:.76rem;}
+
+  /* ---------- entrance ---------- */
+  @keyframes rise{from{opacity:0;transform:translateY(12px);}to{opacity:1;transform:none;}}
+  .hero .eyebrow{animation:rise .55s ease .04s both;}
+  .hero .keyfinding{animation:rise .6s ease .12s both;}
+  .hero .title{animation:rise .55s ease .24s both;}
+  .hero .meta{animation:rise .55s ease .32s both;}
+  .hero .cred{animation:rise .55s ease .38s both;}
+  .hero .chips{animation:rise .55s ease .44s both;}
+  .assets .asset{animation:rise .55s ease .54s both;}
+  .assets .asset:nth-child(2){animation-delay:.62s;}
+  .assets .asset:nth-child(3){animation-delay:.70s;}
+  @media (prefers-reduced-motion:reduce){*{animation:none!important;}}
+
+  /* ---------- responsive ---------- */
+  @media (max-width:880px){
+    .assets{grid-template-columns:1fr;}
+    .procon{grid-template-columns:1fr;}
+    .q-list{grid-template-columns:1fr;}
+  }
+  @media (max-width:720px){
+    .page{padding:0 18px;}
+    .hero{padding:84px 0 26px;}
+    .keyfinding{max-width:none;}
+    .tbl-card,.tbl-card table{font-size:.82rem;}
+    table thead th,table tbody td{padding:9px 10px;}
+    table tbody td:first-child{white-space:normal;}
+    .tbl-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch;}
+    .tbl-scroll table{min-width:440px;}
+  }
+</style>
+</head>
+<body>
+
+<nav class="topnav"><a href="./index.html">↩ Today's digest</a></nav>
+
+<main class="page">
+
+  <!-- ============ HERO ============ -->
+  <section class="hero">
+    <div class="eyebrow">Mechanistic analysis · Knowledge distillation</div>
+
+    <h1 class="keyfinding">
+      OP²SD feeds the teacher a <em>different</em> problem's solution — and still matches OPSD, exposing gains as <span class="hl">context-induced, not privileged</span>.
+    </h1>
+
+    <p class="title">
+      <a href="https://arxiv.org/abs/2608.09228" target="_blank" rel="noopener">Privileged Solutions or Context-Induced Teacher Behavior? Dissecting On-Policy Self-Distillation</a>
+    </p>
+
+    <div class="meta">
+      <span class="who">Yuki Ichihara, Naoto Iwase, et al.</span>
+      <span class="dot">·</span>
+      <span>2026-08-10</span>
+      <span class="dot">·</span>
+      <span class="id" style="font-family:var(--mono);">arXiv:2608.09228</span>
+    </div>
+
+    <p class="cred">
+      <b>MBZUAI · Nagoya · RIKEN AIP.</b> Faithfully reproduces Zhao et&nbsp;al. (ICML&nbsp;2026) OPSD recipe — same dataset, LoRA, Forward-KL, frozen self-teacher — then changes <em>one</em> variable. Code released at <a href="https://github.com/MBZUAI-reasoninglab/OP2SD" target="_blank" rel="noopener">github.com/MBZUAI-reasoninglab/OP2SD</a>.
+    </p>
+
+    <div class="chips">
+      <span class="chip">on-policy self-distillation</span>
+      <span class="chip">knowledge distillation</span>
+      <span class="chip">reasoning LLMs</span>
+      <span class="chip">privileged information</span>
+      <span class="chip">mechanistic analysis</span>
+    </div>
+  </section>
+
+  <!-- ============ ASSET ROW ============ -->
+  <section class="assets">
+    <div class="asset metric">
+      <p class="label"><span class="tick"></span>Key metric</p>
+      <div class="big">55.83</div>
+      <div class="unit">Avg@12 · Qwen3-8B, AIME 2024</div>
+      <div class="scale">
+        <span class="pos">+10.83</span> vs OPSD (45.00)<br>
+        <span class="pos">+27.36</span> vs Base (28.47)
+      </div>
+    </div>
+
+    <div class="asset matters">
+      <p class="label"><span class="tick"></span>Why this matters</p>
+      <p>Challenges the "privileged information" story behind on-policy self-distillation: verified target solutions may be unnecessary — pointing to cheaper distillation data recipes.</p>
+    </div>
+
+    <div class="asset edge">
+      <p class="label"><span class="tick"></span>Critical edge</p>
+      <p><b>Every condition is a single training run.</b> The four seeds measure decoding noise, not training variance — leaving many close "comparable or better" claims statistically underpowered.</p>
+    </div>
+  </section>
+
+  <!-- ============ BODY ============ -->
+  <section class="body">
+
+    <!-- Methodology -->
+    <div class="method">
+      <div class="sec-head">
+        <span class="sec-num">01</span>
+        <h2 class="sec-title">Methodology — a one-line surgical edit</h2>
+        <span class="sec-rule"></span>
+      </div>
+      <p>
+        OP²SD is a minimal ablation of OPSD: the student prompt, on-policy rollout, frozen self-teacher, and clipped <b>token-level Forward-KL</b> loss are held identical (LoRA r=64 / α=128, OpenThoughts&nbsp;Math 30k, 4×H100, 12 generations × 4 seeds). The <b>only</b> change is the teacher's conditioning context.
+      </p>
+      <div class="formula">L_m(θ) = E[ (1/|ŷ|) · Σ_t D( p_T(·|xᵢ, cᵢ, ŷ&lt;t) ‖ p_S(·|xᵢ, ŷ&lt;t) ) ]</div>
+      <p>
+        Where OPSD sets <b>cᵢ = yᵢ*</b> (the target's paired reference), OP²SD sets <b>cᵢ = (xⱼ, yⱼ*)</b> — a worked solution to a <em>different</em> problem j≠i, explicitly labeled "not a hint." This severs the target–reference pairing while preserving a teacher-only math context. Tested on Qwen3-1.7B (thinking teacher / non-thinking student) and the mode-matched Qwen3-4B / 8B, on uncontaminated MathArena benchmarks (AIME 2024/2025, HMMT Feb 2025).
+      </p>
+    </div>
+
+    <!-- Results -->
+    <div class="results">
+      <div class="sec-head">
+        <span class="sec-num">02</span>
+        <h2 class="sec-title">Results — what survives the ablation</h2>
+        <span class="sec-rule"></span>
+      </div>
+
+      <div class="toggle" role="tablist" aria-label="Result view">
+        <button role="tab" aria-selected="true" data-view="h2h">Head-to-head (Qwen3-8B)</button>
+        <button role="tab" aria-selected="false" data-view="abl">Context ablation (Qwen3-4B)</button>
+      </div>
+
+      <div class="results-wrap active" id="h2h">
+        <div class="tbl-card tbl-scroll">
+          <table>
+            <thead>
+              <tr><th>Benchmark (Avg@12)</th><th>Base</th><th>OPSD</th><th>OP²SD</th><th>Δ vs OPSD</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>AIME 2024</td><td>28.47</td><td>45.00</td><td class="win">55.83</td><td class="delta">+10.83</td></tr>
+              <tr><td>AIME 2025</td><td>20.97</td><td>32.15</td><td class="win">42.85</td><td class="delta">+10.70</td></tr>
+              <tr><td>HMMT Feb 2025</td><td>11.81</td><td>16.18</td><td class="win">25.56</td><td class="delta">+9.38</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="tbl-note">OP²SD wins the highest Avg@12 point estimate in <b style="color:var(--accent)">8 of 9</b> model–benchmark groups; the gap widens with scale. No paired target answer needed.</p>
+      </div>
+
+      <div class="results-wrap" id="abl">
+        <div class="tbl-card tbl-scroll">
+          <table>
+            <thead>
+              <tr><th>Teacher context (Qwen3-4B)</th><th>AIME 24</th><th>AIME 25</th><th>HMMT 25</th><th>Verdict</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>Fixed locally corrupted</td><td>36.04</td><td>34.86</td><td>17.99</td><td><span class="v works"><span class="m"></span>works</span></td></tr>
+              <tr><td>Fixed correct (single ex.)</td><td>35.83</td><td>31.94</td><td>17.71</td><td><span class="v works"><span class="m"></span>works</span></td></tr>
+              <tr><td>OP²SD (varying math)</td><td>31.53</td><td>30.62</td><td>16.11</td><td><span class="v works"><span class="m"></span>works</span></td></tr>
+              <tr><td>Fixed verbose (742 tok)</td><td>33.89</td><td>28.40</td><td>15.76</td><td><span class="v degrades"><span class="m"></span>degrades</span></td></tr>
+              <tr><td>Physics-for-Math</td><td>18.68</td><td>20.21</td><td>8.68</td><td><span class="v fails"><span class="m"></span>fails</span></td></tr>
+              <tr><td>Fixed trivial "1+1"</td><td>5.21</td><td>5.28</td><td>2.29</td><td><span class="v fails"><span class="m"></span>fails</span></td></tr>
+              <tr class="ref"><td>Base (no context)</td><td>23.19</td><td>21.11</td><td>11.67</td><td>—</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="tbl-note">Diversity, coarse-domain match, and even <b>correctness</b> are unnecessary — a single wrong math solution works. But substance is required: trivial arithmetic and cross-subject (physics) context both collapse below Base.</p>
+      </div>
+    </div>
+
+    <!-- Strengths / Limitations -->
+    <div class="procon">
+      <div class="panel strength">
+        <h3><span class="tag">+</span> Strengths</h3>
+        <ul>
+          <li>Clean, minimal design: isolates one variable, everything else fixed — ideal for a mechanistic claim.</li>
+          <li>Control suite progressively relaxes assumptions: pairing → diversity → domain → correctness → triviality → cross-subject.</li>
+          <li>Honest about limits: flags single-run variance, narrow scope, and unknown mechanism.</li>
+          <li>Fully reproducible: exact configs, prompt templates (appendices), released code.</li>
+          <li>Striking practical takeaway — corrupted solutions work as well as correct ones, lowering data-construction cost.</li>
+        </ul>
+      </div>
+      <div class="panel limit">
+        <h3><span class="tag">−</span> Limitations</h3>
+        <ul>
+          <li>One training run per condition; uncertainty is decoding-only — several close calls are underpowered.</li>
+          <li>Math reasoning on the Qwen3 family only; code, agents, multimodal untested.</li>
+          <li>Shows privileged answers aren't necessary, but never pins down <em>why</em> a math solution helps.</li>
+          <li>1.7B thinking-teacher setup entangles mode asymmetry; needed a separate 4B re-run to disentangle.</li>
+          <li>Observes but does not explain longer-training degradation under OP²SD/OPSD.</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- Questions -->
+    <div class="questions">
+      <div class="sec-head">
+        <span class="sec-num">03</span>
+        <h2 class="sec-title">Open questions for further work</h2>
+        <span class="sec-rule"></span>
+      </div>
+      <ol class="q-list">
+        <li><span class="qn">Q1</span>Does the context-induced-behavior explanation hold for non-math domains — code, agentic tool-use, multimodal reasoning?</li>
+        <li><span class="qn">Q2</span>Which property of the teacher's next-token distribution actually shifts — format priming, CoT style, or termination behavior?</li>
+        <li><span class="qn">Q3</span>Would multi-run repeats confirm corrupted & verbose solutions truly match the concise correct one?</li>
+        <li><span class="qn">Q4</span>Can the mechanism be isolated by directly measuring target-teacher vs other-teacher divergence on student prefixes?</li>
+        <li><span class="qn">Q5</span>How does OP²SD behave with thinking-mode student/teacher pairs at long budgets (cf. Kaur et al. 2026)?</li>
+        <li><span class="qn">Q6</span>Is the longer-training degradation shared across OPSD-family methods — and can Purified OPSD / ROSD mitigate it?</li>
+      </ol>
+    </div>
+
+  </section>
+
+  <footer>
+    <span class="id">OP²SD · arXiv:2608.09228 · 2026-08-10</span>
+    <a class="src" href="./2608.09228.md">↗ Markdown source</a>
+  </footer>
+
+</main>
+
+<script>
+  // Results-view toggle — real working segmented control
+  (function(){
+    var buttons = document.querySelectorAll('.toggle button');
+    var views = {
+      h2h: document.getElementById('h2h'),
+      abl: document.getElementById('abl')
+    };
+    buttons.forEach(function(btn){
+      btn.addEventListener('click', function(){
+        var key = btn.getAttribute('data-view');
+        buttons.forEach(function(b){ b.setAttribute('aria-selected', String(b===btn)); });
+        Object.keys(views).forEach(function(k){ views[k].classList.toggle('active', k===key); });
+      });
+    });
+  })();
+</script>
+
+</body>
+</html>

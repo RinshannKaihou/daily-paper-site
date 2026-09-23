@@ -10,20 +10,24 @@ This project automatically fetches, filters, and summarizes recent arXiv papers 
 
 ### What it does
 
-1. Queries the arXiv API (with HTML fallback) for recent papers across configured categories.
-2. Uses an LLM subagent to semantically filter papers by relevance to the user's research interests.
+1. Queries the arXiv API (paginated, with retry/backoff and HTML fallback) for recent papers across configured categories.
+2. Filters papers semantically against the user's research interests — in **Weekly Mode** (the default cadence) via a **two-stage filter**: recall-oriented LLM triage on titles, then precision-oriented LLM scoring on abstracts, merged deterministically into a weekly top 50–100.
 3. Downloads PDFs for the filtered papers.
 4. Dispatches LLM subagents to write detailed **bilingual** summaries (one `.md` file per paper).
-5. Generates a daily `overview.md` that categorizes papers and highlights top picks.
+5. Generates an `overview.md` that categorizes papers and highlights top picks — in Weekly Mode this overview IS the weekly digest.
+
+**Cadence:** one run per complete ISO week (Mon..Sun), fetched any day of the following week. Daily mode still exists (see SKILL.md Steps 1–7) but is legacy.
 
 ### Where the code lives
 
-- **Project root / data directory:** `~/Documents/daily_paper/`
-- **Skill logic (scripts & workflow definitions):** `~/.kimi/skills/daily-paper-overview/`
-  - `SKILL.md` — the master workflow document (orchestration steps, subagent prompts, context-budget rules).
+- **Project root / data directory:** `/Volumes/T7/work/daily_paper/` (older docs may say `~/Documents/daily_paper/` — same project, moved)
+- **Skill logic (scripts & workflow definitions):** `~/.claude/skills/daily-paper-overview/` (hardlinked mirrors at `~/.kimi/...` and `~/.zcode/...` — editing one edits all)
+  - `SKILL.md` — the master workflow document (orchestration steps, subagent prompts, context-budget rules). **Weekly Mode lives here.**
   - `RUNBOOK.md` — recovery procedures after rate limits, crashes, or classifier blocks.
   - `scripts/pipeline.py` — manifest-driven pipeline orchestrator (Python 3, no external deps).
-  - `scripts/arxiv_search.py` — arXiv API client with retry/backoff and HTML fallback.
+  - `scripts/arxiv_search.py` — arXiv API client: paginated (200/page, 3s courtesy delay), retry/backoff on 429/5xx/timeout, HTML listing fallback, date-range support (`--date A:B`), loud truncation warnings.
+  - `scripts/weekly_prefilter.py` — deterministic orchestrator for the two-stage weekly filter (`week` / `prepare` / `collect-stage1` / `finalize` / `status`).
+  - `scripts/weekly_digest.py` — legacy rollup of DAILY overviews into a weekly digest (only for weeks already covered by daily runs).
   - `assets/interests_template.md` — template for new users.
 
 ---
@@ -49,11 +53,13 @@ This project automatically fetches, filters, and summarizes recent arXiv papers 
 ├── interests.md                    # User research interests config (editable)
 ├── AGENTS.md                       # This file
 ├── arxiv-daily/
-│   └── <YYYY-MM-DD>/               # One folder per run date
+│   └── <YYYY-MM-DD>/               # One folder per run. Weekly mode: the week's MONDAY (covers Mon..Sun)
 │       ├── manifest.json           # Pipeline state (stages, per-paper status, retry queue)
-│       ├── search_results.json     # Raw arXiv API output
-│       ├── filtered_papers.json    # LLM-filtered relevance list
-│       ├── overview.md             # Daily overview (categorized, bilingual)
+│       ├── search_results.json     # Raw arXiv API output (weekly: ~2500 papers, ~5 MB)
+│       ├── filter_stage1/          # Weekly mode: title chunks + auto-advance list + stage-1 outputs
+│       ├── filter_stage2/          # Weekly mode: title+abstract chunks + stage-2 ratings
+│       ├── filtered_papers.json    # Filtered relevance list (weekly: top 50-100, with `area` field)
+│       ├── overview.md             # Overview (categorized, bilingual); weekly mode: IS the weekly digest
 │       ├── <arxiv_id>.md           # Bilingual paper summary
 │       ├── <arxiv_id>.pdf          # Downloaded PDF
 │       └── … (auxiliary JSONs from older runs)
@@ -88,7 +94,18 @@ This project automatically fetches, filters, and summarizes recent arXiv papers 
 
 The pipeline is **fully resumable**. Every stage writes to `manifest.json`, so a session can restart exactly where it left off after rate limits, context-limit failures, or crashes.
 
-### Stage 1 — Fetch
+### Weekly Mode (default) — one run per complete ISO week
+
+Triggered by "weekly run / 一周一搜 / 跑一下这周的论文". Full orchestration and subagent prompts live in `SKILL.md` → "Weekly Mode". Summary:
+
+1. **Resolve week:** `weekly_prefilter.py week --when today` → last complete Mon..Sun; the Monday is the `<DATE>` folder name.
+2. **Fetch (paginated):** `arxiv_search.py --date <Mon>:<Sun> --max-results 3000` (~2500 papers, ~2 min). Coverage gate: `total_found ≥ 2000` and `truncated == false`.
+3. **Two-stage filter:** `weekly_prefilter.py prepare` → stage-1 subagents (title-only chunks, recall-oriented, ~4 chunks) → `collect-stage1` → stage-2 subagents (title+abstract chunks, precision 1–5 scoring, ~4 chunks) → `finalize` (deterministic global top-N capped at `max_papers: 100`) → `pipeline.py ingest`. A keyword auto-advance safety net rescues papers whose signature terms only appear in the abstract.
+4. **Steps 4–7 of the daily flow unchanged** (PDFs, summaries in batches of 5, validation, overview, HTML, landing). The weekly `overview.md` IS the weekly digest — do NOT also run the Weekly Digest workflow for a weekly-mode week.
+
+Stage 6 (Weekly Digest) below only applies to weeks that were covered by daily runs.
+
+### Stage 1 — Fetch (daily mode)
 
 ```bash
 python3 ~/.kimi/skills/daily-paper-overview/scripts/pipeline.py init --date <YYYY-MM-DD>

@@ -1,0 +1,789 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BaKron — Efficient Quantization with Kronecker-Factored Hessians</title>
+<style>
+  :root {
+    --paper: #f6f2e9;
+    --paper-2: #efe8d8;
+    --ink: #1c1917;
+    --ink-2: #44403c;
+    --muted: #78716c;
+    --rule: #d6cdb8;
+    --accent: #b5351c;
+    --accent-soft: rgba(181, 53, 28, 0.08);
+    --good: #2f6b3e;
+    --bad: #9a3412;
+    --maxw: min(95vw, 1100px);
+    --serif: ui-serif, Georgia, Cambria, "Times New Roman", serif;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+  body {
+    font-family: var(--sans);
+    background: var(--paper);
+    color: var(--ink);
+    line-height: 1.55;
+    font-size: 16px;
+    -webkit-font-smoothing: antialiased;
+    background-image:
+      linear-gradient(var(--rule) 1px, transparent 1px);
+    background-size: 100% 0;
+  }
+  /* faint blueprint grid texture, non-marketing */
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 0;
+    opacity: 0.35;
+    background-image:
+      linear-gradient(var(--rule) 1px, transparent 1px),
+      linear-gradient(90deg, var(--rule) 1px, transparent 1px);
+    background-size: 48px 48px;
+    mask-image: radial-gradient(ellipse at 50% 0%, #000 0%, transparent 75%);
+    -webkit-mask-image: radial-gradient(ellipse at 50% 0%, #000 0%, transparent 75%);
+  }
+
+  /* ---------- top-left fixed nav ---------- */
+  .topnav {
+    position: fixed;
+    top: 14px;
+    left: 16px;
+    z-index: 50;
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: 0.02em;
+  }
+  .topnav a {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 7px 12px;
+    background: var(--ink);
+    color: var(--paper);
+    text-decoration: none;
+    border: 1px solid var(--ink);
+    transition: background .15s, color .15s;
+  }
+  .topnav a:hover { background: var(--accent); border-color: var(--accent); }
+
+  .page {
+    position: relative;
+    z-index: 1;
+    max-width: var(--maxw);
+    margin: 0 auto;
+    padding: 0 28px;
+  }
+
+  /* ---------- hero ---------- */
+  .hero {
+    padding: 96px 0 44px;
+    border-bottom: 1px solid var(--ink);
+    position: relative;
+  }
+  .hero::after {
+    content: "";
+    position: absolute;
+    left: 0; bottom: -4px;
+    width: 120px; height: 7px;
+    background: var(--accent);
+  }
+  .crumb {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--accent);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 30px;
+  }
+  .crumb .dot { width: 6px; height: 6px; background: var(--accent); border-radius: 50%; }
+  .crumb .sep { color: var(--rule); }
+
+  .finding {
+    font-family: var(--serif);
+    font-weight: 500;
+    font-size: clamp(28px, 5.2vw, 52px);
+    line-height: 1.08;
+    letter-spacing: -0.018em;
+    color: var(--ink);
+    max-width: 18ch;
+    margin-bottom: 40px;
+  }
+  .finding .hl { color: var(--accent); font-style: italic; }
+  .finding .qmark { color: var(--accent); }
+
+  .paper-meta {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 28px;
+    align-items: end;
+  }
+  .paper-title {
+    font-family: var(--serif);
+    font-size: clamp(18px, 2vw, 22px);
+    font-weight: 600;
+    line-height: 1.25;
+    margin-bottom: 8px;
+    color: var(--ink);
+  }
+  .paper-authors {
+    font-size: 14px;
+    color: var(--ink-2);
+    margin-bottom: 16px;
+  }
+  .paper-authors em { color: var(--muted); font-style: normal; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: 0.04em;
+    padding: 4px 9px;
+    border: 1px solid var(--rule);
+    background: rgba(255,255,255,0.4);
+    color: var(--ink-2);
+    text-transform: lowercase;
+  }
+  .arxiv-link {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--accent);
+    text-decoration: none;
+    border-bottom: 1px solid var(--accent);
+    white-space: nowrap;
+    padding-bottom: 1px;
+  }
+  .arxiv-link:hover { background: var(--accent-soft); }
+
+  /* ---------- asset row ---------- */
+  .assets {
+    display: grid;
+    grid-template-columns: 1.1fr 1fr 1fr;
+    gap: 1px;
+    background: var(--ink);
+    border-bottom: 1px solid var(--ink);
+    margin-top: 0;
+  }
+  .asset {
+    background: var(--paper);
+    padding: 26px 24px 28px;
+    position: relative;
+  }
+  .asset .alabel {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--muted);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 14px;
+  }
+  .asset .alabel .num {
+    display: inline-grid;
+    place-items: center;
+    width: 16px; height: 16px;
+    background: var(--ink); color: var(--paper);
+    font-size: 9px;
+  }
+  /* metric card */
+  .metric-big {
+    font-family: var(--serif);
+    font-weight: 600;
+    font-size: clamp(56px, 9vw, 92px);
+    line-height: 0.92;
+    color: var(--accent);
+    letter-spacing: -0.03em;
+  }
+  .metric-big sup { font-size: 0.42em; font-weight: 500; vertical-align: super; }
+  .metric-sub {
+    font-size: 13px;
+    color: var(--ink-2);
+    margin-top: 12px;
+    line-height: 1.45;
+  }
+  .metric-sub code { font-family: var(--mono); font-size: 12px; background: var(--paper-2); padding: 1px 5px; }
+  /* why card */
+  .why-body {
+    font-family: var(--serif);
+    font-size: 19px;
+    line-height: 1.35;
+    color: var(--ink);
+  }
+  /* edge card */
+  .edge-body {
+    font-size: 14px;
+    line-height: 1.5;
+    color: var(--ink);
+  }
+  .edge-body strong { color: var(--bad); font-weight: 600; }
+  .edge-body code { font-family: var(--mono); font-size: 12px; background: var(--paper-2); padding: 1px 4px; }
+
+  /* ---------- body sections ---------- */
+  .body { padding: 56px 0 16px; }
+  .section { margin-bottom: 56px; }
+  .section-head {
+    display: flex;
+    align-items: baseline;
+    gap: 14px;
+    margin-bottom: 22px;
+    border-bottom: 1px solid var(--rule);
+    padding-bottom: 10px;
+  }
+  .section-head h2 {
+    font-family: var(--serif);
+    font-size: 22px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+  .section-head .stag {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  /* methodology */
+  .method-intro { font-size: 15px; color: var(--ink-2); max-width: 62ch; margin-bottom: 26px; }
+
+  .complex-flow {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr auto 1fr;
+    gap: 0;
+    align-items: stretch;
+    border: 1px solid var(--ink);
+    margin-bottom: 30px;
+    background: var(--paper);
+  }
+  .cx-node {
+    padding: 18px 18px 16px;
+    position: relative;
+  }
+  .cx-node.win { background: var(--accent-soft); }
+  .cx-node .cx-tag {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 8px;
+  }
+  .cx-node .cx-val {
+    font-family: var(--serif);
+    font-size: 26px;
+    font-weight: 600;
+    line-height: 1.1;
+    letter-spacing: -0.01em;
+  }
+  .cx-node.win .cx-val { color: var(--accent); }
+  .cx-node .cx-note { font-size: 12px; color: var(--ink-2); margin-top: 6px; }
+  .cx-arrow {
+    display: grid;
+    place-items: center;
+    padding: 0 6px;
+    color: var(--muted);
+    font-family: var(--mono);
+    font-size: 18px;
+    border-left: 1px solid var(--rule);
+    border-right: 1px solid var(--rule);
+  }
+  .cx-badge {
+    display: inline-block;
+    margin-top: 10px;
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    padding: 3px 8px;
+    background: var(--ink);
+    color: var(--paper);
+    text-transform: uppercase;
+  }
+
+  .method-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 1px;
+    background: var(--rule);
+    border: 1px solid var(--rule);
+  }
+  .method-card {
+    background: var(--paper);
+    padding: 20px 20px 22px;
+  }
+  .method-card h3 {
+    font-family: var(--serif);
+    font-size: 17px;
+    font-weight: 600;
+    margin-bottom: 6px;
+  }
+  .method-card .mc-tag {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    color: var(--accent);
+    text-transform: uppercase;
+    margin-bottom: 8px;
+  }
+  .method-card p { font-size: 13.5px; color: var(--ink-2); line-height: 1.5; }
+  .method-card code { font-family: var(--mono); font-size: 12px; background: var(--paper-2); padding: 1px 4px; color: var(--ink); }
+
+  /* results */
+  .res-block { margin-bottom: 28px; }
+  .res-block h3 {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--ink-2);
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .res-block h3::before { content: ""; width: 10px; height: 2px; background: var(--accent); display: inline-block; }
+
+  .speed-table, .ppl-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13.5px;
+  }
+  .speed-table th, .speed-table td,
+  .ppl-table th, .ppl-table td {
+    text-align: left;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--rule);
+  }
+  .speed-table th, .ppl-table th {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--muted);
+    font-weight: 500;
+    border-bottom: 1px solid var(--ink);
+  }
+  .speed-table td.num, .ppl-table td.num {
+    font-family: var(--mono);
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+  .speed-table .win { color: var(--accent); font-weight: 600; }
+  .speed-table .ratio { font-family: var(--mono); color: var(--good); font-weight: 600; }
+  .ppl-table .better { color: var(--good); font-weight: 600; }
+  .ppl-table .worse { color: var(--bad); font-weight: 600; }
+
+  .res-callout {
+    font-size: 13px;
+    color: var(--ink-2);
+    background: var(--paper-2);
+    border-left: 3px solid var(--accent);
+    padding: 12px 16px;
+    margin-top: 6px;
+  }
+  .res-callout strong { color: var(--ink); }
+
+  /* strengths / limitations two-up */
+  .duo {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1px;
+    background: var(--ink);
+    border: 1px solid var(--ink);
+  }
+  .duo > div { background: var(--paper); padding: 22px 22px 24px; }
+  .duo h3 {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    margin-bottom: 14px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .duo .pros h3 { color: var(--good); }
+  .duo .cons h3 { color: var(--bad); }
+  .duo h3 .mark { font-size: 14px; }
+  .duo ul { list-style: none; }
+  .duo li {
+    font-size: 13.5px;
+    line-height: 1.45;
+    color: var(--ink-2);
+    padding: 9px 0 9px 18px;
+    border-bottom: 1px dashed var(--rule);
+    position: relative;
+  }
+  .duo li:last-child { border-bottom: none; }
+  .duo .pros li::before {
+    content: "+";
+    position: absolute; left: 0; top: 9px;
+    color: var(--good); font-weight: 700;
+    font-family: var(--mono);
+  }
+  .duo .cons li::before {
+    content: "−";
+    position: absolute; left: 0; top: 9px;
+    color: var(--bad); font-weight: 700;
+    font-family: var(--mono);
+  }
+  .duo li code { font-family: var(--mono); font-size: 11.5px; background: var(--paper-2); padding: 1px 4px; }
+
+  /* questions */
+  .qlist { list-style: none; counter-reset: q; }
+  .qlist li {
+    counter-increment: q;
+    padding: 14px 0 14px 42px;
+    border-bottom: 1px solid var(--rule);
+    position: relative;
+    font-size: 14px;
+    line-height: 1.5;
+    color: var(--ink-2);
+  }
+  .qlist li:last-child { border-bottom: none; }
+  .qlist li::before {
+    content: "Q" counter(q);
+    position: absolute;
+    left: 0; top: 14px;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--accent);
+    font-weight: 600;
+    letter-spacing: 0.04em;
+  }
+  .qlist li strong { color: var(--ink); font-weight: 600; }
+
+  /* credibility strip */
+  .cred {
+    border: 1px solid var(--rule);
+    padding: 18px 22px;
+    font-size: 13px;
+    color: var(--ink-2);
+    line-height: 1.55;
+    background: rgba(255,255,255,0.35);
+  }
+  .cred .clabel {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 6px;
+  }
+  .cred strong { color: var(--ink); }
+
+  /* footer */
+  footer {
+    margin-top: 40px;
+    padding: 30px 0 60px;
+    border-top: 1px solid var(--ink);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-family: var(--mono);
+    font-size: 11.5px;
+    color: var(--muted);
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+  footer a {
+    color: var(--accent);
+    text-decoration: none;
+    border-bottom: 1px solid var(--accent);
+    padding-bottom: 1px;
+  }
+  footer a:hover { background: var(--accent-soft); }
+
+  /* ---------- animations ---------- */
+  @keyframes rise {
+    from { opacity: 0; transform: translateY(14px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  .rise { opacity: 0; animation: rise .6s cubic-bezier(.2,.7,.3,1) forwards; }
+  .d1 { animation-delay: .05s; }
+  .d2 { animation-delay: .15s; }
+  .d3 { animation-delay: .25s; }
+  .d4 { animation-delay: .35s; }
+  .d5 { animation-delay: .45s; }
+  .d6 { animation-delay: .55s; }
+  .d7 { animation-delay: .65s; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .rise { opacity: 1; animation: none; }
+    html { scroll-behavior: auto; }
+  }
+
+  /* ---------- responsive ---------- */
+  @media (max-width: 860px) {
+    .assets { grid-template-columns: 1fr; }
+    .complex-flow { grid-template-columns: 1fr; }
+    .cx-arrow { border: none; border-top: 1px solid var(--rule); padding: 6px 0; transform: rotate(90deg); width: 20px; margin: 0 auto; }
+    .method-grid { grid-template-columns: 1fr; }
+    .duo { grid-template-columns: 1fr; }
+    .paper-meta { grid-template-columns: 1fr; }
+    .page { padding: 0 18px; }
+    .hero { padding: 80px 0 32px; }
+  }
+</style>
+</head>
+<body>
+
+<nav class="topnav">
+  <a href="./index.html">↩ Today's digest</a>
+</nav>
+
+<div class="page">
+
+  <!-- ============ HERO ============ -->
+  <header class="hero">
+    <div class="crumb rise d1">
+      <span class="dot"></span>
+      <span>Paper dashboard</span>
+      <span class="sep">/</span>
+      <span>2608.06291</span>
+      <span class="sep">/</span>
+      <span>06 Aug 2026</span>
+    </div>
+
+    <p class="finding rise d2">
+      BaKron cuts two-sided Kronecker-Hessian quantization from <span class="hl">quartic to cubic</span> cost<span class="qmark">,</span> matching GPTQ while exploiting richer output-side curvature.
+    </p>
+
+    <div class="paper-meta rise d3">
+      <div>
+        <div class="paper-title">BaKron: Efficient Quantization with Kronecker-Factored Hessians</div>
+        <div class="paper-authors">Johann Birnick · Rayan Saab <em>— UC San Diego (Mathematics / HDSI)</em></div>
+        <div class="chips">
+          <span class="chip">llm-quantization</span>
+          <span class="chip">post-training-quantization</span>
+          <span class="chip">kronecker-factored-hessian</span>
+          <span class="chip">adaptive-rounding</span>
+          <span class="chip">efficient-inference</span>
+        </div>
+      </div>
+      <a class="arxiv-link" href="https://arxiv.org/abs/2608.06291" target="_blank" rel="noopener">arxiv.org/abs/2608.06291 ↗</a>
+    </div>
+  </header>
+
+  <!-- ============ ASSET ROW ============ -->
+  <section class="assets">
+    <div class="asset rise d4">
+      <div class="alabel"><span class="num">1</span> Key metric</div>
+      <div class="metric-big">60<sup>×</sup></div>
+      <div class="metric-sub">
+        kernel speedup over YAQA on <code>8192×8192</code> weights<br>
+        (1.84s vs 110.38s). Core algorithm now <strong>≤12.2%</strong> of the end-to-end pipeline.
+      </div>
+    </div>
+
+    <div class="asset rise d5">
+      <div class="alabel"><span class="num">2</span> Why this matters</div>
+      <p class="why-body">
+        Brings two-sided Kronecker-Hessian PTQ down to GPTQ's cubic cost — making richer output-side curvature practical for LLM quantization on a single GPU.
+      </p>
+    </div>
+
+    <div class="asset rise d6">
+      <div class="alabel"><span class="num">3</span> Critical edge</div>
+      <p class="edge-body">
+        Accuracy is <strong>inconsistent</strong>: BaKron-Backprop collapses on Qwen3-1.7B (<code>PPL 60.97 vs GPTQ's 35.97</code>), and only vanilla GPTQ/RTN baselines are used — no QuIP#/AWQ/QuaRot/SpinQuant, no 3-/4-bit results.
+      </p>
+    </div>
+  </section>
+
+  <!-- ============ BODY ============ -->
+  <div class="body">
+
+    <!-- METHODOLOGY -->
+    <section class="section rise d6" id="method">
+      <div class="section-head">
+        <h2>Methodology</h2>
+        <span class="stag">quartic → cubic, linear depth</span>
+      </div>
+
+      <p class="method-intro">
+        GPTQ's per-neuron rounding loop, recast in the vectorized weight domain with a Kronecker Hessian <code style="font-family:var(--mono);background:var(--paper-2);padding:1px 4px;">H = A ⊗ B</code>, naively costs O(m²n²). BaKron layers two acceleration ideas to reach GPTQ's cubic profile while using two-sided curvature.
+      </p>
+
+      <div class="complex-flow">
+        <div class="cx-node">
+          <div class="cx-tag">BoA / YAQA</div>
+          <div class="cx-val">O(m²n²)</div>
+          <div class="cx-note">quartic total work</div>
+        </div>
+        <div class="cx-arrow">→</div>
+        <div class="cx-node">
+          <div class="cx-tag">+ anti-diagonal</div>
+          <div class="cx-val">O(m+n) steps</div>
+          <div class="cx-note">parallel, still O(m²n²) work</div>
+        </div>
+        <div class="cx-arrow">→</div>
+        <div class="cx-node win">
+          <div class="cx-tag">BaKron (full)</div>
+          <div class="cx-val">O(mn(m+n))</div>
+          <div class="cx-note">cubic work, linear steps</div>
+          <span class="cx-badge">= GPTQ cost</span>
+        </div>
+      </div>
+
+      <div class="method-grid">
+        <div class="method-card">
+          <div class="mc-tag">Idea 1</div>
+          <h3>Anti-diagonal parallelism</h3>
+          <p>Cholesky factors are lower-triangular, so updates from entry (i,j) only touch (p,q) with p≥i, q≥j. Entries on the same anti-diagonal never interact, so an entire anti-diagonal rounds and updates via one batched matmul <code>W ← W + L⁽ᴮ⁾·Δ·(L⁽ᴬ⁾)ᵀ</code>. Linear depth, but work stays quartic.</p>
+        </div>
+        <div class="method-card">
+          <div class="mc-tag">Idea 2</div>
+          <h3>Recursive divide-and-conquer</h3>
+          <p>Instead of eagerly applying each rank-one update, hold updates back and batch them across a whole block, halving the remaining problem recursively. This alone cuts total work to O(mn(m+n)). Full BaKron recurses over the anti-diagonal dimension, propagating accumulated error between halves.</p>
+        </div>
+        <div class="method-card">
+          <div class="mc-tag">Hessian menu</div>
+          <h3>Four instantiations</h3>
+          <p>2 loss choices (global backpropagated Fisher vs local) × 2 factorizations (K-FAC-style independence vs Shampoo-style power iteration). Newly derives local Hessians for the Transformer <strong>MLP</strong> module that BoA did not handle.</p>
+        </div>
+        <div class="method-card">
+          <div class="mc-tag">Memory</div>
+          <h3>Recursive-halving global Hessian</h3>
+          <p>Splits the layer list at its midpoint, one fwd+bwd pass, recurses on each half. O(ℓ log ℓ) compute, O(log ℓ) accelerator memory — large state lives in CPU memory streamed to the GPU instead of ℓ Hessians resident on accelerators.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- RESULTS -->
+    <section class="section rise d7" id="results">
+      <div class="section-head">
+        <h2>Results &amp; Highlights</h2>
+        <span class="stag">single RTX PRO 6000 · float32</span>
+      </div>
+
+      <div class="res-block">
+        <h3>Kernel-level speedup vs YAQA (square weights)</h3>
+        <table class="speed-table">
+          <thead>
+            <tr><th>Shape</th><th class="num">BaKron</th><th class="num">YAQA</th><th class="num">Speedup</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>1024 × 1024</td><td class="num">0.025s</td><td class="num">0.092s</td><td class="num ratio">3.7×</td></tr>
+            <tr><td>4096 × 4096</td><td class="num win">0.288s</td><td class="num">7.648s</td><td class="num ratio">26.6×</td></tr>
+            <tr><td>8192 × 8192</td><td class="num win">1.839s</td><td class="num">110.379s</td><td class="num ratio">60.0×</td></tr>
+            <tr><td colspan="4" style="font-size:12px;color:var(--muted);font-family:var(--mono);">BaKron-naive exceeds the 300s timeout on the largest shapes. Speedup grows with size exactly as quartic-vs-cubic predicts.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="res-block">
+        <h3>Accuracy — Wikitext2 perplexity (lower is better)</h3>
+        <table class="ppl-table">
+          <thead>
+            <tr><th>Model (bits/wt)</th><th class="num">RTN</th><th class="num">GPTQ</th><th class="num">BaKron-Backprop</th><th class="num">Verdict</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Llama-3-8B (2.81)</td><td class="num">132.26</td><td class="num">53.47</td><td class="num better">11.90</td><td class="num better">big win</td></tr>
+            <tr><td>Qwen3-8B-Base</td><td class="num">—</td><td class="num">14.58</td><td class="num better">11.94</td><td class="num better">win</td></tr>
+            <tr><td>Qwen3-4B-Base</td><td class="num">—</td><td class="num">14.72</td><td class="num better">13.29</td><td class="num better">modest</td></tr>
+            <tr><td>Llama-3.2-1B</td><td class="num">—</td><td class="num">25.63</td><td class="num better">22.04</td><td class="num">modest</td></tr>
+            <tr><td>Qwen3-1.7B</td><td class="num">—</td><td class="num">35.97</td><td class="num worse">60.97</td><td class="num worse">collapse</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="res-callout">
+        <strong>The real signal is perplexity.</strong> On Llama-3-8B, PIQA/Winogrande deltas over GPTQ fall within the ±0.010–0.014 confidence intervals, so most zero-shot accuracy gains are <em>not</em> statistically meaningful. The Qwen3-1.7B collapse is unanalyzed.
+      </div>
+    </section>
+
+    <!-- STRENGTHS / LIMITATIONS -->
+    <section class="section rise d7" id="duo">
+      <div class="section-head">
+        <h2>Strengths &amp; Limitations</h2>
+        <span class="stag">side by side</span>
+      </div>
+      <div class="duo">
+        <div class="pros">
+          <h3><span class="mark">▲</span> Strengths</h3>
+          <ul>
+            <li>Clean, fully proved reduction from quartic to cubic total work at linear sequential depth — matching GPTQ's complexity with richer two-sided curvature.</li>
+            <li>Equivalence theorem (Thm 3.2) guarantees the acceleration changes nothing: <code>no accuracy cost for the speedup</code> vs BoA/YAQA.</li>
+            <li>Recursive-halving global-Hessian flow is a genuine memory win, explained with concrete Llama-3-8B numbers and an honest discussion of where the asymptotics overstate the byte-level gain.</li>
+            <li>Modular w.r.t. both base quantizer and Hessian estimator; cleanly isolates algorithmic vs Hessian contributions.</li>
+            <li>Micro-benchmarks match theory; <code>core share ≤ 12.2%</code> concretely shows the core is no longer the bottleneck.</li>
+          </ul>
+        </div>
+        <div class="cons">
+          <h3><span class="mark">▼</span> Limitations</h3>
+          <ul>
+            <li>Accuracy gains concentrate on larger models — BaKron-Backprop <code>fails on Qwen3-1.7B</code> (60.97 vs 35.97) and underperforms on Llama-3.2-3B. Shampoo factorization is frequently unstable.</li>
+            <li>Only RTN + vanilla GPTQ baselines — no QuIP#, AWQ, QuaRot, or SpinQuant, and no results at the standard <code>3-/4-bit</code> regimes where the field benchmarks.</li>
+            <li>The 2.81-bit operating point and unusually high GPTQ baseline (53.47) on Llama-3-8B make external comparison hard; unclear if the win survives a well-tuned GPTQ or rotation method.</li>
+            <li>Cubic-complexity asymptotic reached concurrently by Chen et al. 2026 (GPTQ-2D); priority claimed via a review timestamp — not uniquely attributable.</li>
+            <li>Core-algorithm speedups exclude Hessian accumulation and Cholesky; end-to-end speedup over YAQA is real but smaller than the headline 60×.</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- CREDIBILITY -->
+    <section class="section rise d7" id="cred">
+      <div class="cred">
+        <div class="clabel">Authors &amp; credibility</div>
+        Birnick &amp; Saab (UCSD Math; Saab also HDSI) extend a recent line — Birnick 2025, Chen/Zhang et al. 2025 — that recasts GPTQ as <strong>Babai's nearest-plane algorithm</strong> with provable error bounds. Complexity and equivalence proofs are written out in full appendices; the experimental protocol (models, calibration, bit-width, regularization, eval harness) is specified in enough detail to reproduce. The authors are candid about concurrent GPTQ-2D work and provide a verifiable timestamp. <strong>Gap: no public code release mentioned.</strong>
+      </div>
+    </section>
+
+    <!-- QUESTIONS -->
+    <section class="section rise d7" id="questions">
+      <div class="section-head">
+        <h2>Questions for Further Exploration</h2>
+        <span class="stag">open edges</span>
+      </div>
+      <ol class="qlist">
+        <li>How does BaKron-Backprop compare against <strong>QuIP#, AWQ, QuaRot, SpinQuant</strong> at standard 3-/4-bit settings, with a well-tuned GPTQ whose Llama-3-8B PPL is not anomalously high?</li>
+        <li>What causes the <strong>Qwen3-1.7B collapse</strong> (60.97 vs 35.97)? Hessian-conditioning, a Shampoo/KFAC failure, or a model-specific calibration pathology — and does it extend to other small models?</li>
+        <li>Can the Shampoo factorization be stabilized (more power iterations, better init) so it stops intermittently underperforming its K-FAC twin?</li>
+        <li>Does the recursive-halving global-Hessian flow deliver its single-GPU memory win at <strong>70B scale</strong>, and what is the wall-clock cost of the O(log ℓ) extra compute there?</li>
+        <li>Since BaKron is modular over the base quantizer, does composing it with a learned rotation (SpinQuant/QuaRot) or surrogate-gradient rounding (QGPTQ) close the gap to the best incoherence-processing methods at 2–3 bits?</li>
+        <li>The bound <code style="font-family:var(--mono);background:var(--paper-2);padding:1px 4px;">¼·tr(A)·tr(B)</code> suggests BaKron helps most when the output factor B has low effective rank — can this be verified by correlating per-layer tr(B) with per-layer perplexity contribution?</li>
+      </ol>
+    </section>
+  </div>
+
+  <footer>
+    <a href="./2608.06291.md">↘ Markdown source</a>
+    <span>BaKron · 2608.06291 · dashboard · not browser-verified</span>
+  </footer>
+
+</div>
+
+<script>
+  // Minimal: pause heavy reveals off-screen for reduced-motion; keep it light.
+  // Progressive enhancement only — page is fully static-readable without JS.
+  (function () {
+    if (window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      document.querySelectorAll('.rise').forEach(function (el) {
+        el.style.opacity = '1';
+        el.style.animation = 'none';
+      });
+    }
+    // Smooth-scroll for any in-page anchors (future-proofing)
+    document.querySelectorAll('a[href^="#"]').forEach(function (a) {
+      a.addEventListener('click', function (e) {
+        var id = a.getAttribute('href').slice(1);
+        var t = document.getElementById(id);
+        if (t) { e.preventDefault(); t.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+      });
+    });
+  })();
+</script>
+
+</body>
+</html>

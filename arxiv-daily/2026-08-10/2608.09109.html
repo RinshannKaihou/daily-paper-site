@@ -1,0 +1,674 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SLIFT — Selective Self-Learning from User Interactions</title>
+<style>
+  /* ---------- Design tokens ---------- */
+  :root{
+    --paper:#f4f1ea;
+    --paper-2:#ece7db;
+    --ink:#1a1816;
+    --ink-soft:#3b3731;
+    --muted:#736d63;
+    --rule:#d8d2c4;
+    --rule-soft:#e4ddcd;
+    --accent:#a8442a;            /* ONE semantic accent: terracotta */
+    --accent-ink:#7d2f1c;
+    --accent-soft:#ead8cf;
+    --dark:#201d1a;              /* inverted panel for critical edge */
+    --dark-2:#2c2824;
+    --good:#3f6b3a;
+    --shadow:0 1px 0 var(--rule);
+
+    --font-display:Georgia,"Times New Roman","Songti SC","STSong",serif;
+    --font-body:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+    --font-mono:ui-monospace,"SF Mono",SFMono-Regular,Menlo,Consolas,monospace;
+
+    --maxw:min(95vw,1100px);
+  }
+
+  *,*::before,*::after{box-sizing:border-box;}
+  html{-webkit-text-size-adjust:100%;}
+  body{
+    margin:0;
+    background:var(--paper);
+    color:var(--ink);
+    font-family:var(--font-body);
+    font-size:16px;
+    line-height:1.65;
+    -webkit-font-smoothing:antialiased;
+    text-rendering:optimizeLegibility;
+  }
+
+  /* subtle paper grain via repeating gradient (no blobs) */
+  body::before{
+    content:"";
+    position:fixed; inset:0; pointer-events:none; z-index:0;
+    background-image:repeating-linear-gradient(0deg, rgba(0,0,0,.012) 0 1px, transparent 1px 3px);
+    mix-blend-mode:multiply;
+  }
+
+  a{color:var(--accent-ink); text-decoration:none; border-bottom:1px solid var(--accent-soft);}
+  a:hover{border-bottom-color:var(--accent); color:var(--accent);}
+  code{font-family:var(--font-mono); font-size:.86em; background:var(--paper-2); padding:.08em .35em; border-radius:3px;}
+
+  /* ---------- Top-left fixed nav ---------- */
+  .topnav{
+    position:fixed; top:0; left:0; z-index:50;
+    display:flex; align-items:center; gap:.5rem;
+    padding:.7rem 1rem;
+    background:rgba(244,241,234,.86);
+    backdrop-filter:saturate(140%) blur(6px);
+    border-bottom:1px solid var(--rule-soft);
+    font-size:.82rem; letter-spacing:.02em;
+  }
+  .topnav a{border:none; color:var(--ink-soft); font-weight:600;}
+  .topnav a:hover{color:var(--accent);}
+  .topnav .sep{color:var(--rule); }
+
+  /* ---------- Layout container ---------- */
+  .wrap{
+    position:relative; z-index:1;
+    max-width:var(--maxw);
+    margin:0 auto;
+    padding:4.5rem 1.5rem 3rem;
+  }
+
+  /* ---------- HERO BAND ---------- */
+  .hero{
+    padding:1.2rem 0 1.8rem;
+    border-bottom:2px solid var(--ink);
+    margin-bottom:2rem;
+  }
+  .eyebrow{
+    display:flex; flex-wrap:wrap; align-items:center; gap:.5rem .6rem;
+    font-family:var(--font-mono);
+    font-size:.72rem;
+    letter-spacing:.14em;
+    text-transform:uppercase;
+    color:var(--muted);
+    margin-bottom:1.3rem;
+  }
+  .eyebrow .dot{color:var(--accent); font-size:.9rem;}
+  .eyebrow .file{color:var(--ink-soft);}
+
+  /* THE KEY FINDING — page's largest type */
+  .finding{
+    font-family:var(--font-display);
+    font-weight:700;
+    font-size:clamp(2.05rem, 5.6vw, 4.05rem);
+    line-height:1.06;
+    letter-spacing:-.018em;
+    color:var(--ink);
+    margin:0 0 1.4rem;
+    max-width:22ch;
+  }
+  .finding .tok{
+    color:var(--accent);
+    font-style:italic;
+    white-space:nowrap;
+  }
+  .finding .lead{
+    display:block;
+    font-family:var(--font-mono);
+    font-size:.7rem;
+    letter-spacing:.18em;
+    text-transform:uppercase;
+    color:var(--muted);
+    font-style:normal;
+    font-weight:600;
+    margin-bottom:1rem;
+  }
+
+  /* title + meta line below hero finding */
+  .titleline{
+    font-family:var(--font-display);
+    font-size:clamp(1rem,1.6vw,1.18rem);
+    line-height:1.4;
+    color:var(--ink-soft);
+    margin:0 0 .55rem;
+  }
+  .titleline a{font-weight:600; color:var(--ink);}
+  .metaline{
+    display:flex; flex-wrap:wrap; gap:.35rem .85rem; align-items:center;
+    font-size:.84rem; color:var(--muted);
+  }
+  .metaline .au{color:var(--ink-soft); font-weight:600;}
+  .metaline .pipe{color:var(--rule);}
+
+  .chips{display:inline-flex; flex-wrap:wrap; gap:.4rem; margin-top:.7rem;}
+  .chip{
+    font-family:var(--font-mono);
+    font-size:.68rem;
+    letter-spacing:.04em;
+    color:var(--accent-ink);
+    background:var(--accent-soft);
+    border:1px solid var(--accent-soft);
+    padding:.22rem .55rem;
+    border-radius:999px;
+    text-transform:lowercase;
+  }
+
+  /* ---------- ASSET ROW (3 cards) ---------- */
+  .assets{
+    display:grid;
+    grid-template-columns:1.05fr 1.4fr 1.25fr;
+    gap:1rem;
+    margin:0 0 3rem;
+  }
+  .card{
+    background:#fff;
+    border:1px solid var(--rule);
+    padding:1.35rem 1.3rem 1.4rem;
+    position:relative;
+    overflow:hidden;
+  }
+  .card .label{
+    font-family:var(--font-mono);
+    font-size:.66rem;
+    letter-spacing:.16em;
+    text-transform:uppercase;
+    color:var(--muted);
+    margin:0 0 .9rem;
+    display:flex; align-items:center; gap:.4rem;
+  }
+  .card .label::before{
+    content:""; width:8px; height:8px; background:var(--accent); display:inline-block;
+  }
+
+  /* KEY METRIC card */
+  .metric .num{
+    font-family:var(--font-display);
+    font-weight:700;
+    font-size:clamp(3.4rem, 8vw, 5.1rem);
+    line-height:.92;
+    color:var(--accent);
+    letter-spacing:-.03em;
+    display:flex; align-items:flex-start;
+  }
+  .metric .num .sign{font-size:.55em; line-height:1; margin-right:.04em; margin-top:.18em;}
+  .metric .unit{
+    font-family:var(--font-mono);
+    font-size:.72rem;
+    letter-spacing:.1em;
+    text-transform:uppercase;
+    color:var(--ink-soft);
+    margin-top:.55rem;
+  }
+  .metric .delta{
+    font-size:.82rem; color:var(--muted); margin-top:.7rem; line-height:1.5;
+  }
+  .metric .delta b{color:var(--ink); font-weight:600;}
+
+  /* WHY THIS MATTERS card */
+  .matters .body{
+    font-family:var(--font-display);
+    font-size:1.18rem;
+    line-height:1.42;
+    color:var(--ink);
+  }
+  .matters .body em{color:var(--accent-ink); font-style:italic;}
+
+  /* CRITICAL EDGE card — contrasting inverted panel */
+  .edge{
+    background:var(--dark);
+    color:#e9e3d6;
+    border:1px solid var(--dark-2);
+  }
+  .edge .label{color:#b8ad97;}
+  .edge .label::before{background:var(--accent);}
+  .edge .body{
+    font-family:var(--font-display);
+    font-size:1.12rem;
+    line-height:1.45;
+    color:#f3edde;
+  }
+  .edge .body b{color:#e98a6e; font-weight:600;}
+
+  /* ---------- BODY GRID ---------- */
+  .section{margin-bottom:2.6rem;}
+  .h-sec{
+    font-family:var(--font-mono);
+    font-size:.7rem;
+    letter-spacing:.18em;
+    text-transform:uppercase;
+    color:var(--muted);
+    margin:0 0 .9rem;
+    padding-bottom:.5rem;
+    border-bottom:1px solid var(--rule);
+    display:flex; justify-content:space-between; align-items:baseline;
+  }
+  .h-sec .n{color:var(--accent); font-weight:700;}
+
+  .lede{
+    font-family:var(--font-display);
+    font-size:1.08rem;
+    line-height:1.6;
+    color:var(--ink);
+    max-width:62ch;
+  }
+
+  /* Methodology layout */
+  .method-grid{
+    display:grid;
+    grid-template-columns:1.7fr 1fr;
+    gap:1.6rem;
+    align-items:start;
+  }
+  .method-prose{font-size:.97rem; line-height:1.7; color:var(--ink-soft);}
+  .method-prose p{margin:0 0 .85rem;}
+  .method-prose strong{color:var(--ink);}
+  .method-prose .tag-f{color:var(--accent-ink); font-weight:600;}
+  .method-prose .tag-s{color:#5a4a8a; font-weight:600;}
+  .method-prose .tag-n{color:var(--muted); font-weight:600;}
+
+  .stagecard{
+    background:var(--paper-2);
+    border:1px solid var(--rule);
+    padding:1.1rem 1.1rem;
+    font-size:.85rem;
+  }
+  .stagecard h4{
+    margin:0 0 .6rem; font-family:var(--font-mono); font-size:.68rem;
+    letter-spacing:.14em; text-transform:uppercase; color:var(--muted);
+  }
+  .stagecard .stage{margin-bottom:.85rem;}
+  .stagecard .stage:last-child{margin-bottom:0;}
+  .stagecard .stg-name{font-weight:700; color:var(--ink); display:block; font-size:.86rem;}
+  .stagecard .stg-name .mono{font-family:var(--font-mono); color:var(--accent-ink);}
+  .stagecard .stg-desc{color:var(--muted); font-size:.8rem; line-height:1.5;}
+
+  /* Results tables */
+  .tables{display:grid; grid-template-columns:1.35fr 1fr; gap:1.4rem; align-items:start;}
+  table{
+    width:100%; border-collapse:collapse; font-size:.86rem;
+    background:#fff; border:1px solid var(--rule);
+  }
+  table caption{
+    text-align:left; font-family:var(--font-mono); font-size:.66rem;
+    letter-spacing:.14em; text-transform:uppercase; color:var(--muted);
+    padding:.3rem .2rem .7rem;
+  }
+  th,td{padding:.55rem .7rem; text-align:left; border-bottom:1px solid var(--rule-soft);}
+  thead th{
+    font-family:var(--font-mono); font-size:.66rem; letter-spacing:.1em;
+    text-transform:uppercase; color:var(--muted); font-weight:600;
+    border-bottom:1px solid var(--rule);
+  }
+  td.num, th.num{text-align:right; font-variant-numeric:tabular-nums; font-family:var(--font-mono);}
+  tbody tr:last-child td{border-bottom:none;}
+  tr.hl{background:var(--accent-soft);}
+  tr.hl td{color:var(--accent-ink); font-weight:700;}
+  tr.hl td:first-child{position:relative; padding-left:1.1rem;}
+  tr.hl td:first-child::before{
+    content:""; position:absolute; left:.45rem; top:50%; transform:translateY(-50%);
+    width:5px; height:5px; background:var(--accent); border-radius:50%;
+  }
+  tr.base td{color:var(--muted);}
+  .grp td{
+    background:var(--paper-2); font-family:var(--font-mono); font-size:.62rem;
+    letter-spacing:.12em; text-transform:uppercase; color:var(--muted);
+    padding:.4rem .7rem;
+  }
+  .table-note{font-size:.78rem; color:var(--muted); margin-top:.6rem; line-height:1.5;}
+
+  .statstrip{
+    display:grid; grid-template-columns:repeat(3,1fr); gap:.8rem; margin-top:1.3rem;
+  }
+  .stat{
+    background:#fff; border:1px solid var(--rule); padding:.85rem .9rem;
+  }
+  .stat .v{font-family:var(--font-display); font-size:1.5rem; font-weight:700; color:var(--accent); line-height:1;}
+  .stat .k{font-size:.74rem; color:var(--muted); margin-top:.35rem; line-height:1.4;}
+
+  /* Strengths / Limitations side-by-side */
+  .sxl{display:grid; grid-template-columns:1fr 1fr; gap:1rem;}
+  .panel{background:#fff; border:1px solid var(--rule); padding:1.2rem 1.25rem;}
+  .panel.limit{background:var(--dark); color:#e9e3d6; border-color:var(--dark-2);}
+  .panel h3{
+    font-family:var(--font-mono); font-size:.7rem; letter-spacing:.16em;
+    text-transform:uppercase; margin:0 0 .9rem; color:var(--muted);
+    display:flex; align-items:center; gap:.45rem;
+  }
+  .panel.limit h3{color:#b8ad97;}
+  .panel h3::before{content:""; width:8px; height:8px; background:var(--good); display:inline-block;}
+  .panel.limit h3::before{background:var(--accent);}
+  .panel ul{margin:0; padding-left:1.05rem; }
+  .panel li{font-size:.9rem; line-height:1.55; margin-bottom:.6rem; color:var(--ink-soft);}
+  .panel.limit li{color:#d8d0bd;}
+  .panel li:last-child{margin-bottom:0;}
+  .panel li b{color:var(--ink);}
+  .panel.limit li b{color:#e98a6e;}
+
+  /* Questions panel */
+  .qlist{
+    display:grid; grid-template-columns:1fr 1fr; gap:.7rem 1.4rem;
+    counter-reset:q;
+  }
+  .qlist .q{
+    position:relative; padding:.1rem 0 .1rem 2.1rem; font-size:.9rem; line-height:1.55;
+    color:var(--ink-soft); counter-increment:q;
+  }
+  .qlist .q::before{
+    content:"Q" counter(q);
+    position:absolute; left:0; top:.05rem;
+    font-family:var(--font-mono); font-size:.68rem; font-weight:700;
+    color:var(--accent); letter-spacing:.04em;
+    border:1px solid var(--accent-soft); background:var(--accent-soft);
+    padding:.1rem .35rem; border-radius:3px;
+  }
+  .qlist .q b{color:var(--ink);}
+
+  /* ---------- Footer ---------- */
+  footer{
+    margin-top:3rem; padding-top:1.4rem; border-top:2px solid var(--ink);
+    display:flex; flex-wrap:wrap; justify-content:space-between; gap:1rem;
+    font-size:.8rem; color:var(--muted);
+  }
+  footer a{font-weight:600;}
+  footer .src::before{content:"↗ "; color:var(--accent);}
+  footer .verdict{
+    font-family:var(--font-mono); font-size:.7rem; letter-spacing:.1em;
+    text-transform:uppercase; color:var(--muted);
+  }
+
+  /* ---------- Reveal on load ---------- */
+  @keyframes rise{from{opacity:0; transform:translateY(14px);} to{opacity:1; transform:none;}}
+  .r{opacity:0; animation:rise .62s cubic-bezier(.2,.7,.2,1) forwards;}
+  .d1{animation-delay:.05s;} .d2{animation-delay:.16s;} .d3{animation-delay:.27s;}
+  .d4{animation-delay:.38s;} .d5{animation-delay:.49s;} .d6{animation-delay:.6s;}
+  .d7{animation-delay:.71s;} .d8{animation-delay:.82s;}
+  @media (prefers-reduced-motion:reduce){.r{animation:none; opacity:1;}}
+
+  /* ---------- Responsive ---------- */
+  @media (max-width:880px){
+    .assets{grid-template-columns:1fr;}
+    .method-grid{grid-template-columns:1fr;}
+    .tables{grid-template-columns:1fr;}
+    .sxl{grid-template-columns:1fr;}
+    .qlist{grid-template-columns:1fr;}
+    .statstrip{grid-template-columns:repeat(3,1fr);}
+  }
+  @media (max-width:720px){
+    .wrap{padding:4rem 1.1rem 2.2rem;}
+    .finding{max-width:none;}
+    .statstrip{grid-template-columns:1fr;}
+    .metaline .pipe{display:none;}
+    .topnav{font-size:.76rem;}
+  }
+  @media (max-width:420px){
+    .finding{font-size:2rem;}
+    .metric .num{font-size:3.2rem;}
+  }
+</style>
+</head>
+<body>
+
+  <!-- Fixed top-left nav -->
+  <nav class="topnav">
+    <a href="./index.html">↩ Today's digest</a>
+    <span class="sep">/</span>
+    <span class="file">2608.09109 · SLIFT</span>
+  </nav>
+
+  <main class="wrap">
+
+    <!-- ============ HERO BAND ============ -->
+    <header class="hero">
+      <div class="eyebrow r d1">
+        <span class="dot">●</span>
+        <span>Paper dashboard</span>
+        <span class="file">2026-08-10 · arXiv 2608.09109</span>
+        <span class="file">DCST, Tsinghua · Tencent</span>
+      </div>
+
+      <!-- KEY FINDING — page's largest type -->
+      <h1 class="finding r d2">
+        <span class="lead">Key finding</span>
+        Decompose user feedback into
+        <span class="tok">Fix</span> / <span class="tok">Spec</span> / <span class="tok">Null</span>
+        atoms; learn each at its correct scope on a frozen backbone.
+      </h1>
+
+      <p class="titleline r d3">
+        <a href="https://arxiv.org/abs/2608.09109" target="_blank" rel="noopener">
+          Different Feedback, Different Updates: Selective Self-Learning from User Interactions for Large Language Models
+        </a>
+      </p>
+      <div class="metaline r d3">
+        <span class="au">Xuancheng Li et al.</span>
+        <span class="pipe">|</span>
+        <span>8 authors</span>
+        <span class="pipe">|</span>
+        <span>Aug 10, 2026</span>
+        <span class="pipe">|</span>
+        <span>Qwen3-8B · Ministral3-14B</span>
+      </div>
+      <div class="chips r d3">
+        <span class="chip">continual-learning</span>
+        <span class="chip">self-improvement</span>
+        <span class="chip">lora-adapters</span>
+        <span class="chip">user-feedback</span>
+        <span class="chip">parametric-update</span>
+      </div>
+    </header>
+
+    <!-- ============ ASSET ROW ============ -->
+    <section class="assets">
+
+      <!-- KEY METRIC -->
+      <div class="card metric r d4">
+        <p class="label">Key metric</p>
+        <div class="num"><span class="sign">+</span>6.68</div>
+        <div class="unit">Norm-Score pts · MemoryBench</div>
+        <p class="delta">
+          SLIFT <b>55.85</b> vs Base <b>49.17</b> (Qwen3-8B).<br>
+          Beats SDPO 49.56 · SFT 48.63 · DPO 47.81 · A-Mem 47.46.
+        </p>
+      </div>
+
+      <!-- WHY THIS MATTERS -->
+      <div class="card matters r d5">
+        <p class="label">Why this matters</p>
+        <p class="body">
+          A teacher-free blueprint separating <em>“always do this”</em> fixes from
+          <em>“only refine here”</em> refinements — directly useful for self-improving LLM assistants.
+        </p>
+      </div>
+
+      <!-- CRITICAL EDGE — contrasting -->
+      <div class="card edge r d6">
+        <p class="label">Critical edge</p>
+        <p class="body">
+          Headline gains rest on <b>simulated feedback (97% usable)</b>; on real user logs
+          only <b>50.4%</b> is usable and gains are modest.
+        </p>
+      </div>
+
+    </section>
+
+    <!-- ============ METHODOLOGY ============ -->
+    <section class="section r d6">
+      <div class="h-sec"><span><span class="n">01 /</span> Methodology</span><span>two stages · frozen M₀</span></div>
+
+      <div class="method-grid">
+        <div class="method-prose">
+          <p>
+            SLIFT runs on a <strong>frozen backbone M₀</strong> in two stages.
+            <strong>Stage 1 — feedback processing:</strong> each user turn is split into minimal
+            atomic components, then each is classified relative to the task-valid region <code>V(x)</code>.
+            A component is <span class="tag-f">Fix</span> if omitting it breaks validity
+            (<code>V(x;c)=V(x)</code>), <span class="tag-s">Spec</span> if it carves a proper
+            compatible subset (omitting it may still be valid), and <span class="tag-n">Null</span>
+            if it is ambiguous, conflicting, or off-task.
+          </p>
+          <p>
+            <strong>Stage 2 — selective learning via two LoRA adapters</strong> on the shared backbone.
+            The <strong>Generalist</strong> trains only on interactions with a Fix set, distilling the
+            hindsight Fix-conditioned distribution into the default behaviour plus a feedback-free
+            anchor — an off-policy variant of SDPO. The <strong>Specialist</strong> observes only the
+            (task, Generalist-response) pair and decides KEEP or APPLY with residual guidance for
+            applicable-but-unmet Spec refinements, intervening sparingly. <span class="tag-n">Null</span>
+            components update nothing.
+          </p>
+          <p class="table-note" style="margin-top:.4rem;">
+            Component mix (Qwen3-8B): MemoryBench <b>Fix 23.6 / Spec 50.8 / Null 25.6%</b> ·
+            WildFB <b>19.4 / 42.9 / 37.7%</b>.
+          </p>
+        </div>
+
+        <aside class="stagecard">
+          <h4>Two-pathway design</h4>
+          <div class="stage">
+            <span class="stg-name">Generalist <span class="mono">M₀ ⊕ A_G</span></span>
+            <span class="stg-desc">Consolidates <b>Fix</b> into default behaviour via feedback-conditioned self-distillation + behavioural anchor.</span>
+          </div>
+          <div class="stage">
+            <span class="stg-name">Specialist <span class="mono">M₀ ⊕ A_S</span></span>
+            <span class="stg-desc">Predicts KEEP / APPLY for residual <b>Spec</b> guidance only when applicable &amp; unmet — edits &lt;20% of the time.</span>
+          </div>
+          <div class="stage">
+            <span class="stg-name">No teacher</span>
+            <span class="stg-desc">All supervision is self-constructed by the frozen backbone — no reward model, no response rewriting.</span>
+          </div>
+        </aside>
+      </div>
+    </section>
+
+    <!-- ============ RESULTS ============ -->
+    <section class="section r d7">
+      <div class="h-sec"><span><span class="n">02 /</span> Results &amp; Highlights</span><span>higher is better</span></div>
+
+      <div class="tables">
+        <div>
+          <table>
+            <caption>MemoryBench — average Norm-Score</caption>
+            <thead>
+              <tr><th>Method</th><th class="num">Qwen3-8B</th><th class="num">Ministral3-14B</th></tr>
+            </thead>
+            <tbody>
+              <tr class="grp"><td colspan="3">Memory-system baselines</td></tr>
+              <tr><td>A-Mem</td><td class="num">47.46</td><td class="num">—</td></tr>
+              <tr class="grp"><td colspan="3">Parametric baselines</td></tr>
+              <tr><td>DPO</td><td class="num">47.81</td><td class="num">48.41</td></tr>
+              <tr><td>SFT</td><td class="num">48.63</td><td class="num">49.26</td></tr>
+              <tr><td>SDPO</td><td class="num">49.56</td><td class="num">48.69</td></tr>
+              <tr class="base"><td>Base (no adapt.)</td><td class="num">49.17</td><td class="num">49.81</td></tr>
+              <tr class="hl"><td>SLIFT (ours)</td><td class="num">55.85</td><td class="num">53.22</td></tr>
+            </tbody>
+          </table>
+          <p class="table-note">SLIFT leads on every input–output length partition (e.g. Short–Short 70.49 vs Base 59.72, SDPO 62.31).</p>
+        </div>
+
+        <div>
+          <table>
+            <caption>Compute cost — Qwen3-8B</caption>
+            <thead>
+              <tr><th>Method</th><th class="num">Train (GPU-h)</th><th class="num">Infer (×Base)</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>SDPO</td><td class="num">2.3</td><td class="num">~1.02×</td></tr>
+              <tr><td>SFT</td><td class="num">5.6</td><td class="num">~1.02×</td></tr>
+              <tr><td>DPO</td><td class="num">6.7</td><td class="num">~1.02×</td></tr>
+              <tr class="base"><td>Memory systems</td><td class="num">—</td><td class="num">1.81–2.70×</td></tr>
+              <tr class="hl"><td>SLIFT</td><td class="num">4.8</td><td class="num">1.33×</td></tr>
+            </tbody>
+          </table>
+          <p class="table-note">Inference cost is log-size-independent (updates stored in parameters).</p>
+        </div>
+      </div>
+
+      <div class="statstrip">
+        <div class="stat">
+          <div class="v">≤ 20%</div>
+          <div class="k">Specialist APPLY rate across all test sets — edits sparingly, not uniformly.</div>
+        </div>
+        <div class="stat">
+          <div class="v">0.00%</div>
+          <div class="k">APPLY on MMLU-Pro — Specialist is a no-op on knowledge tasks.</div>
+        </div>
+        <div class="stat">
+          <div class="v">+2.43 pts</div>
+          <div class="k">Specialist-only IFEval gain (Ministral3-14B) on top of Generalist.</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ STRENGTHS / LIMITATIONS ============ -->
+    <section class="section r d7">
+      <div class="h-sec"><span><span class="n">03 /</span> Strengths &amp; Limitations</span><span>side-by-side</span></div>
+      <div class="sxl">
+        <div class="panel">
+          <h3>Strengths</h3>
+          <ul>
+            <li><b>Principled taxonomy.</b> Task-anchored Fix/Spec/Null with an operational omission criterion — role assignment becomes a constrained classification, not open-ended discovery.</li>
+            <li><b>Clean inductive bias.</b> Dual adapter separates default-behaviour consolidation from conditional refinement, unlike scalar/preference methods that conflate generalisation scope.</li>
+            <li><b>Fair, comprehensive comparison.</b> Three baseline families, two backbones, two datasets, five-run averages, plus online-evolution, efficiency, and ablation studies.</li>
+            <li><b>No teacher or reward model needed</b> — supervision self-constructed by the frozen backbone, at modest compute (below SFT/DPO).</li>
+            <li><b>Intellectually honest</b> — publishes the high Null/Spec proportions and edit rates that explain modest WildFB gains.</li>
+          </ul>
+        </div>
+        <div class="panel limit">
+          <h3>Limitations</h3>
+          <ul>
+            <li><b>Modest real-feedback gains.</b> WildReward win-rate over Base is only “modest”; fully-usable WildFB feedback is just <b>50.4%</b> (vs 97.0% simulated).</li>
+            <li><b>Self-benchmarking risk.</b> MemoryBench, WildReward, SDPO and the role evaluator are all from the same group; no independent benchmark, and verifiable-reward methods were excluded.</li>
+            <li><b>Role-assignment bottleneck.</b> The frozen backbone labels its own training data — label noise on harder real feedback is only thinly validated against humans.</li>
+            <li><b>Under-specified integration.</b> The mechanics/prompts of the “single residual-guided integration pass” are barely described in the main text.</li>
+            <li><b>Narrow scope.</b> Only 8B/14B tested; Specialist is a no-op on knowledge tasks (MMLU-Pro APPLY 0.00%).</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ QUESTIONS ============ -->
+    <section class="section r d8">
+      <div class="h-sec"><span><span class="n">04 /</span> Questions for Further Exploration</span><span>open issues</span></div>
+      <div class="qlist">
+        <div class="q">How robust is the decomposition under <b>weaker backbones or adversarial feedback</b>, and does label noise hurt the Generalist or the Specialist more?</div>
+        <div class="q">Could the Specialist’s sparse APPLY decisions serve as an <b>automatic curriculum</b> to prioritise retraining and cut the 37.7% Null waste on WildFB?</div>
+        <div class="q">How does SLIFT <b>scale beyond 14B</b> — does the Specialist’s value grow, shrink, or shift as the Generalist improves?</div>
+        <div class="q">Since <b>verifiable-reward methods (MulFeRL, SEAM) were excluded</b>, could Spec refinements benefit from verifier signals where ground truth exists?</div>
+        <div class="q">What is the failure mode when a <b>Spec is mislabeled as a Fix</b> — does the largest ablation drop (w/o task context) flag this as the dominant risk?</div>
+        <div class="q">Can the residual-guided integration pass be replaced with a <b>lightweight in-context revision</b> to handle distribution shift without full retraining?</div>
+      </div>
+    </section>
+
+    <!-- ============ FOOTER ============ -->
+    <footer class="r d8">
+      <a class="src" href="./2608.09109.md">Markdown source</a>
+      <span class="verdict">Not browser-verified · generated from source markdown</span>
+    </footer>
+
+  </main>
+
+<script>
+  /* Minimal, defensive enhancement: copy a plain citation from the meta line. */
+  (function(){
+    var t = document.querySelector('.titleline a');
+    if(!t) return;
+    t.addEventListener('copy', function(){});
+    // Progressive enhancement only; failure is silent and non-fatal.
+    try{
+      var btn = document.createElement('button');
+      btn.textContent = 'copy cite';
+      btn.setAttribute('aria-label','Copy citation');
+      Object.assign(btn.style,{fontFamily:'var(--font-mono)',fontSize:'.68rem',letterSpacing:'.08em',
+        textTransform:'uppercase',color:'#736d63',background:'transparent',border:'1px solid #d8d2c4',
+        borderRadius:'4px',padding:'.25rem .5rem',cursor:'pointer',marginLeft:'.5rem',verticalAlign:'middle'});
+      btn.addEventListener('click', function(){
+        var cite = 'Li, X. et al. (2026). Different Feedback, Different Updates: Selective Self-Learning from User Interactions for Large Language Models. arXiv:2608.09109.';
+        var done = function(){ btn.textContent='copied ✓'; setTimeout(function(){btn.textContent='copy cite';},1400); };
+        if(navigator.clipboard && navigator.clipboard.writeText){
+          navigator.clipboard.writeText(cite).then(done).catch(function(){ fallback(cite); done(); });
+        } else { fallback(cite); done(); }
+      });
+      function fallback(s){ var ta=document.createElement('textarea'); ta.value=s; document.body.appendChild(ta); ta.select(); try{document.execCommand('copy');}catch(e){} document.body.removeChild(ta); }
+      t.parentNode.insertBefore(btn, t.nextSibling);
+    }catch(e){ /* no-op */ }
+  })();
+</script>
+</body>
+</html>

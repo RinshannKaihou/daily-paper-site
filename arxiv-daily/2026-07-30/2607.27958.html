@@ -1,0 +1,459 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Σ-Mem — Online Reliability Memory for Multi-Agent LLMs</title>
+<style>
+  :root{
+    --bg:#0a0e13;
+    --panel:#121821;
+    --panel-2:#161e29;
+    --line:#212b38;
+    --text:#e9eef4;
+    --dim:#93a5b8;
+    --dim-2:#5f7285;
+    --accent:#2ad9c4;
+    --accent-soft:rgba(42,217,196,0.12);
+    --accent-line:rgba(42,217,196,0.35);
+    --caution:#f5a524;
+    --caution-soft:rgba(245,165,36,0.12);
+    --caution-line:rgba(245,165,36,0.4);
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", Roboto, Helvetica, Arial, sans-serif;
+  }
+  *{box-sizing:border-box;}
+  html{scroll-behavior:smooth;}
+  body{
+    margin:0;
+    background:
+      radial-gradient(ellipse 900px 500px at 12% -8%, rgba(42,217,196,0.10), transparent 60%),
+      radial-gradient(ellipse 700px 400px at 100% 0%, rgba(245,165,36,0.06), transparent 55%),
+      var(--bg);
+    color:var(--text);
+    font-family:var(--sans);
+    line-height:1.5;
+    -webkit-font-smoothing:antialiased;
+  }
+  .cjk{ line-height:1.9; }
+
+  a{ color:inherit; }
+
+  /* faint matrix-cell texture behind hero */
+  .matrix-veil{
+    position:absolute; inset:0; top:0; height:640px; z-index:0; pointer-events:none;
+    background-image:
+      repeating-linear-gradient(0deg, rgba(255,255,255,0.028) 0 1px, transparent 1px 34px),
+      repeating-linear-gradient(90deg, rgba(255,255,255,0.028) 0 1px, transparent 1px 34px);
+    -webkit-mask-image: linear-gradient(180deg, rgba(0,0,0,0.9), transparent 88%);
+    mask-image: linear-gradient(180deg, rgba(0,0,0,0.9), transparent 88%);
+  }
+
+  .nav-fixed{
+    position:fixed; top:18px; left:18px; z-index:50;
+    font-size:13px; font-weight:600; letter-spacing:0.01em;
+    color:var(--dim); text-decoration:none;
+    background:rgba(18,24,33,0.85);
+    border:1px solid var(--line);
+    padding:8px 14px; border-radius:999px;
+    backdrop-filter:blur(6px);
+    transition:color .15s ease, border-color .15s ease, transform .15s ease;
+  }
+  .nav-fixed:hover{ color:var(--accent); border-color:var(--accent-line); transform:translateY(-1px); }
+
+  .page{
+    max-width:min(95vw, 1100px);
+    margin:0 auto;
+    padding:78px 0 60px;
+    position:relative;
+    z-index:1;
+  }
+
+  /* ---------- HERO ---------- */
+  .hero{ position:relative; padding-bottom:28px; }
+  .hero-kicker{
+    display:flex; align-items:center; gap:10px;
+    font-family:var(--mono); font-size:12px; letter-spacing:0.12em; text-transform:uppercase;
+    color:var(--accent); opacity:0; animation:rise .6s ease forwards;
+  }
+  .hero-kicker::before{
+    content:""; width:8px; height:8px; border-radius:2px; background:var(--accent);
+    box-shadow:0 0 10px var(--accent);
+  }
+
+  .headline{
+    margin:14px 0 0;
+    font-size:clamp(1.55rem, 3.2vw, 2.5rem);
+    font-weight:800;
+    letter-spacing:-0.015em;
+    line-height:1.16;
+    max-width:960px;
+    opacity:0; animation:rise .6s ease .08s forwards;
+  }
+
+  .headline .sigma{ color:var(--accent); }
+
+  .cjk-sub{
+    margin:14px 0 0;
+    font-size:14px;
+    color:var(--dim);
+    max-width:760px;
+    opacity:0; animation:rise .6s ease .16s forwards;
+  }
+
+  .paper-meta{
+    margin-top:22px;
+    display:flex; flex-wrap:wrap; align-items:center; gap:10px 16px;
+    opacity:0; animation:rise .6s ease .24s forwards;
+  }
+  .paper-title-link{
+    font-size:14px; font-weight:600; text-decoration:none;
+    border-bottom:1px solid var(--accent-line);
+    padding-bottom:1px;
+  }
+  .paper-title-link:hover{ color:var(--accent); border-color:var(--accent); }
+  .dot{ color:var(--dim-2); }
+  .authors{ font-size:13px; color:var(--dim); }
+  .date-badge{ font-size:12px; font-family:var(--mono); color:var(--dim-2); }
+
+  .chips{ margin-top:16px; display:flex; flex-wrap:wrap; gap:8px; opacity:0; animation:rise .6s ease .32s forwards; }
+  .chip{
+    font-size:11px; font-family:var(--mono); letter-spacing:0.02em;
+    color:var(--accent); background:var(--accent-soft);
+    border:1px solid var(--accent-line);
+    padding:5px 10px; border-radius:6px;
+  }
+  .credibility{
+    margin-top:14px; font-size:12px; color:var(--dim-2);
+    opacity:0; animation:rise .6s ease .38s forwards;
+  }
+
+  @keyframes rise{ from{ opacity:0; transform:translateY(10px); } to{ opacity:1; transform:translateY(0); } }
+
+  /* ---------- ASSET ROW ---------- */
+  .assets{
+    display:grid;
+    grid-template-columns:1fr 1fr 1fr;
+    gap:16px;
+    margin-top:8px;
+  }
+  .asset-card{
+    background:var(--panel);
+    border:1px solid var(--line);
+    border-radius:12px;
+    padding:22px 22px 20px;
+    display:flex; flex-direction:column;
+    opacity:0; animation:rise .6s ease forwards;
+    transition:transform .18s ease, border-color .18s ease;
+  }
+  .asset-card:hover{ transform:translateY(-3px); border-color:var(--accent-line); }
+  .assets .asset-card:nth-child(1){ animation-delay:.42s; }
+  .assets .asset-card:nth-child(2){ animation-delay:.5s; }
+  .assets .asset-card:nth-child(3){ animation-delay:.58s; }
+
+  .asset-label{
+    font-family:var(--mono); font-size:11px; letter-spacing:0.1em; text-transform:uppercase;
+    color:var(--dim-2); margin-bottom:12px;
+  }
+
+  .metric-card .asset-label{ color:var(--accent); }
+  .metric-number{
+    font-family:var(--mono); font-weight:800; letter-spacing:-0.02em;
+    font-size:clamp(2.4rem, 4.2vw, 3.4rem); color:var(--accent); line-height:1;
+  }
+  .metric-context{ margin-top:12px; font-size:13px; color:var(--dim); line-height:1.55; }
+  .metric-trace{ margin-top:10px; font-family:var(--mono); font-size:12px; color:var(--dim-2); }
+
+  .why-card p{ font-size:14.5px; color:var(--text); line-height:1.6; margin:0; }
+  .why-card .asset-label{ color:var(--dim); }
+
+  .edge-card{
+    background:var(--caution-soft);
+    border:1px solid var(--caution-line);
+  }
+  .edge-card .asset-label{ color:var(--caution); }
+  .edge-card p{ font-size:14.5px; color:#ffe4bb; line-height:1.6; margin:0; }
+
+  /* ---------- BODY GRID ---------- */
+  .body-grid{
+    display:grid;
+    grid-template-columns:repeat(12, 1fr);
+    gap:20px;
+    margin-top:44px;
+  }
+  .card{
+    background:var(--panel);
+    border:1px solid var(--line);
+    border-radius:12px;
+    padding:24px 26px;
+  }
+  .card h2{
+    margin:0 0 16px; font-size:13px; letter-spacing:0.1em; text-transform:uppercase;
+    color:var(--dim); font-family:var(--mono); font-weight:600;
+    display:flex; align-items:center; gap:8px;
+  }
+  .card h2::before{ content:""; width:5px; height:5px; border-radius:50%; background:var(--accent); }
+
+  .col-methodology{ grid-column: span 7; }
+  .col-results{ grid-column: span 5; }
+  .col-strengths{ grid-column: span 6; }
+  .col-limitations{ grid-column: span 6; }
+  .col-questions{ grid-column: span 12; }
+
+  .method-body p{ font-size:14px; color:var(--dim); line-height:1.65; margin:0 0 14px; }
+  .method-list{ margin:0 0 18px; padding-left:18px; }
+  .method-list li{ font-size:13.5px; color:var(--text); line-height:1.6; margin-bottom:8px; }
+  .method-list b{ color:var(--accent); font-weight:600; }
+
+  /* read-mode tabs */
+  .readmodes{ margin-top:6px; border-top:1px solid var(--line); padding-top:18px; }
+  .readmodes-label{ font-family:var(--mono); font-size:11px; letter-spacing:0.08em; color:var(--dim-2); text-transform:uppercase; margin-bottom:10px; }
+  .mode-tabs{ display:flex; gap:8px; flex-wrap:wrap; margin-bottom:12px; }
+  .mode-tab{
+    font-family:var(--mono); font-size:12px; cursor:pointer; user-select:none;
+    padding:7px 12px; border-radius:7px; border:1px solid var(--line);
+    background:var(--panel-2); color:var(--dim);
+    transition:all .15s ease;
+  }
+  .mode-tab:hover{ color:var(--text); }
+  .mode-tab.active{ color:var(--accent); border-color:var(--accent-line); background:var(--accent-soft); }
+  .mode-detail{
+    font-size:13.5px; color:var(--text); line-height:1.6; min-height:42px;
+    background:var(--panel-2); border:1px solid var(--line); border-radius:8px; padding:12px 14px;
+  }
+  .mode-detail b{ color:var(--accent); }
+
+  table{ width:100%; border-collapse:collapse; font-size:13px; }
+  thead th{
+    text-align:left; font-family:var(--mono); font-size:10.5px; letter-spacing:0.06em; text-transform:uppercase;
+    color:var(--dim-2); padding:0 10px 10px 0; border-bottom:1px solid var(--line); font-weight:600;
+  }
+  tbody td{ padding:10px 10px 10px 0; border-bottom:1px solid var(--line); vertical-align:top; color:var(--text); }
+  tbody tr:last-child td{ border-bottom:none; }
+  .num{ font-family:var(--mono); white-space:nowrap; }
+  .delta-pos{ color:var(--accent); font-family:var(--mono); font-weight:600; white-space:nowrap; }
+  .delta-neg{ color:var(--caution); font-family:var(--mono); font-weight:600; white-space:nowrap; }
+  tr.caution-row td{ background:var(--caution-soft); }
+  tr.caution-row .setting-cell{ color:#ffe4bb; }
+  .results-note{ margin-top:14px; font-size:12px; color:var(--dim-2); line-height:1.6; }
+
+  .panel-list{ margin:0; padding-left:18px; }
+  .panel-list li{ font-size:13.5px; color:var(--text); line-height:1.6; margin-bottom:11px; }
+  .panel-list li:last-child{ margin-bottom:0; }
+  .col-strengths h2::before{ background:var(--accent); }
+  .col-limitations{ background:linear-gradient(180deg, var(--panel), var(--panel) 60%, rgba(245,165,36,0.03)); }
+  .col-limitations h2::before{ background:var(--caution); }
+  .col-limitations .panel-list li::marker{ color:var(--caution); }
+  .col-strengths .panel-list li::marker{ color:var(--accent); }
+
+  .questions-list{ margin:0; padding-left:18px; columns:2; column-gap:32px; }
+  .questions-list li{ font-size:13.5px; color:var(--dim); line-height:1.6; margin-bottom:12px; break-inside:avoid; }
+  .questions-list li::marker{ color:var(--dim-2); font-family:var(--mono); }
+
+  .footer{
+    margin-top:52px; padding-top:22px; border-top:1px solid var(--line);
+    display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;
+  }
+  .md-link{
+    font-size:13px; font-weight:600; text-decoration:none; color:var(--dim);
+    border:1px solid var(--line); padding:8px 14px; border-radius:999px;
+    transition:color .15s ease, border-color .15s ease;
+  }
+  .md-link:hover{ color:var(--accent); border-color:var(--accent-line); }
+  .footer-note{ font-size:11.5px; color:var(--dim-2); font-family:var(--mono); }
+
+  @media (max-width:900px){
+    .assets{ grid-template-columns:1fr; }
+    .col-methodology, .col-results, .col-strengths, .col-limitations, .col-questions{ grid-column: span 12; }
+    .questions-list{ columns:1; }
+  }
+  @media (max-width:720px){
+    .page{ padding-top:64px; }
+    .nav-fixed{ font-size:12px; padding:6px 11px; }
+    .card{ padding:20px; }
+  }
+</style>
+</head>
+<body>
+
+<a class="nav-fixed" href="./index.html">↩ Today's digest</a>
+<div class="matrix-veil"></div>
+
+<div class="page">
+
+  <!-- ============ HERO ============ -->
+  <section class="hero">
+    <div class="hero-kicker">arXiv 2607.27958 · multi-agent LLM systems</div>
+    <h1 class="headline">A spectrally-stable memory of peer reliability lifts multi-agent <span class="sigma">LLM</span> accuracy by up to 27 points under adversarial attacks.</h1>
+    <p class="cjk-sub cjk">一句话总结：用实对称矩阵在线记录每个 peer 的历史胜任度与 peer 间相关性，仅用正确性反馈更新，谱稳定性由 Weyl 不等式保证。</p>
+
+    <div class="paper-meta">
+      <a class="paper-title-link" href="https://arxiv.org/abs/2607.27958" target="_blank" rel="noopener">Σ-Mem: An Online Reliability Memory for LLM-based Multi-Agent Systems ↗</a>
+    </div>
+    <div class="paper-meta" style="margin-top:6px;">
+      <span class="authors">Peilin Feng <span class="dot">·</span> Suorong Yang <span class="dot">·</span> Soujanya Poria</span>
+      <span class="dot">·</span>
+      <span class="date-badge">30 Jul 2026</span>
+    </div>
+
+    <div class="chips">
+      <span class="chip">multi-agent LLM systems</span>
+      <span class="chip">reliability memory</span>
+      <span class="chip">peer selection</span>
+      <span class="chip">Weyl's inequality</span>
+      <span class="chip">trust modeling</span>
+    </div>
+
+    <div class="credibility">DeCLaRe Lab, Nanyang Technological University · marked "Research Paper — Under review" · code repo referenced but no URL printed in text</div>
+  </section>
+
+  <!-- ============ ASSET ROW ============ -->
+  <section class="assets">
+    <div class="asset-card metric-card">
+      <div class="asset-label">Key metric</div>
+      <div class="metric-number">+24.88<span style="font-size:0.45em; font-weight:700;">pp</span></div>
+      <p class="metric-context">Peer-selection accuracy gain for Qwen3-0.6B under the hardest counterfactual attack, CF@90 (peer identity swapped with a weak peer 90% of the time).</p>
+      <div class="metric-trace">46.22% base → 71.10% with Σ-Mem</div>
+    </div>
+
+    <div class="asset-card why-card">
+      <div class="asset-label">Why this matters</div>
+      <p>Gives multi-agent LLM coordination, routing, and trust modeling a theoretically stable, reusable memory for "who to trust" — without retraining any model.</p>
+    </div>
+
+    <div class="asset-card edge-card">
+      <div class="asset-label">Critical edge</div>
+      <p>At the deliberately ambiguous CF@50 setting, Σ-Mem's voting underperforms the plain base model for 4 of 5 central models.</p>
+    </div>
+  </section>
+
+  <!-- ============ BODY GRID ============ -->
+  <section class="body-grid">
+
+    <div class="card col-methodology">
+      <h2>Methodology</h2>
+      <div class="method-body">
+        <p>Trained offline on <b style="color:var(--text)">2,963 events</b> across three domains — GSM8K (math), SQuAD (RAG), APPS (code) — each paired with fixed responses from three peers (Gemma-3-4B-it, Phi-4-mini-instruct, Qwen2.5-Coder-7B-Instruct) and a binary correctness label.</p>
+      </div>
+      <ul class="method-list">
+        <li><b>Two symmetric matrices, feedback-only updates.</b> A per-peer competence matrix M_p and a peer-relationship matrix G are both updated purely from post-decision correctness feedback via a decayed, bounded rank-one rule: M_p ← γM_p + η·c<sub>p,t</sub>·φ(x<sub>t</sub>)φ(x<sub>t</sub>)ᵀ. No retraining of the peer or central models.</li>
+        <li><b>Weyl's-inequality stability.</b> Each event-level update is a provably bounded spectral perturbation (|Δλ| ≤ η); Theorem 1 shows the leading eigenvalue eventually reflects true task-conditioned competence rather than event-level noise, with full proof in Appendix A.2.</li>
+        <li><b>One frozen memory, three read paths.</b> The same M_p / G state supports residual steering (injected into the upper half of the central model's decoder layers before a Yes/No utility judgment), response-free M-Route selection, and M-Vote reliability-weighted aggregation.</li>
+      </ul>
+
+      <div class="readmodes">
+        <div class="readmodes-label">Unified read interface — three consumption modes, one memory</div>
+        <div class="mode-tabs">
+          <span class="mode-tab active" data-mode="steer">Residual Steering</span>
+          <span class="mode-tab" data-mode="route">M-Route</span>
+          <span class="mode-tab" data-mode="vote">M-Vote</span>
+        </div>
+        <div class="mode-detail" id="modeDetail">
+          Injects δ<sub>p,t</sub> = g·P·M<sub>p</sub>φ(x<sub>t</sub>) into decoder layers ⌈L/2⌉..L−1, shifting hidden states before the central model scores each peer's answer via a Yes/No log-likelihood contrast — combined with G into a posterior over correctness.
+        </div>
+      </div>
+    </div>
+
+    <div class="card col-results">
+      <h2>Results & Highlights</h2>
+      <table>
+        <thead>
+          <tr><th>Setting</th><th>Base</th><th>Σ-Mem</th><th>Δ</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="setting-cell">CF@90 attack, Qwen3-0.6B</td>
+            <td class="num">46.22%</td><td class="num">71.10%</td><td class="delta-pos">+24.88pp</td>
+          </tr>
+          <tr>
+            <td class="setting-cell">CF@90, peer pool 3→5 (2 unseen peers), Qwen3-0.6B</td>
+            <td class="num">34.71%</td><td class="num">62.09%</td><td class="delta-pos">+27.38pp</td>
+          </tr>
+          <tr>
+            <td class="setting-cell">OOD BBH (unseen), Qwen3-4B</td>
+            <td class="num">20.38%</td><td class="num">28.66%</td><td class="delta-pos">+8.28pp</td>
+          </tr>
+          <tr>
+            <td class="setting-cell">OOD BBH (unseen), Qwen3-8B</td>
+            <td class="num">19.29%</td><td class="num">28.17%</td><td class="delta-pos">+8.88pp</td>
+          </tr>
+          <tr>
+            <td class="setting-cell">OOD pooled (6 benchmarks), M-Vote vs. majority vote, Qwen3-8B</td>
+            <td class="num">59.12% (majority)</td><td class="num">60.99% (M-Vote)</td><td class="delta-pos">+1.87pp</td>
+          </tr>
+          <tr class="caution-row">
+            <td class="setting-cell">CF@50 (ambiguous evidence), Qwen3-4B</td>
+            <td class="num">65.55%</td><td class="num">63.61%</td><td class="delta-neg">−1.94pp</td>
+          </tr>
+          <tr class="caution-row">
+            <td class="setting-cell">CF@50 (ambiguous evidence), Qwen3.5-9B</td>
+            <td class="num">68.94%</td><td class="num">65.96%</td><td class="delta-neg">−2.98pp</td>
+          </tr>
+        </tbody>
+      </table>
+      <p class="results-note">M-Vote also beats the single best fixed peer (57.52%) and, for 3 of 5 central models, the theoretical oracle-reputation baseline (60.79%) — using only frozen memory readouts, no central-model judgment at decision time.</p>
+    </div>
+
+    <div class="card col-strengths">
+      <h2>Strengths</h2>
+      <ul class="panel-list">
+        <li>Weyl's-inequality stability proof plus a full signal-vs-noise theorem, not an ad hoc decay heuristic.</li>
+        <li>One trained memory state reused across three qualitatively different consumption mechanisms without retraining.</li>
+        <li>Honestly reports its own CF@50 failure mode with a plausible mechanistic explanation.</li>
+        <li>Includes a carefully constructed, non-strawman Bayesian-Beta baseline that is allowed to win in some regimes.</li>
+        <li>Broad coverage: five central models, peer pools up to five (two unseen), six OOD benchmarks.</li>
+      </ul>
+    </div>
+
+    <div class="card col-limitations">
+      <h2>Limitations</h2>
+      <ul class="panel-list">
+        <li>CF@50 accuracy falls below the unmodified base model for 4 of 5 central models on ambiguous evidence.</li>
+        <li>The three training peers are near-orthogonal by domain (Table 5) — may make "who to trust" easier than in realistic, overlapping-competence settings.</li>
+        <li>Training data spans only 3 domains and 2,963 events, all English, well-structured tasks.</li>
+        <li>No ablation of the decay/update hyperparameters (γ, η, γ_G, η_G, w_u, w_g) central to the paper's own stability theorem.</li>
+        <li>Marked "under review"; no working code link printed in the visible text, so reproduction is unverified.</li>
+      </ul>
+    </div>
+
+    <div class="card col-questions">
+      <h2>Questions for Further Exploration</h2>
+      <ul class="questions-list">
+        <li>Would gains shrink with overlapping, less cleanly separable peer competence instead of Table 5's near-orthogonal specialization?</li>
+        <li>Can an adaptive readout (future work) resolve the CF@50 degradation by weighting historical memory against current-response ambiguity?</li>
+        <li>How sensitive is performance to the decay/update hyperparameters underpinning the Weyl's-inequality guarantee — is there a principled way to set them?</li>
+        <li>Does the steering pathway's projection matrix P and gain g add value beyond the raw memory readout s<sub>p,t</sub>?</li>
+        <li>How does Σ-Mem behave when correctness feedback is noisy, delayed, or itself supplied by another LLM judge rather than a clean oracle?</li>
+      </ul>
+    </div>
+
+  </section>
+
+  <div class="footer">
+    <a class="md-link" href="./2607.27958.md">↗ Markdown source</a>
+    <span class="footer-note">Σ-Mem · DeCLaRe Lab, NTU · arXiv 2607.27958</span>
+  </div>
+
+</div>
+
+<script>
+  (function(){
+    var details = {
+      steer: 'Injects δ<sub>p,t</sub> = g·P·M<sub>p</sub>φ(x<sub>t</sub>) into decoder layers ⌈L/2⌉..L−1, shifting hidden states before the central model scores each peer\'s answer via a Yes/No log-likelihood contrast — combined with G into a posterior over correctness.',
+      route: 'Response-free arg-max selection using only s<sub>p,t</sub> = φ(x<sub>t</sub>)ᵀM<sub>p</sub>φ(x<sub>t</sub>) — no peer response is evaluated by the central model at decision time, just the frozen memory readout.',
+      vote: 'Reliability-weighted aggregation across all peer answers using the same s<sub>p,t</sub> readout. Beats majority voting (59.12%) and the single best fixed peer (57.52%) pooled across six OOD benchmarks.'
+    };
+    var tabs = document.querySelectorAll('.mode-tab');
+    var detail = document.getElementById('modeDetail');
+    tabs.forEach(function(tab){
+      tab.addEventListener('click', function(){
+        tabs.forEach(function(t){ t.classList.remove('active'); });
+        tab.classList.add('active');
+        detail.innerHTML = details[tab.getAttribute('data-mode')];
+      });
+    });
+  })();
+</script>
+
+</body>
+</html>

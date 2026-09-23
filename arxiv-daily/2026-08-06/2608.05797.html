@@ -1,0 +1,669 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Predicting Task Difficulty Without Rollouts — 2608.05797</title>
+<style>
+  :root{
+    --bg:#F4F1EA;
+    --paper:#FBF9F4;
+    --ink:#161619;
+    --ink-soft:#3A3A3F;
+    --muted:#6E6A60;
+    --rule:#D9D2C2;
+    --accent:#B23A1B;        /* burnt sienna — the one accent */
+    --accent-soft:#F6E4DA;
+    --accent-deep:#7E2611;
+    --neg:#1F4E5F;           /* cool ink for contrast/critique */
+    --neg-soft:#DCE6E8;
+    --mono:ui-monospace,"SF Mono","Menlo","Consolas",monospace;
+    --serif:Georgia,"Iowan Old Style","Charter","Times New Roman",serif;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    background:var(--bg);
+    color:var(--ink);
+    font-family:var(--sans);
+    font-size:16px;
+    line-height:1.55;
+    -webkit-font-smoothing:antialiased;
+    background-image:
+      radial-gradient(circle at 1px 1px, rgba(0,0,0,0.025) 1px, transparent 0);
+    background-size:22px 22px;
+  }
+  .wrap{
+    max-width:min(95vw,1100px);
+    margin:0 auto;
+    padding:0 28px;
+  }
+
+  /* ---------- fixed nav ---------- */
+  .topnav{
+    position:fixed; top:18px; left:22px; z-index:50;
+    font-family:var(--mono); font-size:12.5px;
+    background:var(--ink); color:var(--bg);
+    padding:8px 13px; border-radius:2px;
+    text-decoration:none; letter-spacing:0.02em;
+    box-shadow:0 6px 18px rgba(0,0,0,0.18);
+    transition:transform .15s ease, background .15s ease;
+  }
+  .topnav:hover{ background:var(--accent); transform:translateY(-1px); }
+
+  /* ---------- hero ---------- */
+  header.hero{
+    padding:96px 0 30px;
+    border-bottom:1px solid var(--rule);
+  }
+  .herobar{
+    display:flex; justify-content:space-between; align-items:baseline;
+    gap:24px; flex-wrap:wrap;
+    font-family:var(--mono); font-size:11.5px;
+    color:var(--muted); text-transform:uppercase; letter-spacing:0.14em;
+    margin-bottom:34px;
+  }
+  .herobar .id{ color:var(--accent); font-weight:600; }
+  .hero h1{
+    font-family:var(--serif);
+    font-weight:400;
+    font-size:clamp(34px,5.4vw,58px);
+    line-height:1.02;
+    letter-spacing:-0.018em;
+    margin:0 0 10px;
+    max-width:18ch;
+  }
+  .hero h1 em{ font-style:italic; color:var(--accent); }
+  .authors{
+    font-family:var(--serif); font-style:italic;
+    font-size:17px; color:var(--ink-soft);
+    margin:6px 0 26px;
+  }
+  .chips{ display:flex; flex-wrap:wrap; gap:7px; margin-bottom:30px;}
+  .chip{
+    font-family:var(--mono); font-size:10.5px;
+    padding:4px 9px; border:1px solid var(--rule);
+    border-radius:999px; color:var(--ink-soft);
+    background:var(--paper);
+    letter-spacing:0.03em;
+  }
+  .chip.hot{ border-color:var(--accent); color:var(--accent); }
+
+  /* the key-finding statement */
+  .finding{
+    position:relative;
+    padding:26px 0 6px 26px;
+    border-left:4px solid var(--accent);
+    margin-top:8px;
+  }
+  .finding .lbl{
+    font-family:var(--mono); font-size:10.5px;
+    text-transform:uppercase; letter-spacing:0.18em;
+    color:var(--accent); display:block; margin-bottom:10px;
+  }
+  .finding p{
+    font-family:var(--serif);
+    font-size:clamp(21px,2.7vw,30px);
+    line-height:1.28;
+    margin:0; letter-spacing:-0.005em;
+    color:var(--ink);
+  }
+  .finding p mark{
+    background:linear-gradient(transparent 62%, var(--accent-soft) 62%);
+    color:var(--ink); padding:0 2px;
+  }
+
+  /* ---------- asset row ---------- */
+  .assets{
+    display:grid;
+    grid-template-columns: 1.15fr 1fr 1fr;
+    gap:18px;
+    margin:30px 0 8px;
+  }
+  .card{
+    background:var(--paper);
+    border:1px solid var(--rule);
+    padding:22px 22px 20px;
+    position:relative;
+  }
+  .card .k{
+    font-family:var(--mono); font-size:10px;
+    text-transform:uppercase; letter-spacing:0.18em;
+    color:var(--muted); margin-bottom:12px; display:block;
+  }
+  /* metric */
+  .metric .big{
+    font-family:var(--serif);
+    font-size:clamp(34px,4.6vw,50px);
+    line-height:1; letter-spacing:-0.02em;
+    color:var(--ink); margin:2px 0 4px;
+  }
+  .metric .big .arrow{ color:var(--accent); font-weight:600; padding:0 6px;}
+  .metric .big .lo{ color:var(--neg); }
+  .metric .sub{
+    font-family:var(--mono); font-size:11.5px; color:var(--muted);
+    margin-top:6px; line-height:1.5;
+  }
+  .metric .sub b{ color:var(--ink-soft); font-weight:600;}
+  .minibars{ margin-top:14px; display:flex; flex-direction:column; gap:5px;}
+  .minibars .row{
+    display:grid; grid-template-columns: 92px 1fr 40px;
+    align-items:center; gap:8px;
+    font-family:var(--mono); font-size:10px; color:var(--muted);
+  }
+  .minibars .track{ height:7px; background:#ECE7DB; position:relative;}
+  .minibars .fill{ position:absolute; top:0; left:0; bottom:0; background:var(--accent);}
+  .minibars .fill.ink{ background:var(--ink);}
+  .minibars .fill.mute{ background:#B8AE99;}
+  .minibars .row.warn .fill{ background:var(--neg);}
+  .minibars .v{ text-align:right; color:var(--ink-soft); }
+
+  /* why-this-matters */
+  .matters p{
+    font-family:var(--serif); font-size:17px; line-height:1.42;
+    margin:0; color:var(--ink);
+  }
+  .matters .scope{
+    margin-top:16px; display:flex; flex-wrap:wrap; gap:6px;
+  }
+  .scope span{
+    font-family:var(--mono); font-size:10px; color:var(--muted);
+    border-top:1px solid var(--rule); padding-top:6px; width:100%;
+  }
+  .scope b{ color:var(--ink); font-family:var(--serif); font-size:15px;}
+
+  /* critical edge — inverted */
+  .edge{
+    background:var(--ink); color:#EDE7DA;
+    border-color:var(--ink);
+  }
+  .edge .k{ color:#9A8E78; }
+  .edge p{
+    font-family:var(--serif); font-size:16.5px; line-height:1.42;
+    margin:0; color:#F2ECDF;
+  }
+  .edge .tag{
+    display:inline-block; margin-top:14px;
+    font-family:var(--mono); font-size:10px; color:var(--accent);
+    border:1px solid var(--accent); padding:3px 8px; border-radius:2px;
+    letter-spacing:0.1em; text-transform:uppercase;
+  }
+
+  /* ---------- body sections ---------- */
+  section{ padding:46px 0; border-top:1px solid var(--rule); }
+  .sec-head{
+    display:flex; align-items:baseline; gap:14px; margin-bottom:22px;
+  }
+  .sec-num{
+    font-family:var(--mono); font-size:12px; color:var(--accent);
+    letter-spacing:0.1em;
+  }
+  .sec-head h2{
+    font-family:var(--serif); font-weight:400;
+    font-size:clamp(24px,3vw,32px); margin:0;
+    letter-spacing:-0.01em;
+  }
+  .sec-head .zh{
+    font-family:var(--sans); font-size:13px; color:var(--muted);
+    margin-left:auto;
+  }
+
+  /* methodology pipeline diagram */
+  .pipeline{
+    display:grid; grid-template-columns:1fr 1fr; gap:22px;
+    margin-bottom:14px;
+  }
+  .branch{
+    background:var(--paper); border:1px solid var(--rule);
+    padding:18px 18px 16px; position:relative;
+  }
+  .branch .tag{
+    font-family:var(--mono); font-size:10px; letter-spacing:0.16em;
+    text-transform:uppercase; color:var(--accent); margin-bottom:10px;
+  }
+  .branch.b-target .tag{ color:var(--neg); }
+  .branch h3{
+    font-family:var(--serif); font-weight:400; font-size:18px;
+    margin:0 0 10px;
+  }
+  .flow{
+    display:flex; flex-direction:column; gap:7px;
+    font-size:13.5px; color:var(--ink-soft);
+  }
+  .flow .step{
+    display:flex; align-items:center; gap:9px;
+  }
+  .flow .dot{
+    width:7px; height:7px; border-radius:50%; background:var(--rule);
+    flex-shrink:0;
+  }
+  .branch.b-target .dot.on{ background:var(--neg); }
+  .branch.b-feat .dot.on{ background:var(--accent); }
+  .flow code{
+    font-family:var(--mono); font-size:11.5px;
+    background:#ECE7DB; padding:1px 5px; border-radius:2px; color:var(--ink);
+  }
+  .branch.b-target code{ background:#E2E8E9; }
+  .join{
+    text-align:center; font-family:var(--mono); font-size:11px;
+    color:var(--muted); padding:8px 0 2px; letter-spacing:0.06em;
+  }
+  .join .residual{
+    display:inline-block; background:var(--accent-soft);
+    border:1px solid var(--accent); color:var(--accent-deep);
+    padding:5px 12px; border-radius:2px; font-weight:600;
+  }
+
+  /* feature families */
+  .featlist{
+    display:grid; grid-template-columns:repeat(5,1fr); gap:9px; margin-top:14px;
+  }
+  .feat{
+    border:1px solid var(--rule); background:var(--paper);
+    padding:11px 11px; font-size:12px;
+  }
+  .feat .n{ font-family:var(--mono); color:var(--muted); font-size:10px;}
+  .feat b{ font-family:var(--serif); font-size:14px; display:block; margin:2px 0 4px;}
+  .feat small{ color:var(--muted); font-size:11px; line-height:1.35; display:block;}
+  .feat.best{ border-color:var(--accent); background:var(--accent-soft);}
+  .feat.best b{ color:var(--accent-deep);}
+
+  /* results highlight grid */
+  .results{
+    display:grid; grid-template-columns:repeat(6,1fr); gap:14px;
+  }
+  .hl{ grid-column:span 3; background:var(--paper); border:1px solid var(--rule); padding:18px;}
+  .hl.wide{ grid-column:span 6; }
+  .hl .h{
+    font-family:var(--mono); font-size:10.5px; letter-spacing:0.14em;
+    text-transform:uppercase; color:var(--accent); margin-bottom:8px;
+  }
+  .hl p{ margin:0; font-size:14px; line-height:1.5; color:var(--ink-soft);}
+  .hl .num{
+    font-family:var(--serif); font-size:30px; line-height:1;
+    color:var(--ink); display:block; margin-bottom:6px; letter-spacing:-0.01em;
+  }
+  .hl .num .of{ color:var(--muted); font-size:16px;}
+
+  /* residual diagnostic diagram */
+  .resid{
+    background:var(--paper); border:1px solid var(--rule);
+    padding:22px; margin-top:14px;
+  }
+  .resid h4{
+    font-family:var(--serif); font-weight:400; font-size:17px;
+    margin:0 0 4px;
+  }
+  .resid .cap{ font-size:12px; color:var(--muted); margin-bottom:18px;}
+  .resid svg{ width:100%; height:130px; display:block;}
+  .resid .legend{
+    display:flex; gap:18px; margin-top:12px; flex-wrap:wrap;
+    font-family:var(--mono); font-size:10.5px; color:var(--muted);
+  }
+  .resid .legend .sw{ display:inline-block; width:10px; height:10px; margin-right:5px; vertical-align:middle;}
+
+  /* strengths / limitations side-by-side */
+  .pair{ display:grid; grid-template-columns:1fr 1fr; gap:22px;}
+  .col{
+    border-top:3px solid var(--accent); padding-top:16px;
+  }
+  .col.lim{ border-top-color:var(--neg);}
+  .col h3{
+    font-family:var(--serif); font-weight:400; font-size:21px;
+    margin:0 0 14px;
+    display:flex; justify-content:space-between; align-items:baseline;
+  }
+  .col h3 small{ font-family:var(--sans); font-size:12px; color:var(--muted);}
+  .col ul{ margin:0; padding:0; list-style:none;}
+  .col li{
+    padding:11px 0 11px 20px; position:relative;
+    font-size:13.5px; line-height:1.5; color:var(--ink-soft);
+    border-bottom:1px dashed var(--rule);
+  }
+  .col li:last-child{ border-bottom:none;}
+  .col li::before{
+    position:absolute; left:0; top:13px;
+    font-family:var(--mono); font-size:11px;
+  }
+  .col.str li::before{ content:"+"; color:var(--accent); font-weight:700;}
+  .col.lim li::before{ content:"–"; color:var(--neg); font-weight:700;}
+  .col li b{ color:var(--ink); font-family:var(--serif); font-weight:600;}
+
+  /* questions */
+  .qlist{ counter-reset:q; }
+  .qlist .q{
+    display:grid; grid-template-columns:42px 1fr; gap:14px;
+    padding:18px 0; border-bottom:1px solid var(--rule);
+  }
+  .qlist .q:last-child{ border-bottom:none;}
+  .qlist .q .qn{
+    font-family:var(--serif); font-size:26px; color:var(--accent);
+    line-height:1; letter-spacing:-0.02em;
+  }
+  .qlist .q p{ margin:0; font-size:14px; line-height:1.52; color:var(--ink-soft);}
+  .qlist .q p b{ color:var(--ink); font-family:var(--serif);}
+
+  /* credibility strip */
+  .cred{
+    display:grid; grid-template-columns:1.4fr 1fr; gap:24px; align-items:start;
+    background:var(--paper); border:1px solid var(--rule); padding:22px;
+  }
+  .cred p{ margin:0; font-size:14px; line-height:1.55; color:var(--ink-soft);}
+  .cred .verdicts{ display:flex; flex-direction:column; gap:9px;}
+  .vrow{
+    display:grid; grid-template-columns:78px 1fr; gap:10px; align-items:center;
+    font-size:12px;
+  }
+  .vrow .lab{ font-family:var(--mono); font-size:10px; letter-spacing:0.1em;
+    text-transform:uppercase; color:var(--muted);}
+  .vrow .bar{ height:6px; background:#ECE7DB; position:relative;}
+  .vrow .bar i{ position:absolute; top:0; left:0; bottom:0; background:var(--accent); display:block;}
+  .vrow .bar i.weak{ background:var(--neg); opacity:.7;}
+
+  /* footer */
+  footer{
+    padding:36px 0 64px; border-top:1px solid var(--rule);
+    display:flex; justify-content:space-between; align-items:center;
+    flex-wrap:wrap; gap:14px;
+  }
+  footer .src{
+    font-family:var(--mono); font-size:12.5px;
+    color:var(--ink); text-decoration:none;
+    border-bottom:2px solid var(--accent); padding-bottom:2px;
+  }
+  footer .src:hover{ color:var(--accent); }
+  footer .meta{ font-family:var(--mono); font-size:10.5px; color:var(--muted);
+    letter-spacing:0.08em; text-transform:uppercase;}
+
+  /* ---------- staggered load reveal ---------- */
+  .reveal{ opacity:0; transform:translateY(10px); animation:rv .7s cubic-bezier(.2,.7,.2,1) forwards; }
+  @keyframes rv{ to{ opacity:1; transform:none; } }
+  .d1{animation-delay:.05s}.d2{animation-delay:.13s}.d3{animation-delay:.21s}
+  .d4{animation-delay:.29s}.d5{animation-delay:.37s}.d6{animation-delay:.45s}
+  .d7{animation-delay:.53s}.d8{animation-delay:.61s}
+
+  /* ---------- responsive ---------- */
+  @media (max-width:860px){
+    .assets{ grid-template-columns:1fr; }
+    .pipeline{ grid-template-columns:1fr; }
+    .featlist{ grid-template-columns:repeat(2,1fr); }
+    .results{ grid-template-columns:1fr; }
+    .hl,.hl.wide{ grid-column:span 1;}
+    .pair{ grid-template-columns:1fr; }
+    .cred{ grid-template-columns:1fr; }
+    header.hero{ padding:80px 0 24px;}
+    .wrap{ padding:0 20px;}
+  }
+  @media (prefers-reduced-motion:reduce){
+    .reveal{ animation:none; opacity:1; transform:none;}
+  }
+</style>
+</head>
+<body>
+
+<a class="topnav" href="./index.html" title="Back to today's digest">↩ Today's digest</a>
+
+<div class="wrap">
+
+  <!-- ============ HERO ============ -->
+  <header class="hero">
+    <div class="herobar reveal d1">
+      <span>arXiv · <span class="id">2608.05797</span></span>
+      <span>2026-08-06 · Under review · Andromede AI</span>
+    </div>
+
+    <h1 class="reveal d2">Predicting Task Difficulty <em>Without</em> Rollouts</h1>
+    <div class="authors reveal d2">Stefan Krsteski &nbsp;·&nbsp; Charlotte Meyer</div>
+
+    <div class="chips reveal d3">
+      <span class="chip hot">item-response theory</span>
+      <span class="chip hot">token entropy</span>
+      <span class="chip">agentic benchmarks</span>
+      <span class="chip">difficulty prediction</span>
+      <span class="chip">benchmark contamination</span>
+      <span class="chip">AUC critique</span>
+    </div>
+
+    <div class="finding reveal d4">
+      <span class="lbl">Key finding</span>
+      <p>Token-level entropy from a small open-weight scorer <mark>predicts agentic-task difficulty without rollouts</mark> — but the field's favourite metric, AUC, <mark>hides how weak those estimates truly are</mark>.</p>
+    </div>
+  </header>
+
+  <!-- ============ ASSET ROW ============ -->
+  <div class="assets">
+
+    <div class="card metric reveal d5">
+      <span class="k">Key metric · rank correlation</span>
+      <div class="big">ρ=0.399<span class="arrow">→</span><span class="lo">0.225</span></div>
+      <div class="sub">in-distribution (K-fold) <b>vs.</b> out-of-distribution (leave-one-benchmark-out). Spearman ρ on standardized difficulty z(β). The <b>0.17 gap</b> is the paper's central open problem.</div>
+      <div class="minibars">
+        <div class="row warn"><span>shuffled</span><div class="track"><div class="fill" style="width:61%"></div></div><span class="v">.610</span></div>
+        <div class="row warn"><span>constant</span><div class="track"><div class="fill" style="width:71.5%"></div></div><span class="v">.715</span></div>
+        <div class="row warn"><span>benchmark-avg</span><div class="track"><div class="fill" style="width:80.6%"></div></div><span class="v">.806</span></div>
+        <div class="row"><span>IRT oracle</span><div class="track"><div class="fill ink" style="width:93.7%"></div></div><span class="v">.937</span></div>
+      </div>
+      <div class="sub" style="margin-top:10px;"><b>AUC inflates:</b> degenerate predictors score 0.71–0.81 AUC while their within-benchmark pairwise accuracy is <b>0.000</b>.</div>
+    </div>
+
+    <div class="card matters reveal d6">
+      <span class="k">Why this matters</span>
+      <p>Releases IRT difficulty estimates across <b style="color:var(--accent);font-family:var(--serif);">17 agentic benchmarks</b> plus a residual diagnostic that flags contaminated and infeasible tasks — serving benchmark auditing and curriculum design.</p>
+      <div class="scope">
+        <span><b>5,230</b> tasks · <b>497</b> agents · <b>415,470</b> outcomes · 8 benchmark families</span>
+      </div>
+    </div>
+
+    <div class="card edge reveal d7">
+      <span class="k">Critical edge</span>
+      <p>Correlations stay weak out-of-distribution (ρ=0.225), and the residual "diagnostics" still require the full rollout matrix the method set out to avoid.</p>
+      <span class="tag">detection, not prediction</span>
+    </div>
+
+  </div>
+
+  <!-- ============ METHODOLOGY ============ -->
+  <section class="reveal d8">
+    <div class="sec-head">
+      <span class="sec-num">01</span>
+      <h2>Methodology</h2>
+      <span class="zh">两阶段流水线 · IRT 目标 + rollout 前特征</span>
+    </div>
+
+    <div class="pipeline">
+      <div class="branch b-target">
+        <div class="tag">Upper branch · difficulty target</div>
+        <h3>Response matrix → 1PL / Rasch IRT → z(β)</h3>
+        <div class="flow">
+          <div class="step"><span class="dot on"></span>Build binary <code>Y_{a,t}</code> (success/failure, agent × task)</div>
+          <div class="step"><span class="dot on"></span>Fit <code>σ(θ_a − β_t)</code> via stochastic variational inference</div>
+          <div class="step"><span class="dot on"></span>ClippedAdam · 2,000 epochs · lr 0.01 · posterior scales kept</div>
+          <div class="step"><span class="dot on"></span>Standardize β within each benchmark → <code>z(β_t)</code></div>
+        </div>
+        <div class="sub" style="font-family:var(--mono);font-size:11px;color:var(--neg);margin-top:12px;">response AUC 0.937 · removes benchmark-identity confound</div>
+      </div>
+
+      <div class="branch b-feat">
+        <div class="tag">Lower branch · pre-rollout features</div>
+        <h3>Context C_t → Claude trace R_t → features</h3>
+        <div class="flow">
+          <div class="step"><span class="dot on"></span>Sonnet 4.6 generates bounded reasoning trace (4k cap)</div>
+          <div class="step"><span class="dot on"></span>Extract 5 feature families from <code>R_t</code> (below)</div>
+          <div class="step"><span class="dot on"></span>Ridge regression → predicted difficulty <code>ẑ_t</code></div>
+          <div class="step"><span class="dot on"></span>~25× fewer tokens than empirical estimation</div>
+        </div>
+        <div class="sub" style="font-family:var(--mono);font-size:11px;color:var(--accent);margin-top:12px;">cheaper than rollouts · the prediction target</div>
+      </div>
+    </div>
+
+    <div class="join">residual &nbsp;<span class="residual">r_t = z(β_t) − ẑ_t</span>&nbsp; → contamination / feasibility diagnostics</div>
+
+    <div class="featlist">
+      <div class="feat"><span class="n">01</span><b>random</b><small>N(0,1) control baseline</small></div>
+      <div class="feat"><span class="n">02</span><b>length</b><small>log context length only</small></div>
+      <div class="feat"><span class="n">03</span><b>embedding</b><small>bge-base + fold-aware PCA</small></div>
+      <div class="feat best"><span class="n">04</span><b>entropy</b><small>Qwen3-8B top-100 Shannon entropy + trajectory shape</small></div>
+      <div class="feat"><span class="n">05</span><b>full</b><small>all of the above, concatenated (217-dim)</small></div>
+    </div>
+  </section>
+
+  <!-- ============ RESULTS ============ -->
+  <section class="reveal d8">
+    <div class="sec-head">
+      <span class="sec-num">02</span>
+      <h2>Results &amp; Highlights</h2>
+      <span class="zh">结果与亮点</span>
+    </div>
+
+    <div class="results">
+      <div class="hl">
+        <div class="h">AUC inflation · demonstrated</div>
+        <span class="num">0.806 <span class="of">AUC</span></span>
+        <p>A <b>benchmark-average</b> predictor reaches AUC 0.806 / raw ρ_β 0.519, yet its within-benchmark pairwise accuracy is <b>pAcc = 0.000</b> — it cannot rank tasks inside any single benchmark.</p>
+      </div>
+
+      <div class="hl">
+        <div class="h">Best rank recovery · full model</div>
+        <span class="num">ρ=0.399</span>
+        <p>Combined feature set under K-fold (p&lt;0.001 vs. baseline). Drops to <b>ρ=0.225</b> under leave-one-benchmark-out. Length baseline only reaches 0.086.</p>
+      </div>
+
+      <div class="hl">
+        <div class="h">Entropy beats length &amp; embeddings</div>
+        <span class="num">ρ=0.193</span>
+        <p>Token-level Shannon entropy from Qwen3-8B-Base is the <b>strongest single feature family</b> (vs. embeddings 0.107, length 0.086). Trajectory spread &amp; shape add lift in-distribution.</p>
+      </div>
+
+      <div class="hl">
+        <div class="h">Estimator ablation · no free lunch</div>
+        <span class="num">ρ=0.475 <span class="of">/ 0.295</span></span>
+        <p>Random forest gives best K-fold ρ=0.475 (pAcc 0.683); linear regression gives best LOBO ρ=0.295. <b>No estimator closes the held-out-benchmark gap.</b></p>
+      </div>
+
+      <div class="hl wide">
+        <div class="h">Residual diagnostics · SWE-bench Verified</div>
+        <div class="resid">
+          <h4>Predicted vs. observed difficulty — two audited cases</h4>
+          <div class="cap">r_t = z(β_t) − ẑ_t &nbsp;·&nbsp; positive residual → infeasible / evaluator-broken &nbsp;·&nbsp; negative residual → contamination / familiarity</div>
+          <svg viewBox="0 0 600 110" preserveAspectRatio="none" aria-hidden="true">
+            <!-- axis -->
+            <line x1="40" y1="70" x2="560" y2="70" stroke="#B8AE99" stroke-width="1"/>
+            <!-- zero tick -->
+            <line x1="300" y1="66" x2="300" y2="76" stroke="#3A3A3F" stroke-width="1.5"/>
+            <text x="300" y="92" text-anchor="middle" font-family="ui-monospace,monospace" font-size="10" fill="#6E6A60">r = 0</text>
+            <!-- left region label -->
+            <text x="70" y="30" font-family="ui-monospace,monospace" font-size="9.5" fill="#1F4E5F" letter-spacing="1">◄ CONTAMINATION</text>
+            <text x="530" y="30" text-anchor="end" font-family="ui-monospace,monospace" font-size="9.5" fill="#B23A1B" letter-spacing="1">INFEASIBLE ►</text>
+            <!-- django-11451 at -0.56 (left of zero, scale: 1 unit ≈ 175px, zero at x=300) -->
+            <line x1="300" y1="70" x2="202" y2="70" stroke="#1F4E5F" stroke-width="6"/>
+            <circle cx="202" cy="70" r="7" fill="#1F4E5F"/>
+            <text x="202" y="56" text-anchor="middle" font-family="Georgia,serif" font-size="12" fill="#161619">django-11451</text>
+            <text x="202" y="44" text-anchor="middle" font-family="ui-monospace,monospace" font-size="10" fill="#1F4E5F">r = −0.56 · succ 0.718</text>
+            <!-- django-14725 at +1.41 (right of zero) -->
+            <line x1="300" y1="70" x2="547" y2="70" stroke="#B23A1B" stroke-width="6"/>
+            <circle cx="547" cy="70" r="7" fill="#B23A1B"/>
+            <text x="547" y="56" text-anchor="end" font-family="Georgia,serif" font-size="12" fill="#161619">django-14725</text>
+            <text x="547" y="44" text-anchor="end" font-family="ui-monospace,monospace" font-size="10" fill="#B23A1B">r = +1.41 · succ 0.090</text>
+          </svg>
+          <div class="legend">
+            <span><span class="sw" style="background:#1F4E5F"></span>negative residual → familiarity / leakage</span>
+            <span><span class="sw" style="background:#B23A1B"></span>positive residual → broken evaluator / impossible task</span>
+            <span>signs match OpenAI audit of SWE-bench Verified</span>
+          </div>
+        </div>
+        <p style="margin-top:14px;">Both residual signs match an external OpenAI audit. <b>Caveat:</b> only two illustrative cases — no precision/recall against the audit's full flagged set.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ STRENGTHS / LIMITATIONS ============ -->
+  <section class="reveal d8">
+    <div class="sec-head">
+      <span class="sec-num">03</span>
+      <h2>Strengths &amp; Limitations</h2>
+      <span class="zh">优势与局限 · 并列对照</span>
+    </div>
+
+    <div class="pair">
+      <div class="col str">
+        <h3>Strengths <small>优势</small></h3>
+        <ul>
+          <li><b>Crisp AUC critique.</b> Equation-level proof that AUC conflates agent-ability spread with task-difficulty spread; the benchmark-average estimator reaching ρ_β=0.519 / AUC 0.806 with pAcc=0.000 is a sharp illustration.</li>
+          <li><b>Broad coverage.</b> 17 benchmarks across 8 families; a genuinely reusable artifact with IRT difficulties for 7,266 tasks.</li>
+          <li><b>Honest baselines.</b> Publishes the constant / benchmark-average / shuffled rows a less careful paper would bury; explicit that LOBO is the open problem.</li>
+          <li><b>Concrete cost argument.</b> ~25× fewer tokens than empirical estimation, assumptions stated.</li>
+          <li><b>Variational IRT</b> with posterior uncertainty is better-founded than point MLE under this dataset's imbalance.</li>
+        </ul>
+      </div>
+
+      <div class="col lim">
+        <h3>Limitations <small>局限</small></h3>
+        <ul>
+          <li><b>Modest absolute numbers.</b> Best KF ρ=0.399, LOBO ρ=0.225; pAcc≈0.68 is unlikely to rank candidate tasks confidently in a new benchmark.</li>
+          <li><b>Diagnostics need rollouts.</b> The r_t residual uses empirical β_t from full rollouts — §5.3 is detection, not pre-rollout prediction.</li>
+          <li><b>Tiny case study.</b> Two SWE-bench examples is anecdotal; no retrieval evaluation (precision/recall) vs. the audit.</li>
+          <li><b>Scorer ceiling.</b> Entropy from 7–8B open-weight models + a Claude trace that itself consumes tokens — a partial, cheaper rollout.</li>
+          <li><b>Missing ablations.</b> No per-benchmark ρ breakdown, no reasoning-trace-length ablation, no frontier-scorer test.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ CREDIBILITY ============ -->
+  <section class="reveal d8">
+    <div class="sec-head">
+      <span class="sec-num">04</span>
+      <h2>Authors &amp; Credibility</h2>
+      <span class="zh">作者与可信度</span>
+    </div>
+
+    <div class="cred">
+      <p>Two authors at <b>Andromede AI</b> (a small team); preprint marked "Under review." Engages directly with the only prior ex-ante agentic-difficulty work (Agent Psychometrics, Ge et al., 2026) and cites the relevant IRT / contamination literature. The 415,470-outcome corpus with IRT estimates is a credible artifact independent of the predictor. <b>No code/data URL in the body</b> — a release promise, not yet verifiable. No severe red flags; residuals framing is slightly oversold vs. two-example evidence.</p>
+      <div class="verdicts">
+        <div class="vrow"><span class="lab">Novelty</span><div class="bar"><i style="width:82%"></i></div></div>
+        <div class="vrow"><span class="lab">Rigor</span><div class="bar"><i style="width:80%"></i></div></div>
+        <div class="vrow"><span class="lab">Reproducibility</span><div class="bar"><i class="weak" style="width:55%"></i></div></div>
+        <div class="vrow"><span class="lab">Significance</span><div class="bar"><i style="width:62%"></i></div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ QUESTIONS ============ -->
+  <section class="reveal d8">
+    <div class="sec-head">
+      <span class="sec-num">05</span>
+      <h2>Questions for Further Exploration</h2>
+      <span class="zh">待深究的问题</span>
+    </div>
+
+    <div class="qlist">
+      <div class="q"><div class="qn">01</div><p>Would a <b>per-benchmark breakdown of ρ</b> reveal which families (math vs. web navigation) drive the 0.399 aggregate and which drag the 0.225 LOBO number — and does entropy signal come from a subset of families?</p></div>
+      <div class="q"><div class="qn">02</div><p>If residuals were evaluated <b>quantitatively against the full OpenAI audit set</b>, what precision/recall would they hit at a given |r_t| threshold, and how does that compare to a perplexity-only contamination detector?</p></div>
+      <div class="q"><div class="qn">03</div><p>Does the Claude-Sonnet-4.6 reasoning trace <b>leak difficulty</b> that a strictly no-generation feature set would lack — i.e., how much signal survives using only C_t without R_t?</p></div>
+      <div class="q"><div class="qn">04</div><p>Would modeling the entropy profile as a <b>time series</b> (frequency-domain, 1D-CNN/RNN) materially close the KF→LOBO gap, or is the OOD ceiling set by benchmark-specific phrasing no entropy engineering can remove?</p></div>
+      <div class="q"><div class="qn">05</div><p>Could a <b>hierarchical/multilevel IRT</b> (benchmark-level mean + task-level deviation) replace within-benchmark standardization, and would that change transfer behavior?</p></div>
+    </div>
+  </section>
+
+  <!-- ============ FOOTER ============ -->
+  <footer>
+    <a class="src" href="./2608.05797.md">↗ Markdown source</a>
+    <span class="meta">2608.05797 · dashboard · not browser-verified</span>
+  </footer>
+
+</div>
+
+<script>
+  // Lightweight: pause reveals off-screen for reduced motion / print.
+  (function(){
+    if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    // highlight the residual dots on hover of their labels (progressive disclosure)
+    document.querySelectorAll('.resid text').forEach(function(t){
+      t.style.cursor='default';
+    });
+  })();
+</script>
+
+</body>
+</html>

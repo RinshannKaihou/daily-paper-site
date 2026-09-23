@@ -1,0 +1,879 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>DPA — Auditing Data Provenance in LLM Fine-tuning · arXiv:2608.02154</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,700;9..144,900&family=IBM+Plex+Sans:wght@300;400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --paper: #f4efe6;
+    --paper-2: #ede6d8;
+    --ink: #14110d;
+    --ink-2: #3a342b;
+    --muted: #7a7062;
+    --rule: #d8cfbb;
+    --rule-strong: #b8ac93;
+    --accent: #c0282d;        /* single oxblood/scarlet accent */
+    --accent-ink: #8a1d22;
+    --accent-soft: #f3dadd;
+    --good: #2f6f3a;
+    --bad: #c0282d;
+    --maxw: min(95vw, 1100px);
+    --display: "Fraunces", "Iowan Old Style", Georgia, "Times New Roman", serif;
+    --body: "IBM Plex Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    --mono: "IBM Plex Mono", "SF Mono", Menlo, Consolas, monospace;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--body);
+    font-weight: 400;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* subtle paper grain via SVG noise */
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 0;
+    opacity: 0.045;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='240' height='240'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 0.9 0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
+  }
+
+  .wrap {
+    position: relative;
+    z-index: 1;
+    max-width: var(--maxw);
+    margin: 0 auto;
+    padding: 0 28px;
+  }
+
+  /* ---------- TOP BAR ---------- */
+  .topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 22px 0 18px;
+    border-bottom: 1px solid var(--rule);
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--ink-2);
+  }
+  .topbar a {
+    color: var(--ink-2);
+    text-decoration: none;
+    border-bottom: 1px solid transparent;
+    transition: border-color 0.15s ease, color 0.15s ease;
+  }
+  .topbar a:hover { color: var(--accent); border-bottom-color: var(--accent); }
+  .topbar .id-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .topbar .id-tag .dot {
+    width: 7px; height: 7px; border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-soft);
+  }
+
+  /* ---------- HERO ---------- */
+  .hero {
+    padding: 56px 0 40px;
+    border-bottom: 1px solid var(--rule);
+  }
+  .hero .eyebrow {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 22px;
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .hero .eyebrow::before {
+    content: "";
+    width: 28px; height: 1px;
+    background: var(--accent);
+    display: inline-block;
+  }
+
+  .key-finding {
+    font-family: var(--display);
+    font-weight: 500;
+    font-size: clamp(30px, 4.6vw, 54px);
+    line-height: 1.08;
+    letter-spacing: -0.018em;
+    color: var(--ink);
+    margin: 0 0 18px 0;
+    max-width: 18ch;
+    font-variation-settings: "opsz" 96;
+  }
+  .key-finding .hl {
+    color: var(--accent);
+    font-style: italic;
+    font-weight: 400;
+  }
+  .key-finding .metric-inline {
+    font-family: var(--mono);
+    font-style: normal;
+    font-weight: 600;
+    font-size: 0.78em;
+    color: var(--ink);
+    background: var(--accent-soft);
+    padding: 1px 8px;
+    border-radius: 3px;
+    letter-spacing: -0.01em;
+    white-space: nowrap;
+  }
+
+  .title {
+    font-family: var(--display);
+    font-weight: 700;
+    font-size: clamp(20px, 2.2vw, 26px);
+    line-height: 1.25;
+    margin: 28px 0 8px;
+    letter-spacing: -0.01em;
+  }
+  .title a {
+    color: var(--ink);
+    text-decoration: none;
+    background-image: linear-gradient(var(--accent), var(--accent));
+    background-size: 0% 1.5px;
+    background-repeat: no-repeat;
+    background-position: 0 100%;
+    transition: background-size 0.25s ease, color 0.2s ease;
+  }
+  .title a:hover { color: var(--accent); background-size: 100% 1.5px; }
+
+  .authors {
+    font-size: 14px;
+    color: var(--ink-2);
+    margin: 0 0 22px;
+  }
+  .authors .affil { color: var(--muted); }
+
+  .chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 4px;
+  }
+  .chip {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.02em;
+    padding: 5px 10px;
+    border: 1px solid var(--rule-strong);
+    border-radius: 999px;
+    color: var(--ink-2);
+    background: rgba(255,255,255,0.4);
+  }
+  .chip.accent {
+    border-color: var(--accent);
+    color: var(--accent-ink);
+    background: var(--accent-soft);
+  }
+
+  /* ---------- ASSET ROW ---------- */
+  .asset-row {
+    display: grid;
+    grid-template-columns: 1.15fr 1fr 1fr;
+    gap: 18px;
+    padding: 32px 0;
+    border-bottom: 1px solid var(--rule);
+  }
+  .card {
+    background: rgba(255,255,255,0.55);
+    border: 1px solid var(--rule);
+    border-radius: 4px;
+    padding: 22px 22px 20px;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    min-height: 168px;
+  }
+  .card .label {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 14px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .card .label .num {
+    color: var(--accent);
+    font-weight: 600;
+  }
+
+  /* metric card */
+  .card.metric {
+    background: var(--ink);
+    color: var(--paper);
+    border-color: var(--ink);
+  }
+  .card.metric .label { color: rgba(244,239,230,0.55); }
+  .card.metric .label .num { color: var(--accent); }
+  .card.metric .big {
+    font-family: var(--display);
+    font-weight: 900;
+    font-size: clamp(48px, 7vw, 78px);
+    line-height: 0.95;
+    letter-spacing: -0.04em;
+    color: var(--paper);
+    font-variation-settings: "opsz" 144;
+  }
+  .card.metric .big .pct {
+    color: var(--accent);
+  }
+  .card.metric .sub {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: rgba(244,239,230,0.7);
+    margin-top: 14px;
+    line-height: 1.5;
+  }
+  .card.metric .fpr-pill {
+    display: inline-block;
+    margin-top: 10px;
+    font-family: var(--mono);
+    font-size: 11px;
+    padding: 3px 9px;
+    border: 1px solid rgba(244,239,230,0.25);
+    border-radius: 999px;
+    color: rgba(244,239,230,0.85);
+  }
+
+  /* matters card */
+  .card.matters .body {
+    font-family: var(--display);
+    font-weight: 500;
+    font-size: 18px;
+    line-height: 1.32;
+    letter-spacing: -0.005em;
+    color: var(--ink);
+  }
+  .card.matters .body em {
+    color: var(--accent-ink);
+    font-style: italic;
+  }
+
+  /* edge card */
+  .card.edge {
+    border-color: var(--accent);
+    background: var(--accent-soft);
+  }
+  .card.edge .label { color: var(--accent-ink); }
+  .card.edge .label .num { color: var(--accent); }
+  .card.edge .body {
+    font-size: 14px;
+    line-height: 1.5;
+    color: var(--ink);
+  }
+  .card.edge .body strong {
+    color: var(--accent-ink);
+    font-weight: 600;
+  }
+
+  /* ---------- BODY SECTIONS ---------- */
+  section.block {
+    padding: 48px 0;
+    border-bottom: 1px solid var(--rule);
+  }
+  .section-head {
+    display: grid;
+    grid-template-columns: 90px 1fr;
+    gap: 24px;
+    align-items: baseline;
+    margin-bottom: 28px;
+  }
+  .section-head .idx {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.16em;
+    color: var(--accent);
+    text-transform: uppercase;
+    padding-top: 8px;
+  }
+  .section-head h2 {
+    font-family: var(--display);
+    font-weight: 700;
+    font-size: clamp(24px, 3vw, 34px);
+    line-height: 1.1;
+    letter-spacing: -0.02em;
+    margin: 0;
+    color: var(--ink);
+  }
+  .section-head h2 .sub {
+    display: block;
+    font-family: var(--body);
+    font-weight: 400;
+    font-size: 14px;
+    color: var(--muted);
+    letter-spacing: 0;
+    margin-top: 6px;
+  }
+
+  /* Methodology grid */
+  .method-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 28px 36px;
+  }
+  .method-step {
+    border-left: 2px solid var(--rule-strong);
+    padding: 4px 0 4px 18px;
+    position: relative;
+  }
+  .method-step::before {
+    content: "";
+    position: absolute;
+    left: -5.5px; top: 8px;
+    width: 9px; height: 9px;
+    background: var(--paper);
+    border: 2px solid var(--accent);
+    border-radius: 50%;
+  }
+  .method-step .step-title {
+    font-family: var(--display);
+    font-weight: 600;
+    font-size: 18px;
+    margin-bottom: 6px;
+    color: var(--ink);
+  }
+  .method-step .step-title .tag {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    font-weight: 500;
+    letter-spacing: 0.06em;
+    color: var(--accent);
+    margin-left: 8px;
+    vertical-align: middle;
+  }
+  .method-step p {
+    margin: 0;
+    font-size: 14px;
+    line-height: 1.55;
+    color: var(--ink-2);
+  }
+  .method-step code {
+    font-family: var(--mono);
+    font-size: 12.5px;
+    background: var(--paper-2);
+    padding: 1px 5px;
+    border-radius: 3px;
+    color: var(--ink);
+  }
+
+  /* Results — number lattice */
+  .results-grid {
+    display: grid;
+    grid-template-columns: repeat(12, 1fr);
+    gap: 14px;
+  }
+  .stat {
+    background: rgba(255,255,255,0.55);
+    border: 1px solid var(--rule);
+    padding: 18px 18px 16px;
+    border-radius: 4px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+  }
+  .stat .v {
+    font-family: var(--display);
+    font-weight: 700;
+    font-size: clamp(28px, 3.6vw, 40px);
+    line-height: 1;
+    letter-spacing: -0.03em;
+    color: var(--ink);
+  }
+  .stat .v .u {
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--muted);
+    margin-left: 4px;
+    font-weight: 500;
+  }
+  .stat .v.accent { color: var(--accent); }
+  .stat .k {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-top: 10px;
+    line-height: 1.4;
+  }
+  .stat.span-3 { grid-column: span 3; }
+  .stat.span-4 { grid-column: span 4; }
+  .stat.span-6 { grid-column: span 6; }
+  .stat.feature {
+    grid-column: span 6;
+    background: var(--ink);
+    color: var(--paper);
+    border-color: var(--ink);
+  }
+  .stat.feature .v { color: var(--paper); font-size: clamp(36px, 5vw, 56px); }
+  .stat.feature .v.accent { color: var(--accent); }
+  .stat.feature .k { color: rgba(244,239,230,0.6); }
+
+  .mia-collapse {
+    grid-column: span 6;
+    background: var(--accent-soft);
+    border: 1px solid var(--accent);
+    padding: 18px;
+    border-radius: 4px;
+  }
+  .mia-collapse .label {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--accent-ink);
+    margin-bottom: 10px;
+  }
+  .mia-collapse .row {
+    display: flex;
+    gap: 12px;
+    align-items: baseline;
+    margin-bottom: 6px;
+  }
+  .mia-collapse .pair {
+    font-family: var(--mono);
+    font-size: 12.5px;
+    color: var(--ink);
+  }
+  .mia-collapse .pair .member { color: var(--accent-ink); font-weight: 600; }
+  .mia-collapse .pair .vs { color: var(--muted); margin: 0 4px; }
+  .mia-collapse .desc {
+    font-size: 12.5px;
+    color: var(--ink-2);
+    margin-top: 8px;
+    line-height: 1.45;
+  }
+
+  /* Strengths/Limitations side-by-side */
+  .pros-cons {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 28px;
+  }
+  .pane {
+    border-top: 3px solid var(--ink);
+    padding-top: 18px;
+  }
+  .pane.limit { border-top-color: var(--accent); }
+  .pane h3 {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    margin: 0 0 16px;
+    color: var(--ink);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .pane.limit h3 { color: var(--accent-ink); }
+  .pane h3 .glyph {
+    font-family: var(--display);
+    font-size: 22px;
+    font-weight: 700;
+  }
+  .pane ul {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+  }
+  .pane li {
+    padding: 12px 0;
+    border-bottom: 1px dashed var(--rule);
+    font-size: 14px;
+    line-height: 1.5;
+    color: var(--ink-2);
+    display: grid;
+    grid-template-columns: 22px 1fr;
+    gap: 6px;
+  }
+  .pane li:last-child { border-bottom: none; }
+  .pane li .mk {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--ink);
+    font-weight: 600;
+  }
+  .pane.limit li .mk { color: var(--accent); }
+  .pane li b {
+    color: var(--ink);
+    font-weight: 600;
+  }
+
+  /* Questions */
+  .questions {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 16px;
+  }
+  .qcard {
+    background: rgba(255,255,255,0.4);
+    border: 1px solid var(--rule);
+    border-radius: 4px;
+    padding: 18px 20px;
+    position: relative;
+    transition: transform 0.15s ease, border-color 0.15s ease;
+  }
+  .qcard:hover {
+    border-color: var(--accent);
+    transform: translateY(-1px);
+  }
+  .qcard .qnum {
+    font-family: var(--display);
+    font-weight: 900;
+    font-size: 32px;
+    line-height: 1;
+    color: var(--accent);
+    opacity: 0.85;
+    margin-bottom: 8px;
+    font-variation-settings: "opsz" 144;
+  }
+  .qcard p {
+    margin: 0;
+    font-size: 13.5px;
+    line-height: 1.5;
+    color: var(--ink-2);
+  }
+  .qcard p b { color: var(--ink); font-weight: 600; }
+
+  /* ---------- FOOTER ---------- */
+  footer.foot {
+    padding: 36px 0 60px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 14px;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--muted);
+  }
+  footer.foot a {
+    color: var(--ink);
+    text-decoration: none;
+    border-bottom: 1px solid var(--rule-strong);
+    padding-bottom: 1px;
+    transition: color 0.15s ease, border-color 0.15s ease;
+  }
+  footer.foot a:hover { color: var(--accent); border-bottom-color: var(--accent); }
+  footer.foot .repo {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  /* ---------- ENTRANCE ANIMATION ---------- */
+  @keyframes rise {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  .anim { opacity: 0; animation: rise 0.6s cubic-bezier(0.2, 0.7, 0.2, 1) forwards; }
+  .d1 { animation-delay: 0.05s; }
+  .d2 { animation-delay: 0.13s; }
+  .d3 { animation-delay: 0.21s; }
+  .d4 { animation-delay: 0.29s; }
+  .d5 { animation-delay: 0.37s; }
+  .d6 { animation-delay: 0.45s; }
+
+  /* ---------- RESPONSIVE ---------- */
+  @media (max-width: 880px) {
+    .results-grid { grid-template-columns: repeat(6, 1fr); }
+    .stat.span-3 { grid-column: span 3; }
+    .stat.span-4 { grid-column: span 6; }
+    .stat.feature { grid-column: span 6; }
+    .mia-collapse { grid-column: span 6; }
+  }
+  @media (max-width: 720px) {
+    .wrap { padding: 0 20px; }
+    .asset-row { grid-template-columns: 1fr; }
+    .method-grid { grid-template-columns: 1fr; gap: 22px; }
+    .pros-cons { grid-template-columns: 1fr; gap: 24px; }
+    .questions { grid-template-columns: 1fr; }
+    .section-head { grid-template-columns: 1fr; gap: 6px; }
+    .section-head .idx { padding-top: 0; }
+    .results-grid { grid-template-columns: 1fr 1fr; }
+    .stat.span-3, .stat.span-4, .stat.feature, .mia-collapse { grid-column: span 2; }
+    .hero { padding: 36px 0 28px; }
+    .key-finding { max-width: none; }
+  }
+  @media (max-width: 420px) {
+    .results-grid { grid-template-columns: 1fr; }
+    .stat.span-3, .stat.span-4, .stat.feature, .mia-collapse { grid-column: span 1; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .anim { animation: none; opacity: 1; }
+    * { transition: none !important; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- TOP BAR -->
+  <nav class="topbar">
+    <a href="./index.html">↩ Today's digest</a>
+    <span class="id-tag"><span class="dot"></span>arXiv:2608.02154 · 2026-08-03</span>
+  </nav>
+
+  <!-- HERO -->
+  <header class="hero">
+    <div class="eyebrow anim d1">Data Provenance Audit · Black-box IP Forensics</div>
+
+    <h1 class="key-finding anim d2">
+      Catches data IP theft in <span class="hl">black-box LLM fine-tuning</span> via intrinsic distributional fingerprints &mdash;
+      <span class="metric-inline">95.62% TPR / 4.38% FPR</span>
+    </h1>
+
+    <h2 class="title anim d3">
+      <a href="https://arxiv.org/abs/2608.02154" target="_blank" rel="noopener">
+        Auditing Data Provenance in LLM Fine-tuning via Intrinsic Distributional Fingerprints
+      </a>
+    </h2>
+    <p class="authors anim d3">
+      Zirui Huang &middot; Yunlong Mao<sup>*</sup> &middot; Wei Tong &middot; Tingting Wu &middot; Xin Ge &middot; Sheng Zhong
+      <br /><span class="affil">Nanjing University &middot; State Key Lab of Novel Software Technology &middot; China Mobile Research Institute &nbsp; <sup>*</sup>corresponding</span>
+    </p>
+
+    <div class="chips anim d4">
+      <span class="chip accent">DPA framework</span>
+      <span class="chip">JSLS metric</span>
+      <span class="chip">SIDE extractor</span>
+      <span class="chip">membership-inference</span>
+      <span class="chip">IP protection</span>
+      <span class="chip">fine-tuning forensics</span>
+      <span class="chip">dual-use analysis</span>
+    </div>
+  </header>
+
+  <!-- ASSET ROW -->
+  <section class="asset-row">
+    <div class="card metric anim d2">
+      <div class="label"><span class="num">01</span> &nbsp;Key metric · Audit reliability</div>
+      <div class="big"><span class="pct">95.62%</span><br />TPR</div>
+      <div class="fpr-pill">vs 4.38% FPR</div>
+      <div class="sub">Averaged over the stable threshold region across MedAlpaca / ChatDoctor / CaseLaw on Pythia-2.8B, Qwen3-4B, Llama3-8B.</div>
+    </div>
+
+    <div class="card matters anim d3">
+      <div class="label"><span class="num">02</span> &nbsp;Why this matters</div>
+      <div class="body">
+        First practical <em>black-box audit tool</em> for fine-tuning data IP, revealing that audit capability is <em>structurally identical</em> to privacy attacks.
+      </div>
+    </div>
+
+    <div class="card edge anim d4">
+      <div class="label"><span class="num">03</span> &nbsp;Critical edge</div>
+      <div class="body">
+        Thresholds <strong>ω=0.60 / τ=0.50</strong> are calibrated on the same three datasets used for evaluation — <strong>no held-out domain</strong> validates their generalizability.
+      </div>
+    </div>
+  </section>
+
+  <!-- METHODOLOGY -->
+  <section class="block">
+    <div class="section-head">
+      <div class="idx anim d1">§ 01 / Method</div>
+      <h2 class="anim d1">From intractable likelihood to a computable fingerprint<span class="sub">A cryptographic distinguishability game cast over intrinsic distributional statistics</span></h2>
+    </div>
+
+    <div class="method-grid">
+      <div class="method-step anim d2">
+        <div class="step-title">Threat model <span class="tag">Exp_DPA</span></div>
+        <p>Trainer secretly samples <code>b∈{0,1}</code>: fine-tune on proprietary <code>π_own</code> (with evasion T1 subset / T2 paraphrase / T3 distillation) or on independent decoy <code>π_ind</code>. Auditor has <b>black-box query access only</b> — no parameters, gradients, or logits — and wins by distinguishing the two cases.</p>
+      </div>
+
+      <div class="method-step anim d2">
+        <div class="step-title">Utility constraint <span class="tag">why fingerprints persist</span></div>
+        <p>A rational malicious trainer must internalize the proprietary distribution's joint statistics — <i>what is said</i> (semantic) × <i>how it is said</i> (lexical) — to preserve expert-level utility, even after scrubbing verbatim traces. Empirical-Likelihood theory maps the intractable posterior onto a computable similarity.</p>
+      </div>
+
+      <div class="method-step anim d3">
+        <div class="step-title">JSLS metric <span class="tag">Δ_JSLS</span></div>
+        <p>A gated product kernel <code>Δ = m_r / exp(k·γ)</code>: variance-stabilized word relevance suppresses shot-noise and magnitude dominance; JS-divergence lexical term gates a relevance-weighted KL-frontier semantic AUC. Enforces a strict semantic-AND-lexical constraint — fixing BLEU's false negatives and MAUVE's false positives.</p>
+      </div>
+
+      <div class="method-step anim d3">
+        <div class="step-title">SIDE extractor <span class="tag">prompt-agnostic</span></div>
+        <p>Cold-start with domain-agnostic generic prompts, then iteratively self-instruct: perturb embeddings <code>e' = e + α·δ/‖δ‖</code>, decode via <code>vec2text</code> + surrogate LLM for coherence. Reaches <b>δ_ext ≈ 0.054</b>, near the infeasible oracle-ID baseline (0.046) — and far better than unrelated prompts (0.683).</p>
+      </div>
+
+      <div class="method-step anim d4">
+        <div class="step-title">Decision rule <span class="tag">bootstrap 95%-LCB</span></div>
+        <p>Reject H₀ (independent source) only when the 95% bootstrap lower-confidence bound of <code>s = Δ_JSLS(G_SIDE(M), D_own)</code> exceeds <code>τ</code>. Calibrated split: <code>ω=0.60</code> separates ground-truth distributions; <code>τ=0.50</code> accounts for information-bottleneck attenuation in extracted samples.</p>
+      </div>
+
+      <div class="method-step anim d4">
+        <div class="step-title">Dual-use disclosure <span class="tag">transparency paradox</span></div>
+        <p>The same high-fidelity fingerprints enabling audit also facilitate data extraction, mixing-proportion inference, and optimal auxiliary-dataset synthesis for stronger MIAs. The paper empirically demonstrates the audit/privacy structural isomorphism rather than ignoring it.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- RESULTS -->
+  <section class="block">
+    <div class="section-head">
+      <div class="idx anim d1">§ 02 / Results</div>
+      <h2 class="anim d1">Numbers that hold up where the baseline collapses<span class="sub">DPA vs Reference-based MIA across three models × three domains × three evasion tactics</span></h2>
+    </div>
+
+    <div class="results-grid">
+      <div class="stat feature anim d2">
+        <div>
+          <div class="v accent">95.62<span class="u">%</span></div>
+          <div class="k">True Positive Rate · audit reliability</div>
+        </div>
+        <div style="margin-top:14px;">
+          <div class="v">4.38<span class="u">%</span></div>
+          <div class="k">False Positive Rate · innocent models cleared</div>
+        </div>
+      </div>
+
+      <div class="mia-collapse anim d3">
+        <div class="label">⚠ Reference-based MIA collapse · rank inversion</div>
+        <div class="row"><span class="pair"><span class="member">0.411</span><span class="vs">vs</span>0.115</span></div>
+        <div class="desc"><b>Tactic 2 (paraphrase):</b> member score <span style="color:var(--accent-ink);font-weight:600;">0.411</span> ranks above non-member <span style="font-weight:600;">0.115</span> → false "innocent" verdicts in all four settings.</div>
+        <div class="row" style="margin-top:10px;"><span class="pair"><span class="member">0.198</span><span class="vs">vs</span>−0.020</span></div>
+        <div class="desc"><b>Tactic 3 (distillation):</b> same inversion persists.</div>
+      </div>
+
+      <div class="stat span-3 anim d3">
+        <div class="v accent">0.054</div>
+        <div class="k">SIDE δ_ext extraction fidelity · vs oracle 0.046</div>
+      </div>
+      <div class="stat span-3 anim d3">
+        <div class="v">&gt;0.77</div>
+        <div class="k">Δ_JSLS for proprietary derivatives · clean ω=0.60 threshold</div>
+      </div>
+      <div class="stat span-3 anim d4">
+        <div class="v">0.83</div>
+        <div class="k">Pearson r vs MAUVE · p=0.011</div>
+      </div>
+      <div class="stat span-3 anim d4">
+        <div class="v">−0.88</div>
+        <div class="k">Pearson r vs MMD divergence · p=0.0038</div>
+      </div>
+
+      <div class="stat span-4 anim d4">
+        <div class="v">0.59</div>
+        <div class="k">PII extraction F1 on MedAlpaca · dual-use risk demonstrated</div>
+      </div>
+      <div class="stat span-4 anim d5">
+        <div class="v">0.72</div>
+        <div class="k">MIA AUC boosted by SIDE-generated references · vs 0.53 baseline</div>
+      </div>
+      <div class="stat span-4 anim d5">
+        <div class="v">0.82–0.90</div>
+        <div class="k">95% CI on gpt-4.1-nano · 3K MedAlpaca WikiDoc, 5 epochs</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- STRENGTHS / LIMITATIONS -->
+  <section class="block">
+    <div class="section-head">
+      <div class="idx anim d1">§ 03 / Verdict</div>
+      <h2 class="anim d1">Strengths &amp; limitations, side by side<span class="sub">Read across — the same property is often both</span></h2>
+    </div>
+
+    <div class="pros-cons">
+      <div class="pane anim d2">
+        <h3><span class="glyph">+</span> Strengths</h3>
+        <ul>
+          <li><span class="mk">01</span><span>Clean <b>paradigm shift</b> from record-level MIA to distribution-level audit, with a well-motivated utility-constraint argument for fingerprint persistence.</span></li>
+          <li><span class="mk">02</span><span>JSLS's gated product kernel elegantly merges BLEU's false-negative mode and MAUVE's false-positive mode into a single bounded, theoretically-grounded metric.</span></li>
+          <li><span class="mk">03</span><span>SIDE is a principled cure for prompt-induced bias — <b>near-oracle performance</b> (0.054 vs 0.046) is convincingly demonstrated.</span></li>
+          <li><span class="mk">04</span><span>Substantive dual-use treatment with concrete demos of PII extraction, distribution inference, and MIA amplification.</span></li>
+          <li><span class="mk">05</span><span>Public code, three model families, three domains, and rigorous bootstrap hypothesis testing instead of point estimates.</span></li>
+        </ul>
+      </div>
+
+      <div class="pane limit anim d3">
+        <h3><span class="glyph">−</span> Limitations</h3>
+        <ul>
+          <li><span class="mk">01</span><span><b>Threshold circularity:</b> ω=0.60 / τ=0.50 calibrated on the same three datasets used for evaluation — no held-out domain validates generalization.</span></li>
+          <li><span class="mk">02</span><span><b>Weak decoys:</b> same-domain decoys (Arizona vs Delaware, flashcards vs wikidoc) are also distributionally separable — a closer adversarial decoy is untested.</span></li>
+          <li><span class="mk">03</span><span>ChatDoctor <code>δ_ext</code> (0.087 mean, 0.139 ID-trn) is markedly worse than MedAlpaca (0.016) or CaseLaw (0.027) — <b>fidelity is dataset-sensitive</b>.</span></li>
+          <li><span class="mk">04</span><span>Asymmetric baseline reporting: MIA as point estimates, DPA with bootstrap CIs — no apples-to-apples audit-decision comparison.</span></li>
+          <li><span class="mk">05</span><span>T3 distillation case presupposes the auditor knows the teacher's training data, slightly contradicting the strict black-box assumption.</span></li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- QUESTIONS -->
+  <section class="block">
+    <div class="section-head">
+      <div class="idx anim d1">§ 04 / Open</div>
+      <h2 class="anim d1">Questions worth chasing next<span class="sub">The most load-bearing unknowns raised by the work</span></h2>
+    </div>
+
+    <div class="questions">
+      <div class="qcard anim d2">
+        <div class="qnum">Q1</div>
+        <p>How does DPA perform against a <b>close decoy</b> — e.g., a different but same-subdomain medical corpus — rather than the easily-separable synthetic GPT or out-of-state legal data tested here?</p>
+      </div>
+      <div class="qcard anim d2">
+        <div class="qnum">Q2</div>
+        <p>Can <b>ω=0.60 / τ=0.50</b> be validated on held-out domains (financial, code) without recalibration, or is per-domain calibration inevitable?</p>
+      </div>
+      <div class="qcard anim d3">
+        <div class="qnum">Q3</div>
+        <p>How sensitive is SIDE to the version of <b>vec2text</b> and the surrogate LLM, and can a single-step decoder replace the two-stage pipeline?</p>
+      </div>
+      <div class="qcard anim d3">
+        <div class="qnum">Q4</div>
+        <p>Does <b>DP-SGD fine-tuning</b> at realistic ε budgets actually erase JSLS-detectable fingerprints, or merely shift the τ threshold?</p>
+      </div>
+      <div class="qcard anim d4">
+        <div class="qnum">Q5</div>
+        <p>Could the JSLS+SIDE machinery be inverted into a <b>defense</b> — a fingerprint-erasing fine-tuning procedure that minimizes Δ_JSLS while preserving utility, closing the dual-use loop?</p>
+      </div>
+      <div class="qcard anim d4">
+        <div class="qnum">Q6</div>
+        <p>How does DPA extend to <b>multi-modal fine-tuning</b> (vision-language models) where the "lexical form" axis has no direct analogue?</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- FOOTER -->
+  <footer class="foot">
+    <span>2026-08-03 &middot; Nanjing University &middot; China Mobile Research Institute &middot; NSFC 62272222 / 62272215</span>
+    <span class="repo">
+      <a href="./2608.02154.md">↗ Markdown source</a>
+      &nbsp;&middot;&nbsp;
+      <a href="https://github.com/Huangzirui1206/DistributionProvenanceAudit" target="_blank" rel="noopener">↗ Code &amp; artifacts</a>
+    </span>
+  </footer>
+
+</div>
+</body>
+</html>

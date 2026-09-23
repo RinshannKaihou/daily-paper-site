@@ -1,0 +1,979 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>CMuon — Chunked Momentum Orthogonalization for DiT Training</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700;9..144,900&family=IBM+Plex+Sans:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --paper:#fbfaf6;
+    --paper-2:#f3f0e8;
+    --ink:#16161a;
+    --ink-2:#3a3a40;
+    --muted:#74746e;
+    --hair:#d9d5cb;
+    --hair-2:#e8e4d8;
+    --accent:#c8200a;       /* single accent: vermilion */
+    --accent-tint:#f7e4df;
+    --accent-ink:#7a1408;
+    --ok-bg:#eef3ec;
+    --ok-ink:#2f5d3a;
+    --warn-bg:#f6ece1;
+    --warn-ink:#8a4a16;
+    --shadow:0 1px 0 rgba(20,20,26,.04), 0 8px 28px -18px rgba(20,20,26,.18);
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    background:var(--paper);
+    color:var(--ink);
+    font-family:"IBM Plex Sans",system-ui,sans-serif;
+    font-size:16px;
+    line-height:1.55;
+    -webkit-font-smoothing:antialiased;
+    text-rendering:optimizeLegibility;
+  }
+  ::selection{background:var(--accent);color:#fff}
+
+  /* ---------- top bar ---------- */
+  .topbar{
+    position:sticky;top:0;z-index:30;
+    background:rgba(251,250,246,.86);
+    backdrop-filter:saturate(140%) blur(8px);
+    -webkit-backdrop-filter:saturate(140%) blur(8px);
+    border-bottom:1px solid var(--hair);
+  }
+  .topbar-inner{
+    max-width:min(95vw,1100px);
+    margin:0 auto;
+    padding:11px 22px;
+    display:flex;align-items:center;justify-content:space-between;gap:16px;
+    font-size:13px;
+  }
+  .back-link{
+    color:var(--ink);
+    text-decoration:none;
+    display:inline-flex;align-items:center;gap:7px;
+    font-weight:500;
+    letter-spacing:.01em;
+    padding:6px 10px;margin:-6px -10px;
+    border-radius:6px;
+    transition:color .15s ease, background .15s ease;
+  }
+  .back-link:hover{color:var(--accent);background:var(--accent-tint)}
+  .crumbs{
+    font-family:"IBM Plex Mono",monospace;
+    font-size:11.5px;
+    color:var(--muted);
+    letter-spacing:.04em;
+    text-transform:uppercase;
+    display:flex;align-items:center;gap:10px;
+    flex-wrap:wrap;justify-content:flex-end;
+  }
+  .crumbs .dot{width:5px;height:5px;border-radius:50%;background:var(--accent);display:inline-block}
+  .crumbs a{color:var(--muted);text-decoration:none;border-bottom:1px dotted transparent}
+  .crumbs a:hover{color:var(--accent);border-color:var(--accent)}
+
+  /* ---------- shell ---------- */
+  .wrap{
+    max-width:min(95vw,1100px);
+    margin:0 auto;
+    padding:0 22px 80px;
+  }
+
+  /* ---------- hero ---------- */
+  .hero{
+    display:grid;
+    grid-template-columns: 1.15fr .85fr;
+    gap:48px;
+    padding:54px 0 40px;
+    border-bottom:1px solid var(--hair);
+    align-items:start;
+  }
+  .kicker{
+    font-family:"IBM Plex Mono",monospace;
+    font-size:11.5px;
+    letter-spacing:.18em;
+    text-transform:uppercase;
+    color:var(--accent);
+    margin:0 0 18px;
+    display:flex;align-items:center;gap:10px;
+  }
+  .kicker .bar{display:inline-block;height:1px;width:34px;background:var(--accent)}
+  .key-finding{
+    font-family:"Fraunces",Georgia,serif;
+    font-weight:500;
+    font-size:clamp(30px,4.4vw,52px);
+    line-height:1.04;
+    letter-spacing:-.02em;
+    margin:0;
+    color:var(--ink);
+    font-variation-settings:"opsz" 120;
+  }
+  .key-finding em{
+    font-style:italic;
+    color:var(--accent);
+    font-weight:600;
+  }
+  .key-finding .hl{
+    background:linear-gradient(180deg,transparent 62%, var(--accent-tint) 62%);
+    padding:0 .06em;
+  }
+  .hero-lede{
+    margin-top:22px;
+    font-size:15px;
+    color:var(--ink-2);
+    max-width:48ch;
+  }
+
+  .hero-meta{
+    border-left:1px solid var(--hair);
+    padding-left:32px;
+    position:relative;
+  }
+  .hero-meta::before{
+    content:"";
+    position:absolute;left:-1px;top:0;
+    width:2px;height:46px;background:var(--accent);
+  }
+  .paper-title{
+    font-family:"Fraunces",serif;
+    font-weight:600;
+    font-size:21px;
+    line-height:1.25;
+    letter-spacing:-.01em;
+    margin:0 0 10px;
+  }
+  .paper-title a{
+    color:var(--ink);
+    text-decoration:none;
+    background-image:linear-gradient(var(--accent),var(--accent));
+    background-size:0% 1.5px;
+    background-repeat:no-repeat;
+    background-position:0 100%;
+    transition:background-size .25s ease, color .15s ease;
+    padding-bottom:2px;
+  }
+  .paper-title a:hover{color:var(--accent);background-size:100% 1.5px}
+  .authors{font-size:13.5px;color:var(--ink-2);margin:0 0 18px}
+  .authors span{color:var(--muted)}
+
+  .chips{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:18px}
+  .chip{
+    font-family:"IBM Plex Mono",monospace;
+    font-size:11px;
+    letter-spacing:.02em;
+    padding:4px 9px;
+    border:1px solid var(--hair);
+    border-radius:999px;
+    color:var(--ink-2);
+    background:var(--paper);
+    text-transform:lowercase;
+  }
+  .chip.accent{border-color:var(--accent);color:var(--accent-ink);background:var(--accent-tint)}
+
+  .meta-row{
+    display:grid;grid-template-columns:auto 1fr;gap:6px 14px;
+    font-size:12.5px;
+    border-top:1px dashed var(--hair);
+    padding-top:14px;
+  }
+  .meta-row dt{
+    font-family:"IBM Plex Mono",monospace;
+    color:var(--muted);
+    text-transform:uppercase;
+    letter-spacing:.06em;
+    font-size:10.5px;
+    padding-top:2px;
+  }
+  .meta-row dd{margin:0;color:var(--ink-2)}
+  .meta-row dd a{color:var(--accent);text-decoration:none}
+  .meta-row dd a:hover{text-decoration:underline}
+
+  /* ---------- asset row ---------- */
+  .assets{
+    display:grid;
+    grid-template-columns: 1.35fr 1fr 1fr;
+    gap:18px;
+    margin:26px 0 14px;
+  }
+  .card{
+    background:var(--paper);
+    border:1px solid var(--hair);
+    border-radius:10px;
+    padding:22px 22px 20px;
+    position:relative;
+    box-shadow:var(--shadow);
+  }
+  .card .label{
+    font-family:"IBM Plex Mono",monospace;
+    font-size:10.5px;
+    letter-spacing:.16em;
+    text-transform:uppercase;
+    color:var(--muted);
+    display:flex;align-items:center;gap:8px;
+    margin-bottom:14px;
+  }
+  .card .label .idx{
+    display:inline-flex;align-items:center;justify-content:center;
+    width:18px;height:18px;border-radius:4px;
+    background:var(--ink);color:var(--paper);
+    font-size:10px;font-weight:600;letter-spacing:0;
+  }
+
+  /* metric card (breaks grid a touch: accent edge + giant number) */
+  .card.metric{
+    background:var(--paper);
+    border-color:var(--hair);
+    overflow:hidden;
+  }
+  .card.metric::before{
+    content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--accent);
+  }
+  .metric-num{
+    font-family:"Fraunces",serif;
+    font-weight:600;
+    font-size:clamp(54px,8vw,86px);
+    line-height:.92;
+    letter-spacing:-.04em;
+    color:var(--ink);
+    font-variation-settings:"opsz" 144;
+    display:flex;align-items:baseline;gap:10px;
+  }
+  .metric-num .unit{
+    font-family:"IBM Plex Mono",monospace;
+    font-size:13px;font-weight:500;
+    color:var(--accent);
+    letter-spacing:.04em;
+    text-transform:uppercase;
+  }
+  .metric-body{
+    margin-top:10px;
+    font-size:13.5px;color:var(--ink-2);
+  }
+  .metric-body strong{color:var(--ink)}
+  .metric-delta{
+    margin-top:12px;
+    display:inline-flex;align-items:center;gap:8px;
+    font-family:"IBM Plex Mono",monospace;
+    font-size:12px;
+    color:var(--ok-ink);
+    background:var(--ok-bg);
+    padding:4px 9px;border-radius:6px;
+  }
+  .metric-delta .arr{font-weight:700}
+
+  .card.matters .body{font-size:14px;color:var(--ink);line-height:1.5}
+  .card.edge{
+    background:#1a1715;
+    color:#e9e3d8;
+    border-color:#1a1715;
+  }
+  .card.edge .label{color:#a89e8c}
+  .card.edge .label .idx{background:#e9e3d8;color:#1a1715}
+  .card.edge .body{font-size:13.5px;line-height:1.5;color:#d8d2c4}
+  .card.edge .body em{font-style:normal;color:#ff8a72;font-weight:600}
+
+  /* ---------- section primitives ---------- */
+  .section{margin:54px 0 0}
+  .sec-head{
+    display:flex;align-items:baseline;justify-content:space-between;gap:16px;
+    border-bottom:1px solid var(--hair);
+    padding-bottom:12px;
+    margin-bottom:22px;
+  }
+  .sec-title{
+    font-family:"Fraunces",serif;
+    font-weight:600;
+    font-size:24px;
+    letter-spacing:-.01em;
+    margin:0;
+  }
+  .sec-title .num{
+    font-family:"IBM Plex Mono",monospace;
+    font-size:12px;
+    color:var(--accent);
+    margin-right:10px;
+    font-weight:500;
+    vertical-align:.18em;
+    letter-spacing:.06em;
+  }
+  .sec-aside{
+    font-family:"IBM Plex Mono",monospace;
+    font-size:11px;color:var(--muted);
+    text-transform:uppercase;letter-spacing:.08em;
+  }
+
+  /* methodology */
+  .method-grid{
+    display:grid;
+    grid-template-columns: 1fr 1fr;
+    gap:26px;
+  }
+  .method-col p{margin:0 0 12px;font-size:14.5px;color:var(--ink-2)}
+  .method-col p strong{color:var(--ink)}
+  .method-col p code{
+    font-family:"IBM Plex Mono",monospace;
+    font-size:12.5px;
+    background:var(--paper-2);
+    padding:1px 5px;border-radius:3px;
+    color:var(--accent-ink);
+  }
+
+  /* chunking visual */
+  .chunk-vis{
+    margin-top:8px;
+    border:1px solid var(--hair);
+    border-radius:10px;
+    padding:18px;
+    background:var(--paper);
+  }
+  .chunk-vis .cv-label{
+    font-family:"IBM Plex Mono",monospace;
+    font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;
+    color:var(--muted);margin-bottom:14px;
+    display:flex;justify-content:space-between;
+  }
+  .chunk-row{
+    display:grid;
+    grid-template-columns:130px 1fr;
+    gap:14px;align-items:center;
+    margin-bottom:10px;
+  }
+  .chunk-row:last-child{margin-bottom:0}
+  .chunk-name{
+    font-family:"IBM Plex Mono",monospace;
+    font-size:12px;color:var(--ink);
+  }
+  .chunk-name small{display:block;color:var(--muted);font-size:10.5px;margin-top:2px}
+  .chunk-flow{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+  .fused{
+    height:22px;
+    background:repeating-linear-gradient(
+      90deg,
+      var(--ink) 0 12px,
+      #2a2a30 12px 24px
+    );
+    border-radius:3px;
+    flex:0 0 auto;
+    min-width:60px;
+    position:relative;
+  }
+  .fused::after{
+    content:attr(data-dim);
+    position:absolute;right:-46px;top:50%;transform:translateY(-50%);
+    font-family:"IBM Plex Mono",monospace;
+    font-size:10.5px;color:var(--muted);white-space:nowrap;
+  }
+  .arrow{
+    color:var(--accent);font-family:"IBM Plex Mono",monospace;
+    font-weight:700;font-size:14px;
+  }
+  .split{display:flex;gap:3px}
+  .split .c{
+    height:22px;width:18px;
+    background:var(--accent);
+    border-radius:2px;
+  }
+  .split .c:nth-child(2){background:#d9492a}
+  .split .c:nth-child(3){background:#e16f3f}
+  .split .c:nth-child(4){background:#e89460}
+  .split .c:nth-child(5){background:#efb084}
+  .split .c:nth-child(6){background:#f5cfa6}
+  .split-count{
+    font-family:"IBM Plex Mono",monospace;font-size:10.5px;color:var(--ink-2);
+    margin-left:4px;
+  }
+
+  /* results / chart */
+  .results-top{
+    display:grid;grid-template-columns:1fr;gap:20px;
+  }
+  .chart-card{
+    border:1px solid var(--hair);
+    border-radius:10px;
+    padding:22px;
+    background:var(--paper);
+  }
+  .chart-head{
+    display:flex;justify-content:space-between;align-items:flex-end;
+    gap:16px;flex-wrap:wrap;margin-bottom:6px;
+  }
+  .chart-title{
+    font-family:"Fraunces",serif;font-weight:600;font-size:18px;margin:0;
+  }
+  .chart-sub{font-size:12.5px;color:var(--muted);margin:4px 0 18px}
+
+  .seg{
+    display:inline-flex;border:1px solid var(--hair);border-radius:7px;overflow:hidden;
+    background:var(--paper-2);
+  }
+  .seg button{
+    appearance:none;border:0;background:transparent;
+    font-family:"IBM Plex Sans",sans-serif;font-size:12.5px;font-weight:500;
+    color:var(--ink-2);padding:7px 13px;cursor:pointer;
+    letter-spacing:.01em;
+    transition:background .15s ease, color .15s ease;
+  }
+  .seg button + button{border-left:1px solid var(--hair)}
+  .seg button.active{background:var(--ink);color:var(--paper)}
+  .seg button:not(.active):hover{color:var(--accent)}
+
+  .legend{display:flex;gap:14px;font-size:12px;color:var(--ink-2);flex-wrap:wrap;margin-bottom:6px}
+  .legend .sw{display:inline-block;width:11px;height:11px;border-radius:2px;margin-right:6px;vertical-align:-1px}
+
+  .chart{
+    display:grid;
+    grid-template-columns: 1fr;
+    gap:14px;
+    margin-top:10px;
+  }
+  .bar-group{display:grid;grid-template-columns:1fr;gap:6px}
+  .bar-group .glabel{
+    font-family:"IBM Plex Mono",monospace;font-size:11px;color:var(--muted);
+    text-transform:uppercase;letter-spacing:.06em;
+    margin-bottom:3px;
+    display:flex;justify-content:space-between;align-items:center;
+  }
+  .bar-group .glabel .epoch{color:var(--ink)}
+  .bar{
+    display:grid;grid-template-columns:78px 1fr 64px;
+    align-items:center;gap:12px;
+    font-size:13px;
+  }
+  .bar .name{color:var(--ink-2);font-weight:500}
+  .bar .name.win{color:var(--accent-ink);font-weight:600}
+  .bar .track{
+    height:14px;background:var(--paper-2);border-radius:3px;overflow:hidden;
+    position:relative;
+  }
+  .bar .fill{
+    height:100%;width:0;
+    border-radius:3px;
+    transition:width .9s cubic-bezier(.22,1,.36,1);
+  }
+  .bar.opt-cmuon .fill{background:var(--accent)}
+  .bar.opt-muon  .fill{background:#2a2a30}
+  .bar.opt-adam  .fill{background:#9a948a}
+  .bar .val{
+    font-family:"IBM Plex Mono",monospace;font-size:12.5px;
+    color:var(--ink);text-align:right;font-weight:500;
+  }
+  .bar .val.win{color:var(--accent);font-weight:600}
+  .axis-note{
+    margin-top:14px;font-size:11.5px;color:var(--muted);
+    font-family:"IBM Plex Mono",monospace;
+    border-top:1px dashed var(--hair);padding-top:10px;
+  }
+
+  /* results bullet list */
+  .results-list{
+    margin-top:22px;
+    display:grid;grid-template-columns:1fr 1fr;gap:10px 28px;
+  }
+  .results-list li{
+    list-style:none;position:relative;
+    padding-left:22px;font-size:13.5px;color:var(--ink-2);
+    line-height:1.45;
+  }
+  .results-list li::before{
+    content:"";position:absolute;left:0;top:.55em;
+    width:8px;height:8px;border:1.5px solid var(--accent);
+    border-radius:2px;transform:rotate(45deg);
+  }
+  .results-list li strong{color:var(--ink)}
+  .results-list li code{
+    font-family:"IBM Plex Mono",monospace;font-size:12px;
+    background:var(--paper-2);padding:1px 4px;border-radius:3px;color:var(--accent-ink);
+  }
+
+  /* strengths / limitations */
+  .twocol{
+    display:grid;grid-template-columns:1fr 1fr;gap:18px;
+  }
+  .panel{
+    border:1px solid var(--hair);border-radius:10px;
+    padding:22px;background:var(--paper);
+  }
+  .panel.pro{border-top:3px solid var(--ok-ink)}
+  .panel.con{border-top:3px solid var(--accent)}
+  .panel h3{
+    font-family:"Fraunces",serif;font-weight:600;font-size:17px;
+    margin:0 0 14px;display:flex;align-items:center;gap:9px;
+  }
+  .panel h3 .tag{
+    font-family:"IBM Plex Mono",monospace;font-size:10.5px;font-weight:500;
+    letter-spacing:.1em;text-transform:uppercase;
+    padding:2px 7px;border-radius:4px;
+  }
+  .panel.pro h3 .tag{background:var(--ok-bg);color:var(--ok-ink)}
+  .panel.con h3 .tag{background:var(--accent-tint);color:var(--accent-ink)}
+  .panel ul{margin:0;padding:0;list-style:none}
+  .panel li{
+    font-size:13.5px;color:var(--ink-2);line-height:1.5;
+    padding:9px 0 9px 18px;border-top:1px solid var(--hair-2);
+    position:relative;
+  }
+  .panel li:first-child{border-top:0;padding-top:0}
+  .panel li::before{
+    position:absolute;left:0;top:9px;font-family:"IBM Plex Mono",monospace;
+    font-size:12px;font-weight:600;
+  }
+  .panel.pro li::before{content:"+";color:var(--ok-ink)}
+  .panel.con li::before{content:"–";color:var(--accent);top:8px}
+  .panel li:first-child::before{top:0}
+  .panel li strong{color:var(--ink)}
+
+  /* questions */
+  .qlist{
+    display:grid;grid-template-columns:1fr 1fr;gap:12px;
+    counter-reset:q;
+  }
+  .qcard{
+    border:1px solid var(--hair);border-radius:10px;
+    padding:18px 18px 18px 20px;
+    background:var(--paper);
+    position:relative;
+    transition:border-color .15s ease, transform .15s ease;
+  }
+  .qcard:hover{border-color:var(--accent);transform:translateY(-1px)}
+  .qcard::before{
+    counter-increment:q;
+    content:"Q" counter(q,decimal-leading-zero);
+    display:block;
+    font-family:"IBM Plex Mono",monospace;font-size:11px;
+    color:var(--accent);letter-spacing:.1em;
+    margin-bottom:8px;
+  }
+  .qcard p{margin:0;font-size:13.5px;color:var(--ink);line-height:1.5}
+  .qcard p em{font-style:italic;color:var(--muted)}
+
+  /* footer */
+  .foot{
+    margin-top:64px;
+    padding-top:22px;
+    border-top:1px solid var(--hair);
+    display:flex;justify-content:space-between;align-items:center;
+    gap:14px;flex-wrap:wrap;
+    font-size:12.5px;color:var(--muted);
+  }
+  .foot .src{
+    color:var(--ink);text-decoration:none;font-weight:500;
+    display:inline-flex;align-items:center;gap:7px;
+    padding:7px 12px;border:1px solid var(--hair);border-radius:7px;
+    background:var(--paper);
+    transition:color .15s, border-color .15s, background .15s;
+  }
+  .foot .src:hover{color:var(--accent);border-color:var(--accent);background:var(--accent-tint)}
+  .foot .verify{font-family:"IBM Plex Mono",monospace;font-size:11px}
+
+  /* ---------- load animation ---------- */
+  .reveal{opacity:0;transform:translateY(8px);animation:rv .6s cubic-bezier(.22,1,.36,1) forwards}
+  @keyframes rv{to{opacity:1;transform:none}}
+  .d1{animation-delay:.05s}.d2{animation-delay:.12s}.d3{animation-delay:.19s}
+  .d4{animation-delay:.26s}.d5{animation-delay:.33s}.d6{animation-delay:.40s}
+  .d7{animation-delay:.47s}.d8{animation-delay:.54s}
+
+  /* ---------- responsive ---------- */
+  @media (max-width:880px){
+    .hero{grid-template-columns:1fr;gap:32px;padding:36px 0 30px}
+    .hero-meta{border-left:0;border-top:1px solid var(--hair);padding:24px 0 0}
+    .hero-meta::before{display:none}
+    .assets{grid-template-columns:1fr}
+    .method-grid,.results-list,.twocol,.qlist{grid-template-columns:1fr}
+  }
+  @media (max-width:720px){
+    body{font-size:15px}
+    .wrap{padding:0 16px 60px}
+    .topbar-inner{padding:10px 16px}
+    .key-finding{font-size:30px}
+    .sec-title{font-size:20px}
+    .bar{grid-template-columns:64px 1fr 52px;gap:8px}
+    .chunk-row{grid-template-columns:1fr;gap:6px}
+  }
+
+  @media (prefers-reduced-motion:reduce){
+    .reveal{animation:none;opacity:1;transform:none}
+    .bar .fill{transition:none}
+  }
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar-inner">
+    <a class="back-link reveal d1" href="./index.html">↩ Today's digest</a>
+    <div class="crumbs reveal d2">
+      <span class="dot"></span>
+      <span>arxiv-daily</span>
+      <span>·</span>
+      <span>2026-08-03</span>
+      <span>·</span>
+      <a href="https://arxiv.org/abs/2608.02502">2608.02502</a>
+    </div>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <!-- ================= HERO ================= -->
+  <section class="hero">
+    <div>
+      <p class="kicker reveal d1"><span class="bar"></span>Key finding · optimization for diffusion transformers</p>
+      <h1 class="key-finding reveal d2">
+        Splitting <em>fused</em> DiT weights into functional <span class="hl">chunks before orthogonalization</span> fixes Muon's plateau — and <em>halves</em> training compute.
+      </h1>
+      <p class="hero-lede reveal d3">
+        CMuon is a near-zero-overhead reshape: cut the concatenated QKV / FFN / AdaLN tensors back into semantically independent sub-matrices, run Newton–Schulz on each, then stitch them up. No new hyperparameters, no extra tricks.
+      </p>
+    </div>
+
+    <aside class="hero-meta reveal d4">
+      <h2 class="paper-title">
+        <a href="https://arxiv.org/abs/2608.02502" target="_blank" rel="noopener">
+          CMuon: Accelerating and Stabilizing Diffusion Transformer Training via Chunked Momentum Orthogonalization
+        </a>
+      </h2>
+      <p class="authors">Chuyan Chen <span>·</span> Peng Sun <span>·</span> Kun Yuan<br><span>Peking University · Westlake U. · Zhejiang U.</span></p>
+
+      <div class="chips" aria-label="tags">
+        <span class="chip accent">optimization</span>
+        <span class="chip">diffusion-transformer</span>
+        <span class="chip">muon-optimizer</span>
+        <span class="chip">image-generation</span>
+        <span class="chip">training-acceleration</span>
+      </div>
+
+      <dl class="meta-row">
+        <dt>arXiv</dt><dd><a href="https://arxiv.org/abs/2608.02502" target="_blank" rel="noopener">2608.02502</a></dd>
+        <dt>Date</dt><dd>2026-08-03</dd>
+        <dt>Aliases</dt><dd>CMuon · Chunked Muon</dd>
+        <dt>Backbone</dt><dd>DiT-XL 675M · VA-VAE · ImageNet 256²</dd>
+      </dl>
+    </aside>
+  </section>
+
+  <!-- ================= ASSET ROW ================= -->
+  <section class="assets" aria-label="headline assets">
+    <div class="card metric reveal d3">
+      <div class="label"><span class="idx">1</span> Key metric · FID (lower is better)</div>
+      <div class="metric-num">1.18<span class="unit">FID</span></div>
+      <p class="metric-body">
+        <strong>675M DiT-XL on ImageNet 256² at 200 epochs</strong> — AdamW needs <strong>400 epochs</strong> to reach just 1.21. Vanilla Muon stalls at 1.29 over the same 200-epoch budget.
+      </p>
+      <span class="metric-delta"><span class="arr">↓</span> −0.11 FID vs. Muon @ same compute · &gt;2× vs. AdamW</span>
+    </div>
+
+    <div class="card matters reveal d4">
+      <div class="label"><span class="idx">2</span> Why this matters</div>
+      <p class="body">
+        A <strong>near-zero-overhead</strong> chunking recipe that finally makes Muon work on DiTs — and the subspace-coupling diagnosis transfers directly to fused <strong>QKV / gate-up</strong> projections in LLMs trained with Muon.
+      </p>
+    </div>
+
+    <div class="card edge reveal d5">
+      <div class="label"><span class="idx">3</span> Critical edge</div>
+      <p class="body">
+        Evaluated <em>only</em> on class-conditional ImageNet; no text-to-image, no &gt;1B scale-up — and PixelDiT is the <em>lone negative result</em>, hand-waved away as "architecture search overfit to Adam."
+      </p>
+    </div>
+  </section>
+
+  <!-- ================= METHODOLOGY ================= -->
+  <section class="section">
+    <div class="sec-head">
+      <h2 class="sec-title"><span class="num">§ 01</span>Methodology — what CMuon actually changes</h2>
+      <span class="sec-aside">diagnose · formalize · patch</span>
+    </div>
+
+    <div class="method-grid">
+      <div class="method-col">
+        <p class="reveal d2">
+          <strong>The bug.</strong> DiT implementations fuse functionally heterogeneous parameters — <code>AdaLN scale/shift</code>, <code>QKV</code>, <code>FFN gate/up</code> — into a single 2D tensor for throughput. Vanilla Muon runs <em>one</em> Newton–Schulz orthogonalization over the whole fused matrix, forcing unrelated subspaces to share a preconditioner.
+        </p>
+        <p class="reveal d3">
+          <strong>The fix.</strong> Split those tensors back into their original sub-matrices, orthogonalize each chunk independently, concatenate — a reshape plus a per-chunk NS call. The Frobenius norm is provably preserved under Moonlight scaling; chunking only <em>redistributes</em> norm.
+        </p>
+        <p class="reveal d4">
+          <strong>Formal contrast.</strong> Stacked: <code>U_i = G_i·(Σ_j G_jᵀG_j)⁻¹ᐟ²</code> — covariances mix. Chunked: <code>U_i = G_i·(G_iᵀG_i)⁻¹ᐟ²</code> — each block keeps its own descent geometry.
+        </p>
+        <p class="reveal d5">
+          <strong>Scope.</strong> Muon/CMuon touch only 2D attention/FFN/AdaLN weights; embeddings, 1D params and the final layer stay on AdamW. Batch 1024, bf16, EMA 0.9999, constant LR.
+        </p>
+      </div>
+
+      <div class="chunk-vis reveal d4">
+        <div class="cv-label">
+          <span>Chunking scheme · DiT-XL (d = 1152)</span>
+          <span>fused → chunks</span>
+        </div>
+
+        <div class="chunk-row">
+          <div class="chunk-name">QKV proj<small>[3456, 1152]</small></div>
+          <div class="chunk-flow">
+            <span class="fused" data-dim="3456"></span>
+            <span class="arrow">→</span>
+            <span class="split"><span class="c"></span><span class="c"></span><span class="c"></span></span>
+            <span class="split-count">×3 · [1152,1152]</span>
+          </div>
+        </div>
+
+        <div class="chunk-row">
+          <div class="chunk-name">FFN gate+up<small>[6144, 1152]</small></div>
+          <div class="chunk-flow">
+            <span class="fused" data-dim="6144"></span>
+            <span class="arrow">→</span>
+            <span class="split"><span class="c"></span><span class="c"></span></span>
+            <span class="split-count">×2 · [3072,1152]</span>
+          </div>
+        </div>
+
+        <div class="chunk-row">
+          <div class="chunk-name">AdaLN mod<small>[6912, 1152]</small></div>
+          <div class="chunk-flow">
+            <span class="fused" data-dim="6912"></span>
+            <span class="arrow">→</span>
+            <span class="split"><span class="c"></span><span class="c"></span><span class="c"></span><span class="c"></span><span class="c"></span><span class="c"></span></span>
+            <span class="split-count">×6 · [1152,1152]</span>
+          </div>
+        </div>
+
+        <p style="margin:14px 0 0;font-size:11.5px;color:var(--muted);font-family:'IBM Plex Mono',monospace;border-top:1px dashed var(--hair);padding-top:10px">
+          Each colored tile = one independent Newton–Schulz pass. Concatenate the outputs → update.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= RESULTS ================= -->
+  <section class="section">
+    <div class="sec-head">
+      <h2 class="sec-title"><span class="num">§ 02</span>Results — FID across optimizers</h2>
+      <span class="sec-aside">ImageNet-1K · 30 NFE · VA-VAE</span>
+    </div>
+
+    <div class="chart-card reveal d2">
+      <div class="chart-head">
+        <div>
+          <h3 class="chart-title">Lower is better — pick a model</h3>
+          <p class="chart-sub">Bars scaled to the worst FID in view. Winners marked in vermilion.</p>
+        </div>
+        <div class="seg" role="tablist" aria-label="model selector">
+          <button data-model="xl" class="active">DiT-XL 675M</button>
+          <button data-model="b">DiT-B 130M</button>
+        </div>
+      </div>
+
+      <div class="legend">
+        <span><span class="sw" style="background:var(--accent)"></span>CMuon</span>
+        <span><span class="sw" style="background:#2a2a30"></span>vanilla Muon</span>
+        <span><span class="sw" style="background:#9a948a"></span>AdamW</span>
+      </div>
+
+      <div class="chart" id="chart"></div>
+
+      <p class="axis-note" id="axisNote">
+        DiT-XL: CMuon reaches FID 1.18 at 200 ep — AdamW needs 400 ep just to hit 1.21.
+      </p>
+    </div>
+
+    <ul class="results-list reveal d4">
+      <li><strong>DiT-B 130M @ 200 ep</strong> — CMuon <code>3.03</code> vs Muon <code>3.31</code> vs AdamW <code>3.49</code>; gap widens by 400 ep.</li>
+      <li><strong>SD-VAE swap (DiT-B)</strong> — CMuon <code>3.06</code> beats Muon 3.30 and AdamW 3.60; robustness across VAEs.</li>
+      <li><strong>512² transfer (675M, DC-AE, 400 ep)</strong> — CMuon <code>1.60</code> &lt; Muon 1.65 &lt; AdamW 1.67.</li>
+      <li><strong>Throughput on 8× H100</strong> — CMuon <code>9.07</code>/<code>2.30</code> it/s (B/XL) ≈ Adam's <code>9.51</code>/<code>2.32</code>; near-zero cost.</li>
+      <li><strong>LR scaling ablation</strong> — MoonLight wins; vanilla unscaled is catastrophic (FID 8.73/6.94). CMuon beats Muon in every regime.</li>
+      <li><strong>√N_chunk rescale</strong> — complementary: at 80 ep CMuon+rescale hits <code>1.46</code>, the best early-stage number.</li>
+      <li><strong>PixelDiT (797M, 160 ep) — negative.</strong> AdamW <code>2.50</code> &gt; CMuon 2.56; authors blame Adam-tuned architecture search.</li>
+      <li><strong>LR sweep (DiT-XL, 200 ep)</strong> — 2×10⁻⁴ near-optimal for both; CMuon @ 140 ep already matches AdamW @ 200 ep.</li>
+    </ul>
+  </section>
+
+  <!-- ================= STRENGTHS / LIMITATIONS ================= -->
+  <section class="section">
+    <div class="sec-head">
+      <h2 class="sec-title"><span class="num">§ 03</span>Strengths &amp; limitations</h2>
+      <span class="sec-aside">side-by-side · not equal weight</span>
+    </div>
+
+    <div class="twocol">
+      <div class="panel pro reveal d2">
+        <h3>Strengths <span class="tag">+ pro</span></h3>
+        <ul>
+          <li><strong>Mechanism-level diagnosis</strong> — names the exact failure mode (subspace coupling through fused tensors) instead of an empirical trick.</li>
+          <li><strong>Zero-overhead change</strong> — a reshape + per-chunk NS call; throughput stays at Adam-parity on 8× H100.</li>
+          <li><strong>Ablation discipline</strong> — every claim (which blocks, which LR scaling, rescale switch, LR value, VAE) is backed by a controlled table.</li>
+          <li><strong>Principled, not heuristic</strong> — norm-preservation holds under Moonlight scaling; chunking only redistributes Frobenius norm.</li>
+          <li><strong>Sustained, not transient</strong> — gains hold to 400 epochs, unlike vanilla Muon which plateaus.</li>
+        </ul>
+      </div>
+
+      <div class="panel con reveal d3">
+        <h3>Limitations <span class="tag">– con</span></h3>
+        <ul>
+          <li><strong>Eval is narrow</strong> — only class-conditional ImageNet (256 &amp; 512); no text-to-image, no video, no &gt;1B scale.</li>
+          <li><strong>Theory is thin</strong> — subspace-interference is a toy example + Frobenius identity; no convergence or coupling-distortion bound.</li>
+          <li><strong>PixelDiT hand-waved</strong> — the only non-latent setting is a negative result, explained away without an independent test.</li>
+          <li><strong>No public code</strong> mentioned in the paper text — a reproducibility concern.</li>
+          <li><strong>Absolute FID gain is modest</strong> — 0.03 over fully-trained AdamW; the headline value is compute halving, not asymptotic quality.</li>
+          <li><strong>Chunk granularity unjustified</strong> — why 6 for AdaLN? No per-layer chunk-count ablation; could be sub-optimal.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= QUESTIONS ================= -->
+  <section class="section">
+    <div class="sec-head">
+      <h2 class="sec-title"><span class="num">§ 04</span>Open questions</h2>
+      <span class="sec-aside">where this could go next</span>
+    </div>
+
+    <div class="qlist">
+      <div class="qcard reveal d2"><p>Does chunking also help Muon variants — <em>Scion, Gluon, PolarExpress</em> — or is the effect specific to vanilla Newton–Schulz?</p></div>
+      <div class="qcard reveal d3"><p>Can the subspace-interference diagnosis become a <em>convergence-rate bound</em> that predicts when chunking helps vs. when it is neutral?</p></div>
+      <div class="qcard reveal d4"><p>Does the same trick transfer to fused <em>QKV / gate-up</em> in decoder-only LLMs trained with Muon (Moonlight, Kimi-K2 setup)?</p></div>
+      <div class="qcard reveal d5"><p>What is the optimal per-layer chunk count — is there a principled rule from <em>singular-value spectra</em> or initialization variance?</p></div>
+      <div class="qcard reveal d6"><p>How does CMuon behave at <em>&gt;1B scale</em> and on text-to-image / video, where AdamW + REPA currently dominates?</p></div>
+      <div class="qcard reveal d7"><p>Can the PixelDiT negative result be reproduced on a <em>non-Adam-tuned</em> architecture search to actually test the "overfit to Adam" claim?</p></div>
+    </div>
+  </section>
+
+  <footer class="foot">
+    <a class="src" href="./2608.02502.md">↗ Markdown source</a>
+    <span class="verify">arxiv-daily · single-paper dashboard · not browser-verified</span>
+  </footer>
+
+</main>
+
+<script>
+/* ---------- data + interactive chart ---------- */
+const DATA = {
+  xl: {
+    title: "DiT-XL 675M · ImageNet 256² · VA-VAE · 30 NFE",
+    axisNote: "DiT-XL: CMuon reaches FID 1.18 at 200 ep — AdamW needs 400 ep just to hit 1.21.",
+    groups: [
+      {
+        label: "200 epochs", epoch: "(same compute budget)",
+        bars: [
+          { name:"CMuon", val:1.18, cls:"opt-cmuon", win:true },
+          { name:"Muon",  val:1.29, cls:"opt-muon" },
+          { name:"AdamW", val:null, cls:"opt-adam", note:"not converged" }
+        ]
+      },
+      {
+        label: "400 epochs", epoch: "(AdamW parity)",
+        bars: [
+          { name:"CMuon", val:null, cls:"opt-cmuon", note:"already converged" },
+          { name:"Muon",  val:null, cls:"opt-muon",  note:"stalled" },
+          { name:"AdamW", val:1.21, cls:"opt-adam" }
+        ]
+      }
+    ]
+  },
+  b: {
+    title: "DiT-B 130M · ImageNet 256² · VA-VAE · 30 NFE",
+    axisNote: "DiT-B @ 200 ep: CMuon 3.03 vs Muon 3.31 vs AdamW 3.49 — gap widens by 400 ep.",
+    groups: [
+      {
+        label: "200 epochs", epoch: "",
+        bars: [
+          { name:"CMuon", val:3.03, cls:"opt-cmuon", win:true },
+          { name:"Muon",  val:3.31, cls:"opt-muon" },
+          { name:"AdamW", val:3.49, cls:"opt-adam" }
+        ]
+      },
+      {
+        label: "400 epochs", epoch: "",
+        bars: [
+          { name:"CMuon", val:2.57, cls:"opt-cmuon", win:true },
+          { name:"AdamW", val:2.78, cls:"opt-adam" }
+        ]
+      }
+    ]
+  }
+};
+
+const chart = document.getElementById('chart');
+const axisNote = document.getElementById('axisNote');
+const seg = document.querySelector('.seg');
+
+function maxVal(model){
+  let m = 0;
+  model.groups.forEach(g => g.bars.forEach(b => { if(b.val!=null) m = Math.max(m, b.val); }));
+  return m;
+}
+
+function render(key){
+  const model = DATA[key];
+  document.querySelector('.chart-title').textContent = model.title;
+  axisNote.textContent = model.axisNote;
+  const max = maxVal(model) * 1.08;
+  chart.innerHTML = '';
+  model.groups.forEach((g, gi) => {
+    const group = document.createElement('div');
+    group.className = 'bar-group';
+    const lbl = document.createElement('div');
+    lbl.className = 'glabel';
+    lbl.innerHTML = `<span>${g.label}</span><span class="epoch">${g.epoch||''}</span>`;
+    group.appendChild(lbl);
+
+    g.bars.forEach((b, bi) => {
+      const row = document.createElement('div');
+      row.className = 'bar ' + b.cls;
+      const pct = b.val!=null ? (b.val / max * 100) : 0;
+      const valText = b.val!=null ? b.val.toFixed(2) : (b.note ? '—' : '');
+      row.innerHTML = `
+        <span class="name ${b.win?'win':''}">${b.name}${b.win?' ★':''}</span>
+        <span class="track"><span class="fill" style="width:0%"></span></span>
+        <span class="val ${b.win?'win':''}" title="${b.note||''}">${valText}</span>
+      `;
+      group.appendChild(row);
+    });
+    chart.appendChild(group);
+  });
+
+  // animate fills
+  requestAnimationFrame(() => {
+    const fills = chart.querySelectorAll('.bar');
+    const model2 = model;
+    fills.forEach((row, gi) => {
+      const groupIdx = Math.floor(gi / 0); // unused
+    });
+    chart.querySelectorAll('.bar-group').forEach((g, gi) => {
+      g.bars; // noop
+    });
+    let i = 0;
+    chart.querySelectorAll('.bar').forEach(row => {
+      const fill = row.querySelector('.fill');
+      // pull the value back from the data via ordering
+    });
+    // simpler: re-walk data and apply widths
+    let rows = chart.querySelectorAll('.bar');
+    let idx = 0;
+    model.groups.forEach(g => {
+      g.bars.forEach(b => {
+        const fill = rows[idx].querySelector('.fill');
+        const pct = b.val!=null ? (b.val / max * 100) : 0;
+        setTimeout(() => { fill.style.width = pct + '%'; }, 80 + idx*60);
+        idx++;
+      });
+    });
+  });
+}
+
+seg.addEventListener('click', e => {
+  const btn = e.target.closest('button');
+  if(!btn) return;
+  seg.querySelectorAll('button').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  render(btn.dataset.model);
+});
+
+render('xl');
+</script>
+</body>
+</html>

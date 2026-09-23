@@ -1,0 +1,550 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Runtime Observability for Heterogeneous Attention Memory · 2608.05863</title>
+<style>
+  :root {
+    --bg: #0b0d10;
+    --panel: #14171c;
+    --panel-2: #1a1e25;
+    --ink: #e8eaed;
+    --ink-dim: #9aa0a8;
+    --ink-faint: #6b7178;
+    --line: #262b33;
+    --accent: #14b8a6;
+    --accent-soft: rgba(20, 184, 166, 0.14);
+    --accent-line: rgba(20, 184, 166, 0.45);
+    --warn: #f59e0b;
+    --warn-soft: rgba(245, 158, 11, 0.12);
+    --danger: #f43f5e;
+    --danger-soft: rgba(244, 63, 94, 0.10);
+    --ok: #4ade80;
+    --ok-soft: rgba(74, 222, 128, 0.10);
+    --shadow: 0 1px 0 rgba(255,255,255,0.03), 0 8px 30px rgba(0,0,0,0.35);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background:
+      radial-gradient(1200px 600px at 85% -10%, rgba(20,184,166,0.07), transparent 60%),
+      radial-gradient(900px 500px at -10% 0%, rgba(244,63,94,0.05), transparent 55%),
+      var(--bg);
+    color: var(--ink);
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    font-size: 15px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  .mono { font-family: ui-monospace, "SF Mono", "JetBrains Mono", "Fira Code", Menlo, Consolas, monospace; }
+  .wrap {
+    max-width: min(95vw, 1100px);
+    margin: 0 auto;
+    padding: 28px 22px 60px;
+  }
+
+  /* top bar */
+  .topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 22px;
+    font-size: 13px;
+    color: var(--ink-dim);
+  }
+  .topbar a {
+    color: var(--ink-dim);
+    text-decoration: none;
+    border: 1px solid var(--line);
+    padding: 6px 12px;
+    border-radius: 999px;
+    transition: color .15s, border-color .15s, background .15s;
+  }
+  .topbar a:hover { color: var(--accent); border-color: var(--accent-line); background: var(--accent-soft); }
+  .badge {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 12px; color: var(--ink-faint);
+  }
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 10px var(--accent); }
+
+  /* hero */
+  .hero {
+    position: relative;
+    background: linear-gradient(180deg, var(--panel-2), var(--panel));
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    padding: 34px 34px 30px;
+    overflow: hidden;
+    box-shadow: var(--shadow);
+  }
+  .hero::before {
+    content: "";
+    position: absolute; inset: 0;
+    background:
+      linear-gradient(90deg, transparent 0, transparent calc(100% - 1px), var(--line) 100%) 0 0 / 8.33% 100%,
+      linear-gradient(0deg, transparent 0, transparent calc(100% - 1px), rgba(38,43,51,0.5) 100%) 0 0 / 100% 25%;
+    opacity: .35;
+    pointer-events: none;
+    mask: linear-gradient(180deg, black, transparent 70%);
+  }
+  .hero-meta {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 10px;
+    font-size: 12px; color: var(--ink-faint);
+    margin-bottom: 14px;
+    position: relative;
+  }
+  .chip {
+    border: 1px solid var(--line);
+    padding: 3px 9px;
+    border-radius: 999px;
+    color: var(--ink-dim);
+    background: rgba(255,255,255,0.02);
+  }
+  .chip.accent { color: var(--accent); border-color: var(--accent-line); background: var(--accent-soft); }
+  .arxiv-id { color: var(--accent); letter-spacing: .02em; }
+
+  h1.title {
+    font-size: clamp(24px, 3.4vw, 36px);
+    line-height: 1.18;
+    margin: 0 0 10px;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    position: relative;
+  }
+  .authors { color: var(--ink-dim); font-size: 14px; margin-bottom: 18px; position: relative; }
+  .authors .affil { color: var(--ink-faint); font-style: italic; }
+
+  .keyfinding {
+    position: relative;
+    border-left: 3px solid var(--accent);
+    padding: 12px 16px;
+    background: var(--accent-soft);
+    border-radius: 0 10px 10px 0;
+    font-size: 16px;
+    color: var(--ink);
+  }
+  .keyfinding .label {
+    display: block;
+    font-size: 11px;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 4px;
+    font-weight: 600;
+  }
+
+  /* asset row */
+  .asset-row {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+    margin: 18px 0 22px;
+  }
+  @media (max-width: 880px) { .asset-row { grid-template-columns: repeat(2, 1fr); } }
+  @media (max-width: 520px) { .asset-row { grid-template-columns: 1fr; } }
+  .asset {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 16px 16px 14px;
+    position: relative;
+    overflow: hidden;
+    transition: transform .15s, border-color .15s;
+  }
+  .asset:hover { transform: translateY(-2px); border-color: var(--accent-line); }
+  .asset .tag {
+    display: flex; align-items: center; gap: 7px;
+    font-size: 10.5px;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    font-weight: 700;
+    margin-bottom: 9px;
+  }
+  .asset .tag .ico { width: 8px; height: 8px; border-radius: 2px; }
+  .asset.metric .tag { color: var(--accent); }
+  .asset.metric .tag .ico { background: var(--accent); }
+  .asset.why .tag { color: var(--ok); }
+  .asset.why .tag .ico { background: var(--ok); }
+  .asset.edge .tag { color: var(--warn); }
+  .asset.edge .tag .ico { background: var(--warn); }
+  .asset.finding .tag { color: #c084fc; }
+  .asset.finding .tag .ico { background: #c084fc; }
+
+  .asset .body { font-size: 13.5px; color: var(--ink); }
+  .asset .num {
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 24px;
+    font-weight: 700;
+    color: var(--accent);
+    line-height: 1.1;
+    margin: 2px 0 6px;
+    letter-spacing: -0.01em;
+  }
+  .asset .sub { font-size: 12px; color: var(--ink-dim); }
+  .asset.edge .body { color: #fde68a; }
+
+  /* body grid */
+  .grid {
+    display: grid;
+    grid-template-columns: 1.35fr 1fr;
+    gap: 14px;
+  }
+  @media (max-width: 880px) { .grid { grid-template-columns: 1fr; } }
+
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 20px 22px;
+  }
+  .card h2 {
+    font-size: 12px;
+    letter-spacing: .16em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    margin: 0 0 14px;
+    font-weight: 700;
+    display: flex; align-items: center; gap: 9px;
+  }
+  .card h2::before {
+    content: ""; width: 18px; height: 2px; background: var(--accent); display: inline-block;
+  }
+  .card h3 { font-size: 14px; margin: 16px 0 6px; color: var(--ink); font-weight: 600; }
+
+  /* methodology visual */
+  .ops {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+    margin: 6px 0 14px;
+  }
+  .op {
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 10px 8px;
+    text-align: center;
+    background: rgba(255,255,255,0.015);
+  }
+  .op .name { font-size: 12px; color: var(--accent); font-weight: 600; }
+  .op .contract { font-family: ui-monospace, monospace; font-size: 11px; color: var(--ink-dim); margin-top: 3px; }
+  .op .arrow { color: var(--ink-faint); }
+
+  .contract-eq {
+    font-family: ui-monospace, monospace;
+    background: var(--accent-soft);
+    border: 1px solid var(--accent-line);
+    color: var(--ink);
+    padding: 10px 14px;
+    border-radius: 8px;
+    font-size: 13px;
+    margin: 8px 0 12px;
+    overflow-x: auto;
+  }
+
+  ul.clean { list-style: none; padding: 0; margin: 0; }
+  ul.clean li {
+    padding: 7px 0 7px 22px;
+    position: relative;
+    font-size: 13.5px;
+    color: var(--ink-dim);
+    border-bottom: 1px dashed var(--line);
+  }
+  ul.clean li:last-child { border-bottom: none; }
+  ul.clean li::before {
+    content: ""; position: absolute; left: 4px; top: 14px;
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--accent);
+  }
+  ul.clean li b { color: var(--ink); font-weight: 600; }
+
+  /* metric strips */
+  .metric-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+  .metric-cell {
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 12px 14px;
+    background: rgba(255,255,255,0.015);
+  }
+  .metric-cell .v {
+    font-family: ui-monospace, monospace;
+    font-size: 18px; font-weight: 700; color: var(--accent);
+    letter-spacing: -0.01em;
+  }
+  .metric-cell .k { font-size: 11.5px; color: var(--ink-fim); color: var(--ink-dim); margin-top: 4px; }
+
+  /* diagnosis timeline */
+  .dx {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin: 10px 0 4px;
+  }
+  .dx .row {
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 10px 12px;
+    font-size: 12.5px;
+  }
+  .dx .row.bad { background: var(--danger-soft); border-color: rgba(244,63,94,0.35); }
+  .dx .row.good { background: var(--ok-soft); border-color: rgba(74,222,128,0.30); }
+  .dx .row .lbl { font-size: 10.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--ink-faint); }
+  .dx .row.bad .lbl { color: var(--danger); }
+  .dx .row.good .lbl { color: var(--ok); }
+  .dx .row .val { font-family: ui-monospace, monospace; font-size: 15px; color: var(--ink); margin-top: 2px; }
+
+  /* tier ladder */
+  .tiers { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
+  .tier {
+    display: grid;
+    grid-template-columns: 110px 1fr;
+    gap: 10px;
+    align-items: center;
+    padding: 9px 12px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    font-size: 12.5px;
+  }
+  .tier .label { font-weight: 700; font-size: 12px; letter-spacing: .03em; }
+  .tier.t1 .label { color: var(--ok); }
+  .tier.t2 .label { color: var(--warn); }
+  .tier.t3 .label { color: var(--ink-dim); }
+  .tier .desc { color: var(--ink-dim); }
+  .tier.t1 { border-color: rgba(74,222,128,0.30); background: var(--ok-soft); }
+  .tier.t2 { border-color: rgba(245,158,11,0.30); background: var(--warn-soft); }
+  .tier.t3 { background: rgba(255,255,255,0.02); }
+
+  /* footer */
+  .footer {
+    margin-top: 26px;
+    padding-top: 16px;
+    border-top: 1px solid var(--line);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 12.5px;
+    color: var(--ink-faint);
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+  .footer a { color: var(--accent); text-decoration: none; }
+  .footer a:hover { text-decoration: underline; }
+
+  .footnote { font-size: 12px; color: var(--ink-faint); margin-top: 14px; font-style: italic; }
+
+  /* tiny entrance */
+  .reveal { opacity: 0; transform: translateY(6px); animation: rise .5s ease forwards; }
+  @keyframes rise { to { opacity: 1; transform: none; } }
+  .d1 { animation-delay: .03s; } .d2 { animation-delay: .08s; } .d3 { animation-delay: .13s; }
+  .d4 { animation-delay: .18s; } .d5 { animation-delay: .23s; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="topbar">
+    <a href="./index.html">↩ Today's digest</a>
+    <span class="badge"><span class="dot"></span> 2026-08-06 · cs.LG / cs.DC</span>
+  </div>
+
+  <!-- HERO -->
+  <section class="hero reveal d1">
+    <div class="hero-meta">
+      <span class="chip accent">PAPER DASHBOARD</span>
+      <span class="chip mono arxiv-id">arXiv:2608.05863</span>
+      <span class="chip">attention-memory</span>
+      <span class="chip">runtime-observability</span>
+      <span class="chip">lean-machine-checked</span>
+      <span class="chip">kv-cache-compression</span>
+    </div>
+    <h1 class="title">Runtime Observability for Heterogeneous Attention Memory</h1>
+    <div class="authors">
+      Fanzhe Wei · Li Liu · Ziyang Wang · Chenyu Wang &nbsp;—&nbsp; <span class="affil">Metask Lab</span>
+      &nbsp;·&nbsp; <a class="mono" style="color:var(--accent);" href="https://arxiv.org/abs/2608.05863">arxiv.org/abs/2608.05863</a>
+    </div>
+
+    <div class="keyfinding">
+      <span class="label">★ Key Finding</span>
+      The error metric is promoted into the <b>type</b> of an attention-memory contract, so illegal compositions of heterogeneous memory (dense KV, MLA, sparse selectors) fail by construction — and the method caught the authors' own first attempt.
+    </div>
+  </section>
+
+  <!-- ASSET ROW -->
+  <section class="asset-row">
+    <div class="asset finding reveal d2">
+      <div class="tag"><span class="ico"></span> Core Claim</div>
+      <div class="body">Three operators (update / select / read) each carry a typed local contract; composition is defined only when metrics match.</div>
+    </div>
+    <div class="asset metric reveal d2">
+      <div class="tag"><span class="ico"></span> Key Metric</div>
+      <div class="num">−0.94%</div>
+      <div class="sub">throughput cost of always-on fused probe (1/28 layers), inside noise floor; TTFT P99 <span class="mono">−0.14%</span>.</div>
+    </div>
+    <div class="asset why reveal d3">
+      <div class="tag"><span class="ico"></span> Why This Matters</div>
+      <div class="body">A machine-decided certified / empirical diagnostic paradigm for any team introducing compressed or structured attention (MLA, NSA, GLA) into an LLM serving stack.</div>
+    </div>
+    <div class="asset edge reveal d3">
+      <div class="tag"><span class="ico"></span> Critical Edge</div>
+      <div class="body">The headline "request-level risk ledger" is sound but <b>currently vacuous</b> — summed TV budget over 43 layers = <span class="mono">36.3</span>, no end-to-end bound.</div>
+    </div>
+  </section>
+
+  <!-- BODY GRID -->
+  <section class="grid">
+
+    <!-- LEFT COLUMN -->
+    <div class="card reveal d4">
+      <h2>The Contract, Visualised</h2>
+      <p style="margin:0 0 10px; color:var(--ink-dim); font-size:13.5px;">
+        Any attention memory is reduced to three operators. Each carries an affine local contract with an explicit failure budget:
+      </p>
+      <div class="contract-eq">e_out ≤ a · e_in + b &nbsp;&nbsp;(fails with prob. ≤ δ)</div>
+
+      <div class="ops">
+        <div class="op">
+          <div class="name">UPDATE</div>
+          <div class="contract">(a₁, b₁, δ₁)</div>
+        </div>
+        <div class="op">
+          <div class="name">SELECT</div>
+          <div class="contract">(a₂, b₂, δ₂)</div>
+        </div>
+        <div class="op">
+          <div class="name">READ</div>
+          <div class="contract">(a₃, b₃, δ₃)</div>
+        </div>
+      </div>
+
+      <div class="contract-eq" style="font-size:12px;">
+        (a₂,b₂) ∘ (a₁,b₁) = (a₂·a₁, a₂·b₁ + b₂) &nbsp;;&nbsp; Σᵢ δᵢ ≤ δ_req
+      </div>
+
+      <h3>What makes it do work</h3>
+      <ul class="clean">
+        <li><b>Metric-as-type.</b> A dimensionless storage ratio summed into attention total-variation is rejected at Lean elaboration — the checker killed the authors' own first composed chain.</li>
+        <li><b>Three-tier strength.</b> Every metric registers as <span style="color:var(--ok)">certified</span> / <span style="color:var(--warn)">partially certified</span> / <span style="color:var(--ink-dim)">empirical</span>. Composition inherits the weakest tier — the system refuses to print "end-to-end certified" unless every stage earns it.</li>
+        <li><b>Telescoping budget.</b> δᵢ = δ_req / ((i+1)(i+2)) — sound at unknown request length; machine-checked theorem.</li>
+        <li><b>CUDA-graph fused meter.</b> 24.2× cheaper per invocation; max relative error <span class="mono">9.3e-7</span>.</li>
+      </ul>
+    </div>
+
+    <!-- RIGHT COLUMN -->
+    <div class="card reveal d4">
+      <h2>Numbers That Anchor</h2>
+      <div class="metric-grid">
+        <div class="metric-cell">
+          <div class="v">99.40%</div>
+          <div class="k">top-1 rank-prefix stability, V4-Flash page-level top-512</div>
+        </div>
+        <div class="metric-cell">
+          <div class="v">12.4M</div>
+          <div class="k">entry reads replayed across 21 sparse-selection layers</div>
+        </div>
+        <div class="metric-cell">
+          <div class="v">8.7×</div>
+          <div class="k">certified-object upgrade (7.8% → 67.5% pre-auth rate)</div>
+        </div>
+        <div class="metric-cell">
+          <div class="v">0.009984</div>
+          <div class="k">max Σδ under 8-way concurrency (≤ δ_req = 0.01)</div>
+        </div>
+      </div>
+
+      <h2 style="margin-top:22px;">Strength Ladder</h2>
+      <div class="tiers">
+        <div class="tier t1">
+          <span class="label">CERTIFIED</span>
+          <span class="desc">Lean/mathlib proof over finite product space; no measure-theoretic axioms.</span>
+        </div>
+        <div class="tier t2">
+          <span class="label">PARTIALLY CERT.</span>
+          <span class="desc">Local lemmas hold; inter-layer bridge not yet claimed.</span>
+        </div>
+        <div class="tier t3">
+          <span class="label">EMPIRICAL</span>
+          <span class="desc">Selector-score → attention-mass ratio measured, priced in via tier demotion.</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- FULL-WIDTH DIAGNOSIS -->
+    <div class="card reveal d5" style="grid-column: 1 / -1;">
+      <h2>Production Diagnosis · DeepSeek-V4 Stack</h2>
+      <p style="margin:0 0 12px; color:var(--ink-dim); font-size:13.5px;">
+        A packed compressed-KV prototype silently regressed retrieval by 95 points — radix caching had been masking it. Every validity flag stayed green. The adjudication calculus localized the cause to <b>slot reuse without invalidation</b>, not quantization.
+      </p>
+      <div class="dx">
+        <div class="row bad">
+          <div class="lbl">Observed failure regime</div>
+          <div class="val">1.000 → 0.500 · all flags green</div>
+        </div>
+        <div class="row good">
+          <div class="lbl">Eviction-free + identity-isolated</div>
+          <div class="val">1.000 · 3 independent 12-doc rounds</div>
+        </div>
+        <div class="row bad">
+          <div class="lbl">Quantizer intrinsic rel. error</div>
+          <div class="val">0.0245 · unreachable from readings</div>
+        </div>
+        <div class="row good">
+          <div class="lbl">Causal confirmation (4-way concurrency)</div>
+          <div class="val">1.000 vs 0.200 · two-sided</div>
+        </div>
+      </div>
+      <div class="footnote">The path-contract matrix: prefill/decode disaggregation's packed arm returns 0.000 with zero transport errors — "structurally green and semantically wrong".</div>
+    </div>
+
+    <!-- METHODOLOGY + ASSESSMENT split -->
+    <div class="card reveal d5">
+      <h2>Honest Disclosure</h2>
+      <ul class="clean">
+        <li><b>Vacuous headline ledger.</b> Summed per-layer TV = <span class="mono">36.3</span>; the "request-level risk budget" produces no non-trivial end-to-end number today.</li>
+        <li><b>Tiny quality samples.</b> Greedy-decoding across two restarts disagrees on 2/8 prompts; quality story is "consistent with a protective effect", not evidence.</li>
+        <li><b>Cost-benefit withheld.</b> Staged consumer runs at 0.884× throughput; no end-to-end serving win is claimed anywhere.</li>
+        <li><b>Open mediator.</b> "Eviction alone does not force failure" (one 91-eviction run scores 1.000); microscopic mechanism left open.</li>
+        <li><b>Private injection code.</b> Architecture-specific hooks/adapters/kernels are private; artifact-and-guard chain is the verifiable surface, not a rerun claim.</li>
+        <li><b>No institutional affiliation.</b> "Metask Lab" with personal Gmail addresses — unusual for this engineering depth.</li>
+      </ul>
+    </div>
+
+    <div class="card reveal d5">
+      <h2>Open Questions</h2>
+      <ul class="clean">
+        <li><b>Inter-layer bridge.</b> Can per-layer attention-TV bounds compose into an output-distance bound, or is the boundary fundamental?</li>
+        <li><b>Eviction mediator.</b> Can a <span class="mono">(slot, generation)</span> premise be enforced cheaply enough to make eviction-safe consumption <i>certifiable</i>, not just observable?</li>
+        <li><b>Cost closure.</b> At what eviction rate does the packed INT6 pool's 2,108 MiB/GPU saving become a real throughput win?</li>
+        <li><b>Generalisation.</b> Does metric-as-type catch illegal compositions in MoE routing, draft verification, or RAG indices?</li>
+        <li><b>Full coverage.</b> Can the fused meter extend from 1 to all 28 layers and stay inside the noise floor?</li>
+      </ul>
+    </div>
+
+  </section>
+
+  <div class="footer">
+    <span>Dashboard generated from source summary · 2026-08-07</span>
+    <a href="./2608.05863.md">↗ Markdown source</a>
+  </div>
+
+</div>
+
+<script>
+  // Subtle: stagger reveals on scroll into view (progressive enhancement)
+  (function () {
+    var els = document.querySelectorAll('.reveal');
+    if (!('IntersectionObserver' in window)) return;
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (e) {
+        if (e.isIntersecting) { e.target.style.animationPlayState = 'running'; io.unobserve(e.target); }
+      });
+    }, { threshold: 0.08 });
+    els.forEach(function (el) { el.style.animationPlayState = 'paused'; io.observe(el); });
+  })();
+</script>
+</body>
+</html>

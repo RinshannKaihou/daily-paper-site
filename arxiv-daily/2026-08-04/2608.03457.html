@@ -1,0 +1,1010 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>LLaDA MoE v2 — Scaling Mixture-of-Experts Diffusion Language Models</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Sans:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,700&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --bg: #F5F2EA;
+    --bg-2: #EFEBE0;
+    --ink: #14141A;
+    --ink-2: #2A2A33;
+    --mute: #6B6760;
+    --rule: #D9D4C7;
+    --rule-2: #C8C2B2;
+    --accent: #C8412B;
+    --accent-dim: #E07A5F;
+    --accent-soft: #F4D9D1;
+    --good: #2D6A4F;
+    --bad: #9B2226;
+    --paper: #FBFAF5;
+    --shadow: 0 1px 0 var(--rule), 0 0 0 1px var(--rule);
+    --maxw: min(95vw, 1100px);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: "IBM Plex Sans", -apple-system, sans-serif;
+    font-size: 15px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+    background-image:
+      radial-gradient(circle at 1px 1px, rgba(20,20,26,0.035) 1px, transparent 0);
+    background-size: 18px 18px;
+  }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; text-underline-offset: 3px; }
+
+  .wrap { max-width: var(--maxw); margin: 0 auto; padding: 0 24px; }
+
+  /* ============ TOP BAR ============ */
+  .topbar {
+    border-bottom: 1px solid var(--rule);
+    background: var(--bg);
+    position: sticky; top: 0; z-index: 50;
+    backdrop-filter: saturate(120%);
+  }
+  .topbar-inner {
+    max-width: var(--maxw); margin: 0 auto;
+    padding: 12px 24px;
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 16px;
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 12px;
+    letter-spacing: 0.02em;
+  }
+  .back-link {
+    color: var(--ink);
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 6px 10px;
+    border: 1px solid var(--rule-2);
+    border-radius: 3px;
+    background: var(--paper);
+    transition: border-color .15s, color .15s;
+  }
+  .back-link:hover { color: var(--accent); border-color: var(--accent); text-decoration: none; }
+  .topbar-meta { color: var(--mute); display: flex; gap: 14px; align-items: center; }
+  .topbar-meta .dot { color: var(--rule-2); }
+  .topbar-meta .arxiv { color: var(--ink); font-weight: 500; }
+
+  /* ============ HERO BAND ============ */
+  .hero {
+    border-bottom: 1px solid var(--rule);
+    padding: 56px 0 40px;
+    position: relative;
+  }
+  .hero::before {
+    content: "";
+    position: absolute; top: 0; left: 0; right: 0; height: 4px;
+    background: var(--accent);
+  }
+  .hero .eyebrow {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 14px;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .hero .eyebrow .tag {
+    background: var(--accent);
+    color: var(--paper);
+    padding: 3px 8px;
+    border-radius: 2px;
+    letter-spacing: 0.1em;
+  }
+  .hero h1 {
+    font-family: "Space Grotesk", sans-serif;
+    font-weight: 600;
+    font-size: clamp(28px, 4.5vw, 46px);
+    line-height: 1.05;
+    letter-spacing: -0.02em;
+    margin: 0 0 18px;
+    color: var(--ink);
+  }
+  .hero h1 .accent { color: var(--accent); font-style: italic; font-family: "Fraunces", serif; font-weight: 500; }
+  .authors {
+    font-size: 13px;
+    color: var(--mute);
+    margin-bottom: 24px;
+    line-height: 1.5;
+  }
+  .authors strong { color: var(--ink-2); font-weight: 500; }
+  .key-finding {
+    border-left: 3px solid var(--accent);
+    padding: 4px 0 4px 20px;
+    margin-top: 28px;
+    max-width: 880px;
+  }
+  .key-finding .label {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 10px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 8px;
+    font-weight: 500;
+  }
+  .key-finding p {
+    font-family: "Fraunces", serif;
+    font-weight: 400;
+    font-size: clamp(18px, 2vw, 22px);
+    line-height: 1.4;
+    color: var(--ink);
+    margin: 0;
+    font-variation-settings: "opsz" 60;
+  }
+
+  /* ============ ASSET ROW (3 cards) ============ */
+  .asset-row {
+    display: grid;
+    grid-template-columns: 1.1fr 1fr 1fr;
+    gap: 1px;
+    background: var(--rule);
+    border-bottom: 1px solid var(--rule);
+  }
+  .card {
+    background: var(--paper);
+    padding: 28px 24px;
+    position: relative;
+  }
+  .card .kicker {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 10px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--mute);
+    margin-bottom: 16px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .card .kicker .swatch {
+    width: 10px; height: 10px;
+    background: var(--accent);
+    display: inline-block;
+  }
+  .card.metric .kicker .swatch { background: var(--accent); }
+  .card.why .kicker .swatch { background: var(--ink); }
+  .card.edge .kicker .swatch { background: var(--bad); }
+
+  .card.metric .number {
+    font-family: "Space Grotesk", sans-serif;
+    font-weight: 700;
+    font-size: clamp(56px, 8vw, 88px);
+    line-height: 0.9;
+    letter-spacing: -0.04em;
+    color: var(--accent);
+    margin: 4px 0 8px;
+  }
+  .card.metric .number .unit {
+    font-size: 0.28em;
+    color: var(--mute);
+    font-weight: 500;
+    letter-spacing: 0;
+    margin-left: 4px;
+    vertical-align: top;
+    position: relative; top: 14px;
+  }
+  .card.metric .caption {
+    font-size: 13px;
+    color: var(--ink-2);
+    line-height: 1.5;
+  }
+  .card.metric .caption strong { color: var(--ink); }
+  .card.metric .submetrics {
+    margin-top: 14px;
+    display: flex; flex-wrap: wrap;
+    gap: 14px 18px;
+    padding-top: 14px;
+    border-top: 1px dashed var(--rule-2);
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 12px;
+  }
+  .card.metric .submetrics div { color: var(--mute); }
+  .card.metric .submetrics div b { color: var(--good); font-weight: 600; }
+  .card.metric .submetrics div span { color: var(--ink); font-weight: 500; }
+
+  .card.why p, .card.edge p {
+    font-family: "Fraunces", serif;
+    font-size: 17px;
+    line-height: 1.45;
+    color: var(--ink);
+    margin: 0;
+    font-variation-settings: "opsz" 40;
+  }
+  .card.edge p { font-size: 16px; }
+  .card.edge .warn-list {
+    margin: 14px 0 0;
+    padding: 0;
+    list-style: none;
+    font-size: 13px;
+    color: var(--ink-2);
+  }
+  .card.edge .warn-list li {
+    padding: 6px 0;
+    border-top: 1px dashed var(--rule-2);
+    display: flex; gap: 8px;
+  }
+  .card.edge .warn-list li:first-child { border-top: none; padding-top: 0; }
+  .card.edge .warn-list li::before {
+    content: "!";
+    color: var(--bad);
+    font-weight: 700;
+    font-family: "IBM Plex Mono", monospace;
+    flex-shrink: 0;
+  }
+
+  /* ============ BODY ============ */
+  .body-section { padding: 48px 0 24px; }
+  .section-nav {
+    display: flex;
+    gap: 4px;
+    flex-wrap: wrap;
+    margin-bottom: 32px;
+    border-bottom: 1px solid var(--rule);
+    padding-bottom: 0;
+    overflow-x: auto;
+  }
+  .section-nav button {
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    padding: 10px 14px;
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--mute);
+    cursor: pointer;
+    transition: color .15s, border-color .15s;
+    white-space: nowrap;
+  }
+  .section-nav button:hover { color: var(--ink); }
+  .section-nav button.active {
+    color: var(--accent);
+    border-bottom-color: var(--accent);
+  }
+
+  .panel { display: none; animation: fade .25s ease; }
+  .panel.active { display: block; }
+  @keyframes fade { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+
+  .panel-h {
+    font-family: "Space Grotesk", sans-serif;
+    font-weight: 600;
+    font-size: 22px;
+    letter-spacing: -0.01em;
+    margin: 0 0 6px;
+  }
+  .panel-sub {
+    color: var(--mute);
+    font-size: 13px;
+    margin: 0 0 24px;
+    max-width: 720px;
+  }
+
+  /* SCALING LAWS GRID */
+  .laws-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 1px;
+    background: var(--rule);
+    border: 1px solid var(--rule);
+    margin-bottom: 24px;
+  }
+  .law {
+    background: var(--paper);
+    padding: 20px 22px;
+  }
+  .law .law-label {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 10px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--mute);
+    margin-bottom: 10px;
+  }
+  .law .formula {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 18px;
+    font-weight: 500;
+    color: var(--accent);
+    margin-bottom: 10px;
+    letter-spacing: -0.01em;
+  }
+  .law .formula em { color: var(--ink); font-style: normal; }
+  .law .note { font-size: 12.5px; color: var(--ink-2); line-height: 1.5; margin: 0; }
+  .law .note .vs {
+    display: inline-block;
+    margin-top: 6px;
+    padding: 2px 6px;
+    background: var(--bg-2);
+    border-radius: 2px;
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 11px;
+    color: var(--mute);
+  }
+
+  /* METHODOLOGY TIMELINE */
+  .stages {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+  }
+  .stage {
+    border: 1px solid var(--rule);
+    background: var(--paper);
+    padding: 20px;
+    position: relative;
+  }
+  .stage .stage-num {
+    font-family: "Space Grotesk", sans-serif;
+    font-weight: 700;
+    font-size: 36px;
+    color: var(--accent);
+    line-height: 1;
+    margin-bottom: 8px;
+  }
+  .stage h4 {
+    font-family: "Space Grotesk", sans-serif;
+    font-size: 15px;
+    margin: 0 0 8px;
+    font-weight: 600;
+  }
+  .stage p { font-size: 13px; color: var(--ink-2); margin: 0; line-height: 1.5; }
+  .stage .range {
+    display: inline-block;
+    margin-top: 10px;
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 10.5px;
+    color: var(--mute);
+    background: var(--bg-2);
+    padding: 2px 6px;
+    border-radius: 2px;
+  }
+
+  /* BENCHMARK TABLE */
+  .bench-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+    background: var(--paper);
+    border: 1px solid var(--rule);
+  }
+  .bench-table th, .bench-table td {
+    padding: 10px 12px;
+    text-align: right;
+    border-bottom: 1px solid var(--rule);
+  }
+  .bench-table th:first-child, .bench-table td:first-child { text-align: left; }
+  .bench-table thead th {
+    background: var(--bg-2);
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 10.5px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--mute);
+    font-weight: 500;
+    border-bottom: 2px solid var(--ink);
+  }
+  .bench-table tbody tr.ours { background: var(--accent-soft); }
+  .bench-table tbody tr.ours td { font-weight: 600; }
+  .bench-table .name { font-weight: 500; }
+  .bench-table .bar-cell { position: relative; min-width: 80px; }
+  .bench-table .bar {
+    display: inline-block;
+    height: 6px;
+    background: var(--accent-dim);
+    vertical-align: middle;
+    margin-right: 6px;
+    border-radius: 1px;
+  }
+  .bench-table .delta { font-family: "IBM Plex Mono", monospace; font-size: 11.5px; }
+  .bench-table .delta.pos { color: var(--good); }
+  .bench-table .delta.neg { color: var(--bad); }
+  .bench-table tfoot td { font-family: "IBM Plex Mono", monospace; font-size: 11px; color: var(--mute); }
+
+  /* SFT CHART */
+  .sft-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 1px;
+    background: var(--rule);
+    border: 1px solid var(--rule);
+  }
+  .sft-cell {
+    background: var(--paper);
+    padding: 16px 14px;
+  }
+  .sft-cell .task {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 10.5px;
+    color: var(--mute);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin-bottom: 10px;
+  }
+  .sft-cell .vals {
+    display: flex; align-items: baseline; gap: 6px;
+    margin-bottom: 8px;
+  }
+  .sft-cell .ours {
+    font-family: "Space Grotesk", sans-serif;
+    font-weight: 700;
+    font-size: 24px;
+    color: var(--accent);
+    line-height: 1;
+  }
+  .sft-cell .theirs {
+    font-size: 13px;
+    color: var(--mute);
+    font-family: "IBM Plex Mono", monospace;
+  }
+  .sft-cell .bar-wrap {
+    height: 4px;
+    background: var(--bg-2);
+    position: relative;
+    overflow: hidden;
+  }
+  .sft-cell .bar-ours {
+    position: absolute; top: 0; left: 0; height: 100%;
+    background: var(--accent);
+  }
+  .sft-cell .bar-theirs {
+    position: absolute; top: 0; left: 0; height: 100%;
+    background: var(--rule-2);
+  }
+  .sft-cell .delta {
+    font-size: 11px;
+    color: var(--good);
+    font-family: "IBM Plex Mono", monospace;
+    margin-top: 6px;
+  }
+  .sft-legend {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 11px;
+    color: var(--mute);
+    margin-top: 12px;
+    display: flex; gap: 18px;
+  }
+  .sft-legend .sw { display: inline-block; width: 10px; height: 10px; vertical-align: middle; margin-right: 5px; }
+
+  /* TWO COLUMN */
+  .two-col {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1px;
+    background: var(--rule);
+    border: 1px solid var(--rule);
+  }
+  .two-col > div {
+    background: var(--paper);
+    padding: 24px;
+  }
+  .two-col h4 {
+    font-family: "Space Grotesk", sans-serif;
+    font-size: 14px;
+    margin: 0 0 14px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    padding-bottom: 8px;
+    border-bottom: 2px solid;
+  }
+  .two-col .pros h4 { color: var(--good); border-color: var(--good); }
+  .two-col .cons h4 { color: var(--bad); border-color: var(--bad); }
+  .two-col ul { margin: 0; padding-left: 18px; font-size: 13px; color: var(--ink-2); line-height: 1.55; }
+  .two-col li { margin-bottom: 8px; }
+  .two-col li::marker { color: var(--mute); }
+
+  /* ARCH PARAMS */
+  .arch-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+    margin-bottom: 20px;
+  }
+  .arch-card {
+    background: var(--paper);
+    border: 1px solid var(--rule);
+    padding: 18px;
+  }
+  .arch-card .lab {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 10px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--mute);
+    margin-bottom: 8px;
+  }
+  .arch-card .val {
+    font-family: "Space Grotesk", sans-serif;
+    font-size: 28px;
+    font-weight: 600;
+    color: var(--ink);
+    line-height: 1;
+    margin-bottom: 4px;
+  }
+  .arch-card .val .accent { color: var(--accent); }
+  .arch-card .desc { font-size: 12px; color: var(--mute); }
+
+  /* CRED FOOTER */
+  .cred {
+    background: var(--bg-2);
+    border: 1px solid var(--rule);
+    padding: 22px 24px;
+    font-size: 13px;
+    color: var(--ink-2);
+    line-height: 1.6;
+  }
+  .cred strong { color: var(--ink); }
+
+  /* BOTTOM LINK */
+  .bottom {
+    border-top: 1px solid var(--rule);
+    margin-top: 56px;
+    padding: 24px 0 48px;
+  }
+  .bottom-inner {
+    max-width: var(--maxw); margin: 0 auto;
+    padding: 0 24px;
+    display: flex; justify-content: space-between; align-items: center;
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 12px;
+    color: var(--mute);
+    flex-wrap: wrap; gap: 12px;
+  }
+  .src-link {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 8px 12px;
+    border: 1px solid var(--rule-2);
+    border-radius: 3px;
+    background: var(--paper);
+    color: var(--ink);
+  }
+  .src-link:hover { color: var(--accent); border-color: var(--accent); text-decoration: none; }
+
+  /* MOBILE */
+  @media (max-width: 820px) {
+    .asset-row { grid-template-columns: 1fr; }
+    .laws-grid { grid-template-columns: 1fr; }
+    .stages { grid-template-columns: 1fr; }
+    .sft-grid { grid-template-columns: repeat(2, 1fr); }
+    .two-col { grid-template-columns: 1fr; }
+    .arch-grid { grid-template-columns: 1fr; }
+    .hero { padding: 36px 0 28px; }
+    .topbar-meta { font-size: 11px; gap: 8px; }
+    .topbar-meta .hide-sm { display: none; }
+  }
+  @media (max-width: 480px) {
+    .sft-grid { grid-template-columns: 1fr; }
+    .bench-table { font-size: 12px; }
+    .bench-table th, .bench-table td { padding: 8px 6px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ============ TOP BAR ============ -->
+<div class="topbar">
+  <div class="topbar-inner">
+    <a href="./index.html" class="back-link">↩ Today's digest</a>
+    <div class="topbar-meta">
+      <span class="hide-sm">PAPER ·</span>
+      <span class="arxiv">arXiv:2608.03457</span>
+      <span class="dot">/</span>
+      <span>04 Aug 2026</span>
+      <span class="dot">/</span>
+      <span class="hide-sm">dLLM · MoE · Scaling</span>
+    </div>
+  </div>
+</div>
+
+<!-- ============ HERO ============ -->
+<section class="hero">
+  <div class="wrap">
+    <div class="eyebrow">
+      <span class="tag">SCALING LAWS</span>
+      <span>Mixture-of-Experts · Diffusion Language Models</span>
+    </div>
+    <h1>LLaDA MoE v2: Scaling <span class="accent">Mixture-of-Experts</span> Diffusion Language Models</h1>
+    <div class="authors">
+      <strong>Fengqi Zhu</strong>, Shaoxuan Xu, Jingyang Ou, Zebin You, Yipeng Xing, Huabin Liu, Xiaolu Zhang, Jun Zhou, Zhenzhong Lan, Yankai Lin, Wayne Xin Zhao, Jianguo Li, Chongxuan Li, Ji-Rong Wen
+      <br /><span style="font-size:12px;">Gaoling School of AI, Renmin University of China · Ant Group</span>
+    </div>
+
+    <div class="key-finding">
+      <div class="label">◆ Key Finding</div>
+      <p>The first systematic scaling characterization of MoE diffusion LLMs shows their optima diverge quantifiably from autoregressive models — bigger batches, faster LR decay, a stable <em>33.3% shared-expert ratio</em>. Trained from scratch under these laws, <strong>LLaDA MoE v2 30B-A3B</strong> reaches the highest dLLM average on 15 benchmarks using only <strong>~65% of Qwen3's pretraining tokens</strong>.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ============ ASSET ROW ============ -->
+<section class="asset-row">
+  <!-- KEY METRIC -->
+  <div class="card metric">
+    <div class="kicker"><span class="swatch"></span> Key Metric</div>
+    <div class="number">58.60<span class="unit">avg / 15 bench</span></div>
+    <div class="caption">Highest score among all evaluated <strong>diffusion LLMs</strong>, trained from scratch on <strong>23.5T tokens</strong> — vs Qwen3's 36T and SDAR Sci's 37.05T.</div>
+    <div class="submetrics">
+      <div><b>+13.3</b> <span>AIME24</span></div>
+      <div><b>+22.5</b> <span>MultiPL-E</span></div>
+      <div><b>+9.4</b> <span>MBPP</span></div>
+      <div><b>+11.5</b> <span>OlympiadBench</span></div>
+    </div>
+  </div>
+
+  <!-- WHY THIS MATTERS -->
+  <div class="card why">
+    <div class="kicker"><span class="swatch"></span> Why This Matters</div>
+    <p>Diffusion LLMs are not just AR-with-noise — they need their own training recipes. This work hands practitioners <em>concrete formulas</em> (B*, η*, M*, D*) and architecture rules that challenge AR-derived heuristics, and proves they scale by training a competitive 30B model.</p>
+  </div>
+
+  <!-- CRITICAL EDGE -->
+  <div class="card edge">
+    <div class="kicker"><span class="swatch"></span> Critical Edge</div>
+    <p>Laws fit at ≤3.6B / ≤3×10²⁰ FLOPs are extrapolated <strong>~2–3 orders of magnitude</strong> to the 30B run.</p>
+    <ul class="warn-list">
+      <li>No weights, code, or data release announced</li>
+      <li>Architecture axes swept independently — interactions unmeasured</li>
+      <li>No RL stage; gap to Qwen3 on AIME/MBPP/LiveCodeBench remains</li>
+    </ul>
+  </div>
+</section>
+
+<!-- ============ BODY ============ -->
+<section class="body-section">
+  <div class="wrap">
+
+    <div class="section-nav" role="tablist">
+      <button class="active" data-panel="laws">01 · Scaling Laws</button>
+      <button data-panel="arch">02 · MoE Architecture</button>
+      <button data-panel="method">03 · Method</button>
+      <button data-panel="bench">04 · Base Benchmarks</button>
+      <button data-panel="sft">05 · SFT Instruct Gains</button>
+      <button data-panel="judge">06 · Strengths vs Limits</button>
+    </div>
+
+    <!-- PANEL 1: LAWS -->
+    <div class="panel active" id="laws">
+      <h3 class="panel-h">Four power laws, fit specifically for diffusion LLMs</h3>
+      <p class="panel-sub">Joint batch-size × LR search and IsoFLOP sweeps on 158M–3.6B models yield dLLM-specific optima that diverge — quantitatively — from AR-derived laws like DeepSeek LLM's.</p>
+
+      <div class="laws-grid">
+        <div class="law">
+          <div class="law-label">Optimal Batch Size</div>
+          <div class="formula">B* = 0.374 · <em>C</em><sup>0.3481</sup></div>
+          <p class="note">Steeper growth than AR's C<sup>0.3271</sup>. At 10²⁰ FLOPs the dLLM law recommends <strong>3.43M-token batches</strong> vs 1.02M under AR law — attributed to halved effective per-token supervision under uniform masking.
+          <br /><span class="vs">vs DeepSeek LLM AR: exponent +0.021</span></p>
+        </div>
+
+        <div class="law">
+          <div class="law-label">Optimal Learning Rate</div>
+          <div class="formula">η* = 64.8 · <em>C</em><sup>−0.2447</sup></div>
+          <p class="note">Decays roughly <strong>twice as fast</strong> with compute as AR's C<sup>−0.1250</sup>. Same root cause: the masked denoising objective delivers less supervision per nominal token, requiring more careful step-size scheduling.
+          <br /><span class="vs">vs DeepSeek LLM AR: exponent −0.12</span></p>
+        </div>
+
+        <div class="law">
+          <div class="law-label">Compute-Optimal Model Size</div>
+          <div class="formula">M* = 0.5152 · <em>C</em><sup>0.475</sup></div>
+          <p class="note">Measured in <strong>activated non-embedding FLOPs/token</strong> (not 6ND). Slightly below 0.5 — the frontier tilts toward data.
+          <br /><span class="vs">contextualized vs ~10 published laws (Table 2)</span></p>
+        </div>
+
+        <div class="law">
+          <div class="law-label">Compute-Optimal Data</div>
+          <div class="formula">D* = 1.9411 · <em>C</em><sup>0.525</sup></div>
+          <p class="note">Data exponent <strong>0.525 &gt; 0.475</strong> model exponent — more data-favoring than existing dense dLLM frontiers. Consistent with both sparse activation and diffusion modeling each pushing toward more data.
+          </p>
+        </div>
+      </div>
+
+      <div class="cred">
+        <strong>Extrapolation sanity check.</strong> At 6×10²⁰ FLOPs (Fig. 2), the fitted (B*, η*) sits next to the best observed grid cell (loss 1.228), supporting use of the laws beyond the fitting window — though the final 30B run still sits ~3 orders of magnitude further out.
+      </div>
+    </div>
+
+    <!-- PANEL 2: ARCH -->
+    <div class="panel" id="arch">
+      <h3 class="panel-h">MoE architecture rules — and where they break from AR</h3>
+      <p class="panel-sub">At five reference budgets (6×10¹⁷ – 6×10¹⁹ FLOPs), the authors fix M*(C) and sweep one of {activation ratio A, granularity G, shared-expert ratio S} while holding the other two fixed, training 3× the compute-optimal token count.</p>
+
+      <div class="arch-grid">
+        <div class="arch-card">
+          <div class="lab">Activation Ratio A</div>
+          <div class="val">sparser ↑</div>
+          <div class="desc">Lower A wins <em>more</em> at larger scale. Sparsity becomes more favorable as compute grows.</div>
+        </div>
+        <div class="arch-card">
+          <div class="lab">Expert Granularity G</div>
+          <div class="val"><span class="accent">8 – 16</span></div>
+          <div class="desc">Robust across all tested scales. A wide plateau, not a sharp optimum.</div>
+        </div>
+        <div class="arch-card">
+          <div class="lab">Shared-Expert Ratio S</div>
+          <div class="val"><span class="accent">33.3%</span></div>
+          <div class="desc">Consistent U-curve minimum at <em>all five</em> budgets. Contrast: AR designs pick very different values.</div>
+        </div>
+      </div>
+
+      <table class="bench-table">
+        <thead>
+          <tr>
+            <th>Design (family)</th>
+            <th>Shared-Expert Ratio S</th>
+            <th>Trend with Scale</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr class="ours">
+            <td class="name">LLaDA MoE v2 (this work, dLLM)</td>
+            <td><span class="bar" style="width:67px"></span><strong>33.3%</strong></td>
+            <td>Stable optimum, all scales</td>
+          </tr>
+          <tr>
+            <td class="name">DeepSeekMoE (AR)</td>
+            <td><span class="bar" style="width:50px"></span>25%</td>
+            <td>Fixed</td>
+          </tr>
+          <tr>
+            <td class="name">Qwen3 (AR)</td>
+            <td><span class="bar" style="width:0px"></span>0%</td>
+            <td>No shared expert</td>
+          </tr>
+          <tr>
+            <td class="name">Tian et al. (AR)</td>
+            <td><span class="bar" style="width:33px"></span>16.7% → 8.3%</td>
+            <td>Declines with scale</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="cred" style="margin-top:20px;">
+        <strong>Open gap.</strong> The three axes are swept one at a time, so any interaction effects — e.g. whether the optimal S=33.3% holds under sparser activation — are unmeasured. A real limitation for a paper selling "design principles."
+      </div>
+    </div>
+
+    <!-- PANEL 3: METHOD -->
+    <div class="panel" id="method">
+      <h3 class="panel-h">Three-stage scaling framework, then a 30B validation run</h3>
+      <p class="panel-sub">Masked discrete diffusion: a bidirectional Transformer denoises a corrupted sequence x_t where each clean token is replaced by [MASK] with probability t (sampled uniformly). Compute is measured as activated non-embedding FLOPs/token M (C = M·D), not the dense 6ND formula.</p>
+
+      <div class="stages">
+        <div class="stage">
+          <div class="stage-num">01</div>
+          <h4>Optimization Hyperparameters</h4>
+          <p>Joint batch-size × LR search across 158M / 1B / 3.6B models. Near-optimal defined as within 0.25% of min loss per budget. Produces B* and η* power laws in log-log space.</p>
+          <span class="range">10¹⁸ – 3×10²⁰ FLOPs</span>
+        </div>
+        <div class="stage">
+          <div class="stage-num">02</div>
+          <h4>Compute Allocation</h4>
+          <p>IsoFLOP sweeps; U-shaped loss curves yield compute-optimal M* and D*. Slight data-side tilt vs published dense-dLLM frontiers.</p>
+          <span class="range">10¹⁷ – 10²⁰ FLOPs</span>
+        </div>
+        <div class="stage">
+          <div class="stage-num">03</div>
+          <h4>MoE Architecture</h4>
+          <p>Fix M*(C); sweep one of {A, G, S} holding the others fixed; train 3× compute-optimal tokens (overtraining regime). Finds G=8–16 plateau and S=33.3% U-minimum.</p>
+          <span class="range">5 budgets · 6×10¹⁷ – 6×10¹⁹</span>
+        </div>
+      </div>
+
+      <h4 style="font-family:'Space Grotesk',sans-serif; margin:32px 0 14px; font-size:15px;">Scale-up model — LLaDA MoE v2 30B-A3B</h4>
+      <div class="arch-grid">
+        <div class="arch-card">
+          <div class="lab">Architecture</div>
+          <div class="val">32 L · d=3072</div>
+          <div class="desc">128 routed experts, top-8 routing, 1 shared expert (n_s=4)</div>
+        </div>
+        <div class="arch-card">
+          <div class="lab">Activation / Granularity / Shared</div>
+          <div class="val"><span class="accent">9.09%</span> / 8 / 33.3%</div>
+          <div class="desc">All three derived from the Stage 3 sweeps</div>
+        </div>
+        <div class="arch-card">
+          <div class="lab">Training Tokens</div>
+          <div class="val"><span class="accent">23.5T</span></div>
+          <div class="desc">10T + 10T base · 2T anneal · 500B RoPE 4K→32K · 1T long-context anneal</div>
+        </div>
+      </div>
+
+      <div class="cred" style="margin-top:20px;">
+        <strong>SFT recipe.</strong> 3 epochs on 7M instruction–response examples, masking only response tokens. AdamW (5×10⁻⁶ peak LR). <strong>No RL stage</strong> — yet still competitive on most reasoning/code benchmarks.
+      </div>
+    </div>
+
+    <!-- PANEL 4: BENCHMARKS -->
+    <div class="panel" id="bench">
+      <h3 class="panel-h">Base model — highest dLLM average, approaches Qwen3</h3>
+      <p class="panel-sub">15-benchmark average across knowledge, reasoning, code, and language tasks. LLaDA MoE v2 is the only entry trained entirely from scratch; SDAR Sci is initialized from continued-pretraining on Qwen3.</p>
+
+      <table class="bench-table">
+        <thead>
+          <tr>
+            <th>Model</th>
+            <th>Params (A)</th>
+            <th>Tokens</th>
+            <th>HumanEval</th>
+            <th>BigCodeBench</th>
+            <th>HellaSwag</th>
+            <th>OlympiadBench</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr class="ours">
+            <td class="name">LLaDA MoE v2</td>
+            <td>30B-A3B</td>
+            <td>23.5T</td>
+            <td><span class="bar" style="width:50px"></span>50.00</td>
+            <td><span class="bar" style="width:42px"></span>41.84</td>
+            <td><span class="bar" style="width:77px"></span>77.19</td>
+            <td><span class="bar" style="width:29px"></span>28.74</td>
+          </tr>
+          <tr>
+            <td class="name">Qwen3 (AR ref)</td>
+            <td>30B-A3B</td>
+            <td>36T</td>
+            <td><span class="bar" style="width:52px"></span>52.44</td>
+            <td>—</td>
+            <td><span class="bar" style="width:78px"></span>77.92</td>
+            <td><span class="bar" style="width:31px"></span>30.96</td>
+          </tr>
+          <tr>
+            <td class="name">SDAR Sci (dLLM, from Qwen3)</td>
+            <td>30B-A3B</td>
+            <td>37.05T</td>
+            <td><span class="bar" style="width:34px"></span>33.54</td>
+            <td><span class="bar" style="width:34px"></span>33.86</td>
+            <td>—</td>
+            <td>—</td>
+          </tr>
+          <tr>
+            <td class="name">LLaDA MoE 7B-A1B</td>
+            <td>7B-A1B</td>
+            <td>—</td>
+            <td colspan="5" style="text-align:center; color:var(--mute); font-style:italic;">7–8× smaller in activated params — gaps less informative</td>
+          </tr>
+        </tbody>
+        <tfoot>
+          <tr><td colspan="6">Delta vs SDAR Sci (scale-matched dLLM): HumanEval <span style="color:var(--good)">+16.46</span> · BigCodeBench <span style="color:var(--good)">+7.98</span> · from-scratch vs continued-pretrained</td></tr>
+        </tfoot>
+      </table>
+
+      <div class="cred" style="margin-top:20px;">
+        <strong>Where it still trails Qwen3.</strong> Chinese-knowledge benchmarks — CEval −11.39, CMMLU −8.36 — likely a function of undisclosed data mix rather than the diffusion objective itself. A data-matched AR vs dLLM comparison would isolate the cause.
+      </div>
+    </div>
+
+    <!-- PANEL 5: SFT -->
+    <div class="panel" id="sft">
+      <h3 class="panel-h">Instruct model — SFT-only beats SDAR Chat on 7 of 8 tasks</h3>
+      <p class="panel-sub">No reinforcement learning. Just 3 epochs of supervised fine-tuning on 7M instruction–response examples. Yet on reasoning and code, LLaDA MoE v2 Instruct beats SDAR Chat 30B-A3B by wide margins — and even surpasses Qwen3 on MultiPL-E despite Qwen3's additional RL stage.</p>
+
+      <div class="sft-grid">
+        <div class="sft-cell">
+          <div class="task">AIME24</div>
+          <div class="vals"><span class="ours">30.00</span><span class="theirs">vs 16.70</span></div>
+          <div class="bar-wrap"><span class="bar-theirs" style="width:56%"></span><span class="bar-ours" style="width:100%"></span></div>
+          <div class="delta">+13.3 vs SDAR Chat</div>
+        </div>
+        <div class="sft-cell">
+          <div class="task">AIME25</div>
+          <div class="vals"><span class="ours">20.00</span><span class="theirs">vs 10.80</span></div>
+          <div class="bar-wrap"><span class="bar-theirs" style="width:54%"></span><span class="bar-ours" style="width:100%"></span></div>
+          <div class="delta">+9.2 vs SDAR Chat</div>
+        </div>
+        <div class="sft-cell">
+          <div class="task">OlympiadBench</div>
+          <div class="vals"><span class="ours">46.44</span><span class="theirs">vs 34.93</span></div>
+          <div class="bar-wrap"><span class="bar-theirs" style="width:75%"></span><span class="bar-ours" style="width:100%"></span></div>
+          <div class="delta">+11.5 vs SDAR Chat</div>
+        </div>
+        <div class="sft-cell">
+          <div class="task">MBPP</div>
+          <div class="vals"><span class="ours">81.03</span><span class="theirs">vs 71.60</span></div>
+          <div class="bar-wrap"><span class="bar-theirs" style="width:88%"></span><span class="bar-ours" style="width:100%"></span></div>
+          <div class="delta">+9.4 vs SDAR Chat</div>
+        </div>
+        <div class="sft-cell">
+          <div class="task">MultiPL-E</div>
+          <div class="vals"><span class="ours">67.52</span><span class="theirs">vs 45.00</span></div>
+          <div class="bar-wrap"><span class="bar-theirs" style="width:67%"></span><span class="bar-ours" style="width:100%"></span></div>
+          <div class="delta">+22.5 · also &gt; Qwen3 (66.60)</div>
+        </div>
+        <div class="sft-cell">
+          <div class="task">LiveCodeBench</div>
+          <div class="vals"><span class="ours">lag</span><span class="theirs">vs Qwen3</span></div>
+          <div class="bar-wrap" style="background:var(--bg-2)"></div>
+          <div class="delta" style="color:var(--bad)">trails Qwen3 — RL gap</div>
+        </div>
+        <div class="sft-cell">
+          <div class="task">7 / 8 tasks</div>
+          <div class="vals"><span class="ours">WIN</span><span class="theirs">vs SDAR Chat</span></div>
+          <div class="bar-wrap"><span class="bar-ours" style="width:87.5%"></span></div>
+          <div class="delta">SFT only, no RL</div>
+        </div>
+        <div class="sft-cell">
+          <div class="task">Compute Efficiency</div>
+          <div class="vals"><span class="ours">&lt;50%</span><span class="theirs">FLOPs</span></div>
+          <div class="bar-wrap"><span class="bar-ours" style="width:50%"></span></div>
+          <div class="delta">matches prior 7B-A1B on MMLU/GSM8K</div>
+        </div>
+      </div>
+
+      <div class="sft-legend">
+        <span><span class="sw" style="background:var(--accent)"></span>LLaDA MoE v2 Instruct</span>
+        <span><span class="sw" style="background:var(--rule-2)"></span>SDAR Chat 30B-A3B</span>
+      </div>
+    </div>
+
+    <!-- PANEL 6: STRENGTHS / LIMITS -->
+    <div class="panel" id="judge">
+      <h3 class="panel-h">Strengths vs Limitations — the honest ledger</h3>
+      <p class="panel-sub">A high-novelty scaling-law study validated end-to-end at 30B. The rigor is real, but so are the extrapolation gap, the missing interaction study, and the absent release.</p>
+
+      <div class="two-col">
+        <div class="pros">
+          <h4>▲ Strengths</h4>
+          <ul>
+            <li>Clean, structured scaling study producing <strong>concrete usable formulas</strong> (B*, η*, M*, D*) — not vague guidance.</li>
+            <li>Mechanistic explanation: reduced effective supervision under uniform mask sampling ties empirical laws to the objective function.</li>
+            <li>Credible <strong>30B-A3B end-to-end validation</strong> on 23.5T tokens — not just a small-model study.</li>
+            <li>Honest comparison against ~10 published allocation laws (Table 2) instead of cherry-picking.</li>
+            <li>Compute-controlled comparison vs prior un-guided LLaDA MoE 7B-A1B (Fig. 5) demonstrates the practical value of the guidance.</li>
+            <li>Claims are scoped ("approaches", "competitive") — no overclaiming of parity with Qwen3.</li>
+          </ul>
+        </div>
+        <div class="cons">
+          <h4>▼ Limitations</h4>
+          <ul>
+            <li>Laws fit at ≤3.6B / ≤3×10²⁰ FLOPs and extrapolated <strong>~2–3 orders of magnitude</strong>; validated only weakly by a single 6×10²⁰ grid.</li>
+            <li>Architecture axes swept <strong>independently</strong>; interactions between A, G, S are not studied.</li>
+            <li><strong>No RL post-training</strong> — instruct performance on math/code lags fully-tuned AR competitors on AIME, MBPP, LiveCodeBench.</li>
+            <li>Chinese-knowledge gaps (CEval −11.39, CMMLU −8.36) — data mix not disclosed.</li>
+            <li><strong>No weights, code, or data release</strong> announced; pretraining corpus unspecified.</li>
+            <li>Evaluations mix self-run and cross-paper numbers, introducing drift.</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="cred" style="margin-top:24px;">
+        <strong>Authors &amp; credibility.</strong> From the LLaDA / LLaDA-MoE lineage (RUC Gaoling School of AI) with Ant Group. First author Fengqi Zhu also co-authored the prior LLaDA-MoE paper (arXiv:2509.24389) — a direct, well-resourced follow-up. Senior PIs Chongxuan Li and Ji-Rong Wen led the original LLaDA. Labeled "Preprint," dated 4 Aug 2026.
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<!-- ============ BOTTOM ============ -->
+<div class="bottom">
+  <div class="bottom-inner">
+    <span>arXiv:2608.03457 · 04 Aug 2026 · dashboard view</span>
+    <a href="./2608.03457.md" class="src-link">↗ Markdown source</a>
+  </div>
+</div>
+
+<script>
+  // Tab switching
+  const nav = document.querySelector('.section-nav');
+  nav.addEventListener('click', e => {
+    const btn = e.target.closest('button[data-panel]');
+    if (!btn) return;
+    const id = btn.dataset.panel;
+    nav.querySelectorAll('button').forEach(b => b.classList.toggle('active', b === btn));
+    document.querySelectorAll('.panel').forEach(p => p.classList.toggle('active', p.id === id));
+    // scroll body section into view (under sticky topbar)
+    const top = document.querySelector('.body-section').offsetTop - 60;
+    if (window.scrollY > top + 100) window.scrollTo({ top, behavior: 'smooth' });
+  });
+</script>
+
+</body>
+</html>

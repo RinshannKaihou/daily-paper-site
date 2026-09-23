@@ -1,0 +1,823 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Leak-Resistant Unlearning — Paper Dossier</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300;9..144,400;9..144,500;9..144,700;9..144,900&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --paper:#f3ede1;
+    --paper-2:#ece4d4;
+    --surface:#fbf7ee;
+    --ink:#1b1813;
+    --ink-2:#3a342b;
+    --muted:#7a7264;
+    --rule:#d9cfb9;
+    --rule-2:#c7bb9f;
+    --crimson:#a02824;        /* leaks / critical */
+    --crimson-deep:#7a1d1a;
+    --ochre:#9a6b1a;          /* metrics / numbers */
+    --teal:#2f5d57;           /* structure / method */
+    --teal-deep:#1f443f;
+    --ok:#3f6b3a;
+    --shadow:0 1px 0 rgba(27,24,19,.06), 0 18px 40px -28px rgba(27,24,19,.45);
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{
+    margin:0;
+    background:var(--paper);
+    color:var(--ink);
+    font-family:"IBM Plex Sans",system-ui,sans-serif;
+    font-size:16px;
+    line-height:1.55;
+    -webkit-font-smoothing:antialiased;
+    background-image:
+      radial-gradient(circle at 12% -8%, rgba(160,40,36,.05), transparent 42%),
+      radial-gradient(circle at 92% 6%, rgba(47,93,87,.06), transparent 40%);
+    background-attachment:fixed;
+  }
+  /* paper grain */
+  body::before{
+    content:"";
+    position:fixed; inset:0; pointer-events:none; z-index:0;
+    opacity:.35;
+    background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.1 0 0 0 0 0.09 0 0 0 0 0.07 0 0 0 0.06 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+  }
+  .wrap{position:relative; z-index:1}
+
+  /* ---------- TOP NAV ---------- */
+  .topnav{
+    position:fixed; top:0; left:0; right:0; z-index:50;
+    display:flex; align-items:center; justify-content:space-between;
+    padding:12px 22px;
+    background:rgba(243,237,225,.86);
+    backdrop-filter:blur(8px);
+    border-bottom:1px solid var(--rule);
+  }
+  .topnav a.digest{
+    font-family:"IBM Plex Mono",monospace;
+    font-size:12.5px; letter-spacing:.02em;
+    color:var(--ink); text-decoration:none;
+    padding:6px 12px; border:1px solid var(--rule-2); border-radius:3px;
+    background:var(--surface);
+    transition:all .18s ease;
+  }
+  .topnav a.digest:hover{ background:var(--ink); color:var(--paper); border-color:var(--ink); }
+  .topnav .stamp{
+    font-family:"IBM Plex Mono",monospace;
+    font-size:11px; letter-spacing:.14em; text-transform:uppercase;
+    color:var(--muted);
+  }
+  .topnav .stamp b{color:var(--crimson); font-weight:600}
+
+  /* ---------- HERO ---------- */
+  .hero{
+    padding:96px 40px 46px;
+    max-width:1380px; margin:0 auto;
+  }
+  .chips{display:flex; flex-wrap:wrap; gap:7px; margin-bottom:26px}
+  .chip{
+    font-family:"IBM Plex Mono",monospace;
+    font-size:10.5px; letter-spacing:.08em; text-transform:uppercase;
+    padding:4px 9px; border-radius:2px;
+    border:1px solid var(--rule-2);
+    background:var(--surface); color:var(--ink-2);
+  }
+  .chip.leak{color:var(--crimson); border-color:var(--crimson); background:rgba(160,40,36,.06)}
+  .chip.struct{color:var(--teal); border-color:var(--teal); background:rgba(47,93,87,.06)}
+
+  .paper-link{
+    font-family:"IBM Plex Mono",monospace;
+    font-size:13px; color:var(--muted); text-decoration:none;
+    border-bottom:1px dashed var(--rule-2);
+    display:inline-block; margin-bottom:8px;
+  }
+  .paper-link:hover{color:var(--crimson); border-color:var(--crimson)}
+  .title{
+    font-family:"Fraunces",serif; font-weight:500;
+    font-size:clamp(20px,2.2vw,27px);
+    line-height:1.22; letter-spacing:-.01em;
+    margin:0 0 14px; max-width:60ch;
+  }
+  .title em{font-style:italic; color:var(--crimson-deep)}
+  .meta{
+    display:flex; flex-wrap:wrap; gap:18px; align-items:center;
+    font-size:13.5px; color:var(--ink-2);
+    padding-bottom:26px; border-bottom:1px solid var(--rule);
+  }
+  .meta .authors{font-weight:500}
+  .meta .dot{width:3px;height:3px;border-radius:50%;background:var(--rule-2)}
+  .meta .aff{
+    font-family:"IBM Plex Mono",monospace; font-size:11.5px;
+    letter-spacing:.04em; color:var(--muted);
+  }
+
+  .kicker{
+    font-family:"IBM Plex Mono",monospace;
+    font-size:11.5px; letter-spacing:.22em; text-transform:uppercase;
+    color:var(--crimson); margin:34px 0 14px;
+    display:flex; align-items:center; gap:12px;
+  }
+  .kicker::before{content:""; width:34px; height:1px; background:var(--crimson)}
+
+  .finding{
+    font-family:"Fraunces",serif;
+    font-weight:300;
+    font-size:clamp(34px,5.4vw,72px);
+    line-height:1.02;
+    letter-spacing:-.025em;
+    color:var(--ink);
+    margin:0;
+    max-width:18ch;
+  }
+  .finding .hl{
+    font-style:italic; font-weight:500;
+    color:var(--crimson-deep);
+    background:linear-gradient(180deg, transparent 60%, rgba(160,40,36,.16) 60%);
+    padding:0 .04em;
+  }
+  .finding .tri{
+    font-weight:600; font-style:italic;
+    color:var(--teal-deep);
+  }
+  .finding-sub{
+    margin-top:22px; max-width:58ch;
+    font-size:15.5px; color:var(--ink-2);
+    border-left:2px solid var(--ochre); padding-left:14px;
+  }
+
+  /* ---------- ASSET ROW ---------- */
+  .assets{
+    max-width:1380px; margin:8px auto 0;
+    padding:0 40px;
+    display:grid;
+    grid-template-columns: 1.35fr 1fr 1fr;
+    gap:18px;
+  }
+  .card{
+    background:var(--surface);
+    border:1px solid var(--rule);
+    border-radius:4px;
+    padding:24px 24px 22px;
+    box-shadow:var(--shadow);
+    position:relative; overflow:hidden;
+  }
+  .card .tag{
+    font-family:"IBM Plex Mono",monospace;
+    font-size:10.5px; letter-spacing:.18em; text-transform:uppercase;
+    color:var(--muted); margin-bottom:14px; display:flex; align-items:center; gap:8px;
+  }
+  .card .tag .pip{width:7px;height:7px;border-radius:50%}
+
+  .card.metric .pip{background:var(--ochre)}
+  .card.matters .pip{background:var(--teal)}
+  .card.edge .pip{background:var(--crimson)}
+
+  .metric-big{
+    font-family:"Fraunces",serif;
+    font-weight:600;
+    font-size:clamp(40px,5vw,64px);
+    line-height:.95; letter-spacing:-.03em;
+    color:var(--ink);
+    display:flex; align-items:baseline; gap:10px; flex-wrap:wrap;
+  }
+  .metric-big .from{color:var(--teal)}
+  .metric-big .arrow{color:var(--muted); font-weight:300; font-size:.6em}
+  .metric-big .to{color:var(--crimson)}
+  .metric-cap{
+    margin-top:12px; font-size:13.5px; color:var(--ink-2); line-height:1.5;
+  }
+  .metric-cap code{
+    font-family:"IBM Plex Mono",monospace; font-size:12px;
+    background:var(--paper-2); padding:1px 5px; border-radius:2px;
+  }
+  .metric-strip{
+    margin-top:16px; display:flex; gap:4px; height:8px; border-radius:2px; overflow:hidden;
+  }
+  .metric-strip span{display:block; height:100%}
+
+  .matters-text{
+    font-family:"Fraunces",serif; font-weight:400;
+    font-size:19px; line-height:1.34; color:var(--ink);
+  }
+  .edge-text{
+    font-family:"Fraunces",serif; font-weight:400; font-style:italic;
+    font-size:17.5px; line-height:1.38; color:var(--crimson-deep);
+  }
+  .edge-text b{font-style:normal; font-weight:600}
+  .card.edge{background:linear-gradient(180deg, var(--surface), rgba(160,40,36,.05))}
+  .card.edge::after{
+    content:"⚠"; position:absolute; top:14px; right:18px;
+    font-size:18px; color:var(--crimson); opacity:.5;
+  }
+
+  /* ---------- BODY ---------- */
+  .body-wrap{
+    max-width:1380px; margin:54px auto 0;
+    padding:0 40px 70px;
+    display:grid;
+    grid-template-columns: 188px 1fr;
+    gap:46px;
+  }
+  .rail{position:sticky; top:74px; align-self:start; height:max-content}
+  .rail h4{
+    font-family:"IBM Plex Mono",monospace;
+    font-size:10.5px; letter-spacing:.2em; text-transform:uppercase;
+    color:var(--muted); margin:0 0 14px; font-weight:500;
+  }
+  .rail ol{list-style:none; padding:0; margin:0; counter-reset:r}
+  .rail li{
+    counter-increment:r; margin:0 0 2px;
+  }
+  .rail a{
+    display:flex; gap:10px; align-items:baseline;
+    text-decoration:none; color:var(--ink-2);
+    font-size:13.5px; line-height:1.3;
+    padding:7px 10px; border-radius:3px;
+    border-left:2px solid transparent;
+    transition:all .16s ease;
+  }
+  .rail a::before{
+    content:counter(r,decimal-leading-zero);
+    font-family:"IBM Plex Mono",monospace; font-size:10.5px;
+    color:var(--rule-2);
+  }
+  .rail a:hover{ background:var(--surface); border-left-color:var(--ochre); color:var(--ink)}
+  .rail a:hover::before{color:var(--ochre)}
+
+  section.block{margin-bottom:54px; scroll-margin-top:80px}
+  .sec-head{
+    display:flex; align-items:baseline; gap:14px;
+    margin-bottom:22px; padding-bottom:12px;
+    border-bottom:1px solid var(--rule);
+  }
+  .sec-head .num{
+    font-family:"IBM Plex Mono",monospace; font-size:12px;
+    color:var(--crimson); letter-spacing:.1em;
+  }
+  .sec-head h2{
+    font-family:"Fraunces",serif; font-weight:500;
+    font-size:clamp(24px,2.6vw,32px);
+    margin:0; letter-spacing:-.015em; line-height:1.1;
+  }
+
+  /* methodology prose */
+  .lead{font-size:16px; line-height:1.62; color:var(--ink-2); max-width:70ch}
+  .lead strong{color:var(--ink)}
+
+  /* logic tiles */
+  .logic-grid{
+    display:grid; grid-template-columns:repeat(3,1fr); gap:12px;
+    margin:24px 0 8px;
+  }
+  .logic{
+    background:var(--surface); border:1px solid var(--rule);
+    border-radius:4px; padding:16px 16px 14px;
+    position:relative; transition:transform .18s ease, border-color .18s ease;
+  }
+  .logic:hover{transform:translateY(-2px); border-color:var(--teal)}
+  .logic .id{
+    font-family:"IBM Plex Mono",monospace; font-size:10px;
+    letter-spacing:.14em; color:var(--teal); text-transform:uppercase;
+  }
+  .logic .name{
+    font-family:"Fraunces",serif; font-weight:500; font-size:16px;
+    margin:3px 0 9px; color:var(--ink);
+  }
+  .logic .form{
+    font-family:"IBM Plex Mono",monospace; font-size:12.5px;
+    color:var(--ink); background:var(--paper-2);
+    padding:6px 8px; border-radius:2px; display:inline-block;
+    margin-bottom:8px; letter-spacing:.01em;
+  }
+  .logic .desc{font-size:12.5px; color:var(--muted); line-height:1.45}
+
+  /* pipeline / specs split */
+  .split{
+    display:grid; grid-template-columns:1.25fr 1fr; gap:18px; margin-top:22px;
+  }
+  .panel{
+    background:var(--surface); border:1px solid var(--rule); border-radius:4px; padding:20px 22px;
+  }
+  .panel h3{
+    font-family:"IBM Plex Mono",monospace; font-size:11px;
+    letter-spacing:.16em; text-transform:uppercase; color:var(--muted);
+    margin:0 0 12px; font-weight:500;
+  }
+  .steps{list-style:none; padding:0; margin:0; counter-reset:s}
+  .steps li{
+    counter-increment:s; position:relative;
+    padding:0 0 12px 30px; font-size:14px; line-height:1.5; color:var(--ink-2);
+  }
+  .steps li::before{
+    content:counter(s); position:absolute; left:0; top:0;
+    width:20px; height:20px; border-radius:50%;
+    background:var(--paper-2); color:var(--ink);
+    font-family:"IBM Plex Mono",monospace; font-size:11px;
+    display:flex; align-items:center; justify-content:center;
+    border:1px solid var(--rule-2);
+  }
+  .steps li:last-child{padding-bottom:0}
+  .steps li b{color:var(--ink)}
+
+  .spec-table{width:100%; border-collapse:collapse; font-size:13px}
+  .spec-table th{
+    text-align:left; font-family:"IBM Plex Mono",monospace; font-weight:500;
+    font-size:10.5px; letter-spacing:.08em; text-transform:uppercase;
+    color:var(--muted); padding:6px 8px 6px 0; border-bottom:1px solid var(--rule);
+  }
+  .spec-table td{padding:7px 8px 7px 0; border-bottom:1px solid var(--rule); color:var(--ink-2); vertical-align:top}
+  .spec-table td:first-child{font-weight:500; color:var(--ink)}
+  .spec-table td code{font-family:"IBM Plex Mono",monospace; font-size:12px; color:var(--teal-deep)}
+
+  /* results highlights */
+  .findings{display:grid; grid-template-columns:repeat(2,1fr); gap:14px; margin-top:8px}
+  .find{
+    background:var(--surface); border:1px solid var(--rule); border-radius:4px;
+    padding:18px 20px; position:relative; overflow:hidden;
+  }
+  .find .lbl{
+    font-family:"IBM Plex Mono",monospace; font-size:10.5px;
+    letter-spacing:.12em; text-transform:uppercase; color:var(--crimson);
+    margin-bottom:8px;
+  }
+  .find .stat{
+    font-family:"Fraunces",serif; font-weight:600; font-size:30px;
+    line-height:1; letter-spacing:-.02em; color:var(--ink); margin-bottom:6px;
+  }
+  .find .stat .u{font-size:14px; color:var(--muted); font-weight:400}
+  .find p{margin:0; font-size:13.5px; line-height:1.5; color:var(--ink-2)}
+  .find p code{font-family:"IBM Plex Mono",monospace; font-size:12px; background:var(--paper-2); padding:1px 4px; border-radius:2px}
+  .find.ok .lbl{color:var(--ok)}
+  .find.warn{background:linear-gradient(180deg,var(--surface),rgba(160,40,36,.04))}
+
+  /* trilemma viz */
+  .trilemma-wrap{
+    margin-top:26px;
+    display:grid; grid-template-columns:1.05fr .95fr; gap:22px; align-items:start;
+    background:var(--surface); border:1px solid var(--rule); border-radius:4px; padding:22px;
+  }
+  .trilemma-viz{position:relative}
+  .trilemma-viz svg{width:100%; height:auto; display:block}
+  .trilemma-viz .dot{cursor:pointer; transition:r .15s ease}
+  .trilemma-viz .dot:hover{r:7}
+  .legend{font-size:13px; color:var(--ink-2)}
+  .legend h3{
+    font-family:"Fraunces",serif; font-weight:500; font-size:20px;
+    margin:0 0 6px; letter-spacing:-.01em;
+  }
+  .legend p.lede{margin:0 0 16px; font-size:13.5px; line-height:1.5; color:var(--ink-2)}
+  .legend ul{list-style:none; padding:0; margin:0 0 14px}
+  .legend li{
+    display:grid; grid-template-columns:14px 60px 1fr auto; gap:9px; align-items:center;
+    padding:6px 0; border-bottom:1px dashed var(--rule); font-size:12.5px;
+  }
+  .legend li .sw{width:10px;height:10px;border-radius:50%}
+  .legend li .m{font-family:"IBM Plex Mono",monospace; font-weight:600; color:var(--ink)}
+  .legend li .d{color:var(--muted); font-size:11.5px}
+  .legend li .v{font-family:"IBM Plex Mono",monospace; font-size:11.5px; color:var(--ink-2)}
+
+  /* strengths vs limitations */
+  .duo{display:grid; grid-template-columns:1fr 1fr; gap:18px; margin-top:8px}
+  .duo .col{
+    border-radius:4px; padding:22px 24px; border:1px solid var(--rule);
+  }
+  .duo .col.s{background:linear-gradient(180deg,var(--surface),rgba(63,107,58,.05)); border-left:3px solid var(--ok)}
+  .duo .col.l{background:linear-gradient(180deg,var(--surface),rgba(160,40,36,.05)); border-left:3px solid var(--crimson)}
+  .duo h3{
+    font-family:"IBM Plex Mono",monospace; font-size:11px;
+    letter-spacing:.16em; text-transform:uppercase; margin:0 0 14px; font-weight:500;
+  }
+  .duo .col.s h3{color:var(--ok)}
+  .duo .col.l h3{color:var(--crimson)}
+  .duo ul{list-style:none; padding:0; margin:0}
+  .duo li{
+    padding:9px 0 9px 22px; position:relative; font-size:13.5px; line-height:1.5; color:var(--ink-2);
+    border-bottom:1px solid var(--rule);
+  }
+  .duo li:last-child{border-bottom:none}
+  .duo li::before{
+    position:absolute; left:0; top:9px; font-family:"IBM Plex Mono",monospace; font-size:12px;
+  }
+  .duo .col.s li::before{content:"+"; color:var(--ok); font-weight:700}
+  .duo .col.l li::before{content:"!"; color:var(--crimson); font-weight:700}
+
+  /* questions */
+  .qlist{list-style:none; padding:0; margin:8px 0 0; counter-reset:q}
+  .qlist li{
+    counter-increment:q;
+    padding:14px 0 14px 44px; position:relative;
+    border-bottom:1px solid var(--rule);
+    font-family:"Fraunces",serif; font-weight:400;
+    font-size:17px; line-height:1.4; color:var(--ink);
+  }
+  .qlist li:last-child{border-bottom:none}
+  .qlist li::before{
+    content:"Q." counter(q);
+    position:absolute; left:0; top:14px;
+    font-family:"IBM Plex Mono",monospace; font-size:11px;
+    color:var(--ochre); letter-spacing:.08em;
+  }
+
+  /* footer */
+  .foot{
+    max-width:1380px; margin:0 auto; padding:26px 40px 50px;
+    border-top:1px solid var(--rule);
+    display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:14px;
+    font-family:"IBM Plex Mono",monospace; font-size:12px; color:var(--muted);
+  }
+  .foot a{
+    color:var(--ink); text-decoration:none;
+    padding:7px 12px; border:1px solid var(--rule-2); border-radius:3px;
+    background:var(--surface); transition:all .18s ease;
+  }
+  .foot a:hover{background:var(--ink); color:var(--paper); border-color:var(--ink)}
+
+  /* entrance */
+  .reveal{opacity:0; transform:translateY(14px); animation:rise .7s cubic-bezier(.2,.7,.2,1) forwards}
+  @keyframes rise{to{opacity:1; transform:none}}
+  .d1{animation-delay:.05s}.d2{animation-delay:.14s}.d3{animation-delay:.23s}
+  .d4{animation-delay:.32s}.d5{animation-delay:.41s}.d6{animation-delay:.5s}
+
+  /* responsive */
+  @media (max-width:1040px){
+    .assets{grid-template-columns:1fr 1fr}
+    .card.metric{grid-column:1 / -1}
+    .body-wrap{grid-template-columns:1fr; gap:24px}
+    .rail{position:static}
+    .rail ol{display:flex; flex-wrap:wrap; gap:6px}
+    .logic-grid{grid-template-columns:repeat(2,1fr)}
+    .split,.findings,.duo,.trilemma-wrap{grid-template-columns:1fr}
+    .finding{max-width:none}
+  }
+  @media (max-width:620px){
+    .hero,.assets,.body-wrap,.foot{padding-left:18px; padding-right:18px}
+    .hero{padding-top:84px}
+    .logic-grid{grid-template-columns:1fr}
+    .meta{gap:10px}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- TOP NAV -->
+  <nav class="topnav">
+    <a class="digest" href="./index.html">↩ Today's digest</a>
+    <div class="stamp">Paper dossier · <b>ARXIV 2608.04519</b> · assessed 2026-08-06</div>
+  </nav>
+
+  <!-- HERO -->
+  <header class="hero">
+    <div class="chips reveal d1">
+      <span class="chip leak">machine-unlearning</span>
+      <span class="chip leak">llm-safety</span>
+      <span class="chip struct">multi-hop-reasoning</span>
+      <span class="chip struct">benchmark</span>
+      <span class="chip">recovery-attack</span>
+    </div>
+
+    <a class="paper-link reveal d1" href="https://arxiv.org/abs/2608.04519" target="_blank" rel="noopener">arxiv.org/abs/2608.04519 →</a>
+    <h1 class="title reveal d2">Leak-Resistant Unlearning: A New Benchmark for Evaluating Multi-Hop Reasoning Consistency and Recovery Robustness</h1>
+
+    <div class="meta reveal d3">
+      <span class="authors">Haoting Qian · Qingjie Zhang · Zhicong Huang · Cheng Hong · Han Qiu</span>
+      <span class="dot"></span>
+      <span>Aug 5, 2026</span>
+      <span class="dot"></span>
+      <span class="aff">Tsinghua University × Ant Group</span>
+    </div>
+
+    <div class="kicker reveal d4">The finding</div>
+    <p class="finding reveal d4">
+      Current unlearning methods <span class="hl">leak</span> knowledge along non-chain multi-hop paths — and stay <span class="hl">recoverable</span> — exposing an <span class="tri">impossible triangle</span>.
+    </p>
+    <p class="finding-sub reveal d5">
+      Six logic-typed reasoning structures × three recovery attacks, run across 3 LLMs and 6 unlearning methods, show no method simultaneously achieves forget quality, robustness, and utility.
+    </p>
+  </header>
+
+  <!-- ASSET ROW -->
+  <div class="assets">
+    <div class="card metric reveal d4">
+      <div class="tag"><span class="pip"></span>Key metric · Forget Quality swing</div>
+      <div class="metric-big">
+        <span class="from">63.5</span>
+        <span class="arrow">→</span>
+        <span class="to">27.6</span>
+      </div>
+      <p class="metric-cap">
+        On <b>Llama-3.1-8B</b> with Task Vector, Forget Quality scores <code>63.5</code> under Hypothetical Syllogism but collapses to <code>27.6</code> under <b>Modus Tollens</b> — a <b>~36-point swing</b> proving high chain-style scores don't imply robust unlearning.
+      </p>
+      <div class="metric-strip" aria-hidden="true">
+        <span style="flex:63.5;background:var(--teal)"></span>
+        <span style="flex:36.5;background:var(--rule-2)"></span>
+      </div>
+    </div>
+
+    <div class="card matters reveal d5">
+      <div class="tag"><span class="pip"></span>Why this matters</div>
+      <p class="matters-text">
+        A stricter multi-hop-reasoning + recovery-attack evaluation protocol for building robust unlearning — and for detecting residual sensitive knowledge buried inside deployed LLMs.
+      </p>
+    </div>
+
+    <div class="card edge reveal d6">
+      <div class="tag"><span class="pip"></span>Critical edge</div>
+      <p class="edge-text">
+        Evaluation is <b>open-weight only</b> (Llama-3.1-8B, Qwen3-14B/32B). Conclusions do <b>not</b> transfer to black-box commercial API threat models.
+      </p>
+    </div>
+  </div>
+
+  <!-- BODY -->
+  <div class="body-wrap">
+    <!-- RAIL -->
+    <aside class="rail">
+      <h4>Sections</h4>
+      <ol>
+        <li><a href="#method">Methodology</a></li>
+        <li><a href="#results">Results</a></li>
+        <li><a href="#trilemma">The trilemma</a></li>
+        <li><a href="#duo">Strengths / Limits</a></li>
+        <li><a href="#questions">Open questions</a></li>
+      </ol>
+    </aside>
+
+    <main>
+      <!-- METHODOLOGY -->
+      <section class="block" id="method">
+        <div class="sec-head">
+          <span class="num">§01</span>
+          <h2>Methodology</h2>
+        </div>
+        <p class="lead">
+          An unlearning procedure is <strong>leak-resistant</strong> iff (1) <strong>Path Consistency</strong> holds — target knowledge stays inaccessible across six reasoning structures — and (2) <strong>Recovery Robustness</strong> holds — the knowledge resists three post-hoc recovery attacks. Leak-resistance is an assessment target, not a training objective.
+        </p>
+
+        <div class="logic-grid">
+          <div class="logic">
+            <div class="id">HS</div>
+            <div class="name">Hypothetical Syllogism</div>
+            <div class="form">(A→B) ∧ (B→C) ⊢ (A→C)</div>
+            <div class="desc">Transitive chains via object–subject chaining.</div>
+          </div>
+          <div class="logic">
+            <div class="id">MP</div>
+            <div class="name">Modus Ponens</div>
+            <div class="form">A→B ∧ A ⊢ B</div>
+            <div class="desc">Rule instantiation with semantically matched relations.</div>
+          </div>
+          <div class="logic">
+            <div class="id">MT</div>
+            <div class="name">Modus Tollens</div>
+            <div class="form">(A→B) ∧ ¬B ⊢ ¬A</div>
+            <div class="desc">Backward inference, inverted direction.</div>
+          </div>
+          <div class="logic">
+            <div class="id">DS</div>
+            <div class="name">Disjunctive Syllogism</div>
+            <div class="form">(A∨B) ∧ ¬A ⊢ B</div>
+            <div class="desc">Elimination over ≥3 candidate values.</div>
+          </div>
+          <div class="logic">
+            <div class="id">LL</div>
+            <div class="name">Leibniz's Law</div>
+            <div class="form">x=y ∧ A(x) ⊢ A(y)</div>
+            <div class="desc">Alias / co-reference transfer.</div>
+          </div>
+          <div class="logic">
+            <div class="id">CC</div>
+            <div class="name">Conjunctive Composition</div>
+            <div class="form">x∈A ∧ x∈B ⊢ x∈A∩B</div>
+            <div class="desc">Intersection of facts sharing (relation, object).</div>
+          </div>
+        </div>
+
+        <div class="split">
+          <div class="panel">
+            <h3>Data construction pipeline</h3>
+            <ol class="steps">
+              <li><b>Knowledge extraction</b> — chunk raw text, prompt LLM for (subject, relation, object) triples.</li>
+              <li><b>Structural matching</b> — pair facts per each join rule above.</li>
+              <li><b>GPT-4o generation</b> — 3 paraphrases + 0–3 answer aliases per pair, bridge entity masked so the forgotten fact stays implicit.</li>
+              <li><b>Two LLM-judge checks</b> — decomposition consistency (multi-hop question decomposes back to source single-hops) + answer uniqueness (rejects multi-answer prompts).</li>
+            </ol>
+            <p style="margin:14px 0 0;font-size:12.5px;color:var(--muted)">
+              Equal-sized categories suppress cross-category bias: <b>500 / category</b> on MQuAKE (3,000 total), <b>100 / category</b> on Books (300 total).
+            </p>
+          </div>
+
+          <div class="panel">
+            <h3>Method × recovery × metric sweep</h3>
+            <table class="spec-table">
+              <tr><th>Axis</th><th>Values</th></tr>
+              <tr><td>Models</td><td>Llama-3.1-8B · Qwen3-14B · Qwen3-32B</td></tr>
+              <tr><td>Unlearn</td><td><code>GA · NPO · RMU · TV · PALU · AS</code></td></tr>
+              <tr><td>Recover</td><td><code>Probab · FocusOnKey · Quantization</code></td></tr>
+              <tr><td>FQ</td><td><code>1 − Acc(θ_u)/Acc(θ_p)</code></td></tr>
+              <tr><td>Robust</td><td>Recovery Rate over success set</td></tr>
+              <tr><td>Utility</td><td>Relative BBH score (orig = 100)</td></tr>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- RESULTS -->
+      <section class="block" id="results">
+        <div class="sec-head">
+          <span class="num">§02</span>
+          <h2>Results &amp; highlights</h2>
+        </div>
+        <div class="findings">
+          <div class="find warn">
+            <div class="lbl">Structure beats method</div>
+            <div class="stat">~36 <span class="u">pt swing</span></div>
+            <p>TV Forget Quality: <code>63.5</code> (HS) → <code>27.6</code> (MT) on Llama-3.1-8B. High chain scores don't generalize.</p>
+          </div>
+          <div class="find warn">
+            <div class="lbl">Negative forget quality</div>
+            <div class="stat">−43.9</div>
+            <p>Attention-Shifting on Modus Tollens — unlearning makes the model answer <i>better</i> than before. Token-specific methods can amplify retrievability.</p>
+          </div>
+          <div class="find warn">
+            <div class="lbl">Multi-hop easier to recover</div>
+            <div class="stat">95.0 / 93.3</div>
+            <p>GA · FocusOnKey on Qwen3-32B: single-hop vs multi-hop recovery. Probab GA: <code>82.6</code> SH / <code>87.5</code> MH.</p>
+          </div>
+          <div class="find ok">
+            <div class="lbl">Dataset quality</div>
+            <div class="stat">98.4 / 99.2</div>
+            <p>Human-annotator scores on MQuAKE / Books (0–100). Self-BLEU drops <code>0.506→0.285</code>; entropy rises on both sets.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- TRILEMMA -->
+      <section class="block" id="trilemma">
+        <div class="sec-head">
+          <span class="num">§03</span>
+          <h2>The impossible triangle</h2>
+        </div>
+        <p class="lead">
+          No method reaches the ideal outer triangle. PALU buys forget quality + robustness but <strong>crashes BBH utility to 49.9%</strong>; RMU preserves utility (99.2%) yet fails to remove knowledge. Hover a point for its trade-off.
+        </p>
+
+        <div class="trilemma-wrap">
+          <div class="trilemma-viz">
+            <svg viewBox="0 0 360 330" role="img" aria-label="Trilemma: forget quality vs recovery robustness vs utility">
+              <!-- vertices: top=Utility, bottom-left=ForgetQuality, bottom-right=Robustness -->
+              <defs>
+                <linearGradient id="ideal" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0" stop-color="#2f5d57" stop-opacity=".16"/>
+                  <stop offset="1" stop-color="#2f5d57" stop-opacity=".02"/>
+                </linearGradient>
+              </defs>
+
+              <!-- concentric guide triangles -->
+              <polygon points="180,30 40,270 320,270" fill="none" stroke="#d9cfb9" stroke-width="1"/>
+              <polygon points="180,75 78,245 282,245" fill="none" stroke="#e3dac4" stroke-width="1" stroke-dasharray="3 4"/>
+              <polygon points="180,120 116,220 244,220" fill="none" stroke="#ece4d4" stroke-width="1" stroke-dasharray="2 5"/>
+
+              <!-- ideal region (near top center) -->
+              <polygon points="180,55 138,165 222,165" fill="url(#ideal)" stroke="#2f5d57" stroke-width="1.2" stroke-dasharray="4 3"/>
+              <text x="180" y="108" text-anchor="middle" font-family="IBM Plex Mono" font-size="9" letter-spacing="1.5" fill="#2f5d57">IDEAL · NO METHOD HERE</text>
+
+              <!-- vertex labels -->
+              <text x="180" y="20" text-anchor="middle" font-family="IBM Plex Mono" font-size="10.5" letter-spacing="1" fill="#1b1813" font-weight="600">UTILITY (BBH)</text>
+              <text x="32" y="285" text-anchor="middle" font-family="IBM Plex Mono" font-size="10.5" letter-spacing="1" fill="#1b1813" font-weight="600">FORGET QUALITY</text>
+              <text x="328" y="285" text-anchor="middle" font-family="IBM Plex Mono" font-size="10.5" letter-spacing="1" fill="#1b1813" font-weight="600">ROBUSTNESS</text>
+
+              <!-- method points (approx placements illustrating the trade-off) -->
+              <!-- PALU: high FQ, high Rob, very low Util -> bottom area, slightly right -->
+              <circle class="dot" cx="120" cy="232" r="5" fill="#a02824">
+                <title>PALU — FQ 93.0 · Rob 87.1 · Util 49.9%</title>
+              </circle>
+              <text x="120" y="250" text-anchor="middle" font-family="IBM Plex Mono" font-size="9" fill="#a02824" font-weight="600">PALU</text>
+
+              <!-- RMU: low FQ, low Rob, high Util -> near top -->
+              <circle class="dot" cx="200" cy="92" r="5" fill="#2f5d57">
+                <title>RMU — FQ low · Rob low · Util 99.2%</title>
+              </circle>
+              <text x="214" y="90" font-family="IBM Plex Mono" font-size="9" fill="#2f5d57" font-weight="600">RMU</text>
+
+              <!-- GA: mid FQ, low Rob, mid Util -->
+              <circle class="dot" cx="150" cy="170" r="4.5" fill="#9a6b1a">
+                <title>GA — moderate forget, poor robustness, moderate utility</title>
+              </circle>
+              <text x="150" y="160" text-anchor="middle" font-family="IBM Plex Mono" font-size="9" fill="#9a6b1a" font-weight="600">GA</text>
+
+              <!-- NPO -->
+              <circle class="dot" cx="165" cy="150" r="4.5" fill="#9a6b1a">
+                <title>NPO — moderate forget, poor robustness</title>
+              </circle>
+              <text x="180" y="148" font-family="IBM Plex Mono" font-size="9" fill="#9a6b1a" font-weight="600">NPO</text>
+
+              <!-- TV -->
+              <circle class="dot" cx="185" cy="135" r="4.5" fill="#9a6b1a">
+                <title>Task Vector — structure-dependent, unstable</title>
+              </circle>
+              <text x="200" y="130" font-family="IBM Plex Mono" font-size="9" fill="#9a6b1a" font-weight="600">TV</text>
+
+              <!-- AS -->
+              <circle class="dot" cx="210" cy="120" r="4.5" fill="#7a7264">
+                <title>Attention-Shifting — token-specific, negative FQ on some paths</title>
+              </circle>
+              <text x="225" y="118" font-family="IBM Plex Mono" font-size="9" fill="#7a7264" font-weight="600">AS</text>
+
+              <!-- axis tick hints -->
+              <text x="180" y="298" text-anchor="middle" font-family="IBM Plex Sans" font-size="10" fill="#7a7264">All points fall short of the ideal region — the trilemma holds across every model &amp; dataset.</text>
+            </svg>
+          </div>
+
+          <div class="legend">
+            <h3>Trade-off map</h3>
+            <p class="lede">Each method occupies a compromise corner. The paper's headline negative result: <b>none</b> reach the ideal outer triangle.</p>
+            <ul>
+              <li><span class="sw" style="background:#a02824"></span><span class="m">PALU</span><span class="d">strong forget + robust</span><span class="v">Util 49.9%</span></li>
+              <li><span class="sw" style="background:#2f5d57"></span><span class="m">RMU</span><span class="d">utility preserved</span><span class="v">FQ low</span></li>
+              <li><span class="sw" style="background:#9a6b1a"></span><span class="m">GA/NPO/TV</span><span class="d">moderate forget</span><span class="v">Rob low</span></li>
+              <li><span class="sw" style="background:#7a7264"></span><span class="m">AS</span><span class="d">token-specific</span><span class="v">FQ −43.9 MT</span></li>
+            </ul>
+            <p style="margin:0;font-size:12px;color:var(--muted);line-height:1.5">
+              Positions are illustrative of the reported trade-offs (MQuAKE / Llama-3.1-8B). Exact coordinates in §6.3 &amp; Fig. 4.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <!-- STRENGTHS / LIMITATIONS -->
+      <section class="block" id="duo">
+        <div class="sec-head">
+          <span class="num">§04</span>
+          <h2>Strengths &amp; limitations</h2>
+        </div>
+        <div class="duo">
+          <div class="col s">
+            <h3>▲ Strengths</h3>
+            <ul>
+              <li>First benchmark to jointly combine a rich taxonomy of multi-hop reasoning structures <i>and</i> recovery attacks, cleanly distinguished from Faithful / Deep Unlearning.</li>
+              <li>Principled selection of the six logical types, with explicit exclusion rationale (e.g. Material Implication rejected as pattern-matching).</li>
+              <li>Controlled equal category sizes + a relative metric that neutralizes base-model-accuracy confounds.</li>
+              <li>Honest, citable negative results: no method hits the ideal triangle; multi-hop is systematically more recoverable.</li>
+              <li>Strong transparency — prompts, hyperparameters, recovery configs, hardware, QA protocols all disclosed.</li>
+            </ul>
+          </div>
+          <div class="col l">
+            <h3>▼ Limitations</h3>
+            <ul>
+              <li><b>Open-weight only</b> — cannot speak to black-box / commercial API unlearning dynamics (GPT-4, Claude).</li>
+              <li><b>Factual knowledge only</b> — privacy memorization, copyrighted spans, implicit harmful behaviors are out of scope.</li>
+              <li><b>English only</b> — cross-lingual multi-hop leakage (e.g. querying via Chinese/French) is underexplored.</li>
+              <li><b>LLM-driven data &amp; grading</b> — GPT-4o generates; LLM judges grade. Lenient "answer appears anywhere → CORRECT" rule may overstate recovery.</li>
+              <li><b>Limited sweep</b> — 3 LLMs × 6 methods × 3 recoveries can't exhaust the space; framed as "strong evidence of trends," not universal laws.</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <!-- QUESTIONS -->
+      <section class="block" id="questions">
+        <div class="sec-head">
+          <span class="num">§05</span>
+          <h2>Questions for further exploration</h2>
+        </div>
+        <ol class="qlist">
+          <li>Do the negative Forget Quality cases (AS −43.9 on MT, PALU −26.0 on MP) survive strict human grading and an <b>exact-match</b> criterion?</li>
+          <li>How do the six structures behave under cross-lingual multi-hop queries — can unlearned English facts leak through Chinese / French reasoning chains?</li>
+          <li>Can a single unlearning objective trade explicitly along the trilemma — and where is the Pareto frontier between forget quality, robustness, and BBH utility?</li>
+          <li>Do the same leakage patterns hold for black-box APIs where only Probab-style decoding recovery is available — is parameter-level recovery the dominant threat in practice?</li>
+          <li>Could the structural-matching pipeline be inverted into a <b>training-time regularizer</b> that suppresses the six paths — turning the benchmark into an algorithm?</li>
+        </ol>
+      </section>
+    </main>
+  </div>
+
+  <!-- FOOTER -->
+  <div class="foot">
+    <span>Self-contained dossier · generated from source markdown · not browser-verified</span>
+    <a href="./2608.04519.md">↗ Markdown source</a>
+  </div>
+
+</div>
+
+<script>
+  // smooth active-state for rail links
+  const links = Array.from(document.querySelectorAll('.rail a'));
+  const sections = links.map(a => document.querySelector(a.getAttribute('href')));
+  const io = new IntersectionObserver((entries)=>{
+    entries.forEach(e=>{
+      if(e.isIntersecting){
+        const i = sections.indexOf(e.target);
+        links.forEach((l,idx)=>{ l.style.color = idx===i ? 'var(--ink)' : ''; l.style.background = idx===i ? 'var(--surface)' : ''; l.style.borderLeftColor = idx===i ? 'var(--ochre)' : 'transparent'; });
+      }
+    });
+  },{rootMargin:'-40% 0px -55% 0px'});
+  sections.forEach(s=> s && io.observe(s));
+</script>
+</body>
+</html>

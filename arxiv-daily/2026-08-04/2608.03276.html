@@ -1,0 +1,851 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TaskPress — Query-Agnostic KV Cache Compression · arXiv:2608.03276</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400;1,6..72,500&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --paper:#0e1116;
+    --paper-2:#14181f;
+    --card:#171c24;
+    --card-2:#1d242e;
+    --line:#262e3a;
+    --line-2:#38445a;
+    --ink:#e8edf4;
+    --ink-2:#b4bdc9;
+    --ink-3:#7d8896;
+    --ink-4:#5a6473;
+    --accent:#ff5436;
+    --accent-2:#ff7a5c;
+    --accent-bg:rgba(255,84,54,0.10);
+    --accent-line:rgba(255,84,54,0.40);
+    --amber:#e8b04b;
+    --amber-line:rgba(232,176,75,0.35);
+    --teal:#4ec9b0;
+    --teal-line:rgba(78,201,176,0.32);
+    --fail:#e85c5c;
+    --maxw:min(95vw,1100px);
+    --display:'Newsreader','Georgia',serif;
+    --sans:'Space Grotesk',system-ui,-apple-system,sans-serif;
+    --mono:'JetBrains Mono',ui-monospace,'SF Mono',monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    font-family:var(--sans);
+    color:var(--ink);
+    background:var(--paper);
+    background-image:
+      linear-gradient(var(--line) 1px,transparent 1px),
+      linear-gradient(90deg,var(--line) 1px,transparent 1px);
+    background-size:44px 44px;
+    background-position:-1px -1px;
+    -webkit-font-smoothing:antialiased;
+    line-height:1.5;
+  }
+  body::before{
+    content:"";position:fixed;inset:0;
+    background:radial-gradient(ellipse 80% 50% at 50% -10%,rgba(255,84,54,0.08),transparent 70%);
+    pointer-events:none;z-index:0;
+  }
+  body::after{
+    content:"";position:fixed;inset:0;
+    background-image:repeating-linear-gradient(0deg,rgba(255,255,255,0.012) 0px,rgba(255,255,255,0.012) 1px,transparent 1px,transparent 3px);
+    pointer-events:none;z-index:0;
+  }
+  .canvas,header.topbar,footer.footbar{position:relative;z-index:1}
+
+  /* ---------- top bar ---------- */
+  header.topbar{
+    max-width:var(--maxw);
+    margin:0 auto;
+    padding:16px 0 12px;
+    display:flex;align-items:center;justify-content:space-between;
+    border-bottom:1px solid var(--line);
+    gap:16px;flex-wrap:wrap;
+  }
+  .brand{display:flex;align-items:baseline;gap:14px}
+  .brand .logo{
+    font-family:var(--mono);font-size:11px;font-weight:600;
+    color:var(--accent);letter-spacing:0.16em;text-transform:uppercase;
+    padding:3px 8px;border:1px solid var(--accent-line);background:var(--accent-bg);
+  }
+  .brand .name{font-family:var(--display);font-size:18px;font-weight:600;font-style:italic;color:var(--ink)}
+  .back{
+    font-family:var(--sans);font-size:12.5px;font-weight:500;
+    color:var(--ink-2);text-decoration:none;
+    display:inline-flex;align-items:center;gap:6px;
+    padding:6px 10px;border:1px solid var(--line);background:var(--card);
+    transition:color .15s,border-color .15s,background .15s;
+  }
+  .back:hover{color:var(--accent);border-color:var(--accent-line);background:var(--accent-bg)}
+  .topmeta{font-family:var(--mono);font-size:11px;color:var(--ink-3);letter-spacing:0.03em;text-align:right}
+  .topmeta .id{color:var(--accent);font-weight:500}
+  .topmeta .sep{color:var(--ink-4);margin:0 6px}
+
+  main.canvas{max-width:var(--maxw);margin:0 auto;padding:0}
+
+  /* ---------- hero ---------- */
+  section.hero{
+    padding:42px 0 32px;
+    border-bottom:1px solid var(--line);
+    position:relative;
+  }
+  .eyebrow{
+    font-family:var(--mono);font-size:11px;letter-spacing:0.14em;
+    text-transform:uppercase;color:var(--ink-3);
+    display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:20px;
+  }
+  .eyebrow .tag{
+    border:1px solid var(--line-2);padding:3px 9px;color:var(--ink-2);background:var(--paper-2);
+    text-transform:none;letter-spacing:0.02em;font-size:11px;
+  }
+  .eyebrow .tag.hot{color:var(--accent);border-color:var(--accent-line);background:var(--accent-bg)}
+  .eyebrow .dot{width:6px;height:6px;background:var(--accent);border-radius:50%;display:inline-block;box-shadow:0 0 8px var(--accent)}
+
+  h1.title{
+    font-family:var(--display);font-weight:500;
+    font-size:clamp(34px,5.8vw,60px);
+    line-height:1.04;letter-spacing:-0.02em;
+    margin:0 0 6px;color:var(--ink);
+    max-width:18ch;
+  }
+  h1.title em{font-style:italic;color:var(--accent);font-weight:500}
+  h1.title .strikethrough{
+    position:relative;color:var(--ink-4);
+  }
+  h1.title .strikethrough::after{
+    content:"";position:absolute;left:-4px;right:-4px;top:50%;
+    height:3px;background:var(--accent);transform:rotate(-3deg);
+  }
+  .subtitle{
+    font-family:var(--display);font-style:italic;font-weight:400;
+    font-size:clamp(16px,2vw,20px);
+    color:var(--ink-3);margin:0 0 28px;max-width:48ch;line-height:1.4;
+  }
+  .keyfinding{
+    display:grid;grid-template-columns:120px 1fr;gap:24px;
+    padding:22px 0 0;border-top:2px solid var(--accent);
+  }
+  .keyfinding .label{
+    font-family:var(--mono);font-size:10.5px;letter-spacing:0.16em;
+    text-transform:uppercase;color:var(--accent);font-weight:600;line-height:1.3;
+  }
+  .keyfinding .body{
+    font-family:var(--display);font-weight:400;
+    font-size:clamp(16.5px,2vw,20px);line-height:1.45;color:var(--ink-2);
+  }
+  .keyfinding .body b{color:var(--ink);font-weight:600}
+  .keyfinding .body .hl{background:var(--accent-bg);padding:0 3px;color:var(--accent-2)}
+  .keyfinding .body .num{font-family:var(--mono);font-weight:600;color:var(--accent);font-size:0.92em;white-space:nowrap}
+
+  .herometa{
+    display:flex;flex-wrap:wrap;gap:8px 22px;margin-top:24px;
+    font-family:var(--mono);font-size:11px;color:var(--ink-3);
+  }
+  .herometa span b{color:var(--ink-2);font-weight:500}
+
+  /* ---------- anchor nav ---------- */
+  nav.jumps{
+    position:sticky;top:0;z-index:5;
+    max-width:var(--maxw);margin:0 auto;
+    background:rgba(14,17,22,0.94);
+    border-bottom:1px solid var(--line);
+    padding:10px 0;
+    display:flex;gap:4px;flex-wrap:wrap;align-items:center;
+    backdrop-filter:blur(8px);
+  }
+  nav.jumps .jlabel{font-family:var(--mono);font-size:10.5px;letter-spacing:0.14em;text-transform:uppercase;color:var(--ink-4);margin-right:8px}
+  nav.jumps a{
+    font-family:var(--sans);font-size:12.5px;font-weight:500;
+    color:var(--ink-2);text-decoration:none;
+    padding:5px 10px;border:1px solid transparent;
+    transition:all .15s;
+  }
+  nav.jumps a:hover{color:var(--accent);border-color:var(--accent-line);background:var(--card)}
+  nav.jumps a.active{color:var(--accent);border-color:var(--accent-line);background:var(--accent-bg)}
+
+  /* ---------- asset row ---------- */
+  section.assets{
+    display:grid;grid-template-columns:repeat(12,1fr);gap:16px;
+    padding:26px 0;border-bottom:1px solid var(--line);
+  }
+  .asset{
+    grid-column:span 4;
+    border:1px solid var(--line);padding:22px 20px 20px;
+    background:var(--card);position:relative;
+    display:flex;flex-direction:column;
+    overflow:hidden;
+  }
+  .asset::before{
+    content:"";position:absolute;top:0;left:0;right:0;height:2px;background:var(--accent);
+  }
+  .asset .kicker{
+    font-family:var(--mono);font-size:10px;letter-spacing:0.18em;
+    text-transform:uppercase;color:var(--ink-4);margin-bottom:14px;
+    display:flex;align-items:center;gap:8px;
+  }
+  .asset .kicker::before{content:"";width:10px;height:1px;background:var(--ink-4)}
+
+  /* metric card */
+  .asset.metric .figure{
+    font-family:var(--mono);font-weight:600;
+    font-size:clamp(48px,7.5vw,72px);line-height:0.9;color:var(--accent);
+    letter-spacing:-0.04em;margin:2px 0 4px;
+    display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;
+  }
+  .asset.metric .figure .versus{
+    font-family:var(--sans);font-size:0.22em;color:var(--ink-4);font-weight:500;letter-spacing:0.04em;
+  }
+  .asset.metric .figure .versus b{color:var(--ink-3);font-weight:600}
+  .asset.metric .fignote{font-family:var(--sans);font-size:12.5px;color:var(--ink-2);font-weight:500;margin-bottom:12px;line-height:1.4}
+  .asset.metric .delta{
+    display:inline-block;font-family:var(--mono);font-size:11px;font-weight:600;
+    color:var(--teal);padding:2px 7px;background:rgba(78,201,176,0.10);border:1px solid var(--teal-line);
+    margin-bottom:10px;
+  }
+  .asset.metric .fignum{
+    font-family:var(--mono);font-size:11px;color:var(--ink-3);line-height:1.55;
+    border-top:1px dashed var(--line);padding-top:10px;margin-top:auto;
+  }
+  .asset.metric .fignum b{color:var(--ink-2);font-weight:600}
+
+  /* why card */
+  .asset.why{background:var(--card-2)}
+  .asset.why::before{background:var(--amber)}
+  .asset.why .kicker{color:var(--amber)}
+  .asset.why .kicker::before{background:var(--amber)}
+  .asset.why .lead{
+    font-family:var(--display);font-weight:500;font-size:17px;line-height:1.38;color:var(--ink);
+    border-left:3px solid var(--amber);padding-left:14px;margin-bottom:12px;
+  }
+  .asset.why .note{font-size:12.5px;color:var(--ink-3);line-height:1.55;margin-top:auto}
+  .asset.why .note b{color:var(--ink-2)}
+
+  /* edge card */
+  .asset.edge::before{background:var(--fail)}
+  .asset.edge .kicker{color:var(--fail)}
+  .asset.edge .kicker::before{background:var(--fail)}
+  .asset.edge ul{margin:0;padding:0;list-style:none}
+  .asset.edge li{
+    font-size:12px;line-height:1.5;color:var(--ink-3);
+    padding:8px 0;border-bottom:1px solid var(--line);
+    display:flex;gap:9px;
+  }
+  .asset.edge li:last-child{border-bottom:none}
+  .asset.edge li::before{
+    content:"▲";color:var(--fail);flex-shrink:0;font-size:10px;line-height:1.6;
+  }
+  .asset.edge li b{color:var(--ink);font-weight:600}
+
+  /* ---------- body grid ---------- */
+  section.grid{
+    display:grid;grid-template-columns:repeat(12,1fr);gap:16px;
+    padding:30px 0;
+  }
+  .panel{
+    background:var(--card);border:1px solid var(--line);padding:24px 22px;
+  }
+  .panel h2{
+    font-family:var(--display);font-weight:500;font-size:23px;letter-spacing:-0.01em;
+    margin:0 0 4px;color:var(--ink);line-height:1.2;
+  }
+  .panel .h-kicker{
+    font-family:var(--mono);font-size:10.5px;letter-spacing:0.16em;text-transform:uppercase;
+    color:var(--accent);margin-bottom:10px;font-weight:600;
+  }
+  .panel p{font-size:13.5px;line-height:1.6;color:var(--ink-2);margin:0 0 10px}
+  .panel p:last-child{margin-bottom:0}
+  .panel .num{font-family:var(--mono);font-weight:600;color:var(--accent)}
+  .panel .amb{font-family:var(--mono);font-weight:600;color:var(--amber)}
+  .panel .tl{font-family:var(--mono);font-weight:600;color:var(--teal)}
+  .panel b.k{color:var(--ink);font-weight:600}
+
+  .span7{grid-column:span 7}
+  .span5{grid-column:span 5}
+  .span12{grid-column:span 12}
+  .span6{grid-column:span 6}
+
+  /* pipeline diagram */
+  .pipeline{margin-top:14px}
+  .pipeline svg{width:100%;height:auto;display:block}
+
+  /* eviction bar chart */
+  .bars-chart{margin-top:8px}
+  .bars-chart svg{width:100%;height:auto;display:block}
+  .bars-legend{
+    display:flex;flex-wrap:wrap;gap:6px 18px;margin-top:14px;
+    font-family:var(--mono);font-size:10.5px;color:var(--ink-3);
+  }
+  .bars-legend .sw{display:inline-block;width:10px;height:10px;margin-right:5px;vertical-align:-1px}
+
+  /* efficiency stat strip */
+  .effstrip{
+    display:grid;grid-template-columns:repeat(5,1fr);gap:1px;
+    background:var(--line);border:1px solid var(--line);margin-top:14px;
+  }
+  .effcell{background:var(--paper-2);padding:14px 12px}
+  .effcell .v{font-family:var(--mono);font-weight:600;font-size:21px;color:var(--teal);line-height:1;margin-bottom:5px;letter-spacing:-0.01em}
+  .effcell .v.bad{color:var(--fail)}
+  .effcell .l{font-family:var(--sans);font-size:10.5px;color:var(--ink-3);line-height:1.3}
+  .effcell .l b{color:var(--ink-2);font-weight:600}
+
+  /* contributions matrix */
+  .contrib-grid{
+    display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--line);
+    border:1px solid var(--line);margin-top:14px;
+  }
+  .contrib-cell{background:var(--paper-2);padding:14px 16px}
+  .contrib-cell .h{
+    font-family:var(--mono);font-size:10px;letter-spacing:0.14em;text-transform:uppercase;
+    color:var(--accent);font-weight:600;margin-bottom:6px;
+  }
+  .contrib-cell .h.alt{color:var(--amber)}
+  .contrib-cell .t{font-size:12.5px;color:var(--ink-2);line-height:1.5}
+  .contrib-cell .t b{color:var(--ink)}
+  .contrib-cell .t .n{font-family:var(--mono);color:var(--accent);font-weight:600}
+
+  /* verdict board */
+  .verdict-board{
+    margin-top:14px;border:1px solid var(--line);
+  }
+  .vb-tabs{display:flex;border-bottom:1px solid var(--line);background:var(--paper-2)}
+  .vb-tab{
+    flex:1;background:none;border:none;cursor:pointer;
+    font-family:var(--sans);font-size:12.5px;font-weight:500;color:var(--ink-3);
+    padding:14px 12px;text-align:left;border-right:1px solid var(--line);
+    transition:all .15s;position:relative;display:flex;flex-direction:column;gap:3px;
+  }
+  .vb-tab:last-child{border-right:none}
+  .vb-tab .vh{font-family:var(--mono);font-size:9.5px;letter-spacing:0.14em;text-transform:uppercase;color:var(--ink-4)}
+  .vb-tab:hover{background:var(--card);color:var(--ink-2)}
+  .vb-tab.active{background:var(--card);color:var(--ink)}
+  .vb-tab.active .vh{color:var(--accent)}
+  .vb-tab.active::after{content:"";position:absolute;left:0;right:0;bottom:-1px;height:2px;background:var(--accent)}
+  .vb-panel{display:none;padding:20px 22px;background:var(--card)}
+  .vb-panel.active{display:block}
+  .vb-verdict{
+    font-family:var(--display);font-weight:500;font-size:21px;letter-spacing:-0.01em;
+    color:var(--ink);margin-bottom:6px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+  }
+  .vb-verdict .mark{font-family:var(--mono);font-size:12px;font-weight:600;padding:2px 8px;border:1px solid}
+  .vb-verdict .mark.win{color:var(--teal);border-color:var(--teal-line);background:rgba(78,201,176,0.08)}
+  .vb-verdict .mark.mid{color:var(--amber);border-color:var(--amber-line);background:rgba(232,176,75,0.08)}
+  .vb-verdict .mark.bad{color:var(--fail);border-color:rgba(232,92,92,0.4);background:rgba(232,92,92,0.08)}
+  .vb-claim{font-size:13px;color:var(--ink-3);font-style:italic;margin-bottom:12px;font-family:var(--display)}
+  .vb-evidence{font-size:13px;color:var(--ink-2);line-height:1.6}
+  .vb-evidence b{color:var(--ink)}
+
+  /* scores table */
+  .scores-table{
+    width:100%;border-collapse:collapse;margin-top:14px;
+    font-family:var(--mono);font-size:11.5px;
+  }
+  .scores-table th,.scores-table td{
+    padding:8px 10px;text-align:right;border-bottom:1px solid var(--line);
+  }
+  .scores-table th{
+    font-weight:600;color:var(--ink-3);text-transform:uppercase;letter-spacing:0.06em;font-size:10px;
+    background:var(--paper-2);
+  }
+  .scores-table th:first-child,.scores-table td:first-child{text-align:left;color:var(--ink-2)}
+  .scores-table td.win{color:var(--teal);font-weight:600}
+  .scores-table tr:hover td{background:rgba(255,255,255,0.02)}
+
+  /* limits list */
+  .limits{margin:0;padding:0;list-style:none}
+  .limits li{
+    font-size:13px;color:var(--ink-2);line-height:1.55;
+    padding:9px 0;border-bottom:1px dashed var(--line);
+    display:flex;gap:10px;
+  }
+  .limits li:last-child{border-bottom:none}
+  .limits li::before{
+    content:"–";color:var(--accent);font-weight:600;flex-shrink:0;font-family:var(--mono);
+  }
+  .limits li b{color:var(--ink)}
+
+  /* questions */
+  .qlist{margin:0;padding:0;list-style:none;counter-reset:q}
+  .qlist li{
+    font-size:13px;color:var(--ink-2);line-height:1.55;
+    padding:10px 0 10px 30px;border-bottom:1px dashed var(--line);position:relative;
+    counter-increment:q;
+  }
+  .qlist li:last-child{border-bottom:none}
+  .qlist li::before{
+    content:"Q" counter(q);
+    position:absolute;left:0;top:10px;
+    font-family:var(--mono);font-size:10px;font-weight:600;color:var(--accent);
+    letter-spacing:0.04em;
+  }
+  .qlist li b{color:var(--ink)}
+
+  /* ---------- footer ---------- */
+  footer.footbar{
+    max-width:var(--maxw);margin:0 auto;padding:26px 0 40px;
+    border-top:1px solid var(--line);margin-top:20px;
+    display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:12px;
+  }
+  .src-link{
+    font-family:var(--sans);font-size:12.5px;font-weight:500;color:var(--ink-2);text-decoration:none;
+    display:inline-flex;align-items:center;gap:6px;
+    padding:6px 10px;border:1px solid var(--line);background:var(--card);
+    transition:color .15s,border-color .15s,background .15s;
+  }
+  .src-link:hover{color:var(--accent);border-color:var(--accent-line);background:var(--accent-bg)}
+  .foot-note{font-family:var(--mono);font-size:10.5px;color:var(--ink-4)}
+
+  /* ---------- reveal animation ---------- */
+  .reveal{opacity:0;transform:translateY(10px);animation:rv .6s cubic-bezier(.2,.7,.2,1) forwards}
+  @keyframes rv{to{opacity:1;transform:none}}
+  .d1{animation-delay:.05s}.d2{animation-delay:.12s}.d3{animation-delay:.19s}
+  .d4{animation-delay:.26s}.d5{animation-delay:.33s}.d6{animation-delay:.40s}
+
+  /* ---------- responsive ---------- */
+  @media (max-width:860px){
+    .asset{grid-column:span 12}
+    .span7,.span6,.span5{grid-column:span 12}
+    .effstrip{grid-template-columns:repeat(2,1fr)}
+    .contrib-grid{grid-template-columns:1fr}
+    .keyfinding{grid-template-columns:1fr;gap:8px}
+    nav.jumps .jlabel{display:none}
+    h1.title{font-size:36px}
+    .vb-tab{font-size:11px;padding:11px 8px}
+  }
+  @media (max-width:520px){
+    .effstrip{grid-template-columns:1fr}
+    .scores-table{font-size:10.5px}
+    .scores-table th,.scores-table td{padding:6px 6px}
+  }
+  @media (prefers-reduced-motion:reduce){
+    .reveal{animation:none;opacity:1;transform:none}
+  }
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <a class="back" href="./index.html">↩ Today's digest</a>
+  <div class="brand">
+    <span class="logo">PRESS / 04</span>
+    <span class="name">TaskPress</span>
+  </div>
+  <div class="topmeta">
+    <span class="id">arXiv:2608.03276</span><span class="sep">·</span>2026-08-04<span class="sep">·</span>kv-cache · long-context · serving
+  </div>
+</header>
+
+<main class="canvas">
+
+  <!-- ================= HERO ================= -->
+  <section class="hero">
+    <div class="eyebrow reveal d1">
+      <span class="dot"></span>
+      Query-agnostic KV cache compression
+      <span class="tag hot">task-time, not query-time</span>
+      <span class="tag">zero-cost Value signal</span>
+      <span class="tag">16× total compression</span>
+    </div>
+
+    <h1 class="title reveal d1">Compress <em>once</em> at the task,<br>not <span class="strikethrough">every</span> query.</h1>
+    <p class="subtitle reveal d2">TaskPress replaces per-query KV-cache eviction with one task-level "meta-query" guide — and reuses the int4 scale factor as a free Value-importance signal.</p>
+
+    <div class="keyfinding reveal d3">
+      <div class="label">Key<br>Finding</div>
+      <div class="body">
+        A natural-language <b>task guide</b> plus a <span class="hl">repurposed quantization scale factor</span> produce a <b>single compressed cache reusable across many queries</b>, beating SnapKV and KVZip precisely where they degrade most. At <span class="num">75% eviction</span> on RULER-16K, TaskPress reaches <span class="num">68.4</span> vs SnapKV <span class="num">42.8</span> and KVZip <span class="num">62.2</span> — at <span class="num">+1.2% TTFT</span> and <span class="num">~80×</span> lower eviction latency than context reconstruction.
+      </div>
+    </div>
+
+    <div class="herometa reveal d3">
+      <span><b>Authors</b> Wonpyo Park, Seung-won Hwang</span>
+      <span><b>Affil.</b> Seoul National University · Google</span>
+      <span><b>Built on</b> kvpress (public)</span>
+      <span><b>Models</b> LLaMA-3.1-8B · Qwen3-8B/32B</span>
+    </div>
+  </section>
+
+  <!-- ================= ASSET ROW ================= -->
+  <section class="assets">
+    <!-- KEY METRIC -->
+    <div class="asset metric reveal d3">
+      <div class="kicker">Key Metric</div>
+      <div class="figure">68.4<span class="versus">/ vs <b>42.8</b></span></div>
+      <div class="fignote">RULER-16K average accuracy, 13 subtasks, @ 75% eviction.</div>
+      <div class="delta">+25.6 over SnapKV · +6.2 over KVZip</div>
+      <div class="fignum">
+        LongBench / LLaMA-3.1-8B @ 75%: <b>43.08</b> vs SnapKV <b>39.37</b> · KVZip <b>38.24</b><br>
+        Qwen3-32B Single+MultiDocQA @ 75%: <b>42.57</b> vs SnapKV <b>35.95</b> (+6.62)<br>
+        Total compression: int4 (4×) × 75% prune = <b>16×</b>
+      </div>
+    </div>
+
+    <!-- WHY THIS MATTERS -->
+    <div class="asset why reveal d4">
+      <div class="kicker">Why This Matters</div>
+      <div class="lead">Decouples compression from the query — enabling genuine cache reuse across turns, the regime where every query-dependent method must re-prefill.</div>
+      <div class="note">The Value-importance signal is the <b>int4 scale factor γᵢ already computed by every modern quantized serving stack</b> — the gain is essentially free, and the same compressed cache serves an entire stream of future queries.</div>
+    </div>
+
+    <!-- CRITICAL EDGE -->
+    <div class="asset edge reveal d5">
+      <div class="kicker">Critical Edge</div>
+      <ul>
+        <li><span><b>MK-2/MK-3 collapse.</b> Multi-needle attention dilution drops scores to <b>10.6 / 1.0</b> at 75% — by far worst in table.</span></li>
+        <li><span><b>Favorable "5× memory" frame.</b> Compares vs latency-optimized query-dependent (which holds both caches); memory-optimized is closer.</span></li>
+        <li><span><b>Test-set calibration.</b> Evolutionary search uses <b>50 LongBench test samples</b> — no held-out validation; mild overfit risk.</span></li>
+        <li><span><b>Not free in FP16.</b> Scale factor must be computed on-the-fly in full-precision deploys (~2.7% extra); undercuts "zero-cost."</span></li>
+        <li><span><b>Narrow benchmarks.</b> QA + summarization only; code, math, agentic long-context untested.</span></li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- ================= JUMP NAV ================= -->
+  <nav class="jumps" id="jumps">
+    <span class="jlabel">Jump →</span>
+    <a href="#pipeline">Pipeline</a>
+    <a href="#scores">Headline scores</a>
+    <a href="#efficiency">Efficiency</a>
+    <a href="#contributions">Mechanism</a>
+    <a href="#verdicts">Verdict</a>
+    <a href="#limits">Limits</a>
+  </nav>
+
+  <!-- ================= BODY GRID ================= -->
+  <section class="grid">
+
+    <!-- PIPELINE -->
+    <div class="panel span12 reveal" id="pipeline">
+      <div class="h-kicker">01 · Method · four stages, one prefill</div>
+      <h2>One guide, one prefill, one reusable cache.</h2>
+      <p>TaskPress runs entirely during a <b class="k">single context prefill</b>. A short natural-language task guide (length <span class="num">Lₜ</span>) is appended to the context; its cross-attention supplies Key importance, the int4 scale factor supplies Value importance, and the two are <b class="k">multiplied</b> so a kept token must be both task-retrievable <i>and</i> semantically rich. The guide's own KV is evicted immediately.</p>
+
+      <div class="pipeline">
+        <svg viewBox="0 0 980 210" role="img" aria-label="TaskPress four-stage pipeline">
+          <defs>
+            <marker id="arrW" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto">
+              <path d="M0,0 L6,4 L0,8 z" fill="#7d8896"/>
+            </marker>
+            <linearGradient id="flowG" x1="0" x2="1">
+              <stop offset="0" stop-color="#ff5436" stop-opacity="0.15"/>
+              <stop offset="1" stop-color="#ff5436" stop-opacity="0"/>
+            </linearGradient>
+          </defs>
+
+          <!-- flow line -->
+          <line x1="40" y1="105" x2="940" y2="105" stroke="url(#flowG)" stroke-width="2"/>
+
+          <!-- STAGE 1: KEY -->
+          <rect x="30" y="35" width="200" height="140" fill="#1d242e" stroke="#38445a" stroke-width="1"/>
+          <rect x="30" y="35" width="200" height="3" fill="#ff5436"/>
+          <text x="130" y="60" text-anchor="middle" font-family="JetBrains Mono" font-size="10" fill="#ff5436" font-weight="600" letter-spacing="1.4">STAGE 1 · KEY</text>
+          <text x="130" y="82" text-anchor="middle" font-family="Space Grotesk" font-size="11.5" fill="#e8edf4" font-weight="600">Task-Guide Attention</text>
+          <text x="130" y="103" text-anchor="middle" font-family="JetBrains Mono" font-size="9.5" fill="#7d8896">A ∈ ℝ^(Lₜ×Lₖ)</text>
+          <text x="130" y="121" text-anchor="middle" font-family="Space Grotesk" font-size="10" fill="#b4bdc9">guide → context</text>
+          <text x="130" y="139" text-anchor="middle" font-family="Space Grotesk" font-size="10" fill="#b4bdc9">cross-attn + 1D pool</text>
+          <text x="130" y="161" text-anchor="middle" font-family="JetBrains Mono" font-size="9.5" fill="#7d8896">sᵢ^key</text>
+
+          <!-- arrow -->
+          <line x1="232" y1="105" x2="268" y2="105" stroke="#7d8896" stroke-width="1.2" marker-end="url(#arrW)"/>
+
+          <!-- STAGE 2: VALUE -->
+          <rect x="270" y="35" width="200" height="140" fill="#1d242e" stroke="#38445a" stroke-width="1"/>
+          <rect x="270" y="35" width="200" height="3" fill="#e8b04b"/>
+          <text x="370" y="60" text-anchor="middle" font-family="JetBrains Mono" font-size="10" fill="#e8b04b" font-weight="600" letter-spacing="1.4">STAGE 2 · VALUE</text>
+          <text x="370" y="82" text-anchor="middle" font-family="Space Grotesk" font-size="11.5" fill="#e8edf4" font-weight="600">Scale Factor Reuse</text>
+          <text x="370" y="103" text-anchor="middle" font-family="JetBrains Mono" font-size="9.5" fill="#7d8896">γᵢ = max|vᵢ|/(2^(b-1)−1)</text>
+          <text x="370" y="121" text-anchor="middle" font-family="Space Grotesk" font-size="10" fill="#b4bdc9">already in int4 pipeline</text>
+          <text x="370" y="139" text-anchor="middle" font-family="Space Grotesk" font-size="10" fill="#b4bdc9">zero extra compute</text>
+          <text x="370" y="161" text-anchor="middle" font-family="JetBrains Mono" font-size="9.5" fill="#7d8896">sᵢ^value</text>
+
+          <!-- arrow -->
+          <line x1="472" y1="105" x2="508" y2="105" stroke="#7d8896" stroke-width="1.2" marker-end="url(#arrW)"/>
+
+          <!-- STAGE 3: SCORE -->
+          <rect x="510" y="35" width="200" height="140" fill="#1d242e" stroke="#38445a" stroke-width="1"/>
+          <rect x="510" y="35" width="200" height="3" fill="#4ec9b0"/>
+          <text x="610" y="60" text-anchor="middle" font-family="JetBrains Mono" font-size="10" fill="#4ec9b0" font-weight="600" letter-spacing="1.4">STAGE 3 · SCORE</text>
+          <text x="610" y="82" text-anchor="middle" font-family="Space Grotesk" font-size="11.5" fill="#e8edf4" font-weight="600">Multiplicative K×V</text>
+          <text x="610" y="108" text-anchor="middle" font-family="JetBrains Mono" font-size="13" fill="#e8edf4" font-weight="600">sᵢ = sᵢ^key · sᵢ^value</text>
+          <text x="610" y="130" text-anchor="middle" font-family="Space Grotesk" font-size="10" fill="#b4bdc9">retrievable ∧ informative</text>
+          <text x="610" y="161" text-anchor="middle" font-family="JetBrains Mono" font-size="9.5" fill="#7d8896">top-|I| per head</text>
+
+          <!-- arrow -->
+          <line x1="712" y1="105" x2="748" y2="105" stroke="#7d8896" stroke-width="1.2" marker-end="url(#arrW)"/>
+
+          <!-- STAGE 4: GUIDE -->
+          <rect x="750" y="35" width="200" height="140" fill="#1d242e" stroke="#38445a" stroke-width="1"/>
+          <rect x="750" y="35" width="200" height="3" fill="#ff7a5c"/>
+          <text x="850" y="60" text-anchor="middle" font-family="JetBrains Mono" font-size="10" fill="#ff7a5c" font-weight="600" letter-spacing="1.4">STAGE 4 · GUIDE</text>
+          <text x="850" y="82" text-anchor="middle" font-family="Space Grotesk" font-size="11.5" fill="#e8edf4" font-weight="600">Task Discovery</text>
+          <text x="850" y="103" text-anchor="middle" font-family="Space Grotesk" font-size="10" fill="#b4bdc9">zero-shot: Gemini prompt</text>
+          <text x="850" y="121" text-anchor="middle" font-family="Space Grotesk" font-size="10" fill="#b4bdc9">evolved: GEPA, K=2 N=3 G=4</text>
+          <text x="850" y="143" text-anchor="middle" font-family="JetBrains Mono" font-size="9.5" fill="#7d8896">~25 min once</text>
+          <text x="850" y="161" text-anchor="middle" font-family="JetBrains Mono" font-size="9.5" fill="#7d8896">offline · A100 40GB</text>
+        </svg>
+      </div>
+      <p style="margin-top:14px;font-size:13px">The score-unification ablation is decisive: <b class="k">multiply beats normalized-add and harmonic-mean</b> on RULER-4K (<span class="num">65.81</span> vs <span class="num">59.90</span> vs <span class="num">64.14</span>), because the two signals are <b class="k">near-orthogonal by construction</b> — γᵢ correlates <span class="tl">0.79±0.10</span> with value norm but only <span class="num">0.06±0.23</span> with the attention map.</p>
+    </div>
+
+    <!-- HEADLINE SCORES -->
+    <div class="panel span7 reveal" id="scores">
+      <div class="h-kicker">02 · Results · LongBench 14-task average</div>
+      <h2>The gap widens as eviction bites.</h2>
+      <p>At modest 50% eviction most methods are close. Push to <b class="k">75% eviction (16× compression)</b> and TaskPress pulls clearly ahead — exactly where serving efficiency matters most.</p>
+
+      <div class="bars-chart">
+        <svg viewBox="0 0 480 280" role="img" aria-label="LongBench LLaMA-3.1-8B grouped bars by method and eviction">
+          <!-- axes -->
+          <line x1="42" y1="20" x2="42" y2="240" stroke="#38445a" stroke-width="1"/>
+          <line x1="42" y1="240" x2="470" y2="240" stroke="#38445a" stroke-width="1"/>
+          <!-- y gridlines + labels: 0,10,20,30,40,50 -->
+          <g font-family="JetBrains Mono" font-size="9.5" fill="#5a6473">
+            <text x="36" y="244" text-anchor="end">0</text>
+            <text x="36" y="202" text-anchor="end">10</text>
+            <text x="36" y="160" text-anchor="end">20</text>
+            <text x="36" y="118" text-anchor="end">30</text>
+            <text x="36" y="76" text-anchor="end">40</text>
+            <text x="36" y="34" text-anchor="end">50</text>
+          </g>
+          <g stroke="#262e3a" stroke-width="1" stroke-dasharray="2 3">
+            <line x1="42" y1="198" x2="470" y2="198"/>
+            <line x1="42" y1="156" x2="470" y2="156"/>
+            <line x1="42" y1="114" x2="470" y2="114"/>
+            <line x1="42" y1="72" x2="470" y2="72"/>
+          </g>
+          <text x="14" y="130" font-family="JetBrains Mono" font-size="9" fill="#7d8896" transform="rotate(-90 14 130)" letter-spacing="1">avg accuracy</text>
+
+          <!-- 5 methods, each has 2 bars (50%, 75%). baseline=240, 4.2px per unit -->
+          <!-- Method positions: SnapKV, PyramidKV, KVZip, ThinK, TaskPress -->
+          <!-- SnapKV: 50=43.03 (h=180.7), 75=39.37 (h=165.4) -->
+          <g>
+            <rect x="60" y="59.3" width="20" height="180.7" fill="#38445a"/>
+            <rect x="82" y="74.6" width="20" height="165.4" fill="#5a6473"/>
+            <text x="81" y="258" text-anchor="middle" font-family="JetBrains Mono" font-size="9.5" fill="#7d8896">SnapKV</text>
+          </g>
+          <!-- PyramidKV: 50=40.83, 75=37.5 -->
+          <g>
+            <rect x="142" y="68.5" width="20" height="171.5" fill="#38445a"/>
+            <rect x="164" y="82.5" width="20" height="157.5" fill="#5a6473"/>
+            <text x="163" y="258" text-anchor="middle" font-family="JetBrains Mono" font-size="9.5" fill="#7d8896">Pyramid</text>
+          </g>
+          <!-- KVZip: 50=44.76, 75=38.24 -->
+          <g>
+            <rect x="224" y="51.5" width="20" height="188.5" fill="#38445a"/>
+            <rect x="246" y="79.2" width="20" height="160.8" fill="#5a6473"/>
+            <text x="245" y="258" text-anchor="middle" font-family="JetBrains Mono" font-size="9.5" fill="#7d8896">KVZip</text>
+          </g>
+          <!-- ThinK @ 75=44.70 (combined with TaskPress; show standalone ~40) -->
+          <g>
+            <rect x="306" y="78" width="20" height="162" fill="#38445a" opacity="0.4"/>
+            <rect x="328" y="55.4" width="20" height="184.6" fill="#4ec9b0" opacity="0.55"/>
+            <text x="327" y="258" text-anchor="middle" font-family="JetBrains Mono" font-size="9.5" fill="#7d8896">+ThinK</text>
+          </g>
+          <!-- TaskPress: 50=46.42, 75=43.08 -->
+          <g>
+            <rect x="388" y="44.9" width="20" height="195.1" fill="#ff5436"/>
+            <rect x="410" y="59.1" width="20" height="180.9" fill="#ff7a5c"/>
+            <text x="409" y="258" text-anchor="middle" font-family="JetBrains Mono" font-size="9.5" fill="#e8edf4" font-weight="600">TaskPress</text>
+            <!-- value labels -->
+            <text x="398" y="40" text-anchor="middle" font-family="JetBrains Mono" font-size="9.5" fill="#ff5436" font-weight="600">46.42</text>
+            <text x="420" y="54" text-anchor="middle" font-family="JetBrains Mono" font-size="9.5" fill="#ff7a5c" font-weight="600">43.08</text>
+          </g>
+          <!-- SnapKV callout -->
+          <text x="92" y="70" font-family="JetBrains Mono" font-size="9" fill="#7d8896">43.03</text>
+          <text x="174" y="78" font-family="JetBrains Mono" font-size="9" fill="#7d8896">37.5</text>
+          <text x="256" y="74" font-family="JetBrains Mono" font-size="9" fill="#7d8896">38.24</text>
+          <text x="338" y="51" font-family="JetBrains Mono" font-size="9" fill="#4ec9b0">44.70</text>
+
+          <!-- group label -->
+          <text x="60" y="275" font-family="JetBrains Mono" font-size="8.5" fill="#5a6473" letter-spacing="0.8">▮ 50%   ▯ 75% eviction</text>
+        </svg>
+      </div>
+
+      <div class="bars-legend">
+        <span><span class="sw" style="background:#ff5436"></span><b style="color:#b4bdc9">TaskPress</b></span>
+        <span><span class="sw" style="background:#38445a"></span><b style="color:#b4bdc9">baselines @ 50%</b></span>
+        <span><span class="sw" style="background:#5a6473"></span><b style="color:#b4bdc9">baselines @ 75%</b></span>
+        <span><span class="sw" style="background:#4ec9b0;opacity:0.55"></span><b style="color:#b4bdc9">TaskPress + ThinK</b></span>
+      </div>
+    </div>
+
+    <!-- EFFICIENCY -->
+    <div class="panel span5 reveal" id="efficiency">
+      <div class="h-kicker">03 · Efficiency · production-ready</div>
+      <h2>Deployment overhead is near-zero.</h2>
+      <p>At <b class="k">75% eviction, 64K context, 64-token guide</b>, the only real cost is the one-time offline guide discovery. Serving-time impact is dominated by <b class="k">gains</b>.</p>
+
+      <div class="effstrip">
+        <div class="effcell"><div class="v">+1.2%</div><div class="l"><b>TTFT</b> overhead (9.66→9.78s)</div></div>
+        <div class="effcell"><div class="v">−15.1%</div><div class="l"><b>peak memory</b> (38.55→32.72 GB)</div></div>
+        <div class="effcell"><div class="v">−35%</div><div class="l"><b>TPOT</b> @ 75% (50.1→32.8 ms)</div></div>
+        <div class="effcell"><div class="v">+53%</div><div class="l"><b>throughput</b> (19.9→30.5 tok/s)</div></div>
+        <div class="effcell"><div class="v">~80×</div><div class="l"><b>eviction latency</b> vs KVZip O(Lₜ·L) vs O(L²)</div></div>
+      </div>
+
+      <p style="margin-top:14px;font-size:13px"><b class="k">Multi-query is where it counts.</b> At 200 queries over an 8K context, TaskPress takes <span class="num">48.06 s</span> total vs <span class="num">50.24 s</span> (latency-optimized query-dependent) and <span class="num">115.39 s</span> (memory-optimized) — using <span class="num">236.88 MB</span> of KV cache vs <span class="num">1,184.4 MB</span> (5× smaller, because the query-dependent path must retain both full and compressed caches).</p>
+    </div>
+
+    <!-- MECHANISM / CONTRIBUTIONS -->
+    <div class="panel span12 reveal" id="contributions">
+      <div class="h-kicker">04 · Mechanism · why the design works</div>
+      <h2>Five interlocking design choices, each ablated.</h2>
+
+      <div class="contrib-grid">
+        <div class="contrib-cell">
+          <div class="h">01 · Task-time paradigm</div>
+          <div class="t">Reframes compression around a <b>reusable task-level meta-query</b> rather than a specific user query. One compressed cache serves an entire stream of future queries — eliminating per-query prefill that SnapKV / PyramidKV / Quest must repeat.</div>
+        </div>
+        <div class="contrib-cell">
+          <div class="h alt">02 · Zero-cost Value signal</div>
+          <div class="t">Repurposes the already-computed per-token quantization scale factor <span class="n">γᵢ</span> as an outlier / value-norm proxy. Removes any extra forward compute; proved <b>near-orthogonal to the attention map</b> (<span class="n">0.06±0.23</span>) and <b>strongly correlated with value norm</b> (<span class="n">0.79±0.10</span>).</div>
+        </div>
+        <div class="contrib-cell">
+          <div class="h">03 · Multiplicative scoring</div>
+          <div class="t">Retention score <span class="n">sᵢ = sᵢ^key · sᵢ^value</span> forces tokens to be <b>both</b> task-retrievable <b>and</b> semantically rich. Ablation on RULER-4K: multiply <span class="n">65.81</span> &gt; harmonic-mean <span class="n">64.14</span> &gt; normalized-add <span class="n">59.90</span>.</div>
+        </div>
+        <div class="contrib-cell">
+          <div class="h alt">04 · Evolutionary guide discovery</div>
+          <div class="t">For unknown tasks, a GEPA-style LLM mutator (Gemini-2.0-Flash) runs Algorithm 1 over a small calibration set: top-K=<span class="n">2</span> selection, N=<span class="n">3</span> offspring, G=<span class="n">4</span> generations. Total offline cost: <span class="n">~25.2 min</span> once (41.4s API + ~1459.7s local on A100 40GB).</div>
+        </div>
+        <div class="contrib-cell">
+          <div class="h">05 · Honest harness</div>
+          <div class="t">Built on the public <b>kvpress</b> repository — official implementations of SnapKV, PyramidKV, StreamingLLM, ExpectedAttention, ThinK, KVZip all share the same harness. Removes the harness-mismatch inflation that often plagues KV-cache papers.</div>
+        </div>
+        <div class="contrib-cell">
+          <div class="h alt">06 · Robustness, tested</div>
+          <div class="t">Stable across guide-source models (Gemini/Claude/ChatGPT within <span class="n">~1.2 pts</span> on NarrativeQA), synonym/sentence paraphrases (std <span class="n">&lt;1%</span>), and moderate task drift (HotpotQA guide on NarrativeQA loses only <span class="n">~0.7–1.8 pts</span>).</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- VERDICT BOARD -->
+    <div class="panel span12 reveal" id="verdicts">
+      <div class="h-kicker">05 · Critical assessment · three axes</div>
+      <h2>Where TaskPress is strong, where it strains.</h2>
+      <p style="margin-bottom:4px">The honest read across novelty, rigor, and significance. Select an axis for the verdict and evidence.</p>
+
+      <div class="verdict-board">
+        <div class="vb-tabs" role="tablist">
+          <button class="vb-tab active" data-vb="novelty" role="tab"><span class="vh">NOVELTY</span>real reframing, one elegant trick</button>
+          <button class="vb-tab" data-vb="rigor" role="tab"><span class="vh">RIGOR</span>strong ablations, one weak point</button>
+          <button class="vb-tab" data-vb="significance" role="tab"><span class="vh">SIGNIFICANCE</span>high for serving, moderate single-turn</button>
+        </div>
+
+        <div class="vb-panel active" data-vb="novelty">
+          <div class="vb-verdict">Genuine <span class="mark win">STRONG</span></div>
+          <div class="vb-claim">The move from query-dependent to task-time, query-agnostic pruning is a real reframing for multi-query serving.</div>
+          <div class="vb-evidence">The trick of reusing quantization scale factors as a Value-outlier signal is <b>both novel and elegantly zero-cost</b>. The Key×Value multiplicative score is incremental but well-motivated by the <b>0.79 / 0.06 correlation argument</b> — the two signals are provably near-orthogonal, so multiplication is the right fusion.</div>
+        </div>
+
+        <div class="vb-panel" data-vb="rigor">
+          <div class="vb-verdict">Strong, with one caveat <span class="mark mid">MOSTLY</span></div>
+          <div class="vb-claim">Ablations are unusually thorough — every design choice is tested, and the MK-2/3 failure is owned and explained.</div>
+          <div class="vb-evidence">Key vs Value, score unification, guide source, granularity, paraphrase, task drift, MK-2/3 failure analysis with measured attention mass (<b>3.01×10⁻⁴ in MK-1 collapses to 1.2×10⁻⁵ in MK-2</b>, below 5.0×10⁻⁵ background noise). <b>But</b>: Table 3's evolutionary optimization repurposes <b>50 calibration samples from the test set</b> because "LongBench lacks a dedicated validation split" — authors exclude them from final eval, but with no held-out validation this risks mild overfit of the evolved guide. Single weakest methodological point.</div>
+        </div>
+
+        <div class="vb-panel" data-vb="significance">
+          <div class="vb-verdict">High for serving, moderate single-shot <span class="mark win">DEPLOY</span></div>
+          <div class="vb-claim">Headline wins are largest precisely where query-dependent methods hurt most: multi-query / multi-turn workloads.</div>
+          <div class="vb-evidence">Table 7 multi-query: <b>48.06 s vs 50.24 s</b> (latency-opt) / <b>115.39 s</b> (memory-opt), at <b>5× smaller cache</b>. For one-shot single-query inference the advantage over SnapKV is real but smaller, and at <b>50% RULER TaskPress (79.0) actually loses to KVZip (85.3)</b> — the paper is honest that the 75% regime is where TaskPress clearly leads. The "5× memory" framing is somewhat favorable (compares vs the latency-optimized strategy that holds both caches); the fairer memory-optimized comparison is also reported.</div>
+        </div>
+      </div>
+      <p style="margin-top:14px;font-size:13px;color:var(--ink-3)"><b style="color:var(--ink)">Bottom line.</b> A clean, deployable efficiency win with one genuine conceptual move (task-time pruning) and one elegant zero-cost trick (scale-factor reuse). The MK-2/3 collapse is a real, owned failure mode — not hidden — and the test-set calibration is the one methodological asterisk.</p>
+    </div>
+
+    <!-- LIMITS -->
+    <div class="panel span7 reveal" id="limits">
+      <div class="h-kicker">06 · Scope &amp; limits</div>
+      <h2>The beachhead, and what lies beyond it.</h2>
+      <ul class="limits">
+        <li><span><b>Task-dependent, not fully task-agnostic.</b> If a user query drifts outside the guide's semantic scope (e.g. a coding question in a summarization session), the compressed cache can be insufficient; Table 13 quantifies this.</span></li>
+        <li><span><b>Attention dilution in dense-needle settings.</b> On RULER MK-2/MK-3 the target-key attention mass collapses below background noise (<b>1.2×10⁻⁵ vs 5.0×10⁻⁵ mean</b>) — MK-2 drops to <b>10.6</b>, MK-3 to <b>1.0</b> at 75%, by far worst in table.</span></li>
+        <li><span><b>Reliance on quantization statistics.</b> In FP16/BF16 deploys the scale factor must be computed on-the-fly — authors show it adds only ~2.7% (0.26s on 64K prefill), but it slightly undercuts the "zero-cost" claim for non-quantized serving.</span></li>
+        <li><span><b>Evolution cost + external dependency.</b> ~25-min search calls the paid Gemini API and requires a calibration query set — for LongBench, carved out of the test set.</span></li>
+        <li><span><b>Benchmark coverage.</b> LongBench/RULER emphasize QA, summarization, retrieval; behavior on <b>code, math, agentic</b> long-context tasks is untested.</span></li>
+      </ul>
+    </div>
+
+    <!-- SCORES TABLE -->
+    <div class="panel span5 reveal">
+      <div class="h-kicker">07 · Head-to-head · LLaMA-3.1-8B</div>
+      <h2>The numbers, side by side.</h2>
+      <table class="scores-table">
+        <thead>
+          <tr><th>Method</th><th>LB-50%</th><th>LB-75%</th><th>RULER-75%</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>PyramidKV</td><td>40.83</td><td>37.5</td><td>39.2</td></tr>
+          <tr><td>SnapKV</td><td>43.03</td><td>39.37</td><td>42.8</td></tr>
+          <tr><td>ExpAttention</td><td>—</td><td>38.22</td><td>44.1</td></tr>
+          <tr><td>KVZip</td><td>44.76</td><td>38.24</td><td>62.2</td></tr>
+          <tr><td>ThinK</td><td>—</td><td>~40</td><td>—</td></tr>
+          <tr><td class="win">TaskPress</td><td class="win">46.42</td><td class="win">43.08</td><td class="win">68.4</td></tr>
+          <tr><td>TaskPress+ThinK</td><td>—</td><td class="win">44.70</td><td>—</td></tr>
+        </tbody>
+      </table>
+      <p style="margin-top:12px;font-size:12px;color:var(--ink-3)"><b style="color:var(--ink-2)">Qwen3-32B Single+MultiDocQA @ 75%:</b> TaskPress+ThinK <b style="color:var(--accent)">42.57</b> vs SnapKV 35.95 (+6.62) — gap widens at scale.</p>
+    </div>
+
+    <!-- QUESTIONS -->
+    <div class="panel span12 reveal" id="questions">
+      <div class="h-kicker">08 · Open questions for further work</div>
+      <h2>Where task-guided pruning breaks — or generalizes.</h2>
+      <ol class="qlist">
+        <li>How does TaskPress behave on <b>non-QA long-context workloads</b> (code completion over large repos, multi-step math, agentic tool-use traces) where the "task" is itself emergent rather than summarizable in 2–3 sentences?</li>
+        <li>Can the evolutionary guide discovery be replaced by a <b>gradient-based soft-prompt optimizer</b>, or by learning the guide from query embeddings without an LLM mutator — to remove the paid API dependency?</li>
+        <li>Does the multiplicative Key×Value score generalize to <b>channel-wise pruners</b> (ThinK, Quest) beyond the specific combination tested, and is there a principled information-theoretic justification for multiplication over the harmonic mean?</li>
+        <li>How sensitive is the method when queries drift <b>gradually within a long conversation</b> (not the abrupt cross-task drift in Table 13) — is there a cheap online signal to detect when the compressed cache must be rebuilt?</li>
+        <li>Can the MK-2/3 attention-dilution failure be repaired <b>without abandoning query-agnosticism</b> — e.g. a second-stage dense-token rescoring using the actual query only when the entropy of the guide's attention exceeds a threshold?</li>
+      </ol>
+    </div>
+
+  </section>
+</main>
+
+<footer class="footbar">
+  <a class="src-link" href="./2608.03276.md">↗ Markdown source</a>
+  <span class="foot-note">Dashboard digest of arXiv:2608.03276 · Park &amp; Hwang, 2026 · not an official arXiv artifact</span>
+</footer>
+
+<script>
+  // ----- verdict-board tabs -----
+  const tabs = document.querySelectorAll('.vb-tab');
+  const panels = document.querySelectorAll('.vb-panel');
+  tabs.forEach(t=>{
+    t.addEventListener('click',()=>{
+      const k=t.dataset.vb;
+      tabs.forEach(x=>x.classList.toggle('active', x===t));
+      panels.forEach(p=>p.classList.toggle('active', p.dataset.vb===k));
+    });
+  });
+
+  // ----- jump-nav active state + smooth scroll -----
+  const links = document.querySelectorAll('nav.jumps a');
+  const targets = [...links].map(l=>document.querySelector(l.getAttribute('href'))).filter(Boolean);
+  links.forEach(a=>a.addEventListener('click',e=>{
+    e.preventDefault();
+    const el=document.querySelector(a.getAttribute('href'));
+    if(el){
+      const y = el.getBoundingClientRect().top + window.scrollY - 70;
+      window.scrollTo({top:y, behavior:'smooth'});
+    }
+  }));
+
+  const io = new IntersectionObserver((entries)=>{
+    entries.forEach(en=>{
+      if(en.isIntersecting){
+        const id='#'+en.target.id;
+        links.forEach(l=>l.classList.toggle('active', l.getAttribute('href')===id));
+      }
+    });
+  },{rootMargin:'-45% 0px -50% 0px',threshold:0});
+  targets.forEach(t=>io.observe(t));
+</script>
+</body>
+</html>

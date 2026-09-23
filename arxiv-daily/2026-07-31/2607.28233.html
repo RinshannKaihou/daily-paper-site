@@ -1,0 +1,523 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Demystifying DRAM Read Disturbance — Dashboard</title>
+<style>
+  :root{
+    --bg: #0d0b0a;
+    --bg-raised: #17140f;
+    --bg-card: #1b1712;
+    --line: #332c22;
+    --ink: #f3efe6;
+    --ink-dim: #a89f8f;
+    --ink-faint: #766c5e;
+    --accent: #ff5a2e;
+    --accent-dim: #a8391b;
+    --accent-wash: rgba(255,90,46,0.10);
+    --good: #7fb88a;
+    --font-display: ui-monospace, "SF Mono", "Cascadia Mono", "JetBrains Mono", Consolas, monospace;
+    --font-body: Georgia, "Iowan Old Style", "Noto Serif", "Times New Roman", serif;
+    --font-cjk: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans SC", var(--font-body);
+  }
+
+  *{ box-sizing: border-box; }
+
+  html{ background: var(--bg); }
+
+  body{
+    margin:0;
+    background: var(--bg);
+    background-image:
+      repeating-linear-gradient(0deg, rgba(255,90,46,0.028) 0px, rgba(255,90,46,0.028) 1px, transparent 1px, transparent 34px),
+      repeating-linear-gradient(90deg, rgba(255,90,46,0.028) 0px, rgba(255,90,46,0.028) 1px, transparent 1px, transparent 34px);
+    color: var(--ink);
+    font-family: var(--font-body);
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  a{ color: inherit; }
+
+  ::selection{ background: var(--accent-dim); color: var(--ink); }
+
+  /* ---------- fixed nav ---------- */
+  .nav-fixed{
+    position: fixed;
+    top: 14px;
+    left: 14px;
+    z-index: 50;
+    font-family: var(--font-display);
+    font-size: 0.72rem;
+    letter-spacing: 0.02em;
+    text-decoration: none;
+    color: var(--ink-dim);
+    background: rgba(23,20,15,0.92);
+    border: 1px solid var(--line);
+    padding: 7px 12px;
+    border-radius: 3px;
+    backdrop-filter: blur(4px);
+    transition: color 0.15s ease, border-color 0.15s ease;
+  }
+  .nav-fixed:hover{ color: var(--accent); border-color: var(--accent-dim); }
+
+  /* ---------- shell ---------- */
+  .shell{
+    width: min(95vw, 1100px);
+    margin: 0 auto;
+    padding: 64px 0 80px;
+  }
+
+  @keyframes rise{
+    from{ opacity: 0; transform: translateY(14px); }
+    to{ opacity: 1; transform: translateY(0); }
+  }
+  .reveal{ opacity: 0; animation: rise 0.6s ease forwards; }
+
+  /* ---------- hero ---------- */
+  .hero{
+    border-bottom: 1px solid var(--line);
+    padding-bottom: 32px;
+    margin-bottom: 28px;
+  }
+
+  .hero-meta{
+    display:flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 10px 16px;
+    margin-bottom: 22px;
+  }
+
+  .paper-title{
+    font-family: var(--font-display);
+    font-size: 0.76rem;
+    color: var(--ink-dim);
+    text-decoration: none;
+    border-bottom: 1px dotted var(--ink-faint);
+    line-height: 1.5;
+    max-width: 62ch;
+  }
+  .paper-title:hover{ color: var(--accent); border-color: var(--accent); }
+
+  .hero-date{
+    font-family: var(--font-display);
+    font-size: 0.72rem;
+    color: var(--ink-faint);
+  }
+
+  .chips{ display:flex; flex-wrap: wrap; gap: 6px; }
+  .chip{
+    font-family: var(--font-display);
+    font-size: 0.65rem;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+    color: var(--accent);
+    border: 1px solid var(--accent-dim);
+    background: var(--accent-wash);
+    padding: 3px 8px;
+    border-radius: 2px;
+    white-space: nowrap;
+  }
+
+  .headline{
+    font-family: var(--font-body);
+    font-weight: 700;
+    font-size: clamp(1.7rem, 3.6vw, 2.65rem);
+    line-height: 1.22;
+    letter-spacing: -0.01em;
+    max-width: 22ch;
+    margin: 0 0 16px;
+  }
+
+  .headline-cjk{
+    font-family: var(--font-cjk);
+    font-size: 0.95rem;
+    line-height: 1.9;
+    color: var(--ink-dim);
+    font-style: italic;
+    max-width: 68ch;
+    border-left: 2px solid var(--line);
+    padding-left: 14px;
+    margin: 0 0 20px;
+  }
+
+  .authors-line{
+    font-size: 0.88rem;
+    color: var(--ink-dim);
+  }
+  .authors-line strong{ color: var(--ink); font-weight: 600; }
+  .credibility{
+    font-family: var(--font-display);
+    font-size: 0.68rem;
+    color: var(--ink-faint);
+    margin-top: 6px;
+  }
+
+  /* DRAM row schematic */
+  .schematic{
+    margin-top: 26px;
+    display: flex;
+    align-items: flex-end;
+    gap: 4px;
+  }
+  .cell{
+    width: 100%;
+    height: 30px;
+    background: var(--bg-card);
+    border: 1px solid var(--line);
+    border-radius: 2px;
+    position: relative;
+  }
+  .cell.aggressor{
+    background: var(--accent-wash);
+    border-color: var(--accent-dim);
+  }
+  .cell.victim{
+    border-color: var(--accent);
+    border-width: 2px;
+    animation: pulse 1.8s ease-in-out infinite;
+  }
+  @keyframes pulse{
+    0%,100%{ box-shadow: 0 0 0 0 rgba(255,90,46,0.35); }
+    50%{ box-shadow: 0 0 0 5px rgba(255,90,46,0); }
+  }
+  .cell-label{
+    position:absolute; bottom: -20px; left: 50%; transform: translateX(-50%);
+    font-family: var(--font-display); font-size: 0.58rem; color: var(--ink-faint);
+    white-space: nowrap;
+  }
+  .cell.aggressor .cell-label, .cell.victim .cell-label{ color: var(--accent); }
+  .schematic-caption{
+    font-family: var(--font-display);
+    font-size: 0.65rem;
+    color: var(--ink-faint);
+    margin-top: 30px;
+  }
+
+  /* ---------- asset row ---------- */
+  .assets{
+    display: grid;
+    grid-template-columns: 1.1fr 1.3fr 1.3fr;
+    gap: 16px;
+    margin-bottom: 40px;
+  }
+
+  .asset-card{
+    background: var(--bg-card);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 22px 20px;
+  }
+  .asset-label{
+    font-family: var(--font-display);
+    font-size: 0.65rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    margin-bottom: 12px;
+  }
+
+  .metric-card .asset-label{ color: var(--accent); }
+  .metric-value{
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: clamp(2.1rem, 3.6vw, 2.7rem);
+    color: var(--accent);
+    line-height: 1;
+    margin-bottom: 10px;
+  }
+  .metric-context{ font-size: 0.88rem; color: var(--ink-dim); line-height: 1.55; }
+
+  .why-card p{
+    font-size: 0.95rem;
+    color: var(--ink);
+    line-height: 1.65;
+    margin: 0;
+  }
+
+  .edge-card{
+    background: linear-gradient(180deg, rgba(255,90,46,0.07), rgba(255,90,46,0.02));
+    border: 1px solid var(--accent-dim);
+  }
+  .edge-card .asset-label{ color: var(--accent); }
+  .edge-card p{
+    font-size: 0.93rem;
+    color: var(--ink);
+    line-height: 1.6;
+    margin: 0;
+  }
+  .edge-mark{ color: var(--accent); margin-right: 6px; }
+
+  /* ---------- body grid ---------- */
+  .body-grid{
+    display: grid;
+    grid-template-columns: 0.9fr 1.25fr;
+    grid-template-areas:
+      "method results"
+      "strengths limitations"
+      "questions questions";
+    gap: 16px;
+  }
+
+  .card{
+    background: var(--bg-raised);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 26px 24px;
+  }
+
+  .card h2{
+    font-family: var(--font-display);
+    font-size: 0.8rem;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin: 0 0 16px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .card p{ font-size: 0.92rem; color: var(--ink-dim); line-height: 1.7; margin: 0 0 12px; }
+  .card p:last-child{ margin-bottom: 0; }
+  .card ul{ margin: 0; padding-left: 1.1em; }
+  .card li{ font-size: 0.9rem; color: var(--ink-dim); line-height: 1.65; margin-bottom: 10px; }
+  .card li:last-child{ margin-bottom: 0; }
+  .card li::marker{ color: var(--accent); }
+  .card li strong{ color: var(--ink); font-weight: 600; }
+
+  #method{ grid-area: method; }
+  #results{ grid-area: results; }
+  #strengths{ grid-area: strengths; }
+  #limitations{ grid-area: limitations; }
+  #questions{ grid-area: questions; }
+
+  #strengths h2{ color: var(--good); }
+  #strengths li::marker{ color: var(--good); }
+  #limitations h2{ color: var(--ink-dim); }
+  #limitations li::marker{ color: var(--ink-faint); }
+
+  table.data-table{
+    width: 100%;
+    border-collapse: collapse;
+    margin: 4px 0 18px;
+    font-size: 0.82rem;
+  }
+  table.data-table caption{
+    text-align: left;
+    font-family: var(--font-display);
+    font-size: 0.65rem;
+    color: var(--ink-faint);
+    margin-bottom: 8px;
+    letter-spacing: 0.02em;
+  }
+  table.data-table th{
+    text-align: left;
+    font-family: var(--font-display);
+    font-size: 0.65rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--ink-faint);
+    border-bottom: 1px solid var(--line);
+    padding: 8px 10px 8px 0;
+  }
+  table.data-table td{
+    padding: 10px 10px 10px 0;
+    border-bottom: 1px solid var(--line);
+    color: var(--ink-dim);
+    vertical-align: top;
+  }
+  table.data-table tr:last-child td{ border-bottom: none; }
+  table.data-table td.num{
+    font-family: var(--font-display);
+    color: var(--accent);
+    font-weight: 700;
+    white-space: nowrap;
+  }
+
+  /* ---------- footer ---------- */
+  .footer{
+    margin-top: 40px;
+    padding-top: 20px;
+    border-top: 1px solid var(--line);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+  .footer-link{
+    font-family: var(--font-display);
+    font-size: 0.75rem;
+    color: var(--ink-dim);
+    text-decoration: none;
+    border-bottom: 1px dotted var(--ink-faint);
+  }
+  .footer-link:hover{ color: var(--accent); border-color: var(--accent); }
+  .footer-note{
+    font-family: var(--font-display);
+    font-size: 0.68rem;
+    color: var(--ink-faint);
+  }
+
+  /* ---------- responsive ---------- */
+  @media (max-width: 900px){
+    .assets{ grid-template-columns: 1fr; }
+    .body-grid{
+      grid-template-columns: 1fr;
+      grid-template-areas:
+        "method"
+        "results"
+        "strengths"
+        "limitations"
+        "questions";
+    }
+  }
+
+  @media (max-width: 720px){
+    .shell{ padding-top: 70px; }
+    .headline{ max-width: 100%; }
+    .schematic{ gap: 3px; }
+    .cell-label{ display: none; }
+  }
+</style>
+</head>
+<body>
+
+  <a class="nav-fixed" href="./index.html">↩ Today's digest</a>
+
+  <div class="shell">
+
+    <header class="hero">
+      <div class="hero-meta reveal" style="animation-delay:0.02s">
+        <a class="paper-title" href="https://arxiv.org/abs/2607.28233" target="_blank" rel="noopener">
+          Demystifying DRAM Read Disturbance: Bridging the Gap Between Experimental Characterization and Device-Level Modeling of RowHammer and RowPress Phenomena
+        </a>
+      </div>
+
+      <div class="hero-meta reveal" style="animation-delay:0.08s">
+        <span class="hero-date">30 Jul 2026 · arXiv:2607.28233</span>
+        <div class="chips">
+          <span class="chip">RowHammer</span>
+          <span class="chip">RowPress</span>
+          <span class="chip">DRAM</span>
+          <span class="chip">TCAD Simulation</span>
+          <span class="chip">Hardware Security</span>
+        </div>
+      </div>
+
+      <h1 class="headline reveal" style="animation-delay:0.14s">Under double-sided hammering, real DRAM chips flip bits in both directions — something the state-of-the-art device model says can't happen.</h1>
+
+      <blockquote class="headline-cjk reveal" style="animation-delay:0.2s">
+        一句话总结：通过对商用 DDR4 芯片的细粒度实验表征与 Sentaurus TCAD 器件级仿真的系统比对，作者发现现有 RowHammer/RowPress 器件物理模型在翻转方向、AC_min 趋势等关键特征上与真实芯片不符，并给出修正后的建模参数。
+      </blockquote>
+
+      <div class="authors-line reveal" style="animation-delay:0.26s">
+        <strong>Haocong Luo, Longda Zhou, Ataberk Olgun, İsmail Emir Yüksel,</strong> et al. (8 authors)
+      </div>
+      <div class="credibility reveal" style="animation-delay:0.3s">
+        SAFARI Research Group (ETH Zürich) — senior author Onur Mutlu co-authored the original 2014 RowHammer paper and the 2023 RowPress paper
+      </div>
+
+      <div class="schematic reveal" style="animation-delay:0.36s">
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell aggressor"><span class="cell-label">aggressor</span></div>
+        <div class="cell victim"><span class="cell-label">victim</span></div>
+        <div class="cell aggressor"><span class="cell-label">aggressor</span></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+      </div>
+      <div class="schematic-caption">fig — double-sided RowHammer: two aggressor rows hammered around one victim row</div>
+    </header>
+
+    <section class="assets">
+      <div class="asset-card metric-card reveal" style="animation-delay:0.42s">
+        <div class="asset-label">Key metric</div>
+        <div class="metric-value">1.49–6.77%</div>
+        <div class="metric-context">Jaccard overlap between 0-to-1-only and 1-to-0-only bitflip positions under double-sided RowHammer, measured across all tested DDR4 modules — the two flip directions land on almost entirely different cells.</div>
+      </div>
+
+      <div class="asset-card why-card reveal" style="animation-delay:0.48s">
+        <div class="asset-label">Why this matters</div>
+        <p>Corrects the physical assumptions behind RowHammer/RowPress simulators, so future bitflip-injection frameworks and mitigation designs get built on trap physics that actually matches real chips, not textbook shortcuts.</p>
+      </div>
+
+      <div class="asset-card edge-card reveal" style="animation-delay:0.54s">
+        <div class="asset-label">Critical edge</div>
+        <p><span class="edge-mark">⚠</span>The authors' own headline explanation — why 1-to-0 flips outnumber 0-to-1 flips overall — rests on a "plausible qualitative explanation" borrowed from unrelated process literature, not a direct measurement.</p>
+      </div>
+    </section>
+
+    <section class="body-grid">
+
+      <div class="card reveal" id="method" style="animation-delay:0.6s">
+        <h2>Methodology</h2>
+        <p>Two evidence tracks, deliberately confirmatory rather than exploratory. First, real-chip characterization: DRAM Bender drives 9 off-the-shelf DDR4 UDIMMs from 3 manufacturers (8Gb/16Gb dies), reverse-engineering the true NWL/PWL wiring of 128 sampled victim rows per module, then hammering or holding aggressor rows open (single- and double-sided, sweeping temperature up to 80°C) to log bitflip direction, spatial position, and AC_min.</p>
+        <p>Second, device-physics modeling: a 1z-nm saddle-fin RCAT DRAM cell built in Sentaurus TCAD, calibrated against a manufacturer's I<sub>SN</sub>–V<sub>WL</sub> data. Two leakage mechanisms are modeled — trap-assisted electron migration (traps placed at 6 candidate positions) and capacitive crosstalk between wordlines — and mixed-mode transient simulation tracks the victim storage node until it crosses a 0.1V failure threshold. A third, independent check — direct electrical measurement on fabricated sub-20nm test structures — settles the one claim TCAD calibration can't be trusted to settle alone.</p>
+      </div>
+
+      <div class="card reveal" id="results" style="animation-delay:0.66s">
+        <h2>Results</h2>
+        <p>Trap location, not a single dominant "enhance one direction, suppress the other" mechanism, decides which way a cell flips under double-sided hammering — and it does so on a per-cell basis, which is why real chips show both directions with almost no spatial overlap.</p>
+        <table class="data-table">
+          <caption>quantitative deltas reported in the paper</caption>
+          <thead>
+            <tr><th>Finding</th><th>Value</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>AC<sub>min</sub> drop, double- vs single-sided (1-to-0, NWL trap)</td><td class="num">−75.5%</td></tr>
+            <tr><td>AC<sub>min</sub> drop, double- vs single-sided (0-to-1, PWL trap)</td><td class="num">−74.7%</td></tr>
+            <tr><td>Jaccard overlap, 0-to-1 vs 1-to-0 flip positions</td><td class="num">1.49–6.77%</td></tr>
+            <tr><td>NWL/PWL directionality match, real modules</td><td class="num">~100%*</td></tr>
+            <tr><td>V<sub>NWL</sub> needed to trigger a 0-to-1 leak (vs 2.5V VPP)</td><td class="num">4.0–4.5V</td></tr>
+          </tbody>
+        </table>
+        <p>*One 16Gb C-Die module matched at 99.7%, attributed to repair-induced column remapping — disclosed, not smoothed over. Separately, a capacitive-crosstalk simulation shows the victim wordline's noise voltage (−0.2V → +0.124V at 12% coupling) sharply boosts 0-to-1 leakage but barely touches 1-to-0 leakage, because the access transistor's effective threshold is lower in the 0-to-1 condition.</p>
+      </div>
+
+      <div class="card reveal" id="strengths" style="animation-delay:0.72s">
+        <h2>Strengths</h2>
+        <ul>
+          <li>Triangulates every claim across <strong>three independent evidence sources</strong> — real-chip DRAM Bender data, calibrated TCAD, and direct wafer-level transistor measurement.</li>
+          <li>Labels each mismatch explicitly as "Unmatching Device-Level Mechanism 1–3," making the contribution auditable rather than a vague "improved understanding."</li>
+          <li>Reverse-engineered NWL/PWL mapping is cross-checked against observed flip direction — a clean, falsifiable validation step.</li>
+          <li>Discloses its own outlier (99.7% instead of 100% on one module) with a specific attributed cause instead of omitting it.</li>
+        </ul>
+      </div>
+
+      <div class="card reveal" id="limitations" style="animation-delay:0.78s">
+        <h2>Limitations</h2>
+        <ul>
+          <li>The NWL-vs-PWL trap-density asymmetry that explains the flip-direction imbalance is <strong>inferred, not directly measured</strong> — an open question by the authors' own admission.</li>
+          <li>TCAD calibration relies on I-V data from a <strong>single, unnamed DRAM manufacturer</strong>; generality across vendors/nodes beyond this 1z-nm-class device is unverified.</li>
+          <li>Purely explanatory: proposes <strong>no new mitigation</strong> and doesn't build the system-level disturbance model it motivates as future work.</li>
+          <li>Single-trap sensitivity sweeps have inherently limited spatial influence; the uniform-density extension is used in only one subsection.</li>
+        </ul>
+      </div>
+
+      <div class="card reveal" id="questions" style="animation-delay:0.84s">
+        <h2>Questions for Further Exploration</h2>
+        <ul>
+          <li>Can the inferred NWL-vs-PWL trap-density asymmetry be directly measured rather than left as a qualitative inference?</li>
+          <li>Do trap location, D<sub>HT,bulk</sub>, and crosstalk generalize beyond this 1z-nm-class device to LPDDR5/DDR5 and sub-10nm nodes?</li>
+          <li>Would folding these corrected mechanisms into HammerSim/ScaleDisturb-style injection frameworks overturn prior mitigation evaluations built on the old device models?</li>
+          <li>Does the trap-location-dependent flip mechanism carry implications for the emerging, uncharacterized ColumnDisturb phenomenon?</li>
+          <li>Can the wafer-level test-structure method be extended to separate trap-assisted migration from crosstalk directly, without relying on TCAD decomposition?</li>
+        </ul>
+      </div>
+
+    </section>
+
+    <div class="footer reveal" style="animation-delay:0.9s">
+      <a class="footer-link" href="./2607.28233.md">↗ Markdown source</a>
+      <span class="footer-note">not browser-verified · generated from source markdown</span>
+    </div>
+
+  </div>
+
+</body>
+</html>

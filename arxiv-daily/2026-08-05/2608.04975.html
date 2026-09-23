@@ -1,0 +1,862 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>SciCode-Verified — benchmark defects underestimated LLM scientific coding</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;0,9..144,800;1,9..144,400;1,9..144,600&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;1,6..72,400&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ink:#0C0E12;
+    --ink-2:#13161C;
+    --ink-3:#1A1E26;
+    --ink-4:#22272F;
+    --line:#2B313B;
+    --line-soft:#1F242D;
+    --paper:#ECE6D6;
+    --paper-dim:#A6A294;
+    --paper-faint:#6C6E6A;
+    --defect:#E5523A;
+    --defect-soft:#7a2f25;
+    --verify:#5BD8A8;
+    --verify-soft:#1f4a3c;
+    --amber:#E8A33D;
+    --serif:'Newsreader', Georgia, serif;
+    --display:'Fraunces', Georgia, serif;
+    --mono:'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    background:var(--ink);
+    color:var(--paper);
+    font-family:var(--serif);
+    font-size:17px;
+    line-height:1.55;
+    -webkit-font-smoothing:antialiased;
+    text-rendering:optimizeLegibility;
+    background-image:
+      radial-gradient(900px 600px at 88% -8%, rgba(91,216,168,0.06), transparent 60%),
+      radial-gradient(700px 500px at 5% 8%, rgba(232,163,61,0.05), transparent 60%),
+      linear-gradient(180deg, #0C0E12 0%, #0A0C10 100%);
+    background-attachment:fixed;
+    min-height:100vh;
+  }
+  /* faint grid texture */
+  body::before{
+    content:"";
+    position:fixed; inset:0;
+    background-image:
+      linear-gradient(rgba(255,255,255,0.018) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,0.018) 1px, transparent 1px);
+    background-size:48px 48px;
+    pointer-events:none;
+    z-index:0;
+    mask-image:radial-gradient(circle at 50% 30%, black, transparent 90%);
+  }
+  a{color:inherit}
+
+  /* ---------- top-left fixed nav ---------- */
+  .digest-nav{
+    position:fixed; top:16px; left:16px; z-index:50;
+    font-family:var(--mono); font-size:12px; letter-spacing:0.04em;
+    background:rgba(19,22,28,0.85);
+    backdrop-filter:blur(8px);
+    border:1px solid var(--line);
+    border-radius:999px;
+    padding:8px 14px;
+    text-decoration:none;
+    color:var(--paper);
+    transition:border-color .2s, transform .2s, color .2s;
+  }
+  .digest-nav:hover{ border-color:var(--verify); color:var(--verify); transform:translateX(-2px)}
+
+  .topright-arxiv{
+    position:fixed; top:16px; right:16px; z-index:50;
+    font-family:var(--mono); font-size:11px; letter-spacing:0.06em;
+    color:var(--paper-faint);
+    border:1px solid var(--line-soft);
+    border-radius:6px;
+    padding:6px 10px;
+    text-decoration:none;
+    background:rgba(12,14,18,0.6);
+  }
+  .topright-arxiv:hover{color:var(--amber); border-color:var(--amber)}
+
+  /* ---------- layout shell ---------- */
+  .shell{ position:relative; z-index:1; max-width:1240px; margin:0 auto; padding:72px 28px 48px}
+
+  /* ---------- hero ---------- */
+  .hero{
+    display:grid;
+    grid-template-columns: 1.55fr 1fr;
+    gap:40px;
+    align-items:end;
+    padding:8px 0 36px;
+    border-bottom:1px solid var(--line);
+  }
+  .chips{ display:flex; flex-wrap:wrap; gap:6px; margin-bottom:26px}
+  .chip{
+    font-family:var(--mono); font-size:10.5px; letter-spacing:0.08em;
+    text-transform:uppercase;
+    color:var(--paper-dim);
+    border:1px solid var(--line);
+    padding:4px 9px; border-radius:4px;
+    background:var(--ink-2);
+  }
+  .chip.accent{ color:var(--verify); border-color:var(--verify-soft); background:rgba(91,216,168,0.05)}
+  .chip.warn{ color:var(--defect); border-color:var(--defect-soft); background:rgba(229,82,58,0.05)}
+
+  .eyebrow{
+    font-family:var(--mono); font-size:11px; letter-spacing:0.18em;
+    text-transform:uppercase; color:var(--paper-faint); margin-bottom:14px;
+  }
+  .finding{
+    font-family:var(--display);
+    font-weight:600;
+    font-size:clamp(30px, 4.6vw, 56px);
+    line-height:1.04;
+    letter-spacing:-0.02em;
+    margin:0;
+    color:var(--paper);
+  }
+  .finding em{
+    font-style:italic;
+    font-weight:400;
+    color:var(--verify);
+  }
+  .finding .strike{
+    color:var(--defect);
+    font-style:italic;
+    font-weight:400;
+    text-decoration:line-through;
+    text-decoration-thickness:2px;
+    text-decoration-color:rgba(229,82,58,0.55);
+  }
+  .hero-meta{
+    margin-top:22px;
+    font-family:var(--serif);
+    font-size:15.5px;
+    color:var(--paper-dim);
+    max-width:640px;
+  }
+  .hero-meta .title-link{
+    color:var(--paper);
+    font-family:var(--display);
+    font-style:italic;
+    font-weight:400;
+    font-size:18px;
+    text-decoration:none;
+    border-bottom:1px solid var(--line);
+    transition:color .2s, border-color .2s;
+  }
+  .hero-meta .title-link:hover{ color:var(--amber); border-color:var(--amber)}
+  .byline{ margin-top:8px; color:var(--paper-dim); font-size:14px}
+  .byline .dot{ color:var(--paper-faint); margin:0 8px}
+
+  /* spec panel (hero right) */
+  .spec{
+    background:linear-gradient(180deg, var(--ink-2), var(--ink-3));
+    border:1px solid var(--line);
+    border-radius:10px;
+    padding:20px 22px;
+    position:relative;
+    overflow:hidden;
+  }
+  .spec::after{
+    content:""; position:absolute; inset:0;
+    background:radial-gradient(120% 80% at 100% 0%, rgba(229,82,58,0.10), transparent 55%);
+    pointer-events:none;
+  }
+  .spec-label{
+    font-family:var(--mono); font-size:10.5px; letter-spacing:0.12em;
+    text-transform:uppercase; color:var(--paper-faint); margin-bottom:6px;
+  }
+  .spec-big{
+    font-family:var(--display); font-weight:800;
+    font-size:64px; line-height:1; letter-spacing:-0.03em;
+    color:var(--defect);
+  }
+  .spec-sub{
+    font-family:var(--serif); font-size:13.5px; color:var(--paper-dim);
+    margin-top:6px;
+  }
+  .spec-rows{
+    margin-top:16px; border-top:1px dashed var(--line); padding-top:14px;
+    display:grid; gap:8px;
+    font-family:var(--mono); font-size:12px;
+  }
+  .spec-row{ display:flex; justify-content:space-between; gap:10px}
+  .spec-row .k{ color:var(--paper-faint); letter-spacing:0.03em}
+  .spec-row .v{ color:var(--paper)}
+  .spec-row .v.teal{ color:var(--verify)}
+  .spec-row .v.amber{ color:var(--amber)}
+
+  /* ---------- asset row ---------- */
+  .assets{
+    display:grid;
+    grid-template-columns: 1.25fr 1fr 1fr;
+    gap:16px;
+    margin:28px 0 8px;
+  }
+  .card{
+    background:var(--ink-2);
+    border:1px solid var(--line);
+    border-radius:10px;
+    padding:22px 22px 24px;
+    position:relative;
+    overflow:hidden;
+  }
+  .card .corner{
+    position:absolute; top:0; left:0;
+    font-family:var(--mono); font-size:10px; letter-spacing:0.14em;
+    text-transform:uppercase; color:var(--paper-faint);
+    padding:7px 10px;
+    border-right:1px solid var(--line);
+    border-bottom:1px solid var(--line);
+    border-radius:0 0 8px 0;
+    background:var(--ink-3);
+  }
+  .metric-num{
+    font-family:var(--display); font-weight:800;
+    font-size:clamp(40px, 6vw, 70px);
+    line-height:1; letter-spacing:-0.03em;
+    color:var(--verify);
+    margin-top:30px;
+  }
+  .metric-num .arrow{ color:var(--paper-faint); font-weight:400; margin:0 6px}
+  .metric-num .from{ color:var(--defect); font-size:0.62em; font-weight:600}
+  .metric-cap{
+    font-family:var(--serif); font-size:14.5px; color:var(--paper-dim);
+    margin-top:14px; line-height:1.5;
+  }
+  .metric-tag{
+    display:inline-block; margin-top:14px;
+    font-family:var(--mono); font-size:11px; letter-spacing:0.05em;
+    color:var(--amber); border:1px solid #4a3a20; background:rgba(232,163,61,0.06);
+    padding:4px 8px; border-radius:4px;
+  }
+
+  .matters-body{
+    font-family:var(--display); font-style:italic; font-weight:400;
+    font-size:21px; line-height:1.34; color:var(--paper);
+    margin-top:30px;
+  }
+  .matters-foot{
+    font-family:var(--mono); font-size:11px; color:var(--paper-faint);
+    margin-top:14px; letter-spacing:0.04em;
+  }
+
+  .edge-body{
+    font-family:var(--serif); font-size:15.5px; line-height:1.5;
+    color:var(--paper); margin-top:30px;
+  }
+  .edge-body strong{ color:var(--defect); font-weight:500}
+  .edge-card{ border-color:#3a2622; background:linear-gradient(180deg, var(--ink-2), #1a1311)}
+  .edge-card .corner{ color:var(--defect); background:#1f1513; border-color:#3a2622}
+
+  /* ---------- body grid ---------- */
+  .section{ margin-top:44px}
+  .sec-head{
+    display:flex; align-items:baseline; gap:14px;
+    margin-bottom:18px;
+  }
+  .sec-num{
+    font-family:var(--mono); font-size:11px; color:var(--paper-faint);
+    letter-spacing:0.1em;
+  }
+  .sec-title{
+    font-family:var(--display); font-weight:600; font-size:26px;
+    letter-spacing:-0.01em; margin:0; color:var(--paper);
+  }
+  .sec-rule{ flex:1; height:1px; background:var(--line)}
+
+  .grid-2{ display:grid; grid-template-columns:1fr 1fr; gap:18px}
+  .grid-3{ display:grid; grid-template-columns:1.3fr 1fr 1fr; gap:18px}
+
+  .panel{
+    background:var(--ink-2);
+    border:1px solid var(--line);
+    border-radius:10px;
+    padding:22px;
+  }
+  .panel h4{
+    font-family:var(--mono); font-size:11px; letter-spacing:0.12em;
+    text-transform:uppercase; color:var(--paper-faint);
+    margin:0 0 14px; font-weight:500;
+  }
+  .panel p{ margin:0 0 12px; color:var(--paper-dim); font-size:15px; line-height:1.55}
+  .panel p:last-child{ margin-bottom:0}
+
+  ul.bullets{ list-style:none; margin:0; padding:0}
+  ul.bullets li{
+    position:relative; padding-left:22px; margin-bottom:12px;
+    color:var(--paper-dim); font-size:14.5px; line-height:1.5;
+  }
+  ul.bullets li:last-child{ margin-bottom:0}
+  ul.bullets li::before{
+    content:"▸"; position:absolute; left:2px; top:0;
+    color:var(--verify); font-family:var(--mono); font-size:13px;
+  }
+  ul.bullets.warn li::before{ color:var(--defect)}
+  ul.bullets li b{ color:var(--paper); font-weight:500}
+  ul.bullets li code{
+    font-family:var(--mono); font-size:12.5px;
+    background:var(--ink-3); padding:1px 5px; border-radius:3px;
+    color:var(--amber);
+  }
+
+  /* methodology */
+  .method-flow{
+    display:grid; grid-template-columns:repeat(4,1fr); gap:0;
+    margin:6px 0 22px;
+    border:1px solid var(--line); border-radius:10px; overflow:hidden;
+    background:var(--ink-2);
+  }
+  .flow-step{
+    padding:16px 16px 18px;
+    border-right:1px solid var(--line);
+    position:relative;
+  }
+  .flow-step:last-child{ border-right:none}
+  .flow-step .n{
+    font-family:var(--mono); font-size:11px; color:var(--verify);
+    letter-spacing:0.1em;
+  }
+  .flow-step .t{
+    font-family:var(--display); font-size:16px; font-weight:600;
+    color:var(--paper); margin:6px 0 6px; line-height:1.2;
+  }
+  .flow-step .d{ font-size:13px; color:var(--paper-dim); line-height:1.45}
+
+  /* ---------- results chart ---------- */
+  .chart-wrap{
+    background:var(--ink-2);
+    border:1px solid var(--line);
+    border-radius:10px;
+    padding:22px 22px 18px;
+  }
+  .chart-head{
+    display:flex; flex-wrap:wrap; gap:12px; align-items:center;
+    justify-content:space-between; margin-bottom:8px;
+  }
+  .chart-title{
+    font-family:var(--display); font-size:17px; font-weight:600; color:var(--paper);
+  }
+  .chart-title .sub{
+    font-family:var(--mono); font-size:11px; color:var(--paper-faint);
+    margin-left:10px; letter-spacing:0.05em;
+  }
+  .legend{ display:flex; gap:14px; font-family:var(--mono); font-size:11px; color:var(--paper-dim)}
+  .legend .sw{ display:inline-block; width:14px; height:6px; border-radius:2px; vertical-align:middle; margin-right:5px}
+  .sw.orig{ background:var(--defect)}
+  .sw.ver{ background:var(--verify)}
+
+  .controls{
+    display:flex; gap:18px; align-items:center; flex-wrap:wrap;
+    margin:8px 0 16px;
+  }
+  .seg{
+    display:inline-flex; border:1px solid var(--line); border-radius:7px; overflow:hidden;
+    background:var(--ink-3);
+  }
+  .seg button{
+    font-family:var(--mono); font-size:11px; letter-spacing:0.04em;
+    background:transparent; color:var(--paper-dim);
+    border:none; padding:7px 12px; cursor:pointer;
+    transition:background .15s, color .15s;
+  }
+  .seg button:hover{ color:var(--paper)}
+  .seg button.active{ background:var(--verify-soft); color:var(--verify)}
+  .seg.sort button.active{ background:#4a3a20; color:var(--amber)}
+  .ctrl-label{ font-family:var(--mono); font-size:10.5px; color:var(--paper-faint); letter-spacing:0.1em; text-transform:uppercase}
+
+  .chart{ display:grid; gap:9px}
+  .row{
+    display:grid;
+    grid-template-columns: 168px 1fr 62px;
+    align-items:center; gap:12px;
+  }
+  .row .name{
+    font-family:var(--mono); font-size:12px; color:var(--paper);
+    text-align:right; line-height:1.2;
+  }
+  .row .name .star{ color:var(--amber); margin-left:4px; cursor:help}
+  .tracks{ display:flex; flex-direction:column; gap:3px}
+  .track{
+    position:relative; height:9px; background:var(--ink-3); border-radius:3px; overflow:hidden;
+    border:1px solid var(--line-soft);
+  }
+  .track .fill{
+    position:absolute; left:0; top:0; bottom:0;
+    border-radius:2px;
+    transition:width .7s cubic-bezier(.2,.7,.2,1);
+  }
+  .fill.orig{ background:linear-gradient(90deg, var(--defect), #c4432f)}
+  .fill.ver{ background:linear-gradient(90deg, var(--verify), #3fb98a)}
+  .fill.gain{ background:linear-gradient(90deg, var(--amber), #c0802a)}
+  .track .lbl{
+    position:absolute; right:6px; top:50%; transform:translateY(-50%);
+    font-family:var(--mono); font-size:10px; color:var(--paper);
+    text-shadow:0 1px 2px rgba(0,0,0,0.6);
+  }
+  .track.orig-track{ opacity:0.92}
+  .delta{
+    font-family:var(--mono); font-size:12px; text-align:right;
+    color:var(--verify); font-weight:500;
+  }
+
+  .chart-foot{
+    margin-top:16px; padding-top:14px; border-top:1px dashed var(--line);
+    display:grid; grid-template-columns:repeat(3,1fr); gap:14px;
+  }
+  .stat .n{
+    font-family:var(--display); font-weight:800; font-size:24px;
+    color:var(--paper); letter-spacing:-0.02em;
+  }
+  .stat .n.teal{ color:var(--verify)}
+  .stat .n.red{ color:var(--defect)}
+  .stat .l{ font-family:var(--mono); font-size:10.5px; color:var(--paper-faint); letter-spacing:0.05em; margin-top:2px; line-height:1.3}
+
+  /* inversion callout */
+  .callout{
+    margin-top:16px;
+    border:1px solid #4a3a20;
+    background:linear-gradient(90deg, rgba(232,163,61,0.08), transparent);
+    border-radius:8px; padding:14px 16px;
+    font-family:var(--serif); font-size:14.5px; color:var(--paper);
+    display:flex; gap:14px; align-items:flex-start;
+  }
+  .callout .tag{
+    font-family:var(--mono); font-size:10px; letter-spacing:0.12em;
+    text-transform:uppercase; color:var(--amber);
+    border:1px solid #4a3a20; padding:3px 7px; border-radius:4px;
+    flex-shrink:0; margin-top:2px;
+  }
+
+  /* taxonomy */
+  .tax{ display:grid; grid-template-columns:1fr 1fr; gap:18px}
+  .tax-block h5{
+    font-family:var(--mono); font-size:11px; letter-spacing:0.1em;
+    text-transform:uppercase; color:var(--paper-faint); margin:0 0 10px;
+  }
+  .split-bar{
+    display:flex; height:14px; border-radius:4px; overflow:hidden;
+    border:1px solid var(--line); margin-bottom:8px;
+  }
+  .split-bar .seg-s{ display:flex; align-items:center; justify-content:center; font-family:var(--mono); font-size:10px; color:#0c0e12; font-weight:700}
+  .sb-sci{ background:var(--verify)}
+  .sb-sur{ background:var(--amber)}
+  .sb-strict{ background:var(--defect); color:#0c0e12}
+  .sb-neutral{ background:#3a3f48; color:var(--paper)}
+  .sb-lenient{ background:#6c6e6a; color:#0c0e12}
+  .legend-mini{ font-family:var(--mono); font-size:10.5px; color:var(--paper-dim); display:flex; gap:12px; flex-wrap:wrap}
+  .legend-mini span b{ color:var(--paper)}
+
+  .subtype-list{ margin-top:12px; display:grid; gap:6px; font-family:var(--mono); font-size:11.5px}
+  .subtype-list .r{ display:grid; grid-template-columns:1fr 34px; gap:6px; color:var(--paper-dim)}
+  .subtype-list .r .c{ color:var(--verify); text-align:right}
+
+  /* questions */
+  .q-grid{ display:grid; grid-template-columns:repeat(2,1fr); gap:14px}
+  .q{
+    border:1px solid var(--line); border-left:3px solid var(--verify);
+    background:var(--ink-2); border-radius:0 8px 8px 0;
+    padding:16px 18px;
+  }
+  .q .q-num{ font-family:var(--mono); font-size:10.5px; color:var(--verify); letter-spacing:0.1em}
+  .q p{ margin:6px 0 0; font-family:var(--serif); font-size:14.5px; color:var(--paper); line-height:1.45}
+
+  /* footer */
+  .footer{
+    margin-top:56px; padding:24px 0 8px;
+    border-top:1px solid var(--line);
+    display:flex; justify-content:space-between; align-items:center;
+    flex-wrap:wrap; gap:10px;
+    font-family:var(--mono); font-size:11.5px; color:var(--paper-faint);
+    letter-spacing:0.04em;
+  }
+  .footer a{ color:var(--paper-dim); text-decoration:none; border-bottom:1px solid var(--line); transition:color .2s, border-color .2s}
+  .footer a:hover{ color:var(--verify); border-color:var(--verify)}
+
+  /* ---------- load animation ---------- */
+  @keyframes rise{ from{opacity:0; transform:translateY(14px)} to{opacity:1; transform:translateY(0)} }
+  .anim{ opacity:0; animation:rise .7s cubic-bezier(.2,.7,.2,1) forwards}
+  .d0{animation-delay:.05s}.d1{animation-delay:.15s}.d2{animation-delay:.25s}
+  .d3{animation-delay:.35s}.d4{animation-delay:.45s}.d5{animation-delay:.55s}
+  .d6{animation-delay:.7s}.d7{animation-delay:.85s}
+
+  /* ---------- responsive ---------- */
+  @media (max-width: 980px){
+    .hero{ grid-template-columns:1fr; gap:26px}
+    .assets{ grid-template-columns:1fr }
+    .grid-2, .grid-3, .tax, .q-grid{ grid-template-columns:1fr}
+    .method-flow{ grid-template-columns:1fr 1fr}
+    .flow-step{ border-right:none; border-bottom:1px solid var(--line)}
+    .row{ grid-template-columns: 120px 1fr 50px; gap:8px}
+    .chart-foot{ grid-template-columns:1fr 1fr}
+  }
+  @media (max-width: 560px){
+    .shell{ padding:64px 16px 32px}
+    .finding{ font-size:30px}
+    .method-flow{ grid-template-columns:1fr}
+    .row{ grid-template-columns: 110px 1fr 44px}
+    .row .name{ font-size:11px}
+    .chart-foot{ grid-template-columns:1fr}
+    .digest-nav, .topright-arxiv{ font-size:11px}
+  }
+</style>
+</head>
+<body>
+
+<a class="digest-nav" href="./index.html">↩ Today's digest</a>
+<a class="topright-arxiv" href="https://arxiv.org/abs/2608.04975" target="_blank" rel="noopener">arXiv:2608.04975 ↗</a>
+
+<div class="shell">
+
+  <!-- ============ HERO ============ -->
+  <header class="hero">
+    <div class="anim d0">
+      <div class="chips">
+        <span class="chip accent">benchmark audit</span>
+        <span class="chip">scientific coding</span>
+        <span class="chip">llm evaluation</span>
+        <span class="chip warn">evaluation defects</span>
+        <span class="chip">reproducibility</span>
+      </div>
+      <div class="eyebrow">Key finding · 2026-08-05</div>
+      <h1 class="finding">
+        The field's SCICODE plateau near <span class="strike">60%</span><br>
+        was a <em>benchmark defect</em>, not a<br>model-capability ceiling.
+      </h1>
+      <div class="hero-meta">
+        <a class="title-link" href="https://arxiv.org/abs/2608.04975" target="_blank" rel="noopener">SciCode-Verified: How Benchmark Defects Underestimated the Scientific-Coding Ability of Language Models</a>
+        <div class="byline">
+          Sihan Hu · Lyuhan Huang · Youjin Deng · Kun Chen
+          <span class="dot">·</span> Hefei National Lab / USTC · Harbin Eng. Univ. · ITP-CAS
+          <span class="dot">·</span> pass@1, Jun–Jul 2026
+        </div>
+      </div>
+    </div>
+
+    <aside class="spec anim d1">
+      <div class="spec-label">Defects uncovered</div>
+      <div class="spec-big">262</div>
+      <div class="spec-sub">in 63 of 64 test problems &mdash; 192 of them <b style="color:var(--defect)">score-suppressing</b>.</div>
+      <div class="spec-rows">
+        <div class="spec-row"><span class="k">main problems touched</span><span class="v">58 / 64 · 91%</span></div>
+        <div class="spec-row"><span class="k">subproblems vetoed</span><span class="v">155 / 287 · 54%</span></div>
+        <div class="spec-row"><span class="k">needing domain expert</span><span class="v amber">150 / 192 · 78%</span></div>
+        <div class="spec-row"><span class="k">too-lenient, tightened</span><span class="v teal">8</span></div>
+        <div class="spec-row"><span class="k">models re-scored</span><span class="v">12 frontier</span></div>
+      </div>
+    </aside>
+  </header>
+
+  <!-- ============ ASSET ROW ============ -->
+  <section class="assets">
+    <div class="card anim d2">
+      <span class="corner">Key metric</span>
+      <div class="metric-num">
+        <span class="from">9–27%</span><span class="arrow">→</span>69–92%
+      </div>
+      <div class="metric-cap">Main-problem accuracy across <b style="color:var(--paper)">12 frontier models</b> after benchmark correction &mdash; a <b style="color:var(--paper)">+53 to +70 point</b> swing per model, same harness, only the data changed.</div>
+      <span class="metric-tag">subproblem: 45–60% → 84–98% (+29–40)</span>
+    </div>
+
+    <div class="card anim d3">
+      <span class="corner">Why this matters</span>
+      <p class="matters-body">SCICODE feeds the Artificial Analysis Index, the UK AI Security Institute, and LBNL. A corrected, leaderboard-reshuffling version will move real public model comparisons.</p>
+      <div class="matters-foot">→ national-lab &amp; government eval suites</div>
+    </div>
+
+    <div class="card edge-card anim d4">
+      <span class="corner">Critical edge</span>
+      <p class="edge-body">Every review was <strong>author-led</strong>, with no external blind validation &mdash; and the reshuffled top of the board rests on <strong>single pass@1 runs</strong> already brushing saturation.</p>
+    </div>
+  </section>
+
+  <!-- ============ METHODOLOGY ============ -->
+  <section class="section anim d5">
+    <div class="sec-head">
+      <span class="sec-num">01</span>
+      <h2 class="sec-title">Methodology &mdash; an audit, not a model</h2>
+      <span class="sec-rule"></span>
+    </div>
+
+    <div class="method-flow">
+      <div class="flow-step">
+        <div class="n">STEP 01</div>
+        <div class="t">Re-derive every target</div>
+        <div class="d">Two physicist/mathematician authors independently re-derive all 65 test problems; the 15-problem dev split is excluded (public gold).</div>
+      </div>
+      <div class="flow-step">
+        <div class="n">STEP 02</div>
+        <div class="t">Adversarial re-check</div>
+        <div class="d">A second pass re-verifies each flagged defect to kill false alarms. Approved fixes land in a <code style="font-family:var(--mono);color:var(--amber);font-size:12px">ledger/</code>.</div>
+      </div>
+      <div class="flow-step">
+        <div class="n">STEP 03</div>
+        <div class="t">Regenerate &amp; md5-pin</div>
+        <div class="d">Release files are rebuilt from the ledger and md5-verified at harness startup &mdash; original upstream text &amp; h5 pinned identically.</div>
+      </div>
+      <div class="flow-step">
+        <div class="n">STEP 04</div>
+        <div class="t">Matched re-evaluation</div>
+        <div class="d">12 models, identical harness (background, pass@1, two-env OR grading). Only the benchmark data differs &mdash; isolating the instrument's contribution.</div>
+      </div>
+    </div>
+
+    <div class="grid-2">
+      <div class="panel">
+        <h4>Why a single defect is costly here</h4>
+        <p>SCICODE subproblems form a <b style="color:var(--paper)">cumulative chain</b>: step <i>k</i> may call gold functions of steps 1…k−1, and main-problem scoring is <b style="color:var(--paper)">all-or-nothing</b>. One defective subproblem vetoes the whole main problem, and an early defect propagates downstream.</p>
+      </div>
+      <div class="panel">
+        <h4>Library-version-robust grading</h4>
+        <p>Each saved solution is graded in <b style="color:var(--paper)">two pinned NumPy/SciPy environments</b>; "correct if either passes" rescues <b style="color:var(--verify)">7–9 of 287 subproblems per model</b>, with near-identical rescue sets across models &mdash; so the gain is not version luck.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ RESULTS ============ -->
+  <section class="section anim d6">
+    <div class="sec-head">
+      <span class="sec-num">02</span>
+      <h2 class="sec-title">Results &mdash; 12 models, before &amp; after</h2>
+      <span class="sec-rule"></span>
+    </div>
+
+    <div class="chart-wrap">
+      <div class="chart-head">
+        <div class="chart-title">Main-problem accuracy <span class="sub">64-problem test split · pass@1</span></div>
+        <div class="legend">
+          <span><span class="sw orig"></span>original SCICODE</span>
+          <span><span class="sw ver"></span>SCICODE-Verified</span>
+        </div>
+      </div>
+
+      <div class="controls">
+        <div>
+          <div class="ctrl-label" style="margin-bottom:5px">View</div>
+          <div class="seg mode" id="segMode">
+            <button data-mode="acc" class="active">Accuracy</button>
+            <button data-mode="gain">Δ gain</button>
+          </div>
+        </div>
+        <div>
+          <div class="ctrl-label" style="margin-bottom:5px">Sort</div>
+          <div class="seg sort" id="segSort">
+            <button data-sort="ver" class="active">verified score</button>
+            <button data-sort="gain">gain</button>
+            <button data-sort="alpha">A–Z</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="chart" id="chart"><!-- rendered by JS --></div>
+
+      <div class="callout">
+        <span class="tag">rank inversion</span>
+        <div><b style="color:var(--paper)">Seed 2.1 Pro</b> ranked <b style="color:var(--defect)">1st</b> on the original main-problem score but <b style="color:var(--verify)">6th</b> on SCICODE-Verified &mdash; benchmark defects had quietly inverted the leaderboard.</div>
+      </div>
+
+      <div class="chart-foot">
+        <div class="stat"><div class="n red">262</div><div class="l">defects · 192 score-suppressing</div></div>
+        <div class="stat"><div class="n teal">164 / 164</div><div class="l">newly passed subproblems traced to a documented correction (4-model attribution set)</div></div>
+        <div class="stat"><div class="n">−10 to −22</div><div class="l">subproblem pts lost when expert background is withheld (−20 to −36 main)</div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ TAXONOMY ============ -->
+  <section class="section anim d7">
+    <div class="sec-head">
+      <span class="sec-num">03</span>
+      <h2 class="sec-title">Defect taxonomy &mdash; the lasting contribution</h2>
+      <span class="sec-rule"></span>
+    </div>
+
+    <div class="tax">
+      <div class="tax-block panel">
+        <h5>By nature (262)</h5>
+        <div class="split-bar">
+          <div class="seg-s sb-sci" style="flex:177">177</div>
+          <div class="seg-s sb-sur" style="flex:85">85</div>
+        </div>
+        <div class="legend-mini">
+          <span><b>SCIENTIFIC</b> 177 · needs physics/math judgment</span>
+          <span><b>SURFACE</b> 85 · corpus/code/text</span>
+        </div>
+        <p style="margin-top:12px;font-size:14px;color:var(--paper-dim)">Of the 192 score-suppressing defects, <b style="color:var(--amber)">150 (78%) are SCIENTIFIC</b> &mdash; recognizable only with specialist knowledge.</p>
+      </div>
+
+      <div class="tax-block panel">
+        <h5>By direction (262)</h5>
+        <div class="split-bar">
+          <div class="seg-s sb-strict" style="flex:192">192</div>
+          <div class="seg-s sb-neutral" style="flex:62">62</div>
+          <div class="seg-s sb-lenient" style="flex:8">8</div>
+        </div>
+        <div class="legend-mini">
+          <span><b>strict/wrong</b> 192 · rejects correct</span>
+          <span><b>neutral</b> 62</span>
+          <span><b>tightened</b> 8 · never loosened</span>
+        </div>
+        <p style="margin-top:12px;font-size:14px;color:var(--paper-dim)">Too-lenient tests were <b style="color:var(--verify)">tightened, never loosened</b> &mdash; so the corrected benchmark does not admit wrong answers. The gain is not grade inflation.</p>
+      </div>
+    </div>
+
+    <div class="panel" style="margin-top:18px">
+      <h4>Scientific defect subtypes (177)</h4>
+      <div class="subtype-list">
+        <div class="r"><span>unspecified convention <i style="color:var(--paper-faint)">— e.g. Householder last-reflector sign</i></span><span class="c">77</span></div>
+        <div class="r"><span>wrong gold <i style="color:var(--paper-faint)">— e.g. rotation-coefficient sign breaking unitarity</i></span><span class="c">33</span></div>
+        <div class="r"><span>RNG-dependent grading <i style="color:var(--paper-faint)">— tied to one random sequence</i></span><span class="c">22</span></div>
+        <div class="r"><span>non-discriminating test <i style="color:var(--paper-faint)">— palindromic Lanczos input</i></span><span class="c">14</span></div>
+        <div class="r"><span>over-tight tolerance <i style="color:var(--paper-faint)">— rtol=1e-15 below double precision</i></span><span class="c">13</span></div>
+        <div class="r"><span>spec ↔ gold contradiction <i style="color:var(--paper-faint)">— strict vs inclusive boundary</i></span><span class="c">9</span></div>
+        <div class="r"><span>invalid / non-reproducible target</span><span class="c">9</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ STRENGTHS / LIMITATIONS ============ -->
+  <section class="section">
+    <div class="sec-head">
+      <span class="sec-num">04</span>
+      <h2 class="sec-title">Strengths &amp; limitations, side by side</h2>
+      <span class="sec-rule"></span>
+    </div>
+    <div class="grid-2">
+      <div class="panel" style="border-left:3px solid var(--verify)">
+        <h4 style="color:var(--verify)">Strengths</h4>
+        <ul class="bullets">
+          <li><b>Closes a real measurement gap</b> on a benchmark feeding public leaderboards and national-lab suites.</li>
+          <li><b>Adversarial, provenance-tracked design</b> &mdash; second reviewer, diff-grounded, md5-verified release.</li>
+          <li><b>The taxonomy generalizes</b> &mdash; nature × direction with seven scientific subtypes transfers to other research-level benchmarks.</li>
+          <li><b>Honest about limits</b>: single pass@1, near-saturation top end, author-only review.</li>
+          <li><b>Tightens lenient tests too</b> &mdash; gain is not grade inflation.</li>
+          <li><b>Fully open</b>: harness, ledger, manifests, analysis files.</li>
+        </ul>
+      </div>
+      <div class="panel" style="border-left:3px solid var(--defect)">
+        <h4 style="color:var(--defect)">Limitations</h4>
+        <ul class="bullets warn">
+          <li><b>Only the 65-problem test split</b> &mdash; the 15-problem dev split (public gold) is untouched.</li>
+          <li><b>Mostly single pass@1</b> &mdash; small inter-model gaps among saturated top models sit inside run-to-run noise.</li>
+          <li><b>No external blind validation</b> &mdash; all reviews by the authors.</li>
+          <li><b>Original-benchmark numbers don't fully match</b> the Artificial Analysis leaderboard; harness gap not fully reconciled.</li>
+          <li><b>Single-problem coding only</b> &mdash; no long-horizon agentic workflows (named future work).</li>
+          <li><b>With-background subproblem accuracy near saturation</b> (≥95%) &mdash; limited headroom on that metric.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ QUESTIONS ============ -->
+  <section class="section">
+    <div class="sec-head">
+      <span class="sec-num">05</span>
+      <h2 class="sec-title">Open questions for follow-up</h2>
+      <span class="sec-rule"></span>
+    </div>
+    <div class="q-grid">
+      <div class="q"><div class="q-num">Q1</div><p>Do rankings survive multi-sample (pass@k, k&gt;1) averaging &mdash; specifically the GPT-5.5 vs Gemini 3.5 Flash main-problem gap?</p></div>
+      <div class="q"><div class="q-num">Q2</div><p>Would an <i>external blind</i> re-audit by independent domain experts confirm the same 192 score-suppressing defects?</p></div>
+      <div class="q"><div class="q-num">Q3</div><p>Can the seven SCIENTIFIC subtypes be operationalized into automated pre-release checks for new benchmarks?</p></div>
+      <div class="q"><div class="q-num">Q4</div><p>Does a similar audit on a held-out fresh problem set leave more headroom for top models?</p></div>
+      <div class="q"><div class="q-num">Q5</div><p>Does SCICODE-Verified transfer to long-horizon agentic workflows with tool use and iterative development?</p></div>
+      <div class="q"><div class="q-num">Q6</div><p>Are the four no-background failure modes reproducible across other scientific-coding benchmarks?</p></div>
+    </div>
+  </section>
+
+  <!-- ============ FOOTER ============ -->
+  <div class="footer">
+    <span>SciCode-Verified · dashboard render · 2026-08-05</span>
+    <a href="./2608.04975.md">↗ Markdown source</a>
+  </div>
+
+</div>
+
+<script>
+(function(){
+  const models = [
+    { name:"GPT-5.6 Sol",            orig:23.4, ver:92.2 },
+    { name:"GPT-5.5",                orig:20.3, ver:90.6 },
+    { name:"Gemini 3.5 Flash",       orig:17.2, ver:87.5 },
+    { name:"DeepSeek V4 Flash",      orig:18.8, ver:84.4 },
+    { name:"Claude Fable 5",         orig:23.4, ver:81.2 },
+    { name:"Seed 2.1 Pro",           orig:26.6, ver:79.7, invert:true },
+    { name:"Claude Opus 4.8",        orig:25.0, ver:78.1 },
+    { name:"DeepSeek V4 Pro Preview",orig:17.2, ver:78.1 },
+    { name:"Muse Spark 1.1",         orig:23.4, ver:76.6 },
+    { name:"Kimi K3",                orig:21.9, ver:76.6 },
+    { name:"GLM-5.2",                orig:15.6, ver:70.3 },
+    { name:"DeepSeek V4 Flash Preview", orig:9.4, ver:68.8 }
+  ];
+  const chart = document.getElementById('chart');
+  let mode = 'acc', sort = 'ver';
+
+  function fmt(n){ return (Math.round(n*10)/10).toFixed(1); }
+
+  function render(){
+    const data = models.slice().sort((a,b)=>{
+      if(sort==='ver')   return b.ver - a.ver;
+      if(sort==='gain')  return (b.ver-b.orig) - (a.ver-a.orig);
+      return a.name.localeCompare(b.name);
+    });
+    chart.innerHTML = data.map(m=>{
+      const gain = m.ver - m.orig;
+      const star = m.invert ? '<span class="star" title="ranked 1st on original, 6th on Verified">★</span>' : '';
+      if(mode==='acc'){
+        return `
+          <div class="row">
+            <div class="name">${m.name}${star}</div>
+            <div class="tracks">
+              <div class="track orig-track"><div class="fill orig" style="width:${m.orig}%"></div><span class="lbl">${fmt(m.orig)}</span></div>
+              <div class="track"><div class="fill ver" style="width:${m.ver}%"></div><span class="lbl">${fmt(m.ver)}</span></div>
+            </div>
+            <div class="delta">+${fmt(gain)}</div>
+          </div>`;
+      } else {
+        return `
+          <div class="row">
+            <div class="name">${m.name}${star}</div>
+            <div class="tracks">
+              <div class="track"><div class="fill gain" style="width:${gain}%"></div><span class="lbl">+${fmt(gain)} pts</span></div>
+            </div>
+            <div class="delta">+${fmt(gain)}</div>
+          </div>`;
+      }
+    }).join('');
+    // animate fills from 0
+    requestAnimationFrame(()=>{
+      chart.querySelectorAll('.fill').forEach(f=>{
+        const w = f.style.width;
+        f.style.width = '0%';
+        requestAnimationFrame(()=>{ f.style.width = w; });
+      });
+    });
+  }
+
+  document.getElementById('segMode').addEventListener('click', e=>{
+    const b = e.target.closest('button'); if(!b) return;
+    mode = b.dataset.mode;
+    document.querySelectorAll('#segMode button').forEach(x=>x.classList.toggle('active', x===b));
+    render();
+  });
+  document.getElementById('segSort').addEventListener('click', e=>{
+    const b = e.target.closest('button'); if(!b) return;
+    sort = b.dataset.sort;
+    document.querySelectorAll('#segSort button').forEach(x=>x.classList.toggle('active', x===b));
+    render();
+  });
+
+  render();
+})();
+</script>
+</body>
+</html>

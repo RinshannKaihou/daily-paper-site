@@ -1,0 +1,790 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SEAM — Global Consistency Beyond Local Accuracy</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --bg-elev: #161b22;
+    --bg-card: #1c232d;
+    --ink: #e6edf3;
+    --ink-dim: #9aa7b4;
+    --ink-mute: #6c7a89;
+    --rule: #2a323d;
+    --accent: #ffb627;
+    --accent-soft: rgba(255, 182, 39, 0.12);
+    --warn: #f2607b;
+    --warn-soft: rgba(242, 96, 123, 0.12);
+    --good: #7dd3a8;
+    --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  }
+
+  * { box-sizing: border-box; }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
+  }
+
+  .wrap {
+    width: min(95vw, 1100px);
+    margin: 0 auto;
+    padding: 0 20px;
+  }
+
+  /* ---- Fixed nav ---- */
+  .nav {
+    position: fixed;
+    top: 18px;
+    left: 18px;
+    z-index: 100;
+    background: rgba(22, 27, 34, 0.85);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border: 1px solid var(--rule);
+    border-radius: 8px;
+    padding: 8px 14px;
+    font-size: 13px;
+    font-weight: 500;
+  }
+  .nav a {
+    color: var(--accent);
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    letter-spacing: 0.01em;
+  }
+  .nav a:hover { text-decoration: underline; }
+
+  /* ---- Hero band ---- */
+  .hero {
+    padding: 100px 0 56px;
+    border-bottom: 1px solid var(--rule);
+  }
+  .hero .eyebrow {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--accent);
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    margin-bottom: 22px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .hero .eyebrow .dot {
+    width: 7px; height: 7px; border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 12px var(--accent);
+  }
+  .hero .id-tag {
+    color: var(--ink-mute);
+    margin-left: 8px;
+    letter-spacing: 0.05em;
+  }
+
+  .hero h1 {
+    font-family: var(--sans);
+    font-size: clamp(28px, 5vw, 54px);
+    font-weight: 800;
+    line-height: 1.04;
+    letter-spacing: -0.025em;
+    margin: 0 0 30px;
+    max-width: 18ch;
+  }
+  .hero h1 .accent { color: var(--accent); }
+
+  .finding {
+    font-family: var(--sans);
+    font-size: clamp(20px, 3vw, 30px);
+    font-weight: 500;
+    line-height: 1.3;
+    letter-spacing: -0.01em;
+    color: var(--ink);
+    border-left: 3px solid var(--accent);
+    padding-left: 22px;
+    margin: 44px 0 36px;
+    max-width: 32ch;
+  }
+
+  .meta-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px 28px;
+    align-items: baseline;
+    font-size: 14px;
+    color: var(--ink-dim);
+  }
+  .meta-row .authors { color: var(--ink); font-weight: 500; }
+  .meta-row .label {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--ink-mute);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin-right: 6px;
+  }
+
+  .chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 22px;
+  }
+  .chip {
+    font-family: var(--mono);
+    font-size: 11px;
+    padding: 4px 10px;
+    border: 1px solid var(--rule);
+    border-radius: 4px;
+    color: var(--ink-dim);
+    background: var(--bg-elev);
+    letter-spacing: 0.02em;
+  }
+
+  /* ---- Asset row ---- */
+  .asset-row {
+    display: grid;
+    grid-template-columns: 1.2fr 1fr 1fr;
+    gap: 18px;
+    margin-top: -40px;
+    margin-bottom: 56px;
+    position: relative;
+    z-index: 2;
+  }
+  @media (max-width: 820px) {
+    .asset-row { grid-template-columns: 1fr; margin-top: 28px; }
+  }
+
+  .card {
+    background: var(--bg-card);
+    border: 1px solid var(--rule);
+    border-radius: 10px;
+    padding: 24px;
+    position: relative;
+    overflow: hidden;
+  }
+  .card .label {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    margin-bottom: 14px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .card.metric .label { color: var(--accent); }
+  .card.matters .label { color: var(--good); }
+  .card.edge .label { color: var(--warn); }
+  .card .label .sq {
+    width: 9px; height: 9px;
+  }
+  .card.metric .label .sq { background: var(--accent); }
+  .card.matters .label .sq { background: var(--good); }
+  .card.edge .label .sq { background: var(--warn); }
+
+  /* metric card */
+  .metric-big {
+    font-family: var(--sans);
+    font-size: clamp(48px, 7vw, 78px);
+    font-weight: 800;
+    line-height: 1;
+    letter-spacing: -0.04em;
+    color: var(--accent);
+    margin: 6px 0 8px;
+  }
+  .metric-vs {
+    display: flex;
+    align-items: baseline;
+    gap: 14px;
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--ink-dim);
+    margin-bottom: 14px;
+  }
+  .metric-vs .baseline {
+    color: var(--ink-mute);
+    text-decoration: line-through;
+    text-decoration-color: var(--ink-mute);
+  }
+  .metric-note {
+    font-size: 14px;
+    color: var(--ink-dim);
+    line-height: 1.5;
+    border-top: 1px dashed var(--rule);
+    padding-top: 12px;
+    margin-top: 12px;
+  }
+
+  .card .body {
+    font-size: 15px;
+    line-height: 1.55;
+    color: var(--ink);
+  }
+  .card.edge .body { color: var(--ink); }
+
+  /* ---- Body grid ---- */
+  .section {
+    padding: 56px 0;
+    border-top: 1px solid var(--rule);
+  }
+  .section-head {
+    display: flex;
+    align-items: baseline;
+    gap: 14px;
+    margin-bottom: 28px;
+  }
+  .section-num {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--accent);
+    letter-spacing: 0.1em;
+  }
+  .section h2 {
+    font-size: clamp(22px, 3vw, 30px);
+    font-weight: 700;
+    margin: 0;
+    letter-spacing: -0.02em;
+  }
+
+  /* methodology */
+  .method-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 16px;
+  }
+  .method-step {
+    background: var(--bg-elev);
+    border: 1px solid var(--rule);
+    border-radius: 8px;
+    padding: 18px 20px;
+    position: relative;
+  }
+  .method-step .stage {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--accent);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    margin-bottom: 8px;
+  }
+  .method-step .title {
+    font-weight: 600;
+    font-size: 15px;
+    margin-bottom: 6px;
+  }
+  .method-step .desc {
+    font-size: 14px;
+    color: var(--ink-dim);
+    line-height: 1.5;
+  }
+  .method-step .math {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--good);
+    background: rgba(125, 211, 168, 0.07);
+    padding: 2px 6px;
+    border-radius: 3px;
+    margin-top: 8px;
+    display: inline-block;
+  }
+
+  /* results */
+  .results-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .result-item {
+    display: grid;
+    grid-template-columns: 110px 1fr;
+    gap: 18px;
+    padding: 14px 0;
+    border-bottom: 1px dashed var(--rule);
+    align-items: baseline;
+  }
+  .result-item:last-child { border-bottom: none; }
+  .result-num {
+    font-family: var(--mono);
+    font-size: 26px;
+    font-weight: 700;
+    color: var(--accent);
+    letter-spacing: -0.02em;
+    line-height: 1;
+  }
+  .result-num .unit {
+    font-size: 12px;
+    color: var(--ink-mute);
+    font-weight: 500;
+    margin-left: 4px;
+    display: block;
+    letter-spacing: 0.05em;
+    margin-top: 4px;
+  }
+  .result-desc {
+    font-size: 14.5px;
+    color: var(--ink);
+    line-height: 1.5;
+  }
+  .result-desc .tag {
+    font-family: var(--mono);
+    font-size: 10px;
+    background: var(--bg-elev);
+    color: var(--ink-dim);
+    padding: 2px 7px;
+    border-radius: 3px;
+    margin-right: 8px;
+    border: 1px solid var(--rule);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  /* strengths/limitations side-by-side */
+  .sl-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 18px;
+  }
+  @media (max-width: 760px) {
+    .sl-grid { grid-template-columns: 1fr; }
+  }
+  .sl-col {
+    background: var(--bg-elev);
+    border: 1px solid var(--rule);
+    border-radius: 8px;
+    padding: 22px;
+  }
+  .sl-col.strengths { border-top: 3px solid var(--good); }
+  .sl-col.limits { border-top: 3px solid var(--warn); }
+  .sl-col h3 {
+    font-size: 14px;
+    margin: 0 0 16px;
+    font-family: var(--mono);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--ink-dim);
+  }
+  .sl-col.strengths h3 { color: var(--good); }
+  .sl-col.limits h3 { color: var(--warn); }
+  .sl-col ul {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .sl-col li {
+    font-size: 13.5px;
+    line-height: 1.5;
+    color: var(--ink);
+    padding-left: 18px;
+    position: relative;
+  }
+  .sl-col li::before {
+    position: absolute;
+    left: 0;
+    top: 0;
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 700;
+  }
+  .sl-col.strengths li::before { content: "+"; color: var(--good); }
+  .sl-col.limits li::before { content: "—"; color: var(--warn); }
+
+  /* questions */
+  .questions {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 14px;
+  }
+  .q-card {
+    border-left: 2px solid var(--accent);
+    padding: 14px 18px;
+    background: var(--bg-elev);
+    font-size: 14px;
+    line-height: 1.55;
+    color: var(--ink);
+    border-radius: 0 6px 6px 0;
+  }
+  .q-card .q-num {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--accent);
+    letter-spacing: 0.1em;
+    margin-bottom: 6px;
+  }
+
+  /* credibility strip */
+  .credibility {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 16px;
+    margin-top: 28px;
+    padding: 22px;
+    background: var(--bg-elev);
+    border: 1px solid var(--rule);
+    border-radius: 8px;
+  }
+  .cred-item .lbl {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--ink-mute);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin-bottom: 6px;
+  }
+  .cred-item .val {
+    font-size: 14px;
+    color: var(--ink);
+    font-weight: 500;
+  }
+
+  /* footer */
+  footer {
+    padding: 40px 0 60px;
+    border-top: 1px solid var(--rule);
+    text-align: center;
+  }
+  footer a {
+    color: var(--accent);
+    text-decoration: none;
+    font-size: 14px;
+    font-family: var(--mono);
+    letter-spacing: 0.02em;
+    display: inline-flex;
+    gap: 6px;
+    align-items: center;
+  }
+  footer a:hover { text-decoration: underline; }
+  footer .fine {
+    margin-top: 14px;
+    font-size: 12px;
+    color: var(--ink-mute);
+  }
+
+  /* ---- Staggered reveal animation ---- */
+  @keyframes rise {
+    from { opacity: 0; transform: translateY(14px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  .rise { animation: rise 0.6s cubic-bezier(.2,.7,.3,1) both; }
+  .d1 { animation-delay: 0.05s; }
+  .d2 { animation-delay: 0.15s; }
+  .d3 { animation-delay: 0.25s; }
+  .d4 { animation-delay: 0.35s; }
+  .d5 { animation-delay: 0.45s; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .rise { animation: none; }
+    html { scroll-behavior: auto; }
+  }
+
+  /* utility */
+  a.cc { color: var(--accent); text-decoration: none; border-bottom: 1px dotted var(--accent); }
+  a.cc:hover { border-bottom-style: solid; }
+</style>
+</head>
+<body>
+
+<nav class="nav">
+  <a href="./index.html">↩ Today's digest</a>
+</nav>
+
+<header class="hero">
+  <div class="wrap">
+    <div class="eyebrow rise d1">
+      <span class="dot"></span>
+      <span>Scientific Machine Learning · Paper Dashboard</span>
+      <span class="id-tag">arXiv:2608.05702</span>
+    </div>
+
+    <h1 class="rise d2">
+      SEAM: Global consistency <span class="accent">beyond</span> local accuracy.
+    </h1>
+
+    <p class="finding rise d3">
+      Locally-correct scientific explanations can still fail to glue into one globally admissible explanation — SEAM makes that failure computable, and detects it even when every local model scores R² &gt; 0.999.
+    </p>
+
+    <div class="meta-row rise d4">
+      <span><span class="label">Authors</span><span class="authors">Gnankan Landry Regis N'guessan &middot; Bum Jun Kim</span></span>
+      <span><span class="label">Affiliations</span>AIMS · NM-AIST · Univ. of Tokyo</span>
+      <span><span class="label">Posted</span>2026-08-06</span>
+    </div>
+
+    <div class="chips rise d5">
+      <span class="chip">cellular sheaves</span>
+      <span class="chip">explanation-admissibility</span>
+      <span class="chip">OOD monitoring</span>
+      <span class="chip">FNO / neural operators</span>
+      <span class="chip">budgeted hypothesis testing</span>
+    </div>
+  </div>
+</header>
+
+<!-- Asset row -->
+<section class="wrap">
+  <div class="asset-row">
+    <div class="card metric rise d1">
+      <div class="label"><span class="sq"></span>Key Metric · OOD Monitoring</div>
+      <div class="metric-big">r = 0.995</div>
+      <div class="metric-vs">
+        <span>Pearson, ‖ω‖ vs L² error</span>
+        <span class="baseline">ensemble var: 0.71</span>
+      </div>
+      <div class="metric-note">
+        Fourier Neural Operator OOD monitoring on Burgers PDEs — obstruction cochain ω tracks prediction error at ~5× lower compute than a 5-member ensemble-variance baseline.
+      </div>
+    </div>
+
+    <div class="card matters rise d2">
+      <div class="label"><span class="sq"></span>Why This Matters</div>
+      <div class="body">
+        A generator-agnostic global-consistency audit that wraps PINNs, neural operators, and regressors — surfacing invisible cross-region incompatibilities and channel-level attribution where local scores see nothing wrong.
+      </div>
+    </div>
+
+    <div class="card edge rise d3">
+      <div class="label"><span class="sq"></span>Critical Edge</div>
+      <div class="body">
+        Only ensemble-variance is benchmarked; established OOD detectors (ODIN, energy, Mahalanobis, two-sample tests) are absent — so the practical advantage over real shift-detection baselines remains unestablished.
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Methodology -->
+<section class="section">
+  <div class="wrap">
+    <div class="section-head">
+      <span class="section-num">01 / METHODOLOGY</span>
+      <h2>SEAM-Ω: obstruction as a 1-cochain</h2>
+    </div>
+
+    <p style="color: var(--ink-dim); margin: 0 0 24px; max-width: 70ch; font-size: 15px;">
+      A finite cellular sheaf over the 1-skeleton of a cover's nerve. Each region emits a structured explanation; neighbors are compared on overlaps; disagreement is assembled into a cochain, decomposed by channel, and resolved by budgeted, refutable hypothesis tests.
+    </p>
+
+    <div class="method-grid">
+      <div class="method-step">
+        <div class="stage">Generate</div>
+        <div class="title">Local structured explanation</div>
+        <div class="desc">Each region U_i emits e_i = (state, closure, observation, contract) blocks — stalk is F(U_i) = ℝ^d partitioned into channels.</div>
+      </div>
+      <div class="method-step">
+        <div class="stage">Restrict</div>
+        <div class="title">Block-diagonal overlap maps</div>
+        <div class="desc">Linear ρ_{i,ij} act per channel (interpolation for state, identity for closure, sensor selection for observation).</div>
+        <div class="math">d⁰s = ρ_j·s_j − ρ_i·s_i</div>
+      </div>
+      <div class="method-step">
+        <div class="stage">Obstruct</div>
+        <div class="title">Admissibility defect cochain</div>
+        <div class="desc">Raw defect ω = Ds assembled from the coboundary matrix; a global section lives in ker D.</div>
+        <div class="math">ω = Ds</div>
+      </div>
+      <div class="method-step">
+        <div class="stage">Diagnose</div>
+        <div class="title">Channel & overlap decomposition</div>
+        <div class="desc">ω split into state / closure / observation / contract fractions; dominant channel and overlap pinpoint failure locus.</div>
+        <div class="math">ω = ω_state ⊕ ω_closure ⊕ ω_obs</div>
+      </div>
+      <div class="method-step">
+        <div class="stage">Intervene</div>
+        <div class="title">Budgeted, refutable repair</div>
+        <div class="desc">Each hypothesis is a projector P; hard feasibility is the linear test ω ∈ im(DP); closed-form min-cost solution (Thm 1).</div>
+      </div>
+      <div class="method-step">
+        <div class="stage">Identify · Monitor</div>
+        <div class="title">Blind directions & streaming ω(t)</div>
+        <div class="desc">𝒩 = ker D ∩ ker O captures admissibility-preserving but observation-invisible directions; streaming ω(t) costs one cached matvec.</div>
+      </div>
+    </div>
+
+    <div class="credibility">
+      <div class="cred-item">
+        <div class="lbl">Theory</div>
+        <div class="val">Thm 1 · Thm 2 · Prop 7.2 · Cor 7.3</div>
+      </div>
+      <div class="cred-item">
+        <div class="lbl">Assumptions</div>
+        <div class="val">A0 (block-diagonal) – A4, explicit</div>
+      </div>
+      <div class="cred-item">
+        <div class="lbl">Instantiation</div>
+        <div class="val">Finite sheaves, closed-form operators</div>
+      </div>
+      <div class="cred-item">
+        <div class="lbl">Backend-agnostic</div>
+        <div class="val">PINN · FNO · DeepONet · OLS · XGB</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Results -->
+<section class="section">
+  <div class="wrap">
+    <div class="section-head">
+      <span class="section-num">02 / RESULTS</span>
+      <h2>Nineteen experiments, eight claims</h2>
+    </div>
+
+    <div class="results-list">
+      <div class="result-item">
+        <div class="result-num">0.995<span class="unit">Pearson r</span></div>
+        <div class="result-desc">
+          <span class="tag">FNO OOD</span>
+          Obstruction norm ‖ω(t_f)‖ correlates with reference-solver relative L² error at r=0.995 ± 0.003 across 500 trajectories × 3 covariate-shift families. The 5-member ensemble-variance baseline reaches only 0.71.
+        </div>
+      </div>
+      <div class="result-item">
+        <div class="result-num">R²&gt;0.999<span class="unit">still fails globally</span></div>
+        <div class="result-desc">
+          <span class="tag">UCI Household</span>
+          Across scikit-learn / XGBoost / statsmodels baselines, local R² &gt; 0.999 coexists with ‖ω‖ ≈ 9.4 — nontrivial global inadmissibility is invisible to held-out scores.
+        </div>
+      </div>
+      <div class="result-item">
+        <div class="result-num">99.9992%<span class="unit">of ‖ω‖² in closure</span></div>
+        <div class="result-desc">
+          <span class="tag">Source recovery</span>
+          Inviscid Burgers with hidden Gaussian source: recovered peak x̂₀ = 0.501 within 0.2% of true center; closure-channel repair residual &lt; 5%.
+        </div>
+      </div>
+      <div class="result-item">
+        <div class="result-num">9.2×<span class="unit">over bound</span></div>
+        <div class="result-desc">
+          <span class="tag">Thm 2 check</span>
+          Observed closure obstruction 1.172 vs predicted lower bound 0.128; all 25 parametric configs pass the 10% tolerance criterion; repair recovered within 0.83% relative error.
+        </div>
+      </div>
+      <div class="result-item">
+        <div class="result-num">18.4 / 12.6<span class="unit">attribution ratios</span></div>
+        <div class="result-desc">
+          <span class="tag">Fault attribution</span>
+          Sensor corruption correctly favors sensor-rejection (18.4×); closure corruption favors closure-revision (12.6×) — soft diagnostics correctly identify the injected cause in both conditions.
+        </div>
+      </div>
+      <div class="result-item">
+        <div class="result-num">4.1×<span class="unit">fault lift</span></div>
+        <div class="result-desc">
+          <span class="tag">Industrial</span>
+          ‖ω‖ rises from 0.491 (normal) to 2.039 (fault) under a 0.3σ step fault; state channel correctly dominates the obstruction.
+        </div>
+      </div>
+      <div class="result-item">
+        <div class="result-num">1.00<span class="unit">monotonicity</span></div>
+        <div class="result-desc">
+          <span class="tag">USGS Potomac</span>
+          Empirical monotonicity of ‖ω‖ in perturbation magnitude is 1.00 ± 0.00 across 10 directions × 7 magnitudes; confirmed across 50 seeds in robustness re-run.
+        </div>
+      </div>
+      <div class="result-item">
+        <div class="result-num">~0<span class="unit">negative control</span></div>
+        <div class="result-desc">
+          <span class="tag">Calibration</span>
+          Identical-model control yields ‖ω‖ = 0.0000 ± 0.0000; a 10⁻⁸-scale noise perturbation stays at (2.71 ± 0.78) × 10⁻⁸ — orders of magnitude below the smallest real obstruction.
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Strengths / Limitations -->
+<section class="section">
+  <div class="wrap">
+    <div class="section-head">
+      <span class="section-num">03 / APPRAISAL</span>
+      <h2>Strengths vs. Limitations</h2>
+    </div>
+
+    <div class="sl-grid">
+      <div class="sl-col strengths">
+        <h3>+ Strengths</h3>
+        <ul>
+          <li>Conceptually original: explanation-admissibility as a sheaf-theoretic gluing problem, distinct from local accuracy or residual satisfaction.</li>
+          <li>Clean, fully proven theory (Thms 1–2, Prop 7.2, Cor 7.3) with explicit assumptions A0–A4 and an operational mapping table.</li>
+          <li>Generator-agnostic: PINNs, FNOs, DeepONets, finite-volume solvers, and OLS/XGB regressors share one backend interface.</li>
+          <li>Honest reporting: separate hard vs soft verdicts, residuals retained, "unresolved" reported when all proper budgets fail — no forced causal attribution.</li>
+          <li>Identifiability analysis separates detected inconsistency (ω) from genuinely unresolved directions (𝒩 = ker D ∩ ker O).</li>
+          <li>Strong FNO OOD signal (r=0.995) at ~5× lower compute than the ensemble baseline.</li>
+        </ul>
+      </div>
+
+      <div class="sl-col limits">
+        <h3>— Limitations</h3>
+        <ul>
+          <li><b>All experiments use C = I.</b> The generalized cost-metric theory — including the restricted-inverse subtlety flagged as load-bearing — is never exercised.</li>
+          <li><b>No public code or data release.</b> Availability is "on reasonable request," undermining otherwise careful reproducibility documentation.</li>
+          <li><b>Weak OOD baselines.</b> Only ensemble variance; no ODIN, energy, Mahalanobis, or two-sample tests.</li>
+          <li><b>Predominantly synthetic &amp; small-scale.</b> Real-world experiments are tabular regressions on 3-region covers; no coupled multi-physics demos where channel decomposition would matter most.</li>
+          <li><b>Exact-feasibility brittle under A0.</b> Single-channel hard budgets fail when obstruction spans multiple channels, pushing attribution onto the soft Tikhonov branch.</li>
+          <li><b>Hand-crafted linear restrictions.</b> The maps that materially shape ω are modeling choices, assumed rather than audited.</li>
+          <li><b>Pairwise overlaps only.</b> SEAM-Ω uses the 1-skeleton; higher-order (triple+) consistency is out of scope.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Questions -->
+<section class="section">
+  <div class="wrap">
+    <div class="section-head">
+      <span class="section-num">04 / OPEN</span>
+      <h2>Questions for further exploration</h2>
+    </div>
+
+    <div class="questions">
+      <div class="q-card">
+        <div class="q-num">Q1</div>
+        How does ω(t) compare as an OOD monitor against ODIN, energy scores, Mahalanobis distance, or two-sample dataset-shift tests on the same FNO/Burgers benchmark?
+      </div>
+      <div class="q-card">
+        <div class="q-num">Q2</div>
+        Does the diagnostic hold when C ≻ 0 is non-identity — e.g., a physics-informed or sensor-noise-calibrated cost metric — and does it change the surviving budget or dominant channel?
+      </div>
+      <div class="q-card">
+        <div class="q-num">Q3</div>
+        Can learned, interpretable restriction maps replace hand-crafted linear ones without breaking the auditability of D, and how sensitive is ω to restriction misspecification?
+      </div>
+      <div class="q-card">
+        <div class="q-num">Q4</div>
+        How does SEAM scale to higher-order overlap consistency (full nerve vs 1-skeleton), and does exact-feasibility become less brittle with multi-overlap constraints?
+      </div>
+      <div class="q-card">
+        <div class="q-num">Q5</div>
+        On genuinely coupled multi-physics or multi-sensor systems, does the channel decomposition yield qualitatively different attributions than a scalar consistency radius?
+      </div>
+      <div class="q-card">
+        <div class="q-num">Q6</div>
+        Can streaming ω(t) be turned into a calibrated sequential change-detection statistic (e.g., CUSUM) with controlled false-alarm rate, beyond a correlation with L² error?
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <a href="./2608.05702.md">↗ Markdown source</a>
+    <div class="fine">SEAM · arXiv:2608.05702 · N'guessan &amp; Kim · 2026-08-06</div>
+  </div>
+</footer>
+
+</body>
+</html>

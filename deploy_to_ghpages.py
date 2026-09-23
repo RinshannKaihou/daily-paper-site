@@ -40,17 +40,38 @@ def log(msg: str) -> None:
 # ---------------------------------------------------------------------------
 # File discovery
 # ---------------------------------------------------------------------------
+def _is_junk(rel_parts) -> bool:
+    """Legacy stray folders like ``2026-04-09-old`` / ``2026-06-26_old_Thu_batch``."""
+    return any(("-old" in p or "_old_" in p) for p in rel_parts)
+
+
 def discover_existing_html() -> list[Path]:
     """Return all HTML files that already exist in the vault."""
     if not ARXIV_DAILY.exists():
         return []
     html_files = []
     for path in ARXIV_DAILY.rglob("*.html"):
+        if _is_junk(path.relative_to(ARXIV_DAILY).parts):
+            continue
         html_files.append(path)
     root_index = PROJECT_ROOT / "index.html"
     if root_index.exists():
         html_files.append(root_index)
     return html_files
+
+
+def discover_landing_markdown() -> list[Path]:
+    """Overview/weekly markdown needed by generate_landing.py for card
+    metadata and weekly-mode detection (frontmatter ``week:`` field) when the
+    landing is regenerated inside ``_site``. Removed before the final output."""
+    if not ARXIV_DAILY.exists():
+        return []
+    md_files = []
+    for pattern in ("**/overview.md", "**/weekly.md"):
+        for path in ARXIV_DAILY.glob(pattern):
+            if not _is_junk(path.relative_to(ARXIV_DAILY).parts):
+                md_files.append(path)
+    return md_files
 
 
 def discover_markdown() -> list[Path]:
@@ -72,9 +93,10 @@ def is_per_paper_md(path: Path) -> tuple[bool, str]:
 # Copy existing HTML
 # ---------------------------------------------------------------------------
 def copy_existing_html(dry_run: bool) -> dict[Path, Path]:
-    """Copy existing HTML into _site preserving relative structure."""
+    """Copy existing HTML (plus landing markdown) into _site preserving
+    relative structure."""
     copied: dict[Path, Path] = {}  # source -> dest
-    for src in discover_existing_html():
+    for src in discover_existing_html() + discover_landing_markdown():
         rel = src.relative_to(PROJECT_ROOT)
         dest = SITE_DIR / rel
         if not dry_run:
@@ -355,6 +377,12 @@ def generate_missing_daily_indices(dry_run: bool) -> list[tuple[Path, Path]]:
             html_content = markdown_to_html(text, title=f"Daily arXiv Digest — {day_dir.name}")
             index_html.write_text(html_content, encoding="utf-8")
             generated.append((overview, index_html))
+            continue
+
+        # No overview AND no vault-side index.html → aborted run that the
+        # landing page skips; keep the site in lockstep (stray paper HTMLs
+        # stay reachable by URL but get no folder card).
+        if not (day_dir / "index.html").exists():
             continue
 
         # No overview: build a minimal listing from paper HTMLs
@@ -645,7 +673,11 @@ def add_readme(dry_run: bool) -> None:
 
 
 def remove_unwanted_files(dry_run: bool) -> None:
-    """Ensure no PDFs, JSON manifests, or per-paper markdown files remain in _site."""
+    """Ensure no PDFs, JSON manifests, or per-paper markdown files remain in _site.
+
+    Tolerant of exFAT AppleDouble phantoms (``._foo.md`` matches ``*.md`` but
+    can vanish between rglob and unlink) — hence ``missing_ok``.
+    """
     removed = 0
     for pattern in ("*.pdf", "*.json", "*.md"):
         for p in SITE_DIR.rglob(pattern):
@@ -654,7 +686,23 @@ def remove_unwanted_files(dry_run: bool) -> None:
             if dry_run:
                 removed += 1
                 continue
-            p.unlink()
+            try:
+                p.unlink(missing_ok=True)
+            except OSError as e:
+                log(f"warning: could not remove {p}: {e}")
+            removed += 1
+    # macOS junk that materializes when copying onto non-xattr volumes (exFAT)
+    for p in SITE_DIR.rglob(".*"):
+        if p.name in (".nojekyll", ".git") or p.is_dir():
+            continue
+        if p.name == "._.git" or p.name.startswith(("._", ".DS_Store")):
+            if dry_run:
+                removed += 1
+                continue
+            try:
+                p.unlink(missing_ok=True)
+            except OSError as e:
+                log(f"warning: could not remove {p}: {e}")
             removed += 1
     log(f"{'would remove' if dry_run else 'removed'} {removed} unwanted files")
 

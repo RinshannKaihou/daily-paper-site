@@ -1,0 +1,561 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Policy Gradient Steering: Interventions from Behavioral Objectives</title>
+<style>
+  :root{
+    --bg: #141210;
+    --panel: #1c1815;
+    --panel-2: #24201a;
+    --border: #362f26;
+    --text: #f2ede2;
+    --text-dim: #ab9d8a;
+    --text-faint: #756a56;
+    --accent: #5a72d6;
+    --accent-soft: rgba(90,114,214,0.13);
+    --accent-soft-2: rgba(90,114,214,0.32);
+    --good: #8fb98a;
+    --bad: #c0503a;
+    --edge-bg: #241014;
+    --edge-border: #5c2434;
+    --content: min(95vw, 1100px);
+    --serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, "Songti SC", serif;
+    --sans: -apple-system, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", system-ui, sans-serif;
+    --mono: "SF Mono", "SFMono-Regular", Consolas, Menlo, "Cascadia Mono", monospace;
+  }
+  *{ box-sizing: border-box; }
+  html{ background: var(--bg); }
+  body{
+    margin:0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+  ::selection{ background: var(--accent-soft-2); color: var(--text); }
+  a{ color: inherit; }
+
+  .topnav{
+    position: fixed;
+    top: 0; left: 0;
+    z-index: 60;
+    padding: 0.85rem 1.1rem;
+    font-family: var(--mono);
+    font-size: 0.76rem;
+    letter-spacing: 0.02em;
+  }
+  .topnav a{
+    text-decoration: none;
+    color: var(--text-dim);
+    border: 1px solid var(--border);
+    background: var(--panel);
+    padding: 0.35rem 0.7rem;
+    border-radius: 3px;
+    transition: color 0.15s ease, border-color 0.15s ease;
+  }
+  .topnav a:hover{ color: var(--accent); border-color: var(--accent-soft-2); }
+
+  .wrap{
+    max-width: var(--content);
+    margin: 0 auto;
+    padding: 3.8rem 0 3rem;
+  }
+
+  /* ---------- HERO ---------- */
+  .hero{
+    padding: 1rem 0 1.8rem;
+    border-bottom: 1px solid var(--border);
+    opacity: 0;
+    animation: rise 0.6s ease forwards;
+  }
+  .kicker{
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 1.1rem;
+  }
+  h1.finding{
+    font-family: var(--serif);
+    font-weight: 500;
+    font-size: clamp(1.85rem, 4.4vw, 3rem);
+    line-height: 1.16;
+    margin: 0 0 0.7rem;
+    max-width: 28ch;
+    letter-spacing: -0.01em;
+  }
+  .zh-echo{
+    font-size: 0.86rem;
+    color: var(--text-faint);
+    line-height: 1.9;
+    max-width: 68ch;
+    margin: 0 0 1.2rem;
+  }
+  .paper-title{
+    display: inline-block;
+    font-size: 0.98rem;
+    color: var(--text-dim);
+    text-decoration: none;
+    border-bottom: 1px dotted var(--text-faint);
+    padding-bottom: 0.15rem;
+    max-width: 62ch;
+  }
+  .paper-title:hover{ color: var(--accent); border-color: var(--accent); }
+  .meta{
+    margin-top: 1.1rem;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.9rem 1.4rem;
+    font-size: 0.86rem;
+    color: var(--text-dim);
+  }
+  .meta .authors{ font-weight: 600; color: var(--text); }
+  .meta .date{ font-family: var(--mono); color: var(--text-faint); }
+  .chips{ display: flex; flex-wrap: wrap; gap: 0.45rem; }
+  .chip{
+    font-family: var(--mono);
+    font-size: 0.67rem;
+    letter-spacing: 0.03em;
+    padding: 0.28rem 0.6rem;
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    color: var(--text-dim);
+    background: var(--panel);
+  }
+
+  /* ---------- QUICK NAV ---------- */
+  .quicknav{
+    display: flex;
+    gap: 1.3rem;
+    flex-wrap: wrap;
+    margin: 1.1rem 0 0.3rem;
+    padding: 0.7rem 0;
+    border-bottom: 1px solid var(--border);
+    font-family: var(--mono);
+    font-size: 0.74rem;
+  }
+  .quicknav a{ color: var(--text-faint); text-decoration: none; }
+  .quicknav a:hover{ color: var(--accent); }
+
+  /* ---------- ASSET ROW ---------- */
+  .assets{
+    display: grid;
+    grid-template-columns: 1.35fr 1fr 1fr;
+    gap: 1.1rem;
+    margin: 1.6rem 0;
+  }
+  .card{
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1.4rem 1.5rem;
+  }
+  .asset-card{ opacity: 0; animation: rise 0.6s ease forwards; }
+  .assets .card:nth-child(1){ animation-delay: 0.08s; }
+  .assets .card:nth-child(2){ animation-delay: 0.16s; }
+  .assets .card:nth-child(3){ animation-delay: 0.24s; }
+
+  .label{
+    font-family: var(--mono);
+    font-size: 0.67rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+    margin-bottom: 0.9rem;
+  }
+  .metric .label{ color: var(--accent); }
+
+  .metric-big{
+    font-family: var(--serif);
+    font-weight: 600;
+    font-size: clamp(2.6rem, 6vw, 3.6rem);
+    line-height: 1;
+    color: var(--accent);
+    margin-bottom: 0.3rem;
+  }
+  .metric-big .metric-unit{ font-size: 0.55em; color: var(--text-dim); font-weight: 500; }
+  .metric-sub{
+    font-size: 0.85rem;
+    color: var(--text-dim);
+    line-height: 1.5;
+    margin: 0 0 1.1rem;
+    max-width: 42ch;
+  }
+  .metric-sub strong{ color: var(--text); }
+
+  .chart-caption{
+    display:flex; justify-content: space-between;
+    font-family: var(--mono); font-size: 0.64rem; color: var(--text-faint);
+    margin-top: 0.4rem; gap: 0.4rem;
+  }
+  .chart-caption span{ flex: 1; text-align: center; }
+  .metric-context{
+    font-size: 0.85rem;
+    color: var(--text-dim);
+    margin-top: 0.9rem;
+    line-height: 1.55;
+  }
+  .metric-context strong{ color: var(--text); }
+
+  .why{ display:flex; flex-direction: column; justify-content: center; }
+  .why p{ font-size: 1.0rem; line-height: 1.6; margin: 0; color: var(--text); }
+  .why .zh-note{
+    margin-top: 1rem;
+    padding-top: 0.9rem;
+    border-top: 1px dashed var(--border);
+    font-size: 0.78rem;
+    line-height: 1.9;
+    color: var(--text-faint);
+  }
+
+  .edge{
+    background: var(--edge-bg);
+    border: 1px solid var(--edge-border);
+    display:flex; flex-direction: column; justify-content: center;
+  }
+  .edge .label{ color: #e28aa0; display:flex; align-items:center; gap:0.4rem; }
+  .edge p{ font-size: 1.0rem; line-height: 1.6; margin: 0; color: #f0d4dc; }
+
+  /* ---------- BODY GRID ---------- */
+  .row{ display: grid; gap: 1.1rem; margin-bottom: 1.1rem; }
+  .row-top{ grid-template-columns: 1fr 1.5fr; }
+  .row-sl{ grid-template-columns: 1fr 1fr; }
+
+  .card h2{
+    font-family: var(--serif);
+    font-weight: 600;
+    font-size: 1.2rem;
+    margin: 0 0 1rem;
+    color: var(--text);
+  }
+
+  /* Methodology flow */
+  .flow-step{
+    display: grid;
+    grid-template-columns: 1.8rem 1fr;
+    gap: 0.75rem;
+    margin-bottom: 0.9rem;
+    align-items: start;
+  }
+  .flow-num{
+    font-family: var(--mono);
+    color: var(--accent);
+    border: 1px solid var(--accent-soft-2);
+    background: var(--accent-soft);
+    width: 1.8rem; height: 1.8rem;
+    border-radius: 50%;
+    display:flex; align-items:center; justify-content:center;
+    font-size: 0.82rem;
+    flex-shrink: 0;
+  }
+  .flow-step p{ margin: 0; font-size: 0.89rem; color: var(--text-dim); }
+  .flow-step strong{ color: var(--text); }
+  .flow-step em{ color: var(--text-dim); }
+  .store-note{
+    margin-top: 0.9rem;
+    padding: 0.8rem 1rem;
+    background: var(--panel-2);
+    border-left: 2px solid var(--accent);
+    border-radius: 0 4px 4px 0;
+    font-size: 0.83rem;
+    color: var(--text-dim);
+  }
+  .store-note strong{ color: var(--text); }
+
+  /* Results */
+  .subhead{
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+    margin: 1.3rem 0 0.6rem;
+  }
+  .subhead:first-of-type{ margin-top: 0; }
+  table{ width: 100%; border-collapse: collapse; font-size: 0.84rem; }
+  th, td{ text-align: left; padding: 0.55rem 0.65rem; border-bottom: 1px solid var(--border); }
+  th{ font-family: var(--mono); font-size: 0.68rem; letter-spacing: 0.03em; text-transform: uppercase; color: var(--text-faint); font-weight: 500; }
+  td.num{ font-family: var(--mono); text-align: right; }
+  tr.highlight td{ color: var(--accent); font-weight: 600; }
+  tr.highlight{ background: var(--accent-soft); }
+  .table-note{
+    margin-top: 0.7rem;
+    font-size: 0.8rem;
+    color: var(--text-faint);
+    line-height: 1.55;
+  }
+  ul.findings{ margin: 0.9rem 0 0; padding: 0; list-style: none; }
+  ul.findings li{
+    position: relative;
+    padding-left: 1.1rem;
+    margin-bottom: 0.7rem;
+    font-size: 0.85rem;
+    color: var(--text-dim);
+    line-height: 1.5;
+  }
+  ul.findings li::before{
+    content: "▸";
+    position: absolute; left: 0; color: var(--accent);
+  }
+  ul.findings strong{ color: var(--text); }
+
+  /* Strengths / Limitations */
+  ul.plain{ margin: 0; padding: 0; list-style: none; }
+  ul.plain li{
+    position: relative;
+    padding-left: 1.1rem;
+    margin-bottom: 0.75rem;
+    font-size: 0.87rem;
+    color: var(--text-dim);
+    line-height: 1.5;
+  }
+  .strengths ul.plain li::before{
+    content: "+";
+    position: absolute; left: 0; color: var(--good);
+    font-family: var(--mono); font-weight: 700;
+  }
+  .limitations ul.plain li::before{
+    content: "–";
+    position: absolute; left: 0; color: var(--bad);
+    font-family: var(--mono); font-weight: 700;
+  }
+  .limitations{ border-color: var(--edge-border); }
+
+  /* Questions */
+  .questions ol{ margin: 0; padding-left: 1.2rem; columns: 2; column-gap: 2rem; }
+  .questions li{ font-size: 0.87rem; color: var(--text-dim); margin-bottom: 0.8rem; line-height: 1.5; break-inside: avoid; }
+  .questions li::marker{ color: var(--accent); font-family: var(--mono); }
+
+  footer{
+    max-width: var(--content);
+    margin: 0 auto;
+    padding: 1.6rem 0 3rem;
+    border-top: 1px solid var(--border);
+    margin-top: 0.5rem;
+  }
+  footer a{
+    font-family: var(--mono);
+    font-size: 0.8rem;
+    color: var(--text-dim);
+    text-decoration: none;
+    border-bottom: 1px dotted var(--text-faint);
+  }
+  footer a:hover{ color: var(--accent); border-color: var(--accent); }
+
+  @keyframes rise{
+    from{ opacity: 0; transform: translateY(10px); }
+    to{ opacity: 1; transform: translateY(0); }
+  }
+
+  @media (max-width: 860px){
+    .assets{ grid-template-columns: 1fr; }
+    .row-top, .row-sl{ grid-template-columns: 1fr; }
+    .questions ol{ columns: 1; }
+  }
+  @media (max-width: 720px){
+    .wrap{ padding: 3.6rem 0.9rem 2rem; }
+    footer{ padding: 1.6rem 0.9rem 2.5rem; }
+    h1.finding{ max-width: 100%; }
+  }
+</style>
+</head>
+<body>
+
+<nav class="topnav"><a href="./index.html">↩ Today's digest</a></nav>
+
+<div class="wrap">
+
+  <header class="hero">
+    <div class="kicker">Activation Steering · Policy-Gradient Task Vectors · arXiv 2607.27574 · 30 Jul 2026</div>
+    <h1 class="finding">A single policy-gradient vector steers frozen RL policies as well as fine-tuning — at a fraction of the storage.</h1>
+    <p class="zh-echo">一句话总结：论文指出对比激活类的转向方法（CAA/COAST/K-Steer）在前馈策略网络上会失效，因为它们对比的是决策之后才分叉的表征；作者提出 Policy Gradient Steering（PGS），用 REINFORCE 式的策略梯度直接把动作和标量行为回报关联起来构造一个可移除的加性激活向量，在双路径网格世界、国际象棋战术组合、Google Research Football 多智能体传球行为三个场景中，PGS 用远小于微调/LoRA 的存储量取得相当或更优的转向效果。</p>
+    <a class="paper-title" href="https://arxiv.org/abs/2607.27574" target="_blank" rel="noopener">Policy Gradient Steering: Interventions from Behavioral Objectives ↗</a>
+    <div class="meta">
+      <span class="authors">Yoann Poupart, Aurélie Beynier, Nicolas Maudet</span>
+      <span class="date">LIP6, Sorbonne University · v1 preprint · 30 Jul 2026</span>
+      <div class="chips">
+        <span class="chip">activation-steering</span>
+        <span class="chip">policy-gradient</span>
+        <span class="chip">task-vectors</span>
+        <span class="chip">compositional-steering</span>
+        <span class="chip">reinforcement-learning</span>
+      </div>
+    </div>
+  </header>
+
+  <nav class="quicknav">
+    <a href="#methodology">Methodology</a>
+    <a href="#results">Results</a>
+    <a href="#strengths">Strengths</a>
+    <a href="#limitations">Limitations</a>
+    <a href="#questions">Open Questions</a>
+  </nav>
+
+  <section class="assets">
+
+    <div class="card asset-card metric">
+      <div class="label">Key Metric — Storage vs. Fine-Tuning (Chess Tactics)</div>
+      <div class="metric-big">575<span class="metric-unit">×</span></div>
+      <p class="metric-sub">smaller stored footprint than full fine-tuning (<strong>1,152</strong> vs. <strong>663,552</strong> scalars) for the same composed fork/pin/skewer gain (0.804 vs. 0.807).</p>
+      <svg viewBox="0 0 360 150" width="100%" height="130" role="img" aria-label="Bar chart of scalars stored per method for the chess tactics task, log scale, lower is better: PGS 1,152, ReFT 9,288, LoRA 46,080, Fine-tuning 663,552. PGS is by far the smallest.">
+        <line x1="10" y1="125" x2="350" y2="125" stroke="#362f26" stroke-width="1"/>
+        <line x1="40" y1="20" x2="310" y2="20" stroke="#5a72d6" stroke-width="1" stroke-dasharray="3,3"/>
+        <text x="175" y="14" text-anchor="middle" font-family="SFMono-Regular,Consolas,monospace" font-size="9" fill="#5a72d6">575× fewer scalars, PGS vs. fine-tuning</text>
+
+        <rect x="20" y="103" width="40" height="22" fill="#5a72d6" rx="2"/>
+        <text x="40" y="97" text-anchor="middle" font-family="SFMono-Regular,Consolas,monospace" font-size="11" fill="#5a72d6" font-weight="600">1,152</text>
+
+        <rect x="110" y="78" width="40" height="47" fill="#54493c" rx="2"/>
+        <text x="130" y="72" text-anchor="middle" font-family="SFMono-Regular,Consolas,monospace" font-size="11" fill="#f2ede2">9,288</text>
+
+        <rect x="200" y="58" width="40" height="67" fill="#54493c" rx="2"/>
+        <text x="220" y="52" text-anchor="middle" font-family="SFMono-Regular,Consolas,monospace" font-size="11" fill="#f2ede2">46,080</text>
+
+        <rect x="290" y="25" width="40" height="100" fill="#54493c" rx="2"/>
+        <text x="310" y="19" text-anchor="middle" font-family="SFMono-Regular,Consolas,monospace" font-size="11" fill="#f2ede2">663,552</text>
+      </svg>
+      <div class="chart-caption">
+        <span>PGS<br>(winner)</span>
+        <span>ReFT</span>
+        <span>LoRA</span>
+        <span>Fine-tune</span>
+      </div>
+      <p class="metric-context">Same pattern in a different domain: on Google Research Football's <strong>group_pressure</strong> self-play, PGS lifts completed passes from a <strong>6.00±4.58</strong> baseline to <strong>29.80±16.04</strong> — nearly matching LoRA's 32.00±17.68 and far above fine-tuning's 4.80±5.03, at a shared policy-KL budget of ~0.10–0.12.</p>
+    </div>
+
+    <div class="card asset-card why">
+      <div class="label">Why This Matters</div>
+      <p>Removable, composable behavior control at negligible storage cost could let one frozen policy carry many swappable skills without retraining or bloat.</p>
+      <p class="zh-note">中文原文（Relevance）：该工作与"用最小侵入的激活干预来控制/组合模型行为"这一方向高度相关，尤其是其"决策级信度分配 vs. 结果级对比"的诊断，对任何基于对比样本构造 steering vector 的方法都是一个值得警惕的失效模式；但其未在真实 LLM 上验证，若关注 LLM 场景下的 activation steering，需要谨慎评估该失效模式和 PGS 修复方案是否直接迁移。</p>
+    </div>
+
+    <div class="card asset-card edge">
+      <div class="label">▲ Critical Edge</div>
+      <p>None of PGS's three testbeds — gridworld MLP, chess Maia policy, football team policies — is an autoregressive LLM, so the paper's central claim that contrastive steering fails for feed-forward policies remains unverified on the transformers those baselines (CAA, K-Steer, COAST) were actually built for.</p>
+    </div>
+
+  </section>
+
+  <section class="row row-top">
+
+    <div class="card methodology" id="methodology">
+      <h2>Methodology</h2>
+      <div class="flow-step">
+        <div class="flow-num">1</div>
+        <p><strong>RL reframing</strong> — a frozen policy π(a|o) plus a temporary scalar behavioral reward r_b(o,a) define a discounted return G_t over a small batch of reward-scored trajectories, possibly collected by a different behavior policy μ.</p>
+      </div>
+      <div class="flow-step">
+        <div class="flow-num">2</div>
+        <p><strong>PGS estimator</strong> — accumulates a REINFORCE/policy-gradient-theorem gradient, v_PGS = E[ρ_t(G_t − b(o_t))∇_h log π(a_t|o_t)], into one additive, removable vector (h ← h + α·v_PGS) at a chosen activation layer, leaving all weights frozen. Because it differentiates the <em>action likelihood</em> rather than contrasting post-decision states, it separates two actions even when their pre-decision activations are identical (h⁺ = h⁻).</p>
+      </div>
+      <div class="flow-step">
+        <div class="flow-num">3</div>
+        <p><strong>Fisher-calibrated strength</strong> — α is solved, not hand-tuned, from the activation-space empirical Fisher matrix under a local quadratic KL approximation: α = √(2ε / v_PGSᵀFv_PGS) for a chosen action-KL budget ε — a single-vector analogue of TRPO's trust region.</p>
+      </div>
+      <div class="flow-step">
+        <div class="flow-num">4</div>
+        <p><strong>Three testbeds</strong> — a two-route gridworld MLP policy (diagnostic), chess tactics on a frozen Maia-1500 policy (compositionality of independently fitted fork/pin/skewer vectors), and Google Research Football's four frozen team policies (multi-agent behavior steering and cross-opponent transfer).</p>
+      </div>
+      <div class="store-note">
+        <strong>One gradient update per fitted objective</strong> — versus three fixed-batch optimization passes for the ReFT/LoRA/fine-tuning baselines it is compared against.
+      </div>
+    </div>
+
+    <div class="card results" id="results">
+      <h2>Results</h2>
+
+      <div class="subhead">Gridworld route steering — top-route probability (Table 1)</div>
+      <table>
+        <thead><tr><th>Method</th><th>Top-route prob.</th><th>Path length</th></tr></thead>
+        <tbody>
+          <tr class="highlight"><td>PGS</td><td class="num">0.82 ± 0.07</td><td class="num">4.51 ± 0.17</td></tr>
+          <tr><td>COAST</td><td class="num">0.49 ± 0.09</td><td class="num">–</td></tr>
+          <tr><td>K-Steer</td><td class="num">0.45 ± 0.08</td><td class="num">–</td></tr>
+          <tr><td>No intervention</td><td class="num">0.43 ± 0.06</td><td class="num">4.36 ± 0.07</td></tr>
+          <tr><td>CAA</td><td class="num">0.41 ± 0.07</td><td class="num">–</td></tr>
+        </tbody>
+      </table>
+      <p class="table-note">All three contrastive-activation baselines stay within noise of "no intervention" — path length reported only for PGS vs. the unsteered baseline in the source.</p>
+
+      <div class="subhead">Chess tactic composition — fork+pin+skewer (Table 4, Maia-1500)</div>
+      <table>
+        <thead><tr><th>Method</th><th>Composed gain</th><th>Stored scalars</th></tr></thead>
+        <tbody>
+          <tr class="highlight"><td>PGS</td><td class="num">0.804 ± 0.014</td><td class="num">1,152</td></tr>
+          <tr><td>Fine-tuning</td><td class="num">0.807 ± 0.020</td><td class="num">663,552</td></tr>
+          <tr><td>LoRA</td><td class="num">0.803 ± 0.023</td><td class="num">46,080</td></tr>
+          <tr><td>ReFT</td><td class="num">0.761 ± 0.012</td><td class="num">9,288</td></tr>
+        </tbody>
+      </table>
+
+      <div class="subhead">Football passing — group_pressure self-play (Table 8, KL budget ≈0.10–0.12)</div>
+      <table>
+        <thead><tr><th>Method</th><th>Completed passes</th><th>Attempts</th></tr></thead>
+        <tbody>
+          <tr><td>No intervention</td><td class="num">6.00 ± 4.58</td><td class="num">12.80 ± 7.73</td></tr>
+          <tr class="highlight"><td>PGS</td><td class="num">29.80 ± 16.04</td><td class="num">64.00 ± 30.98</td></tr>
+          <tr><td>LoRA</td><td class="num">32.00 ± 17.68</td><td class="num">56.40 ± 23.77</td></tr>
+          <tr><td>ReFT</td><td class="num">16.00 ± 13.51</td><td class="num">–</td></tr>
+          <tr><td>Random-activation control</td><td class="num">16.00 ± 13.51</td><td class="num">–</td></tr>
+          <tr><td>Fine-tuning</td><td class="num">4.80 ± 5.03</td><td class="num">–</td></tr>
+        </tbody>
+      </table>
+
+      <ul class="findings">
+        <li><strong>Extreme low-data regime (Table 3):</strong> with just two demonstrations total, PGS still shifts route preference in both directions (top 0.82±0.07, bottom 0.83±0.08) while CAA stays near baseline (0.40±0.07) — fine-tuning is the only baseline that matches or beats PGS here (bottom 0.86±0.11), so PGS's edge is sample efficiency among steering-style methods, not uniform superiority.</li>
+        <li><strong>Cross-checkpoint robustness (Table 5):</strong> the composition pattern holds across Maia-1100/1500/1900 (composed gain 0.897±0.021 at 1100, 0.928±0.008 at 1900), though the paper explicitly declines to claim a checkpoint-independent ranking of adaptation methods.</li>
+        <li><strong>Cross-opponent transfer (Table 9):</strong> a single PGS vector fitted from group_pressure vs. defensive_passer trajectories raises completed passes against all four evaluation opponents (e.g. 28.20±12.87 vs. offensive_passer) — transfer strength tracks the fitting data's passing exposure, not just the objective label.</li>
+      </ul>
+    </div>
+
+  </section>
+
+  <section class="row row-sl">
+
+    <div class="card strengths" id="strengths">
+      <h2>Strengths</h2>
+      <ul class="plain">
+        <li>Clean two-route gridworld diagnostic mechanistically proves <em>why</em> contrastive steering fails (v_CAA = h⁺ − h⁻ = 0 at the branch point), not just that it underperforms.</li>
+        <li>Extensive ablation suite — activation-site choice, optimizer sensitivity, discount factor, fit-data budget, layer depth, off-policy correction — unusually thorough for a short paper.</li>
+        <li>Consistent, favorable storage/compute trade-off: matches or approaches LoRA and fine-tuning while storing 40–575× fewer parameters via a single gradient-estimation step.</li>
+        <li>Extends activation steering beyond single-agent LLM chat into competitive multi-agent RL (football), including an informative cross-opponent transfer study.</li>
+      </ul>
+    </div>
+
+    <div class="card limitations" id="limitations">
+      <h2>Limitations</h2>
+      <ul class="plain">
+        <li>No LLM or transformer experiment, despite motivating the work against LLM-focused steering baselines (CAA, K-Steer, COAST) — the central failure-mode claim is untested on the systems those baselines were built for.</li>
+        <li>The off-policy importance-ratio correction is explicitly acknowledged as approximate, not generally unbiased, when fit- and target-policy state distributions differ.</li>
+        <li>Effectiveness is sensitive to activation-site choice (pre-/post-ReLU, single vs. joint sites); site selection needs validation-data search rather than a principled a priori rule.</li>
+        <li>Composition doesn't generalize uniformly to team-level, multi-agent credit assignment — possession-regains in football shows the least consistent fitting-source dependence.</li>
+        <li>Fine-tuning or LoRA sometimes beat PGS on raw steering strength (e.g. Table 3's reverse-direction bottom-route probability) — PGS's advantage is compactness, not uniformly superior power.</li>
+      </ul>
+    </div>
+
+  </section>
+
+  <section class="card questions" id="questions">
+    <h2>Questions for Further Exploration</h2>
+    <ol>
+      <li>Does the branch-point failure mode found for feed-forward MLP policies actually occur in autoregressive transformer LLMs, where activations are causally conditioned on the full generated prefix rather than one fixed observation?</li>
+      <li>Can the off-policy importance-ratio correction be replaced with a provably unbiased or doubly-robust estimator without losing the single-gradient-step efficiency that makes PGS practical?</li>
+      <li>How does PGS's composability degrade as the number of simultaneously composed objectives grows beyond three (fork/pin/skewer), and is there a principled joint-rescaling rule?</li>
+      <li>Could a more data-driven activation-site selection rule be derived from the same Fisher-curvature framework already used for strength calibration?</li>
+      <li>Would an explicit agent-identifying credit-assignment scheme resolve the inconsistent fitting-source sensitivity seen for possession-regains steering in multi-agent football?</li>
+    </ol>
+  </section>
+
+</div>
+
+<footer>
+  <a href="./2607.27574.md">↗ Markdown source</a>
+</footer>
+
+</body>
+</html>

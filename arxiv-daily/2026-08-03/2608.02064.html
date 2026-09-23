@@ -1,0 +1,899 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Geometry-Guided FFN Width Allocation — arXiv:2608.02064</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300..900&family=IBM+Plex+Sans:wght@300;400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --paper:#f3efe6;       /* warm bone */
+    --paper-2:#ece6d8;
+    --surface:#fbf8f1;
+    --surface-2:#f6f1e6;
+    --ink:#171512;
+    --ink-2:#3a322a;
+    --muted:#7a6f5e;
+    --hair:#d8cfbb;
+    --hair-2:#c0b49a;
+    --accent:#0c5e5e;       /* single accent: deep teal */
+    --accent-2:#08403f;
+    --accent-soft:#cfe0e0;
+    --good:#2f6f4f;
+    --bad:#9a3a2a;
+    --warn:#7a5300;
+    --maxw:min(95vw,1100px);
+    --mono:"IBM Plex Mono",ui-monospace,monospace;
+    --sans:"IBM Plex Sans",system-ui,sans-serif;
+    --display:"Fraunces",Georgia,serif;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  html{scroll-behavior:smooth}
+  body{
+    background:var(--paper);
+    color:var(--ink);
+    font-family:var(--sans);
+    font-size:16px;
+    line-height:1.55;
+    -webkit-font-smoothing:antialiased;
+    text-rendering:optimizeLegibility;
+  }
+  /* subtle paper grain — no gradients, just SVG noise */
+  body::before{
+    content:"";
+    position:fixed;inset:0;
+    pointer-events:none;
+    opacity:0.30;
+    z-index:0;
+    background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='180' height='180'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.09  0 0 0 0 0.07  0 0 0 0 0.06  0 0 0 0.06 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+  }
+  .wrap{position:relative;z-index:1;max-width:var(--maxw);margin:0 auto;padding:0 28px}
+
+  /* ---------- top-left return nav ---------- */
+  .topnav{
+    position:fixed;top:16px;left:16px;z-index:50;
+    background:rgba(243,239,230,0.88);
+    backdrop-filter:blur(6px);
+    -webkit-backdrop-filter:blur(6px);
+    border:1px solid var(--hair-2);
+    padding:7px 12px;
+    font-family:var(--mono);
+    font-size:12px;
+    letter-spacing:0.02em;
+  }
+  .topnav a{color:var(--ink);text-decoration:none;border-bottom:1px solid var(--accent);padding-bottom:1px}
+  .topnav a:hover{color:var(--accent)}
+
+  /* ---------- section rail (right side, desktop only) ---------- */
+  .rail{
+    position:fixed;top:50%;right:14px;transform:translateY(-50%);
+    z-index:40;
+    display:none;
+    flex-direction:column;gap:9px;
+    font-family:var(--mono);font-size:11px;
+  }
+  .rail a{
+    color:var(--muted);text-decoration:none;
+    display:flex;align-items:center;gap:7px;
+    transition:color .15s;
+  }
+  .rail a::before{
+    content:"";display:inline-block;
+    width:14px;height:1px;background:var(--hair-2);
+    transition:width .15s,background .15s;
+  }
+  .rail a:hover,.rail a.active{color:var(--accent)}
+  .rail a:hover::before,.rail a.active::before{width:26px;background:var(--accent)}
+
+  /* ---------- hero ---------- */
+  header.hero{
+    padding:118px 0 30px;
+    border-bottom:1px solid var(--hair-2);
+  }
+  .meta-line{
+    display:flex;flex-wrap:wrap;align-items:baseline;gap:8px 16px;
+    font-family:var(--mono);font-size:11.5px;color:var(--muted);
+    letter-spacing:0.06em;text-transform:uppercase;
+    margin-bottom:20px;
+  }
+  .meta-line .arxivtag{
+    color:var(--ink);
+    background:var(--surface);
+    border:1px solid var(--hair-2);
+    padding:3px 8px;
+  }
+  .meta-line .dot{color:var(--hair-2)}
+
+  h1.title{
+    font-family:var(--display);
+    font-weight:400;
+    font-size:clamp(30px,5.2vw,52px);
+    line-height:1.04;
+    letter-spacing:-0.012em;
+    margin:0 0 16px;
+    font-variation-settings:"opsz" 110,"SOFT" 30;
+  }
+  h1.title a{
+    color:var(--ink);text-decoration:none;
+    position:relative;
+    transition:color .25s ease;
+  }
+  h1.title a::after{
+    content:"";position:absolute;left:0;right:0;bottom:2px;
+    height:2px;background:var(--accent);
+    transform:scaleX(0);transform-origin:left center;
+    transition:transform .25s ease;
+  }
+  h1.title a:hover{color:var(--accent)}
+  h1.title a:hover::after{transform:scaleX(1)}
+
+  .authors{
+    font-family:var(--sans);
+    font-size:15px;color:var(--ink-2);
+    margin-bottom:4px;
+  }
+  .affil{
+    font-family:var(--mono);font-size:11.5px;color:var(--muted);
+    letter-spacing:0.02em;
+    margin-bottom:18px;
+  }
+  ul.chips{
+    list-style:none;padding:0;margin:0 0 26px;
+    display:flex;flex-wrap:wrap;gap:7px;
+  }
+  ul.chips li{
+    font-family:var(--mono);font-size:11px;
+    color:var(--ink-2);
+    border:1px solid var(--hair-2);
+    background:var(--surface);
+    padding:4px 9px;
+    letter-spacing:0.02em;
+  }
+  ul.chips li.accent{
+    color:var(--accent-2);
+    border-color:var(--accent);
+    background:var(--accent-soft);
+  }
+
+  /* key finding pull statement */
+  .keyfinding{
+    border-left:3px solid var(--accent);
+    padding:6px 0 6px 20px;
+    margin-top:8px;
+  }
+  .kf-label{
+    display:block;
+    font-family:var(--mono);font-size:11px;
+    letter-spacing:0.14em;text-transform:uppercase;
+    color:var(--accent);
+    margin-bottom:6px;
+  }
+  .keyfinding p{
+    margin:0;
+    font-family:var(--display);
+    font-weight:350;
+    font-size:clamp(20px,2.7vw,27px);
+    line-height:1.28;
+    letter-spacing:-0.005em;
+    color:var(--ink);
+    font-variation-settings:"opsz" 60;
+  }
+
+  /* ---------- asset row ---------- */
+  .asset-row{
+    display:grid;
+    grid-template-columns:1.05fr 1.1fr 1.1fr;
+    gap:0;
+    margin-top:0;
+    border-bottom:1px solid var(--hair-2);
+  }
+  .card{
+    padding:24px 22px 26px;
+    border-right:1px solid var(--hair);
+    background:var(--surface);
+    position:relative;
+  }
+  .card:last-child{border-right:none}
+  .card-label{
+    font-family:var(--mono);font-size:10.5px;
+    letter-spacing:0.16em;text-transform:uppercase;
+    color:var(--muted);
+    margin-bottom:14px;
+    display:flex;align-items:center;gap:8px;
+  }
+  .card-label::before{
+    content:"";display:inline-block;
+    width:7px;height:7px;background:var(--accent);
+  }
+  .card.metric .card-label::before{background:var(--accent)}
+  .card.matters .card-label::before{background:var(--good)}
+  .card.edge .card-label::before{background:var(--bad)}
+
+  .metric-num{
+    font-family:var(--display);
+    font-weight:400;
+    font-size:clamp(48px,7vw,72px);
+    line-height:1;
+    letter-spacing:-0.025em;
+    color:var(--accent);
+    font-variation-settings:"opsz" 144;
+    margin-bottom:10px;
+  }
+  .metric-num .unit{
+    font-family:var(--mono);font-size:13px;
+    color:var(--muted);letter-spacing:0.04em;
+    margin-left:6px;vertical-align:0.4em;
+  }
+  .metric-sub{
+    font-family:var(--mono);font-size:11.5px;
+    color:var(--muted);line-height:1.5;
+  }
+  .metric-sub strong{color:var(--ink-2);font-weight:500}
+
+  .card.matters p,.card.edge p{
+    margin:0;
+    font-size:14.5px;
+    line-height:1.5;
+    color:var(--ink-2);
+  }
+  .card.edge p{color:var(--ink)}
+
+  /* ---------- generic section ---------- */
+  section.body-section{
+    padding:48px 0 18px;
+    border-bottom:1px solid var(--hair);
+  }
+  .sec-head{
+    display:flex;align-items:baseline;gap:14px;
+    margin-bottom:26px;
+  }
+  .sec-num{
+    font-family:var(--mono);font-size:11px;
+    color:var(--accent);
+    letter-spacing:0.14em;
+  }
+  h2.sec-title{
+    font-family:var(--display);
+    font-weight:400;
+    font-size:clamp(24px,3.2vw,32px);
+    line-height:1.1;
+    letter-spacing:-0.012em;
+    margin:0;
+    font-variation-settings:"opsz" 90;
+  }
+
+  /* ---------- methodology ---------- */
+  .meth-grid{
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:28px 36px;
+  }
+  .meth-block h3{
+    font-family:var(--mono);
+    font-size:11.5px;font-weight:500;
+    letter-spacing:0.12em;text-transform:uppercase;
+    color:var(--accent-2);
+    margin:0 0 8px;
+    padding-bottom:6px;
+    border-bottom:1px solid var(--hair);
+  }
+  .meth-block p{margin:0 0 10px;font-size:14.5px;color:var(--ink-2);line-height:1.55}
+  .meth-block p:last-child{margin-bottom:0}
+  .meth-block code{
+    font-family:var(--mono);font-size:12.5px;
+    background:var(--paper-2);
+    padding:1px 5px;
+    color:var(--ink);
+  }
+
+  /* work/geometry 3x3 matrix */
+  .matrix-wrap{
+    margin-top:14px;
+    border:1px solid var(--hair-2);
+    background:var(--surface);
+    padding:16px 14px 12px;
+  }
+  .matrix-wrap .mtx-title{
+    font-family:var(--mono);font-size:10.5px;
+    color:var(--muted);letter-spacing:0.12em;text-transform:uppercase;
+    margin-bottom:10px;
+  }
+  table.matrix{
+    width:100%;border-collapse:collapse;
+    font-family:var(--mono);font-size:11.5px;
+  }
+  table.matrix th,table.matrix td{
+    border:1px solid var(--hair);
+    padding:7px 6px;text-align:center;
+    color:var(--ink-2);
+  }
+  table.matrix thead th{
+    background:var(--paper-2);
+    color:var(--ink);
+    font-weight:500;
+    letter-spacing:0.03em;
+  }
+  table.matrix tbody th{
+    text-align:right;
+    background:var(--paper-2);
+    color:var(--ink);
+    font-weight:500;
+  }
+  table.matrix td.headline{
+    background:var(--accent-soft);
+    color:var(--accent-2);
+    font-weight:600;
+  }
+  table.matrix td.ctrl{
+    background:#f3d9d4;
+    color:var(--bad);
+    font-weight:600;
+  }
+  .matrix-legend{
+    font-family:var(--mono);font-size:10.5px;color:var(--muted);
+    margin-top:8px;line-height:1.5;
+  }
+
+  /* ---------- results table ---------- */
+  .results-wrap{
+    border:1px solid var(--hair-2);
+    background:var(--surface);
+    overflow:hidden;
+  }
+  table.results{
+    width:100%;border-collapse:collapse;
+    font-family:var(--sans);font-size:14px;
+  }
+  table.results thead th{
+    background:var(--paper-2);
+    border-bottom:1px solid var(--hair-2);
+    text-align:left;
+    padding:11px 14px;
+    font-family:var(--mono);font-size:10.5px;font-weight:500;
+    letter-spacing:0.1em;text-transform:uppercase;
+    color:var(--muted);
+  }
+  table.results thead th.num{text-align:right}
+  table.results tbody td{
+    padding:11px 14px;
+    border-bottom:1px solid var(--hair);
+    vertical-align:middle;
+  }
+  table.results tbody tr:last-child td{border-bottom:none}
+  table.results td.num{
+    text-align:right;
+    font-family:var(--mono);font-variant-numeric:tabular-nums;
+    font-size:13px;
+  }
+  td.rule{
+    font-weight:500;color:var(--ink);
+  }
+  td.rule .sub{
+    display:block;font-family:var(--mono);font-size:10.5px;
+    color:var(--muted);font-weight:400;letter-spacing:0.02em;
+    margin-top:2px;
+  }
+  tr.row-ref td{background:var(--paper-2)}
+  tr.row-headline td.rule{color:var(--accent-2)}
+  tr.row-bad td.rule{color:var(--bad)}
+  tr.row-headline td.num.delta{color:var(--accent);font-weight:600}
+  tr.row-bad td.num.delta{color:var(--bad);font-weight:600}
+
+  /* delta bar */
+  .delta-cell{display:flex;align-items:center;gap:10px;justify-content:flex-end}
+  .delta-track{
+    position:relative;
+    width:120px;height:8px;
+    background:var(--paper-2);
+    border:1px solid var(--hair);
+  }
+  .delta-track .zero{
+    position:absolute;top:-2px;bottom:-2px;
+    left:50%;width:1px;background:var(--ink-2);opacity:0.55;
+  }
+  .delta-bar{
+    position:absolute;top:0;bottom:0;
+    background:var(--accent);
+  }
+  .delta-bar.bad{background:var(--bad)}
+  .delta-bar.muted{background:var(--muted)}
+
+  .results-note{
+    font-family:var(--mono);font-size:11px;color:var(--muted);
+    margin-top:10px;line-height:1.55;
+  }
+
+  /* width profile chart */
+  .profile-chart{
+    margin-top:22px;
+    border:1px solid var(--hair-2);
+    background:var(--surface);
+    padding:16px 18px 10px;
+  }
+  .profile-chart .pc-title{
+    font-family:var(--mono);font-size:10.5px;color:var(--muted);
+    letter-spacing:0.12em;text-transform:uppercase;margin-bottom:6px;
+  }
+  .profile-chart svg{width:100%;height:auto;display:block}
+  .pc-legend{
+    display:flex;flex-wrap:wrap;gap:14px;
+    font-family:var(--mono);font-size:11px;color:var(--ink-2);
+    margin-top:8px;
+  }
+  .pc-legend span{display:inline-flex;align-items:center;gap:6px}
+  .pc-legend i{
+    display:inline-block;width:18px;height:2px;
+  }
+
+  /* ---------- strengths / limitations ---------- */
+  .pros-cons{
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:0;
+    border:1px solid var(--hair-2);
+    background:var(--surface);
+  }
+  .pc-col{padding:24px 22px}
+  .pc-col:first-child{border-right:1px solid var(--hair-2)}
+  .pc-col h3{
+    font-family:var(--mono);font-size:11px;font-weight:500;
+    letter-spacing:0.16em;text-transform:uppercase;
+    margin:0 0 16px;
+    display:flex;align-items:center;gap:8px;
+  }
+  .pc-col.pros h3{color:var(--good)}
+  .pc-col.cons h3{color:var(--bad)}
+  .pc-col h3::before{
+    content:"";display:inline-block;width:8px;height:8px;
+  }
+  .pc-col.pros h3::before{background:var(--good)}
+  .pc-col.cons h3::before{background:var(--bad)}
+  .pc-col ul{list-style:none;margin:0;padding:0}
+  .pc-col li{
+    font-size:13.5px;line-height:1.5;color:var(--ink-2);
+    padding:9px 0 9px 18px;
+    border-bottom:1px dashed var(--hair);
+    position:relative;
+  }
+  .pc-col li:last-child{border-bottom:none}
+  .pc-col li::before{
+    position:absolute;left:0;top:9px;
+    font-family:var(--mono);font-size:12px;
+  }
+  .pc-col.pros li::before{content:"+";color:var(--good);font-weight:600}
+  .pc-col.cons li::before{content:"–";color:var(--bad);font-weight:600}
+
+  /* ---------- questions ---------- */
+  .q-list{list-style:none;padding:0;margin:0}
+  .q-list li{
+    padding:14px 0 14px 38px;
+    border-bottom:1px solid var(--hair);
+    position:relative;
+    font-size:14.5px;line-height:1.5;color:var(--ink-2);
+  }
+  .q-list li:last-child{border-bottom:none}
+  .q-list li::before{
+    content:counter(qc,decimal-leading-zero);
+    counter-increment:qc;
+    position:absolute;left:0;top:14px;
+    font-family:var(--mono);font-size:11px;
+    color:var(--accent);
+    letter-spacing:0.04em;
+  }
+  .q-list{counter-reset:qc}
+
+  /* ---------- footer ---------- */
+  footer.foot{
+    padding:36px 0 60px;
+    display:flex;justify-content:space-between;align-items:center;
+    flex-wrap:wrap;gap:14px;
+    font-family:var(--mono);font-size:11.5px;color:var(--muted);
+  }
+  footer.foot a{
+    color:var(--ink);text-decoration:none;
+    border-bottom:1px solid var(--accent);
+    padding-bottom:1px;
+  }
+  footer.foot a:hover{color:var(--accent)}
+
+  /* ---------- responsive ---------- */
+  @media (min-width:1080px){
+    .rail{display:flex}
+  }
+  @media (max-width:720px){
+    .wrap{padding:0 18px}
+    .topnav{top:12px;left:12px;font-size:11px;padding:6px 10px}
+    header.hero{padding:92px 0 24px}
+    .asset-row{grid-template-columns:1fr}
+    .card{border-right:none;border-bottom:1px solid var(--hair)}
+    .card:last-child{border-bottom:none}
+    .meth-grid{grid-template-columns:1fr;gap:22px 0}
+    .pros-cons{grid-template-columns:1fr}
+    .pc-col:first-child{border-right:none;border-bottom:1px solid var(--hair-2)}
+    table.results{font-size:13px}
+    td.rule .sub{display:none}
+    .delta-track{width:64px}
+    .sec-head{flex-direction:column;gap:4px;align-items:flex-start}
+  }
+
+  /* ---------- entrance animation ---------- */
+  @keyframes rise{
+    from{opacity:0;transform:translateY(8px)}
+    to{opacity:1;transform:translateY(0)}
+  }
+  header.hero>*{animation:rise .55s ease-out both}
+  header.hero .meta-line{animation-delay:0s}
+  header.hero h1.title{animation-delay:.06s}
+  header.hero .authors{animation-delay:.12s}
+  header.hero .affil{animation-delay:.16s}
+  header.hero ul.chips{animation-delay:.20s}
+  header.hero .keyfinding{animation-delay:.26s}
+  .asset-row .card{animation:rise .5s ease-out both}
+  .asset-row .card:nth-child(1){animation-delay:.34s}
+  .asset-row .card:nth-child(2){animation-delay:.40s}
+  .asset-row .card:nth-child(3){animation-delay:.46s}
+  @media (prefers-reduced-motion:reduce){
+    *{animation:none!important;scroll-behavior:auto!important}
+  }
+</style>
+</head>
+<body>
+
+<nav class="topnav"><a href="./index.html">↩ Today's digest</a></nav>
+
+<nav class="rail" aria-label="Section navigation">
+  <a href="#hero">top</a>
+  <a href="#method">method</a>
+  <a href="#results">results</a>
+  <a href="#tradeoffs">trade-offs</a>
+  <a href="#questions">questions</a>
+</nav>
+
+<div class="wrap">
+
+  <!-- ============== HERO ============== -->
+  <header class="hero" id="hero">
+    <div class="meta-line">
+      <span class="arxivtag">arXiv:2608.02064</span>
+      <span>03 Aug 2026</span>
+      <span class="dot">·</span>
+      <span>cs.LG · stat.ML</span>
+      <span class="dot">·</span>
+      <span>5 paired seeds · 440M</span>
+    </div>
+
+    <h1 class="title"><a href="https://arxiv.org/abs/2608.02064" target="_blank" rel="noopener">Geometry-Guided Layerwise FFN Width Allocation in Transformers</a></h1>
+
+    <div class="authors">Timur Mudarisov · Mikhail Burtsev · Radu State</div>
+    <div class="affil">University of Luxembourg · London Institute of Mathematical Sciences</div>
+
+    <ul class="chips">
+      <li class="accent">FFN width allocation</li>
+      <li>Gromov–Wasserstein</li>
+      <li>Persistent homology</li>
+      <li>Intrinsic dimension</li>
+      <li>Transformer architecture</li>
+      <li>Geometric deep learning</li>
+    </ul>
+
+    <div class="keyfinding">
+      <span class="kf-label">Key finding</span>
+      <p>Activation-derived, layer-wise FFN width schedules cut 440M validation loss about <strong>6.3× more</strong> than the TLM cosine taper — under a fixed parameter budget.</p>
+    </div>
+  </header>
+
+  <!-- ============== ASSET ROW ============== -->
+  <section class="asset-row" aria-label="At a glance">
+    <div class="card metric">
+      <div class="card-label">Key metric</div>
+      <div class="metric-num">−0.019<span class="unit">Δ val loss</span></div>
+      <div class="metric-sub">
+        topological / hyperbolic allocator @ <strong>440M, 5 paired seeds</strong><br>
+        vs <strong>−0.003</strong> for TLM cosine taper<br>
+        ≈ <strong>6.3×</strong> larger mean reduction<br>
+        anti-topological control: <strong>+0.066</strong>
+      </div>
+    </div>
+
+    <div class="card matters">
+      <div class="card-label">Why this matters</div>
+      <p>Replaces a hand-designed cosine with a closed-form, transferable allocator derived from optimal transport + topology — giving FFN capacity design an interpretable, geometry-grounded knob.</p>
+    </div>
+
+    <div class="card edge">
+      <div class="card-label">Critical edge</div>
+      <p>The headline "6.3×" is a <strong>descriptive mean ratio</strong> over 5 paired seeds. Paired-difference SD/CI are not reported — statistical separation from cosine is unestablished.</p>
+    </div>
+  </section>
+
+  <!-- ============== METHODOLOGY ============== -->
+  <section class="body-section" id="method">
+    <div class="sec-head">
+      <span class="sec-num">01 / METHOD</span>
+      <h2 class="sec-title">Measuring the "geometric work" of every FFN layer</h2>
+    </div>
+
+    <div class="meth-grid">
+      <div class="meth-block">
+        <h3>The setup</h3>
+        <p>Replace the global FFN intermediate width <code>d_ff</code> with a layer-dependent schedule <code>w_ℓ</code>, derived from a reference model's activations, under a <strong>fixed total FFN parameter/FLOP budget</strong>.</p>
+        <p>For each layer <code>ℓ</code>, record the post-attention residual cloud <code>Z_ℓ</code> and post-FFN output cloud <code>H_ℓ</code>; a cloud comparison <code>D</code> gives the layer's work <code>Ŵ_ℓ = D(π(Z_ℓ), π(H_ℓ))</code>.</p>
+      </div>
+
+      <div class="meth-block">
+        <h3>Three metric spaces</h3>
+        <p>Each work statistic is evaluated under three embeddings <code>π</code>:</p>
+        <p>· <strong>Raw Euclidean</strong> — identity embedding.<br>
+        · <strong>Spherical</strong> — unit-normalized, angular distance.<br>
+        · <strong>Hyperbolic</strong> — fixed-radius 0.99 on the Poincaré ball; provably a fixed monotone transform of angular separation, not a learned radial hierarchy.</p>
+      </div>
+
+      <div class="meth-block">
+        <h3>Three work statistics</h3>
+        <p>· <strong>Shift Ŵ_sh</strong> — correspondence-preserving mean transported distance (collapses to mean FFN branch-output magnitude in raw geometry, Eq. 8).</p>
+        <p>· <strong>Metric Ŵ_met</strong> — entropic-regularized quadratic <strong>Gromov–Wasserstein</strong> discrepancy (Sinkhorn, fixed ε_GW).</p>
+        <p>· <strong>Topological Ŵ_top</strong> — 2-Wasserstein distance between degree-one <strong>persistence diagrams</strong> (Vietoris–Rips, diagonal matching).</p>
+      </div>
+
+      <div class="meth-block">
+        <h3>Budget-optimal allocator (Lemma 1)</h3>
+        <p>Three assumptions — local additive loss, error–width power law <code>ϵ_ℓ(w) ≈ C_ℓ w^(−a_ℓ)</code> with <code>a_ℓ = s/d_int(ℓ)</code>, <code>s=3</code>, and geometric proxy — reduce the schedule to a convex program with unique minimizer:</p>
+        <p><code>w*_ℓ = max{ w_min , (a_ℓ c_ℓ / μ*)^(1/(a_ℓ+1)) }</code></p>
+        <p>With depth-dependent <code>d_int</code>, a single layer-independent <code>θ</code> is invalid; <code>μ*</code> is found by bisection. Widths are quantized and rebalanced so every rule is iso-parameter by construction.</p>
+      </div>
+    </div>
+
+    <!-- 3x3 design-space matrix -->
+    <div class="matrix-wrap">
+      <div class="mtx-title">Design space — 3 work statistics × 3 geometries (9 cells)</div>
+      <table class="matrix" aria-label="Work statistic by geometry matrix">
+        <thead>
+          <tr>
+            <th></th>
+            <th>Raw Euclidean</th>
+            <th>Spherical</th>
+            <th>Hyperbolic</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <th>Shift Ŵ_sh</th>
+            <td class="ctrl">anti-topological / raw (control)</td>
+            <td>screened</td>
+            <td>screened</td>
+          </tr>
+          <tr>
+            <th>Gromov Ŵ_met</th>
+            <td>screened</td>
+            <td class="headline">Gromov / spherical · Δ −0.016</td>
+            <td>screened</td>
+          </tr>
+          <tr>
+            <th>Topological Ŵ_top</th>
+            <td>screened</td>
+            <td>screened</td>
+            <td class="headline">topological / hyperbolic · Δ −0.019</td>
+          </tr>
+        </tbody>
+      </table>
+      <div class="matrix-legend">Headline 440M rules in teal; anti-topological/raw control (Δ +0.066) in red. 128M/256M screens span the full 3×3 grid (3 paired seeds).</div>
+    </div>
+  </section>
+
+  <!-- ============== RESULTS ============== -->
+  <section class="body-section" id="results">
+    <div class="sec-head">
+      <span class="sec-num">02 / RESULTS</span>
+      <h2 class="sec-title">440M iso-parameter comparison (OpenWebText, 5 paired seeds)</h2>
+    </div>
+
+    <div class="results-wrap">
+      <table class="results" aria-label="440M validation loss by width rule">
+        <thead>
+          <tr>
+            <th>Width rule</th>
+            <th class="num">Val loss</th>
+            <th class="num">PPL</th>
+            <th class="num">Δ vs uniform</th>
+            <th class="num" style="width:170px">Δ bar</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr class="row-ref">
+            <td class="rule">uniform <span class="sub">baseline</span></td>
+            <td class="num">3.449 ± 0.022</td>
+            <td class="num">31.47</td>
+            <td class="num delta">0.000</td>
+            <td class="num">
+              <div class="delta-cell"><div class="delta-track"><span class="zero"></span></div></div>
+            </td>
+          </tr>
+          <tr>
+            <td class="rule">TLM cosine taper <span class="sub">hand-designed, in-protocol baseline</span></td>
+            <td class="num">3.446</td>
+            <td class="num">31.37</td>
+            <td class="num delta">−0.003</td>
+            <td class="num">
+              <div class="delta-cell"><div class="delta-track"><span class="zero"></span><span class="delta-bar muted" style="left:50%;width:2.3%"></span></div></div>
+            </td>
+          </tr>
+          <tr class="row-headline">
+            <td class="rule">Gromov / spherical <span class="sub">metric work, normalized</span></td>
+            <td class="num">3.433</td>
+            <td class="num">30.97</td>
+            <td class="num delta">−0.016</td>
+            <td class="num">
+              <div class="delta-cell"><div class="delta-track"><span class="zero"></span><span class="delta-bar" style="left:38.5%;width:11.5%"></span></div></div>
+            </td>
+          </tr>
+          <tr class="row-headline">
+            <td class="rule">topological / hyperbolic <span class="sub">persistence-diagram work, normalized</span></td>
+            <td class="num">3.430</td>
+            <td class="num">30.88</td>
+            <td class="num delta">−0.019</td>
+            <td class="num">
+              <div class="delta-cell"><div class="delta-track"><span class="zero"></span><span class="delta-bar" style="left:35.4%;width:14.6%"></span></div></div>
+            </td>
+          </tr>
+          <tr class="row-bad">
+            <td class="rule">anti-topological / raw <span class="sub">reversed profile + raw geometry</span></td>
+            <td class="num">3.515</td>
+            <td class="num">33.62</td>
+            <td class="num delta">+0.066</td>
+            <td class="num">
+              <div class="delta-cell"><div class="delta-track"><span class="zero"></span><span class="delta-bar bad" style="left:50%;width:50%"></span></div></div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="results-note">Bars centered at the uniform reference (zero). Left = loss reduction (good); right = degradation. Note the asymmetric scale — the anti-topological control is ~3.5× further from zero than the best allocator. Marginal SDs are shown for uniform only; <strong>paired-difference SDs are not reported</strong>.</p>
+
+    <!-- Diagnostics row -->
+    <div class="meth-grid" style="margin-top:30px">
+      <div class="meth-block">
+        <h3>Local additivity (Fig. 1a)</h3>
+        <p>Joint perturbation loss vs. sum of single-layer losses across 7 pretrained decoders gives <code>R² ≈ 0.72</code> — supporting the locally additive surrogate that Lemma 1 relies on.</p>
+      </div>
+      <div class="meth-block">
+        <h3>Sensitivity association (§3.2)</h3>
+        <p>After within-model standardization, <strong>Gromov work correlates with perturbation sensitivity λ_ℓ more consistently than topological work</strong> — stronger in 5 of 7 models. Pooled topological association is weak (finite-sample estimator).</p>
+      </div>
+      <div class="meth-block">
+        <h3>Profile shape (Fig. 2)</h3>
+        <p>Raw work rises toward the network's end (tracking residual-norm growth). Under spherical / hyperbolic geometry the ordering largely <strong>reverses</strong> — work becomes <strong>front-loaded</strong>, recovering TLM's broad direction with non-monotone, model-specific departures.</p>
+      </div>
+      <div class="meth-block">
+        <h3>Intrinsic dimension (Fig. 1c)</h3>
+        <p>TwoNN <code>d_int</code> stays far below ambient hidden dim, changes smoothly with depth, is smallest in early layers, reaching ~4–5 mid-stack in larger Gemma. With <code>s=3</code>, the exponent <code>θ_ℓ = d_int/(3+d_int)</code> compresses large work differences rather than transferring them one-for-one into width.</p>
+      </div>
+    </div>
+
+    <!-- Width profile chart -->
+    <div class="profile-chart">
+      <div class="pc-title">Normalized FFN width profile across relative depth ℓ/L — schematic from reported findings</div>
+      <svg viewBox="0 0 600 220" role="img" aria-label="Schematic width allocation profiles">
+        <!-- axes -->
+        <line x1="50" y1="180" x2="570" y2="180" stroke="#3a322a" stroke-width="1"/>
+        <line x1="50" y1="20" x2="50" y2="180" stroke="#3a322a" stroke-width="1"/>
+        <!-- y label -->
+        <text x="14" y="100" font-family="IBM Plex Mono, monospace" font-size="10" fill="#7a6f5e" transform="rotate(-90 14,100)">width w_ℓ (norm.)</text>
+        <!-- x label -->
+        <text x="310" y="210" font-family="IBM Plex Mono, monospace" font-size="10" fill="#7a6f5e" text-anchor="middle">relative depth ℓ / L  →  output</text>
+        <!-- x ticks -->
+        <text x="50"  y="195" font-family="IBM Plex Mono, monospace" font-size="9" fill="#7a6f5e" text-anchor="middle">0</text>
+        <text x="310" y="195" font-family="IBM Plex Mono, monospace" font-size="9" fill="#7a6f5e" text-anchor="middle">0.5</text>
+        <text x="570" y="195" font-family="IBM Plex Mono, monospace" font-size="9" fill="#7a6f5e" text-anchor="middle">1</text>
+
+        <!-- uniform line (flat) -->
+        <line x1="50" y1="110" x2="570" y2="110" stroke="#7a6f5e" stroke-width="1.6" stroke-dasharray="5 4"/>
+        <text x="560" y="104" font-family="IBM Plex Mono, monospace" font-size="10" fill="#7a6f5e" text-anchor="end">uniform</text>
+
+        <!-- TLM cosine taper -->
+        <path d="M50,55 Q200,70 570,165" fill="none" stroke="#3a322a" stroke-width="1.8"/>
+        <text x="560" y="160" font-family="IBM Plex Mono, monospace" font-size="10" fill="#3a322a" text-anchor="end">TLM cosine (Δ −0.003)</text>
+
+        <!-- geometry-derived front-loaded -->
+        <path d="M50,35 C140,40 230,90 330,120 S480,160 570,150" fill="none" stroke="#0c5e5e" stroke-width="2.4"/>
+        <text x="560" y="146" font-family="IBM Plex Mono, monospace" font-size="10" fill="#0c5e5e" text-anchor="end" font-weight="600">topological / hyperbolic (Δ −0.019)</text>
+
+        <!-- anti-topological (reversed) -->
+        <path d="M50,150 C180,158 320,140 460,90 S540,45 570,38" fill="none" stroke="#9a3a2a" stroke-width="2" stroke-dasharray="3 3"/>
+        <text x="560" y="32" font-family="IBM Plex Mono, monospace" font-size="10" fill="#9a3a2a" text-anchor="end" font-weight="600">anti-topological (Δ +0.066)</text>
+      </svg>
+      <div class="pc-legend">
+        <span><i style="background:#0c5e5e"></i>geometry allocator (front-loaded)</span>
+        <span><i style="background:#3a322a"></i>TLM cosine taper</span>
+        <span><i style="background:#7a6f5e;border-top:2px dashed #7a6f5e;background:transparent"></i>uniform</span>
+        <span><i style="background:transparent;border-top:2px dashed #9a3a2a"></i>anti-topological control</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============== STRENGTHS / LIMITATIONS ============== -->
+  <section class="body-section" id="tradeoffs">
+    <div class="sec-head">
+      <span class="sec-num">03 / TRADE-OFFS</span>
+      <h2 class="sec-title">Strengths &amp; limitations, side by side</h2>
+    </div>
+
+    <div class="pros-cons">
+      <div class="pc-col pros">
+        <h3>Strengths</h3>
+        <ul>
+          <li>Principled, theory-driven allocator with a clean closed-form optimum (Lemma 1), including honest treatment of the lower-bound and depth-dependent-exponent cases.</li>
+          <li>Comprehensive 3×3 work/geometry design space evaluated on <strong>seven real pretrained models</strong> from three families (Llama, Gemma, Mistral) — not toy data.</li>
+          <li>Paired-seed design and explicit iso-parameter construction (quantize + rebalance to recover the exact budget).</li>
+          <li>Direct, fair comparison to TLM at the same 440M scale under a controlled pipeline; cosine treated as in-protocol baseline, not strawman.</li>
+          <li>Unusually transparent reporting: appendix documents every figure panel, axis by axis.</li>
+        </ul>
+      </div>
+      <div class="pc-col cons">
+        <h3>Limitations</h3>
+        <ul>
+          <li><strong>No direct calibration</strong> of geometric work to per-layer error–width curves — Assumption 3 is only indirectly tested.</li>
+          <li>Headline 440M result <strong>lacks paired-difference SDs / CIs</strong>; statistical separation from cosine is unestablished.</li>
+          <li>Small-seed screens (n=3 at 128M/256M) have wide, overlapping intervals.</li>
+          <li>Anti-topological/raw control <strong>conflates profile reversal with a geometry switch</strong> — cannot cleanly isolate alignment.</li>
+          <li>"Hyperbolic" geometry is a fixed monotone reparametrization of angular distance, not a genuine hierarchical embedding.</li>
+          <li>Single corpus, single GPU, max 440M; no downstream-task or scaling-law evaluation, no non-decoder / non-FFN test.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============== QUESTIONS ============== -->
+  <section class="body-section" id="questions">
+    <div class="sec-head">
+      <span class="sec-num">04 / OPEN</span>
+      <h2 class="sec-title">Questions worth asking next</h2>
+    </div>
+    <ol class="q-list">
+      <li>Does Ŵ_ℓ actually predict the fitted coefficient C_ℓ of an empirically estimated per-layer error–width curve ϵ_ℓ(w)? How tight is that relationship across models?</li>
+      <li>What are the <strong>paired-difference confidence intervals</strong> for the 440M runs — do topological/hyperbolic and Gromov/spherical remain separated from cosine once paired uncertainty is reported?</li>
+      <li>Does the front-loaded normalized-work profile persist at <strong>1B+ scale</strong>, across modalities (vision, audio), and for non-FFN pointwise computations such as MoE experts?</li>
+      <li>How do geometry-derived schedules interact with downstream-task fine-tuning, instruction tuning, or quantization-aware training — beyond validation perplexity?</li>
+      <li>Can a matched reversed/permuted normalized profile (holding estimator and width histogram fixed) cleanly isolate the value of <em>alignment</em> from the choice of <em>geometry</em>?</li>
+      <li>Is the fixed expansion order <code>s=3</code> justified, or does fitting <code>s</code> per stack materially change the allocator?</li>
+    </ol>
+  </section>
+
+  <!-- ============== FOOTER ============== -->
+  <footer class="foot">
+    <span>arXiv:2608.02064 · Mudarisov, Burtsev, State · 03 Aug 2026</span>
+    <a href="./2608.02064.md">↗ Markdown source</a>
+  </footer>
+
+</div>
+
+<script>
+  /* Highlight the current section in the right rail. */
+  (function(){
+    var links = Array.prototype.slice.call(document.querySelectorAll('.rail a'));
+    var sections = links.map(function(a){
+      var id = a.getAttribute('href').slice(1);
+      var el = document.getElementById(id);
+      return el ? {id:id, el:el, link:a} : null;
+    }).filter(Boolean);
+
+    function onScroll(){
+      var pos = window.scrollY + window.innerHeight * 0.32;
+      var current = sections[0] && sections[0].id;
+      for (var i=0; i<sections.length; i++){
+        if (sections[i].el.offsetTop <= pos) current = sections[i].id;
+      }
+      sections.forEach(function(s){
+        s.link.classList.toggle('active', s.id === current);
+      });
+    }
+    window.addEventListener('scroll', onScroll, {passive:true});
+    window.addEventListener('resize', onScroll);
+    onScroll();
+  })();
+</script>
+
+</body>
+</html>

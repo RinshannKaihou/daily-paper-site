@@ -1,0 +1,734 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Recovering Wasted Compute in Autoresearch Agents — 2608.10424</title>
+<style>
+  /* ---------- Design tokens ---------- */
+  :root{
+    --paper:    #f5f1e6;   /* warm newsprint */
+    --paper-2:  #ece6d4;   /* panel tint */
+    --ink:      #16120a;   /* near-black, warm */
+    --ink-2:    #4a4334;   /* muted body */
+    --ink-3:    #837a66;   /* faint */
+    --rule:     #ddd3bb;   /* hairline */
+    --accent:   #b23a12;   /* the ONE semantic color: burnt sienna */
+    --accent-2: #e88a5e;   /* tint for use on dark ground */
+    --accent-soft: rgba(178,58,18,.10);
+    --font-serif: ui-serif, Georgia, "Iowan Old Style", "Palatino Linotype", "Times New Roman", serif;
+    --font-sans:  system-ui, -apple-system, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+    --font-mono:  ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+    --lh: 1.65;
+    --maxw: min(95vw, 1100px);
+  }
+
+  *{ box-sizing: border-box; }
+
+  html{ scroll-behavior:smooth; }
+
+  body{
+    margin:0;
+    background:var(--paper);
+    color:var(--ink);
+    font-family:var(--font-sans);
+    line-height:var(--lh);
+    -webkit-font-smoothing:antialiased;
+    text-rendering:optimizeLegibility;
+  }
+
+  /* faint paper grain via repeating gradient — not a decorative blob */
+  body::before{
+    content:"";
+    position:fixed; inset:0;
+    background-image:
+      repeating-linear-gradient(0deg, rgba(22,18,10,.012) 0 1px, transparent 1px 3px);
+    pointer-events:none;
+    z-index:0;
+  }
+
+  a{ color:var(--accent); text-decoration:none; }
+  a:hover{ text-decoration:underline; text-underline-offset:3px; }
+
+  /* ---------- Top-left fixed nav ---------- */
+  .topnav{
+    position:fixed; top:.85rem; left:.85rem;
+    z-index:50;
+    background:var(--ink);
+    color:var(--paper);
+    font-family:var(--font-mono);
+    font-size:.72rem;
+    letter-spacing:.02em;
+    padding:.5rem .8rem;
+    border-radius:2px;
+    box-shadow:0 1px 0 rgba(0,0,0,.15);
+  }
+  .topnav a{ color:var(--paper); }
+  .topnav a:hover{ color:var(--accent-2); text-decoration:none; }
+
+  /* ---------- Layout shell ---------- */
+  .wrap{
+    position:relative; z-index:1;
+    width:var(--maxw);
+    margin:0 auto;
+    padding: clamp(3.5rem, 5vw, 5rem) clamp(1rem, 4vw, 2.5rem) 2rem;
+  }
+
+  /* ---------- HERO ---------- */
+  .hero{
+    border-top:3px solid var(--ink);
+    padding-top:1.4rem;
+    margin-bottom:2rem;
+  }
+  .kicker{
+    font-family:var(--font-mono);
+    font-size:.72rem;
+    letter-spacing:.16em;
+    text-transform:uppercase;
+    color:var(--accent);
+    margin:0 0 .9rem;
+    display:flex; align-items:center; gap:.6rem; flex-wrap:wrap;
+  }
+  .kicker .dot{ color:var(--ink-3); }
+  .kicker .zh{
+    color:var(--ink-2);
+    font-family:var(--font-serif);
+    font-style:italic;
+    text-transform:none;
+    letter-spacing:0;
+    font-size:.85rem;
+  }
+
+  /* KEY FINDING — page's largest type */
+  .finding{
+    font-family:var(--font-serif);
+    font-weight:700;
+    font-size:clamp(2.1rem, 5.4vw, 3.75rem);
+    line-height:1.08;
+    letter-spacing:-.015em;
+    margin:0 0 1.5rem;
+    color:var(--ink);
+    max-width:22ch;
+  }
+  .finding em{
+    font-style:normal;
+    color:var(--accent);
+    font-family:var(--font-mono);
+    font-weight:700;
+    letter-spacing:-.02em;
+    white-space:nowrap;
+  }
+
+  .hero-meta{
+    display:flex; flex-direction:column; gap:.55rem;
+    border-top:1px solid var(--rule);
+    padding-top:1.1rem;
+  }
+  .title-link{
+    font-family:var(--font-serif);
+    font-size:clamp(1.05rem, 1.6vw, 1.3rem);
+    font-weight:600;
+    color:var(--ink);
+    width:max-content; max-width:100%;
+  }
+  .byline{
+    margin:0;
+    font-size:.9rem;
+    color:var(--ink-2);
+  }
+  .byline em{ font-style:italic; color:var(--ink-3); }
+  .chips{
+    list-style:none; margin:.35rem 0 0; padding:0;
+    display:flex; flex-wrap:wrap; gap:.4rem;
+  }
+  .chips li{
+    font-family:var(--font-mono);
+    font-size:.68rem;
+    letter-spacing:.03em;
+    color:var(--ink-2);
+    border:1px solid var(--rule);
+    border-radius:999px;
+    padding:.2rem .6rem;
+    background:var(--paper);
+  }
+
+  /* ---------- Asset row ---------- */
+  .assets{
+    display:grid;
+    grid-template-columns: 1.05fr 1.1fr 1.1fr;
+    gap:1px;
+    background:var(--rule);
+    border:1px solid var(--rule);
+    margin-bottom:2.5rem;
+  }
+  .card{
+    background:var(--paper);
+    padding:1.4rem 1.3rem;
+    display:flex; flex-direction:column;
+    min-height:200px;
+  }
+  .card .label{
+    font-family:var(--font-mono);
+    font-size:.66rem;
+    letter-spacing:.16em;
+    text-transform:uppercase;
+    color:var(--ink-3);
+    margin-bottom:.9rem;
+  }
+
+  /* KEY METRIC */
+  .card.metric .num{
+    font-family:var(--font-mono);
+    font-weight:700;
+    font-size:clamp(2.2rem, 5vw, 3.1rem);
+    line-height:1;
+    color:var(--accent);
+    letter-spacing:-.03em;
+    margin:.2rem 0 .7rem;
+  }
+  .card.metric .num .from{
+    color:var(--ink-3);
+    font-weight:600;
+    font-size:.62em;
+  }
+  .card.metric .num .arrow{ color:var(--ink-2); font-weight:500; padding:0 .08em; }
+  .card.metric .cap{
+    font-size:.9rem; color:var(--ink); font-weight:600; margin:0;
+  }
+  .card.metric .sub{
+    font-size:.78rem; color:var(--ink-2); margin:.35rem 0 0;
+  }
+
+  /* WHY THIS MATTERS */
+  .card.why p{
+    margin:0;
+    font-family:var(--font-serif);
+    font-size:1.12rem;
+    line-height:1.45;
+    color:var(--ink);
+  }
+
+  /* CRITICAL EDGE — inverted, contrasting */
+  .card.edge{
+    background:var(--ink);
+    border-left:3px solid var(--accent);
+  }
+  .card.edge .label{ color:var(--accent-2); }
+  .card.edge p{
+    margin:0;
+    font-family:var(--font-serif);
+    font-size:1.05rem;
+    line-height:1.45;
+    color:var(--paper);
+  }
+  .card.edge p strong{ color:var(--accent-2); font-weight:600; }
+
+  /* ---------- Body grid ---------- */
+  .grid{
+    display:grid;
+    grid-template-columns: 1fr 1fr;
+    gap:1.6rem 2rem;
+  }
+  .span-2{ grid-column:1 / -1; }
+
+  .panel h2{
+    font-family:var(--font-mono);
+    font-size:.72rem;
+    letter-spacing:.16em;
+    text-transform:uppercase;
+    color:var(--accent);
+    margin:0 0 .8rem;
+    padding-bottom:.4rem;
+    border-bottom:1px solid var(--rule);
+    display:flex; align-items:baseline; gap:.5rem;
+  }
+  .panel h2 .n{ color:var(--ink-3); }
+
+  .panel p{ margin:0 0 .7rem; font-size:.95rem; color:var(--ink); }
+  .panel p:last-child{ margin-bottom:0; }
+
+  /* Methodology prose */
+  .method p{ line-height:1.7; }
+  .method .lede{ font-family:var(--font-serif); font-size:1.05rem; color:var(--ink); }
+
+  /* Four failure modes strip */
+  .modes{
+    display:grid;
+    grid-template-columns:repeat(2, 1fr);
+    gap:.1rem;
+    background:var(--rule);
+    border:1px solid var(--rule);
+    margin-top:.4rem;
+  }
+  .mode{
+    background:var(--paper);
+    padding:.85rem .9rem;
+  }
+  .mode .idx{
+    font-family:var(--font-mono);
+    font-size:.7rem;
+    color:var(--accent);
+    font-weight:700;
+  }
+  .mode .t{
+    font-weight:700; font-size:.88rem; color:var(--ink);
+    margin:.15rem 0 .25rem;
+  }
+  .mode .d{ font-size:.78rem; color:var(--ink-2); line-height:1.45; margin:0; }
+
+  /* Tables */
+  .tbl-wrap{ overflow-x:auto; }
+  table{
+    width:100%; border-collapse:collapse;
+    font-size:.86rem;
+    margin:.3rem 0 .5rem;
+  }
+  caption{
+    caption-side:top;
+    text-align:left;
+    font-size:.78rem;
+    color:var(--ink-2);
+    padding:.2rem 0 .55rem;
+    font-style:italic;
+  }
+  thead th{
+    background:var(--ink);
+    color:var(--paper);
+    font-family:var(--font-mono);
+    font-size:.68rem;
+    letter-spacing:.05em;
+    text-transform:uppercase;
+    font-weight:600;
+    text-align:left;
+    padding:.55rem .7rem;
+  }
+  thead th.num, td.num{ text-align:right; }
+  tbody td{
+    padding:.55rem .7rem;
+    border-bottom:1px solid var(--rule);
+    color:var(--ink);
+    vertical-align:top;
+  }
+  tbody tr:nth-child(even){ background:var(--paper-2); }
+  td.mono, .mono{ font-family:var(--font-mono); font-variant-numeric:tabular-nums; }
+  .after{ color:var(--accent); font-weight:700; font-family:var(--font-mono); }
+  .delta{ color:var(--accent); font-weight:600; font-family:var(--font-mono); font-size:.8rem; }
+  .neg{ color:var(--ink-2); }
+  .tag{
+    display:inline-block;
+    font-family:var(--font-mono);
+    font-size:.62rem;
+    padding:.05rem .4rem;
+    border:1px solid var(--rule);
+    border-radius:2px;
+    color:var(--ink-2);
+    margin-left:.3rem;
+  }
+
+  .results-note{
+    font-size:.78rem; color:var(--ink-2); margin:.4rem 0 0; font-style:italic;
+  }
+
+  /* Strengths / Limitations */
+  .twocol-list{ list-style:none; margin:0; padding:0; }
+  .twocol-list li{
+    position:relative;
+    padding:.4rem 0 .4rem 1.4rem;
+    font-size:.88rem;
+    line-height:1.5;
+    color:var(--ink);
+    border-bottom:1px dashed var(--rule);
+  }
+  .twocol-list li:last-child{ border-bottom:none; }
+  .twocol-list li::before{
+    position:absolute; left:0; top:.45rem;
+    font-family:var(--font-mono);
+    font-weight:700;
+    font-size:.8rem;
+  }
+  .strengths .twocol-list li::before{ content:"+"; color:var(--accent); }
+  .limits .twocol-list li::before{ content:"–"; color:var(--ink-2); }
+
+  /* Questions */
+  .questions ol{
+    margin:0; padding-left:1.2rem;
+    columns:2;
+    column-gap:2.2rem;
+  }
+  .questions li{
+    break-inside:avoid;
+    padding:.35rem 0;
+    font-size:.88rem;
+    line-height:1.5;
+    color:var(--ink);
+  }
+  .questions li::marker{
+    font-family:var(--font-mono);
+    color:var(--accent);
+    font-weight:700;
+  }
+
+  /* ---------- Footer ---------- */
+  footer{
+    margin-top:2.8rem;
+    padding-top:1.2rem;
+    border-top:1px solid var(--rule);
+    display:flex; justify-content:space-between; align-items:center;
+    flex-wrap:wrap; gap:.6rem;
+    font-family:var(--font-mono);
+    font-size:.72rem;
+    color:var(--ink-3);
+  }
+  footer a{ color:var(--ink-2); }
+  footer a:hover{ color:var(--accent); }
+
+  /* ---------- Entrance animation (CSS-only, staggered) ---------- */
+  @keyframes rise{
+    from{ opacity:0; transform:translateY(10px); }
+    to{ opacity:1; transform:translateY(0); }
+  }
+  .rise{ animation:rise .55s cubic-bezier(.2,.7,.2,1) both; }
+  .d1{ animation-delay:.05s; }
+  .d2{ animation-delay:.16s; }
+  .d3{ animation-delay:.27s; }
+  .d4{ animation-delay:.38s; }
+  .d5{ animation-delay:.49s; }
+
+  @media (prefers-reduced-motion: reduce){
+    .rise{ animation:none; }
+    html{ scroll-behavior:auto; }
+  }
+
+  /* ---------- Responsive ---------- */
+  @media (max-width: 880px){
+    .assets{ grid-template-columns:1fr; }
+    .card{ min-height:auto; }
+    .grid{ grid-template-columns:1fr; }
+    .span-2{ grid-column:auto; }
+    .questions ol{ columns:1; }
+  }
+  @media (max-width: 520px){
+    .modes{ grid-template-columns:1fr; }
+    .finding{ font-size:clamp(1.85rem, 8vw, 2.4rem); }
+  }
+</style>
+</head>
+<body>
+
+<nav class="topnav" aria-label="Back to digest">
+  <a href="./index.html">↩ Today's digest</a>
+</nav>
+
+<main class="wrap">
+
+  <!-- ===================== HERO ===================== -->
+  <header class="hero">
+    <p class="kicker rise d1">
+      <span>COLM 2026</span>
+      <span class="dot">/</span>
+      <span>LLM Agents · AutoML</span>
+      <span class="dot">·</span>
+      <span class="zh">冻结底座模型，只改 scaffold —— 把被浪费的算力找回来。</span>
+    </p>
+
+    <h1 class="finding rise d2">
+      Three scaffold-only edits recover wasted compute, lifting AIDE's gold medals
+      from <em>22 → 38</em> — with the LLM frozen.
+    </h1>
+
+    <div class="hero-meta rise d3">
+      <a class="title-link" href="https://arxiv.org/abs/2608.10424" target="_blank" rel="noopener">
+        Recovering Wasted Compute in Autoresearch Agents →
+      </a>
+      <p class="byline">
+        Au Kwok Chun, Abhigyan Acherjee, Amrutha Rao <em>et al.</em>
+        (Columbia · Georgetown · Capital One) · 2026-08-11
+      </p>
+      <ul class="chips">
+        <li>llm-agents</li>
+        <li>automl</li>
+        <li>agent-scaffold</li>
+        <li>tree-search</li>
+        <li>mle-bench</li>
+      </ul>
+    </div>
+  </header>
+
+  <!-- ===================== ASSET ROW ===================== -->
+  <section class="assets rise d3" aria-label="Key assets">
+
+    <!-- KEY METRIC -->
+    <div class="card metric">
+      <span class="label">Key metric</span>
+      <div class="num">
+        <span class="from">81%</span><span class="arrow">→</span>100%
+      </div>
+      <p class="cap">Valid MLE-bench submissions, AIDE</p>
+      <p class="sub">73/90 → 90/90 — every silent null run eliminated.</p>
+    </div>
+
+    <!-- WHY THIS MATTERS -->
+    <div class="card why">
+      <span class="label">Why this matters</span>
+      <p>
+        Cleanest evidence yet that scaffold edits — not bigger models —
+        recover wasted LLM-agent compute, with the stark caveat that
+        gains <strong style="color:var(--accent)">don't transfer</strong>
+        between frameworks.
+      </p>
+    </div>
+
+    <!-- CRITICAL EDGE -->
+    <div class="card edge">
+      <span class="label">Critical edge</span>
+      <p>
+        Every result rests on <strong>one backbone</strong> — GPT-5-mini;
+        a stronger coder might never hit those deprecated LightGBM loops,
+        collapsing the consultant's headroom entirely.
+      </p>
+    </div>
+
+  </section>
+
+  <!-- ===================== BODY GRID ===================== -->
+  <div class="grid">
+
+    <!-- Methodology -->
+    <section class="panel method rise d4">
+      <h2><span class="n">01</span> Methodology</h2>
+      <p class="lede">
+        The backbone LLM is fixed at GPT-5-mini; only the agentic scaffold varies.
+      </p>
+      <p>
+        Evaluated on two open MLE-agent frameworks — <strong>AIDE</strong>
+        (greedy draft / debug / improve policy) and <strong>ML-Master</strong>
+        (UCT-based MCTS with a reasoning-memory module) — plus a third,
+        <strong>MLEvolve</strong>, used only as an independent control for
+        Thompson Sampling. Nine tabular Kaggle / MLE-bench tasks were chosen to
+        postdate the LLM's knowledge cutoff (leakage control); scoring uses the
+        official MLE-bench graders, and a run medals if it reaches the top 10%
+        of the human leaderboard. Every configuration runs 10 seeds under a
+        fixed 2-hour, 22-CPU-core budget.
+      </p>
+      <p>
+        Three interventions, all scaffold-level: (1) a context-aware
+        <strong>debug consultant</strong> sharing a compressed bug registry
+        across the whole search tree; (2) budget-aware
+        <strong>hyperparameter-tuning</strong> enforcement via prompt directive
+        plus a reward-shaped control loop; (3) <strong>Thompson-Sampling</strong>
+        node selection with similar-error backtracking.
+      </p>
+    </section>
+
+    <!-- Four failure modes -->
+    <section class="panel rise d4">
+      <h2><span class="n">02</span> Four modes of wasted compute</h2>
+      <p style="font-size:.85rem;color:var(--ink-2);margin:0 0 .6rem;">
+        The paper's diagnosis — where tree-search MLE agents burn budget for nothing.
+      </p>
+      <div class="modes">
+        <div class="mode">
+          <div class="idx">01</div>
+          <div class="t">Context isolation</div>
+          <p class="d">Each branch independently re-solves the same bug; failures don't propagate.</p>
+        </div>
+        <div class="mode">
+          <div class="idx">02</div>
+          <div class="t">Premature convergence</div>
+          <p class="d">Shallow criteria quit early, abandoning unused budget and skipping HPO.</p>
+        </div>
+        <div class="mode">
+          <div class="idx">03</div>
+          <div class="t">Non-exploratory search</div>
+          <p class="d">Random backtracking gets stuck in dead ends; the "tree" doesn't explore.</p>
+        </div>
+        <div class="mode">
+          <div class="idx">04</div>
+          <div class="t">Performative EDA</div>
+          <p class="d">Exploratory analysis is staged but never informs downstream modeling decisions.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Results (full width) -->
+    <section class="panel span-2 rise d5">
+      <h2><span class="n">03</span> Results</h2>
+
+      <div class="tbl-wrap">
+        <table>
+          <caption>Debug consultant — gold medals &amp; valid runs (Table 1).</caption>
+          <thead>
+            <tr>
+              <th>Scaffold</th>
+              <th class="num">Golds / 90</th>
+              <th class="num">Valid submissions</th>
+              <th>Note</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>AIDE</strong></td>
+              <td class="num mono">22 <span class="arrow" style="color:var(--ink-3)">→</span> <span class="after">38</span> <span class="delta">(+16)</span></td>
+              <td class="num mono">73/90 <span class="arrow" style="color:var(--ink-3)">→</span> <span class="after">90/90</span></td>
+              <td>win/loss 6 : 3 across competitions</td>
+            </tr>
+            <tr>
+              <td><strong>ML-Master</strong></td>
+              <td class="num mono">18 <span class="arrow" style="color:var(--ink-3)">→</span> <span class="after">29</span> <span class="delta">(+11)</span></td>
+              <td class="num mono">90/90 <span class="arrow" style="color:var(--ink-3)">→</span> <span class="after">90/90</span></td>
+              <td>GNSS <span class="mono">0.813 → 0.953</span> — the clean comparison</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="tbl-wrap">
+        <table>
+          <caption>Mechanism metrics — direct evidence of recovered compute (AIDE, Appendix A).</caption>
+          <thead>
+            <tr>
+              <th>Metric</th>
+              <th class="num">Baseline</th>
+              <th class="num">+ Consultant</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Redundant bug re-encounters</td>
+              <td class="num mono">46.0%</td>
+              <td class="num after">7.8%</td>
+            </tr>
+            <tr>
+              <td>Nodes executed without error</td>
+              <td class="num mono">54.7%</td>
+              <td class="num after">79.0%</td>
+            </tr>
+            <tr>
+              <td>First-attempt fix rate (after a bug streak)</td>
+              <td class="num mono">41.4%</td>
+              <td class="num after">72.4%</td>
+            </tr>
+            <tr>
+              <td>Mean fix attempts</td>
+              <td class="num mono">6.43</td>
+              <td class="num after">1.40</td>
+            </tr>
+            <tr>
+              <td>Median steps to first valid submission</td>
+              <td class="num mono">6</td>
+              <td class="num after">0</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="tbl-wrap">
+        <table>
+          <caption>Thompson Sampling, controlled — drafts held at 20 in both arms (Tables 3 &amp; 16).</caption>
+          <thead>
+            <tr>
+              <th>Setting</th>
+              <th class="num">Metric</th>
+              <th class="num">Baseline</th>
+              <th class="num">+ Thompson Sampling</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>AIDE</td>
+              <td class="num">null runs / 90</td>
+              <td class="num mono">33</td>
+              <td class="num after">15 <span class="delta">(−54.5%)</span></td>
+            </tr>
+            <tr>
+              <td>MLEvolve <span class="tag">independent control</span></td>
+              <td class="num">GNSS score</td>
+              <td class="num mono">0.928 ± .011</td>
+              <td class="num after">0.953 ± .005</td>
+            </tr>
+            <tr>
+              <td>MLEvolve</td>
+              <td class="num">competitions won</td>
+              <td class="num mono">—</td>
+              <td class="num after">5 of 9 <span class="delta">(ties a 6th)</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="tbl-wrap">
+        <table>
+          <caption>HPO guidance deltas on AIDE — graded score change (Table 2).</caption>
+          <thead>
+            <tr>
+              <th>Competition</th>
+              <th class="num">Δ graded score</th>
+              <th>Verdict</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td>Playground S5E8</td><td class="num after">+0.388</td><td>largest gain</td></tr>
+            <tr><td>Playground S5E12</td><td class="num after">+0.218</td><td>—</td></tr>
+            <tr><td>Spaceship Titanic</td><td class="num after">+0.098</td><td>—</td></tr>
+            <tr><td>Wine Quality</td><td class="num after">+0.081</td><td>—</td></tr>
+            <tr><td>GNSS</td><td class="num mono neg">−0.030</td><td>regression</td></tr>
+            <tr><td><strong>Net</strong></td><td class="num">—</td><td><strong>improves on 7 of 9</strong> <span class="tag">same intervention degrades ML-Master</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p class="results-note">
+        Survivorship caveat: AIDE baseline means are computed over non-null seeds
+        only (n &lt; 10 in several columns), so the medal count mixes score
+        improvement with null-run elimination. The ML-Master arm (90/90 valid in
+        both conditions) is the cleaner read.
+      </p>
+    </section>
+
+    <!-- Strengths -->
+    <section class="panel strengths rise d5">
+      <h2><span class="n">04</span> Strengths</h2>
+      <ul class="twocol-list">
+        <li>Quantifies an under-measured axis — reliability &amp; wasted budget — not just mean leaderboard score.</li>
+        <li>Interventions are cheap, model-agnostic, and need no fine-tuning: immediately actionable.</li>
+        <li>Validates Thompson Sampling on a third, independent agent (MLEvolve) with settings held fixed.</li>
+        <li>Reports negative &amp; asymmetric results (ML-Master HPO degrades) and diagnoses the mechanism with real log excerpts.</li>
+      </ul>
+    </section>
+
+    <!-- Limitations -->
+    <section class="panel limits rise d5">
+      <h2><span class="n">05</span> Limitations</h2>
+      <ul class="twocol-list">
+        <li>Single backbone (GPT-5-mini); no frontier-model replication — every gain may shrink with a stronger coder.</li>
+        <li>Only 9 tabular tasks (5 synthetic); no vision / NLP despite the "autoresearch" framing.</li>
+        <li>AIDE baseline means condition on non-null seeds → survivorship bias in headline comparisons.</li>
+        <li>No component ablation of the debug consultant; the deterministic timeout / empty-log rule is unisolated.</li>
+        <li>Bug registry encodes environment-specific library versions; cross-runtime generalization untested.</li>
+      </ul>
+    </section>
+
+    <!-- Questions -->
+    <section class="panel questions span-2 rise d5">
+      <h2><span class="n">06</span> Open questions</h2>
+      <ol>
+        <li>Does the consultant's edge survive a frontier backbone (GPT-5.5, Claude Opus 4.8), or does the registry collapse to a no-op?</li>
+        <li>How much of the 81%→100% valid rate is the deterministic timeout / empty-log rule alone — with no LLM-facing registry?</li>
+        <li>Can the registry persist <em>across</em> tasks as an environment prior, or does it go stale when the container changes?</li>
+        <li>Given valid-node count correlates weakly with score (pooled r = +0.22), where does the iteration-to-quality curve saturate?</li>
+        <li>How do these scaffolded agents compare to AutoGluon / Auto-sklearn under the same 2h, 22-core budget?</li>
+        <li>Would a proposal-diversity intervention compound with TS, given that LLMs emit near-identical programs?</li>
+      </ol>
+    </section>
+
+  </div>
+
+  <footer>
+    <span>arxiv · 2608.10424 · COLM 2026</span>
+    <a href="./2608.10424.md">↗ Markdown source</a>
+  </footer>
+
+</main>
+
+</body>
+</html>

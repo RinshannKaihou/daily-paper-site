@@ -1,0 +1,635 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Audit Dossier — Relayed KV Caches in Multi-Agent LLMs (2608.04893)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=IBM+Plex+Sans:wght@300;400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --paper:#F2EDE2;
+    --paper-2:#ECE5D6;
+    --rule:#1b1a17;
+    --ink:#161513;
+    --ink-soft:#3a382f;
+    --ink-faint:#6b6657;
+    --signal:#B23A2C;        /* forensic red — mismatched / critical edge */
+    --signal-deep:#7d1f14;
+    --slate:#274055;          /* aligned / ceiling */
+    --slate-soft:#3e5b70;
+    --amber:#9a6a1a;
+    --hi:#efe7d2;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:var(--paper);
+    color:var(--ink);
+    font-family:"IBM Plex Sans",-apple-system,sans-serif;
+    font-weight:400;
+    line-height:1.5;
+    -webkit-font-smoothing:antialiased;
+    background-image:
+      radial-gradient(circle at 12% -5%, rgba(178,58,44,0.05), transparent 40%),
+      radial-gradient(circle at 95% 8%, rgba(39,64,85,0.06), transparent 38%);
+    background-attachment:fixed;
+  }
+  /* paper grain */
+  body::before{
+    content:"";position:fixed;inset:0;pointer-events:none;z-index:0;opacity:.35;
+    background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.1  0 0 0 0 0.09  0 0 0 0 0.07  0 0 0 0.06 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+    mix-blend-mode:multiply;
+  }
+  .wrap{position:relative;z-index:1;max-width:1240px;margin:0 auto;padding:0 32px;}
+
+  /* ---------- top-left fixed nav ---------- */
+  .digest-nav{
+    position:fixed;top:18px;left:18px;z-index:50;
+    font-family:"IBM Plex Mono",monospace;font-size:12px;letter-spacing:.02em;
+    background:var(--ink);color:var(--paper);
+    padding:9px 14px;border-radius:2px;
+    box-shadow:0 6px 18px rgba(20,18,12,.22);
+    transition:transform .15s ease, background .15s ease;
+  }
+  .digest-nav:hover{background:var(--signal-deep);transform:translateY(-1px);}
+  .digest-nav a{color:inherit;text-decoration:none;}
+
+  /* dossier header bar */
+  .dossier-bar{
+    display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;
+    font-family:"IBM Plex Mono",monospace;font-size:11px;letter-spacing:.14em;
+    text-transform:uppercase;color:var(--ink-faint);
+    padding:28px 0 10px;border-bottom:1px solid var(--rule);
+  }
+  .dossier-bar .stamp{color:var(--signal);font-weight:600;}
+  .dossier-bar .id{color:var(--ink);}
+
+  /* ---------- HERO BAND ---------- */
+  .hero{padding:46px 0 30px;border-bottom:1px solid var(--rule);}
+  .hero .eyebrow{
+    font-family:"IBM Plex Mono",monospace;font-size:12px;letter-spacing:.18em;
+    text-transform:uppercase;color:var(--signal);margin:0 0 14px;font-weight:500;
+    display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+  }
+  .eyebrow .dot{width:7px;height:7px;background:var(--signal);border-radius:50%;display:inline-block;}
+  .hero h1{
+    font-family:"Fraunces",Georgia,serif;
+    font-weight:500;
+    font-size:clamp(34px,5.4vw,68px);
+    line-height:1.04;
+    letter-spacing:-0.02em;
+    margin:0 0 22px;
+    max-width:18ch;
+  }
+  .hero h1 em{
+    font-style:italic;font-weight:400;color:var(--slate);
+  }
+  .hero h1 .red{color:var(--signal);font-style:italic;font-weight:500;}
+  .paper-title{
+    font-family:"Fraunces",Georgia,serif;font-weight:500;
+    font-size:17px;line-height:1.45;color:var(--ink-soft);
+    max-width:60ch;margin:0 0 14px;
+  }
+  .paper-title a{color:var(--slate);text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:3px;}
+  .paper-title a:hover{color:var(--signal);}
+  .meta{
+    font-family:"IBM Plex Mono",monospace;font-size:12.5px;color:var(--ink-faint);
+    display:flex;flex-wrap:wrap;gap:6px 22px;align-items:center;
+  }
+  .meta .by{color:var(--ink-soft);}
+  .meta b{font-weight:500;color:var(--ink);}
+  .chips{display:flex;flex-wrap:wrap;gap:7px;margin-top:18px;}
+  .chip{
+    font-family:"IBM Plex Mono",monospace;font-size:11px;letter-spacing:.04em;
+    padding:4px 9px;border:1px solid var(--ink-faint);color:var(--ink-soft);
+    border-radius:2px;background:rgba(255,255,255,.18);
+  }
+  .chip.alt{border-color:var(--signal);color:var(--signal);}
+
+  /* ---------- ASSET ROW ---------- */
+  .assets{
+    display:grid;grid-template-columns:1.15fr 1fr 1fr;gap:18px;
+    padding:30px 0;border-bottom:1px solid var(--rule);
+  }
+  .card{
+    background:var(--paper-2);border:1px solid var(--ink);padding:24px 24px 22px;
+    position:relative;opacity:0;transform:translateY(14px);
+    animation:rise .65s cubic-bezier(.2,.7,.2,1) forwards;
+  }
+  .card .kicker{
+    font-family:"IBM Plex Mono",monospace;font-size:10.5px;letter-spacing:.2em;
+    text-transform:uppercase;color:var(--ink-faint);margin:0 0 14px;
+    display:flex;align-items:center;gap:8px;
+  }
+  .card .kicker .num{
+    display:inline-flex;align-items:center;justify-content:center;
+    width:18px;height:18px;border:1px solid var(--ink-faint);
+    font-size:10px;border-radius:50%;
+  }
+  /* metric */
+  .card.metric{background:var(--ink);color:var(--paper);border-color:var(--ink);}
+  .card.metric .kicker{color:#c9bfa3;}
+  .card.metric .kicker .num{border-color:#c9bfa3;color:#c9bfa3;}
+  .metric .big{
+    font-family:"Fraunces",serif;font-weight:600;font-size:clamp(48px,6vw,76px);
+    line-height:1;letter-spacing:-0.03em;color:var(--paper);margin:2px 0 4px;
+  }
+  .metric .big .unit{font-size:.34em;font-weight:400;color:#c9bfa3;letter-spacing:0;margin-left:4px;vertical-align:super;}
+  .metric .cap{
+    font-size:13.5px;line-height:1.5;color:#d8cfb4;max-width:34ch;
+  }
+  .metric .cap b{color:var(--paper);font-weight:500;}
+  .metric .sub{
+    margin-top:14px;padding-top:12px;border-top:1px solid #4a4636;
+    font-family:"IBM Plex Mono",monospace;font-size:11px;color:#b3a98c;line-height:1.6;
+  }
+  /* why */
+  .card.why .body{
+    font-family:"Fraunces",serif;font-weight:400;font-size:19px;line-height:1.4;color:var(--ink);
+  }
+  .card.why .tag{
+    margin-top:14px;font-family:"IBM Plex Mono",monospace;font-size:11px;color:var(--slate);letter-spacing:.06em;
+  }
+  /* edge */
+  .card.edge{border-color:var(--signal);background:#f6e7e3;}
+  .card.edge .kicker{color:var(--signal-deep);}
+  .card.edge .kicker .num{border-color:var(--signal);color:var(--signal);}
+  .card.edge .body{
+    font-family:"Fraunces",serif;font-size:18px;line-height:1.42;color:var(--signal-deep);font-weight:500;
+  }
+  .card.edge .body .quote{color:var(--signal-deep);}
+  .card.edge .src{margin-top:12px;font-family:"IBM Plex Mono",monospace;font-size:10.5px;color:var(--signal-deep);opacity:.8;letter-spacing:.04em;}
+
+  /* ---------- BODY GRID ---------- */
+  .body{padding:34px 0 0;}
+  .section-head{
+    display:flex;align-items:baseline;gap:14px;margin:0 0 18px;
+    border-bottom:1px solid var(--rule);padding-bottom:10px;
+  }
+  .section-head .ix{
+    font-family:"IBM Plex Mono",monospace;font-size:12px;color:var(--signal);letter-spacing:.1em;
+  }
+  .section-head h2{
+    font-family:"Fraunces",serif;font-weight:500;font-size:28px;margin:0;letter-spacing:-0.01em;
+  }
+  .section-head .lede{
+    margin-left:auto;font-family:"IBM Plex Mono",monospace;font-size:11.5px;color:var(--ink-faint);
+    max-width:34ch;text-align:right;line-height:1.5;
+  }
+
+  /* methodology: two-column with arms list */
+  .meth{
+    display:grid;grid-template-columns:1.1fr 1fr;gap:26px;margin-bottom:42px;
+  }
+  .meth p{margin:0 0 12px;font-size:15px;color:var(--ink-soft);line-height:1.6;}
+  .meth p b{color:var(--ink);font-weight:600;}
+  .estimand{
+    background:var(--ink);color:var(--paper);padding:16px 18px;margin:6px 0 10px;
+    font-family:"IBM Plex Mono",monospace;font-size:13px;line-height:1.6;
+  }
+  .estimand .lab{color:#c9bfa3;font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;display:block;margin-bottom:6px;}
+  .estimand b{color:#ffe9b8;}
+  .arms{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px;}
+  .arm{
+    border:1px solid var(--ink-faint);background:rgba(255,255,255,.18);
+    padding:9px 11px;display:flex;gap:9px;align-items:flex-start;
+  }
+  .arm .tag{
+    font-family:"IBM Plex Mono",monospace;font-size:10px;font-weight:600;letter-spacing:.05em;
+    color:var(--slate);text-transform:uppercase;min-width:54px;padding-top:2px;
+  }
+  .arm.signal .tag{color:var(--signal);}
+  .arm .desc{font-size:12.5px;color:var(--ink-soft);line-height:1.4;}
+  .regimes{margin-top:14px;display:grid;gap:10px;}
+  .regime{
+    border-left:3px solid var(--slate);padding:8px 14px;background:rgba(39,64,85,.05);
+  }
+  .regime.nat{border-color:var(--signal);background:rgba(178,58,44,.05);}
+  .regime .h{font-family:"IBM Plex Mono",monospace;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink);font-weight:600;margin-bottom:3px;}
+  .regime .h .g{color:var(--slate);}
+  .regime.nat .h .g{color:var(--signal);}
+  .regime .t{font-size:13px;color:var(--ink-soft);line-height:1.45;}
+
+  /* ---------- data viz: dissociation ---------- */
+  .dissoc{
+    background:var(--paper-2);border:1px solid var(--ink);padding:24px;margin-bottom:42px;
+  }
+  .dissoc .t{font-family:"Fraunces",serif;font-weight:500;font-size:19px;margin:0 0 2px;}
+  .dissoc .s{font-family:"IBM Plex Mono",monospace;font-size:11.5px;color:var(--ink-faint);margin:0 0 18px;letter-spacing:.04em;}
+  .bars{display:flex;flex-direction:column;gap:14px;}
+  .bar-row{display:grid;grid-template-columns:150px 1fr 70px;align-items:center;gap:14px;}
+  .bar-row .lbl{font-size:13px;color:var(--ink);}
+  .bar-row .lbl small{display:block;color:var(--ink-faint);font-size:11px;font-family:"IBM Plex Mono",monospace;}
+  .bar-track{height:22px;background:rgba(20,18,12,.07);position:relative;}
+  .bar-fill{height:100%;display:flex;align-items:center;padding-left:8px;color:var(--paper);font-family:"IBM Plex Mono",monospace;font-size:11px;font-weight:600;}
+  .bar-fill.cache{background:var(--slate);}
+  .bar-fill.pair{background:var(--signal);}
+  .bar-fill.zero{background:var(--ink-faint);}
+  .bar-val{font-family:"IBM Plex Mono",monospace;font-size:13px;font-weight:600;color:var(--ink);text-align:right;}
+  .bar-val.red{color:var(--signal);}
+  .bar-val.blue{color:var(--slate);}
+  .legend{display:flex;gap:18px;margin-top:18px;padding-top:14px;border-top:1px dashed var(--ink-faint);font-family:"IBM Plex Mono",monospace;font-size:11px;color:var(--ink-soft);flex-wrap:wrap;}
+  .legend span{display:flex;align-items:center;gap:7px;}
+  .legend i{width:12px;height:12px;display:inline-block;}
+  .dissoc .callout{
+    margin-top:16px;font-family:"Fraunces",serif;font-style:italic;font-size:15px;color:var(--ink);
+    border-left:3px solid var(--signal);padding:6px 0 6px 14px;line-height:1.5;
+  }
+
+  /* ---------- three systems taxonomy ---------- */
+  .taxonomy{
+    display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:42px;
+  }
+  .tax{
+    border:1px solid var(--ink);padding:18px;background:var(--paper-2);position:relative;
+  }
+  .tax .sys{font-family:"Fraunces",serif;font-weight:600;font-size:20px;margin:0 0 2px;}
+  .tax .verdict{
+    position:absolute;top:14px;right:14px;font-family:"IBM Plex Mono",monospace;
+    font-size:10px;letter-spacing:.1em;text-transform:uppercase;padding:3px 7px;
+  }
+  .tax.ceil{border-color:var(--slate);}
+  .tax.ceil .verdict{background:var(--slate);color:var(--paper);}
+  .tax.part{border-color:var(--amber);}
+  .tax.part .verdict{background:var(--amber);color:var(--paper);}
+  .tax.none{border-color:var(--signal);}
+  .tax.none .verdict{background:var(--signal);color:var(--paper);}
+  .tax .cfg{font-family:"IBM Plex Mono",monospace;font-size:11px;color:var(--ink-faint);margin:0 0 12px;letter-spacing:.03em;}
+  .tax .delta{
+    font-family:"Fraunces",serif;font-weight:600;font-size:30px;line-height:1;margin:6px 0 4px;letter-spacing:-0.02em;
+  }
+  .tax.ceil .delta{color:var(--slate);}
+  .tax.part .delta{color:var(--amber);}
+  .tax.none .delta{color:var(--signal);}
+  .tax .delta .u{font-size:.4em;font-weight:400;color:var(--ink-faint);}
+  .tax .desc{font-size:13px;color:var(--ink-soft);line-height:1.45;margin:6px 0 0;}
+
+  /* results highlights strip */
+  .results-strip{
+    display:grid;grid-template-columns:repeat(4,1fr);gap:0;border:1px solid var(--ink);margin-bottom:42px;
+  }
+  .rcell{padding:18px 18px;border-right:1px solid var(--ink-faint);}
+  .rcell:last-child{border-right:none;}
+  .rcell .v{font-family:"Fraunces",serif;font-weight:600;font-size:30px;line-height:1;letter-spacing:-0.02em;}
+  .rcell .v.blue{color:var(--slate);} .rcell .v.red{color:var(--signal);}
+  .rcell .l{font-family:"IBM Plex Mono",monospace;font-size:11px;color:var(--ink-faint);margin-top:8px;line-height:1.45;letter-spacing:.03em;}
+
+  /* strengths/limitations split */
+  .split{
+    display:grid;grid-template-columns:1fr 1fr;gap:0;border:1px solid var(--ink);margin-bottom:42px;
+  }
+  .split > div{padding:22px 24px;}
+  .split .str{border-right:1px solid var(--ink-faint);background:rgba(39,64,85,.04);}
+  .split .lim{background:rgba(178,58,44,.04);}
+  .split h3{
+    font-family:"IBM Plex Mono",monospace;font-size:12px;letter-spacing:.18em;text-transform:uppercase;
+    margin:0 0 14px;display:flex;align-items:center;gap:10px;font-weight:600;
+  }
+  .split .str h3{color:var(--slate);}
+  .split .lim h3{color:var(--signal);}
+  .split ul{margin:0;padding-left:0;list-style:none;}
+  .split li{
+    font-size:13.5px;line-height:1.5;color:var(--ink-soft);padding:9px 0 9px 20px;position:relative;border-bottom:1px dashed var(--ink-faint);
+  }
+  .split li:last-child{border-bottom:none;}
+  .split li::before{
+    content:"";position:absolute;left:0;top:15px;width:9px;height:1px;
+  }
+  .split .str li::before{background:var(--slate);}
+  .split .lim li::before{background:var(--signal);}
+  .split li b{color:var(--ink);font-weight:600;}
+
+  /* questions */
+  .questions{margin-bottom:34px;}
+  .qlist{display:grid;gap:10px;}
+  .q{
+    border:1px solid var(--ink-faint);padding:14px 18px;background:rgba(255,255,255,.2);
+    display:grid;grid-template-columns:34px 1fr;gap:12px;align-items:start;
+    transition:border-color .15s, background .15s;
+  }
+  .q:hover{border-color:var(--signal);background:#f6e7e3;}
+  .q .n{font-family:"Fraunces",serif;font-style:italic;font-weight:600;font-size:22px;color:var(--signal);line-height:1;}
+  .q .t{font-size:14px;line-height:1.55;color:var(--ink-soft);}
+  .q .t b{color:var(--ink);font-weight:600;}
+
+  /* footer */
+  .footer{
+    border-top:1px solid var(--rule);margin-top:20px;padding:22px 0 56px;
+    display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:14px;
+    font-family:"IBM Plex Mono",monospace;font-size:11.5px;color:var(--ink-faint);letter-spacing:.04em;
+  }
+  .footer a{color:var(--ink);text-decoration:none;border-bottom:1px solid var(--ink-faint);padding-bottom:1px;}
+  .footer a:hover{color:var(--signal);border-color:var(--signal);}
+  .footer .src-link{font-size:13px;}
+
+  /* animations */
+  @keyframes rise{to{opacity:1;transform:translateY(0);}}
+  .hero .eyebrow{animation:rise .5s ease both;}
+  .hero h1{animation:rise .65s cubic-bezier(.2,.7,.2,1) .05s both;}
+  .paper-title{animation:rise .6s ease .15s both;}
+  .meta{animation:rise .6s ease .22s both;}
+  .chips{animation:rise .6s ease .3s both;}
+  .card.metric{animation-delay:.28s;}
+  .card.why{animation-delay:.38s;}
+  .card.edge{animation-delay:.48s;}
+
+  /* responsive */
+  @media (max-width:920px){
+    .assets{grid-template-columns:1fr;}
+    .meth{grid-template-columns:1fr;}
+    .taxonomy{grid-template-columns:1fr;}
+    .results-strip{grid-template-columns:1fr 1fr;}
+    .rcell:nth-child(2){border-right:none;}
+    .rcell:nth-child(1),.rcell:nth-child(2){border-bottom:1px solid var(--ink-faint);}
+    .split{grid-template-columns:1fr;}
+    .split .str{border-right:none;border-bottom:1px solid var(--ink-faint);}
+    .bar-row{grid-template-columns:110px 1fr 60px;}
+    .section-head{flex-wrap:wrap;}
+    .section-head .lede{margin-left:0;text-align:left;}
+  }
+  @media (max-width:520px){
+    .wrap{padding:0 18px;}
+    .arms{grid-template-columns:1fr;}
+    .results-strip{grid-template-columns:1fr;}
+    .rcell{border-right:none;border-bottom:1px solid var(--ink-faint);}
+    .digest-nav{font-size:11px;padding:7px 11px;}
+    .hero{padding:36px 0 24px;}
+  }
+  @media (prefers-reduced-motion:reduce){
+    *{animation:none !important;transition:none !important;}
+    .card{opacity:1;transform:none;}
+  }
+</style>
+</head>
+<body>
+
+<nav class="digest-nav" aria-label="Back to digest">
+  <a href="./index.html">&#8617;&nbsp; Today's digest</a>
+</nav>
+
+<div class="wrap">
+
+  <div class="dossier-bar">
+    <span><span class="stamp">&#9670;</span>&nbsp; Causal Audit Dossier &nbsp;·&nbsp; File No. <span class="id">2608.04893</span></span>
+    <span>Classification: cs.CR / cs.AI / cs.LG &nbsp;·&nbsp; Date: 2026-08-05</span>
+  </div>
+
+  <!-- ============ HERO ============ -->
+  <header class="hero">
+    <p class="eyebrow"><span class="dot"></span> Key finding &nbsp;·&nbsp; the one-sentence verdict</p>
+    <h1>
+      Relayed KV caches <em>do</em> carry real content &mdash;
+      but benchmark gains alone <span class="red">cannot prove</span>
+      that <em>latent thoughts</em> were ever transmitted.
+    </h1>
+    <p class="paper-title">
+      Source paper: <a href="https://arxiv.org/abs/2608.04893" target="_blank" rel="noopener">"When Does Latent Communication Pay? A Causal Audit of Relayed KV Caches in Multi-Agent LLMs"</a>
+    </p>
+    <div class="meta">
+      <span class="by"><b>Jiaming Cheng</b> · <b>Subhransu Das</b> · <b>Rajiv Ramnath</b></span>
+      <span>Independent &amp; The Ohio State University</span>
+      <span>Compute: Ohio Supercomputer Center (Ascend)</span>
+    </div>
+    <div class="chips">
+      <span class="chip alt">latent-communication</span>
+      <span class="chip">multi-agent-llm</span>
+      <span class="chip">kv-cache</span>
+      <span class="chip">causal-audit</span>
+      <span class="chip">equivalence-testing</span>
+    </div>
+  </header>
+
+  <!-- ============ ASSET ROW ============ -->
+  <section class="assets">
+    <div class="card metric">
+      <p class="kicker"><span class="num">01</span> Key metric &nbsp;·&nbsp; calibrated ceiling</p>
+      <div class="big">+75<span class="unit">pts</span></div>
+      <p class="cap">Aligned relay reaches <b>100%</b> vs <b>23&ndash;25%</b> for answer-irrelays on <b>Qwen3-8B</b>. On standard benchmarks, a pre-registered TOST bounds the pairing term within <b>&plusmn;2.8 pts</b>.</p>
+      <div class="sub">true-minus-intact per seed:<br>+74.8 &nbsp;/&nbsp; +75.6 &nbsp;/&nbsp; +76.6</div>
+    </div>
+
+    <div class="card why">
+      <p class="kicker"><span class="num">02</span> Why this matters</p>
+      <p class="body">It directly audits the causal claim that a relayed KV-cache equals transmitting &ldquo;latent thoughts&rdquo; &mdash; and ships a reusable evaluation protocol for multi-agent LLM communication.</p>
+      <p class="tag">&#8627; methodological contribution, not a new relay</p>
+    </div>
+
+    <div class="card edge">
+      <p class="kicker"><span class="num">03</span> Critical edge</p>
+      <p class="body"><span class="quote">&ldquo;The audit bounds only the example-pairing value of delivered relays in one released configuration each &mdash; and explicitly issues no latent-versus-text verdict.&rdquo;</span></p>
+      <p class="src">from Critical Assessment · Red flags / scope</p>
+    </div>
+  </section>
+
+  <!-- ============ BODY ============ -->
+  <div class="body">
+
+    <!-- METHODOLOGY -->
+    <div class="section-head">
+      <span class="ix">&#167; 01</span>
+      <h2>Methodology &mdash; the mismatched-cache audit</h2>
+      <span class="lede">Intervene exactly at the relay boundary. Six arms, two regimes, one pre-registered estimand.</span>
+    </div>
+
+    <div class="meth">
+      <div>
+        <p>The audit swaps the relayed KV-cache for <b>deranged</b> (mismatched-example), <b>zeroed</b>, and <b>moment-matched random</b> counterparts. Every arm delivers a cache with <b>identical geometry</b> &mdash; same layers, sequence length, dtype &mdash; to the same receiver under the same prompt, so any accuracy gap is attributable to <b>cache content</b>.</p>
+        <p>The deranged arm is a <b>fixed-point-free permutation</b> that preserves the marginal cache distribution exactly. It is the load-bearing design choice &mdash; and genuinely novel as an audit primitive for latent communication.</p>
+        <div class="estimand">
+          <span class="lab">Primary estimand</span>
+          &tau; = E[Y | do(C := C<sub>i</sub>)] &minus; E[Y | do(C := C<sub>&pi;(i)</sub>)]<br>
+          with identity &nbsp;<b>&tau;<sub>TZ</sub> = &tau;<sub>TI</sub> + &tau;<sub>IZ</sub></b>&nbsp; (only the <b>&tau;<sub>TI</sub></b>, <b>&tau;<sub>TD</sub></b> terms are the &ldquo;latent thoughts&rdquo; attribution)
+        </div>
+      </div>
+
+      <div>
+        <p class="kicker" style="font-family:'IBM Plex Mono',monospace;font-size:10.5px;letter-spacing:.2em;text-transform:uppercase;color:var(--ink-faint);margin:0 0 10px;">Six intervention arms</p>
+        <div class="arms">
+          <div class="arm"><span class="tag">True</span><span class="desc">paired-example cache</span></div>
+          <div class="arm signal"><span class="tag">Deranged</span><span class="desc">diff. example, same batch &mdash; canonical content control</span></div>
+          <div class="arm"><span class="tag">Zero</span><span class="desc">all entries zeroed</span></div>
+          <div class="arm"><span class="tag">Random</span><span class="desc">Gaussian rescaled to match true cache moments</span></div>
+          <div class="arm"><span class="tag">Intact-np</span><span class="desc">calibrated only &mdash; answer-irrelevant registry</span></div>
+          <div class="arm"><span class="tag">Direct</span><span class="desc">verbatim text in receiver prompt (validity cal.)</span></div>
+        </div>
+
+        <div class="regimes">
+          <div class="regime">
+            <div class="h"><span class="g">&#9679;</span> Calibrated regime</div>
+            <div class="t">Procedurally generated registry of 4 entity&ndash;attribute bindings, sampled fresh at eval &mdash; absent from any training corpus. Receiver <b>cannot</b> solve without the relay.</div>
+          </div>
+          <div class="regime nat">
+            <div class="h"><span class="g">&#9670;</span> Natural regime</div>
+            <div class="t">GSM8K, ARC-Challenge, MedQA-USMLE. Receiver could solve alone. A frozen <b>TOST</b> rejects both one-sided nulls to bound |&tau;| &lt; &delta;.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- DATA VIZ: dissociation -->
+    <div class="dissoc">
+      <p class="t">The cleanest single result: a large cache effect is not a pairing effect.</p>
+      <p class="s">MedQA · Qwen3-8B · true-minus-control contrasts (points)</p>
+      <div class="bars">
+        <div class="bar-row">
+          <div class="lbl">Cache effect<small>true &minus; zero</small></div>
+          <div class="bar-track"><div class="bar-fill cache" style="width:49%;">+14.7</div></div>
+          <div class="bar-val blue">+14.7</div>
+        </div>
+        <div class="bar-row">
+          <div class="lbl">Pairing effect<small>true &minus; deranged</small></div>
+          <div class="bar-track"><div class="bar-fill pair" style="width:1.3%;">&nbsp;</div></div>
+          <div class="bar-val red">+0.4</div>
+        </div>
+        <div class="bar-row">
+          <div class="lbl">90% CI on pairing<small>[&minus;1.34, +2.14]</small></div>
+          <div class="bar-track"><div class="bar-fill zero" style="width:7%;"></div></div>
+          <div class="bar-val">&plusmn;1.7</div>
+        </div>
+      </div>
+      <div class="legend">
+        <span><i style="background:var(--slate);"></i> generic cache-interface value</span>
+        <span><i style="background:var(--signal);"></i> example-pairing value (&ldquo;latent thoughts&rdquo;)</span>
+        <span><i style="background:var(--ink-faint);"></i> statistical uncertainty</span>
+      </div>
+      <p class="callout">No ablation in the audited systems&rsquo; own papers could have produced this dissociation &mdash; it is the paper&rsquo;s headline methodological gift.</p>
+    </div>
+
+    <!-- RESULTS strip -->
+    <div class="section-head">
+      <span class="ix">&#167; 02</span>
+      <h2>Results &mdash; numbers that matter</h2>
+      <span class="lede">n=500 examples / arm / seed · Holm-corrected · seed is the unit of inference</span>
+    </div>
+
+    <div class="results-strip">
+      <div class="rcell">
+        <div class="v blue">&plusmn;2.8</div>
+        <div class="l">TOST equivalence margin (pts), anchored to LatentMAS&rsquo;s own reported sequential gain. All 7 Qwen3 cells establish equivalence within it.</div>
+      </div>
+      <div class="rcell">
+        <div class="v">0.00</div>
+        <div class="l">Qwen3-8B GSM8K pairing delta (T&minus;D, points). ARC-C: &minus;0.36. Seed signs mixed.</div>
+      </div>
+      <div class="rcell">
+        <div class="v red">&le;2/500</div>
+        <div class="l">Random-cache accuracy per seed (8B, GSM8K &amp; ARC-C) &mdash; confirms the intervention actually reaches the receiver&rsquo;s computation.</div>
+      </div>
+      <div class="rcell">
+        <div class="v">64.2&ndash;64.8%</div>
+        <div class="l">of outputs match the <b>donor</b>&rsquo;s label under deranged relays (vs 20.8&ndash;23.4% under matched control) &mdash; receiver consumes content even when it misleads.</div>
+      </div>
+    </div>
+
+    <!-- THREE SYSTEMS TAXONOMY -->
+    <div class="section-head">
+      <span class="ix">&#167; 03</span>
+      <h2>One test, three systems, three readings</h2>
+      <span class="lede">Same instrument ported across LatentMAS, KVComm, C2C.</span>
+    </div>
+
+    <div class="taxonomy">
+      <div class="tax ceil">
+        <span class="verdict">Ceiling</span>
+        <p class="sys">LatentMAS</p>
+        <p class="cfg">native KV-prepend · Qwen3-8B</p>
+        <div class="delta">+75<span class="u">&nbsp;pts</span></div>
+        <p class="desc">True-minus-intact on the calibrated cell. KV-prepend reads at ceiling &mdash; the channel unambiguously delivers answer-relevant private content.</p>
+      </div>
+      <div class="tax part">
+        <span class="verdict">Partial</span>
+        <p class="sys">KVComm</p>
+        <p class="cfg">11 of 36 layers · Qwen3-8B port</p>
+        <div class="delta">+9<span class="u">&nbsp;pts</span></div>
+        <p class="desc">True-minus-deranged +10.8 / +7.2 / +9.0 &mdash; roughly a <b>tenth</b> of LatentMAS&rsquo;s ceiling effect on the same construction. Detected but partial.</p>
+      </div>
+      <div class="tax none">
+        <span class="verdict">None detected</span>
+        <p class="sys">C2C</p>
+        <p class="cfg">released projector · Qwen2.5-7B &rarr; Qwen3-8B</p>
+        <div class="delta">&plusmn;0<span class="u">&nbsp;pts</span></div>
+        <p class="desc">True-minus-deranged +2.0 / +0.6 / &minus;1.8 &mdash; sign-mixed; all cache arms sit only ~6% above the zero arm. No example-specific transfer detected.</p>
+      </div>
+    </div>
+
+    <!-- STRENGTHS / LIMITATIONS -->
+    <div class="section-head">
+      <span class="ix">&#167; 04</span>
+      <h2>Strengths &amp; limitations</h2>
+      <span class="lede">Side-by-side, not buried.</span>
+    </div>
+
+    <div class="split">
+      <div class="str">
+        <h3><span style="background:var(--slate);width:9px;height:9px;display:inline-block;"></span> Strengths</h3>
+        <ul>
+          <li><b>Clean dissociation</b> between generic cache-interface value and example-pairing value, via an accounting identity over arm contrasts.</li>
+          <li><b>Pre-registered, Holm-corrected TOST</b> with a margin anchored to the audited system&rsquo;s own claim &mdash; turns nulls into quantitative bounds.</li>
+          <li><b>Cross-family replication</b> of the calibrated ceiling: Qwen3-4B/8B/14B, Mistral-Nemo-12B, phi-4; registry lines and prose paragraphs.</li>
+          <li><b>Honest scoring</b> of the Mistral-Nemo-12B cell exactly as pre-registered (equivalence not established) &mdash; not reframed as a near miss.</li>
+          <li><b>Same instrument</b> ported to two further released systems, producing three qualitatively distinct readings under one test.</li>
+          <li><b>Public release</b> of harness, calibration generator, and per-cell raw ledgers.</li>
+        </ul>
+      </div>
+      <div class="lim">
+        <h3><span style="background:var(--signal);width:9px;height:9px;display:inline-block;"></span> Limitations</h3>
+        <ul>
+          <li><b>Training-split items</b> for GSM8K &amp; ARC-Challenge. Memorization would inflate receiver redundancy and push <i>toward</i> the null the bound reports; a test-split replication weakens but doesn&rsquo;t eliminate the concern.</li>
+          <li><b>Interpretability-limited cell:</b> Mistral-Nemo-12B on ARC-C sits at 13.44%, below 4-choice chance (parse failures scored wrong). Within-cell contrasts valid; absolute levels not cross-paper comparable.</li>
+          <li><b>Single registry construction</b> (4 bindings, 7-letter strings). Prose stress test partially addresses surface-form generality; no claim on human-authored documents.</li>
+          <li><b>Porting changes:</b> KVComm port replaces calibration mechanics, not crossed with a receiver-sufficient condition. C2C audited in only its released configuration.</li>
+          <li><b>Margin anchor convenience:</b> the &plusmn;2.8-pt margin uses the system&rsquo;s aggregate gain because per-task figures are negative or variance-free. On 8B GSM8K the CI excludes the tabulated +1.5-pt gain.</li>
+          <li><b>Portability boundary:</b> Llama-3.2-3B could not consume the relay &mdash; a narrower portability claim than it appears.</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- QUESTIONS -->
+    <div class="section-head">
+      <span class="ix">&#167; 05</span>
+      <h2>Open questions</h2>
+      <span class="lede">Where the audit points next.</span>
+    </div>
+
+    <div class="questions">
+      <div class="qlist">
+        <div class="q"><span class="n">i</span><span class="t">Does natural-regime equivalence hold on benchmarks where the receiver <b>genuinely cannot solve alone</b> &mdash; long-context multi-hop reasoning, private tool-use traces &mdash; and where does the ceiling/bounded boundary actually fall?</span></div>
+        <div class="q"><span class="n">ii</span><span class="t">How sensitive is C2C&rsquo;s <b>&ldquo;no detected transfer&rdquo;</b> reading to projector capacity, training-data scale, or a different sender/receiver pair &mdash; and can the audit itself become a training signal for the projector?</span></div>
+        <div class="q"><span class="n">iii</span><span class="t">Can the deranged-arm protocol combine with <b>mechanistic localization</b> (which layers/heads carry the donor label) to explain why KVComm&rsquo;s 30%-layer subset recovers only ~1/10 of the ceiling?</span></div>
+        <div class="q"><span class="n">iv</span><span class="t">Would extending to <b>hybrid latent-text protocols</b> (HyLaT) and compressed relays (QKVShare) reproduce the ceiling / partial / none taxonomy &mdash; or does compression change which term of the accounting identity dominates?</span></div>
+        <div class="q"><span class="n">v</span><span class="t">Is there a principled way to set the equivalence margin when per-task gains are negative or variance-free &mdash; e.g. a ROPE derived from <b>human-judge agreement</b> rather than the system&rsquo;s own claim?</span></div>
+      </div>
+    </div>
+
+  </div><!-- /body -->
+
+  <footer class="footer">
+    <span>Dossier compiled from source markdown &mdash; bilingual sections audited.</span>
+    <span class="src-link"><a href="./2608.04893.md">&#8599; Markdown source</a></span>
+  </footer>
+
+</div><!-- /wrap -->
+
+<script>
+  // progressive stagger for body sections on scroll-in (lightweight, CSS-first fallback)
+  (function(){
+    if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    var targets = document.querySelectorAll('.dissoc, .results-strip, .taxonomy, .split, .questions');
+    targets.forEach(function(el){ el.style.opacity='0'; el.style.transform='translateY(16px)'; el.style.transition='opacity .6s cubic-bezier(.2,.7,.2,1), transform .6s cubic-bezier(.2,.7,.2,1)'; });
+    if (!('IntersectionObserver' in window)) {
+      targets.forEach(function(el){ el.style.opacity='1'; el.style.transform='none'; });
+      return;
+    }
+    var io = new IntersectionObserver(function(entries){
+      entries.forEach(function(e){
+        if(e.isIntersecting){ e.target.style.opacity='1'; e.target.style.transform='none'; io.unobserve(e.target); }
+      });
+    },{threshold:0.12});
+    targets.forEach(function(el){ io.observe(el); });
+  })();
+</script>
+
+</body>
+</html>

@@ -1,0 +1,700 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>WitCert — Runtime Observability for Heterogeneous Attention Memory</title>
+<style>
+  /* ---------- Design tokens ---------- */
+  /* Aesthetic: engineering datasheet / observability report.
+     Warm paper, ink, ONE signal-rust accent. No gradients. */
+  :root{
+    --paper:#F4F0E7;
+    --paper-2:#ECE7DA;
+    --ink:#171410;
+    --ink-2:#3A352C;
+    --mute:#8A8275;
+    --rule:#D9D1BF;
+    --rule-2:#C7BEA8;
+    --accent:#B23A1B;      /* signal rust — the single accent */
+    --accent-soft:#E8C9BC;
+    --accent-ink:#7A1F0A;
+    --ok:#2F5D3A;
+    --maxw:min(95vw, 1100px);
+    --serif:ui-serif, Georgia, "Iowan Old Style", Cambria, "Times New Roman", serif;
+    --sans:ui-sans-serif, -apple-system, BlinkMacSystemFont, "Helvetica Neue", "Segoe UI", Arial, sans-serif;
+    --mono:ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    background:var(--paper);
+    color:var(--ink);
+    font-family:var(--sans);
+    font-size:16px;
+    line-height:1.55;
+    -webkit-font-smoothing:antialiased;
+    text-rendering:optimizeLegibility;
+    /* faint datasheet grid */
+    background-image:
+      linear-gradient(var(--rule) 1px, transparent 1px);
+    background-size:100% 32px;
+    background-position:0 -1px;
+  }
+  ::selection{background:var(--accent);color:var(--paper)}
+  a{color:var(--accent);text-decoration:none;border-bottom:1px solid transparent;transition:border-color .15s}
+  a:hover{border-bottom-color:var(--accent)}
+  .mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+
+  /* ---------- Top nav ---------- */
+  .topnav{
+    position:fixed; top:14px; left:14px; z-index:50;
+    display:flex; align-items:center; gap:10px;
+    background:rgba(244,240,231,.92);
+    border:1px solid var(--rule-2);
+    padding:7px 11px;
+    font-size:12.5px;
+    letter-spacing:.02em;
+    backdrop-filter:blur(6px);
+    -webkit-backdrop-filter:blur(6px);
+    max-width:calc(100vw - 28px);
+  }
+  .topnav .back{font-weight:600;color:var(--ink)}
+  .topnav .back:hover{color:var(--accent)}
+  .topnav .sep{color:var(--rule-2)}
+  .topnav .id{font-family:var(--mono);color:var(--ink-2)}
+  .topnav .jumps{display:flex;gap:2px;flex-wrap:wrap}
+  .topnav .jumps a{
+    color:var(--ink-2); border:1px solid var(--rule);
+    padding:2px 7px; font-size:11.5px; border-radius:2px;
+    background:var(--paper);
+  }
+  .topnav .jumps a:hover{color:var(--accent);border-color:var(--accent)}
+  @media (max-width:760px){
+    .topnav .jumps{display:none}
+  }
+
+  /* ---------- Layout shell ---------- */
+  .wrap{max-width:var(--maxw);margin:0 auto;padding:0 28px}
+
+  /* ---------- Hero ---------- */
+  header.hero{
+    padding:120px 0 40px;
+    border-bottom:2px solid var(--ink);
+    position:relative;
+  }
+  .eyebrow{
+    font-family:var(--mono);
+    font-size:11.5px;
+    letter-spacing:.18em;
+    text-transform:uppercase;
+    color:var(--accent);
+    margin:0 0 18px;
+    display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+  }
+  .eyebrow .dot{width:8px;height:8px;background:var(--accent);display:inline-block}
+  .eyebrow .dim{color:var(--mute)}
+
+  .herotitle{
+    font-family:var(--serif);
+    font-weight:600;
+    font-size:clamp(26px,3.4vw,38px);
+    line-height:1.12;
+    margin:0 0 8px;
+    letter-spacing:-.01em;
+    max-width:24ch;
+  }
+  .herotitle em{font-style:italic;color:var(--accent);font-weight:600}
+  .papersub{
+    font-family:var(--mono);
+    font-size:12.5px;
+    color:var(--mute);
+    margin:0 0 34px;
+    letter-spacing:.02em;
+  }
+  .papersub b{color:var(--ink-2);font-weight:600}
+
+  .finding{
+    position:relative;
+    border-top:1px solid var(--rule-2);
+    border-bottom:1px solid var(--rule-2);
+    padding:26px 0 26px 28px;
+    margin:0 0 30px;
+  }
+  .finding::before{
+    content:"KEY FINDING";
+    position:absolute; top:-8px; left:0;
+    background:var(--paper);
+    font-family:var(--mono);
+    font-size:10.5px; letter-spacing:.2em;
+    color:var(--accent); padding:0 8px 0 0;
+  }
+  .finding .strike{
+    position:absolute; left:0; top:0; bottom:0; width:4px;
+    background:var(--accent);
+  }
+  .finding p{
+    margin:0;
+    font-family:var(--serif);
+    font-weight:500;
+    font-size:clamp(22px,3vw,33px);
+    line-height:1.22;
+    letter-spacing:-.015em;
+    color:var(--ink);
+  }
+  .finding p .hl{color:var(--accent);font-style:italic}
+
+  .metarow{
+    display:grid;
+    grid-template-columns:1.4fr 1fr;
+    gap:30px;
+    align-items:start;
+  }
+  @media (max-width:720px){.metarow{grid-template-columns:1fr;gap:18px}}
+  .authors{
+    font-size:14px;color:var(--ink-2);
+  }
+  .authors .lab{color:var(--mute);font-family:var(--mono);font-size:12px;display:block;margin-top:4px}
+  .authors .who{color:var(--ink);font-weight:600}
+  .chips{display:flex;flex-wrap:wrap;gap:6px;justify-content:flex-end}
+  @media (max-width:720px){.chips{justify-content:flex-start}}
+  .chip{
+    font-family:var(--mono);
+    font-size:10.5px;
+    letter-spacing:.04em;
+    text-transform:lowercase;
+    color:var(--ink-2);
+    border:1px solid var(--rule-2);
+    padding:3px 7px;
+    background:var(--paper-2);
+  }
+
+  /* ---------- Asset row ---------- */
+  .assets{
+    display:grid;
+    grid-template-columns:1.15fr 1fr 1fr;
+    gap:18px;
+    margin:34px 0 0;
+  }
+  @media (max-width:840px){.assets{grid-template-columns:1fr}}
+  .card{
+    background:var(--paper);
+    border:1px solid var(--rule-2);
+    padding:22px 22px 20px;
+    position:relative;
+  }
+  .card .tag{
+    font-family:var(--mono);
+    font-size:10px;letter-spacing:.2em;
+    color:var(--accent);
+    margin:0 0 12px;
+    display:flex;align-items:center;gap:6px;
+  }
+  .card .tag .n{
+    color:var(--paper);background:var(--accent);
+    width:16px;height:16px;display:inline-flex;
+    align-items:center;justify-content:center;font-size:10px;
+  }
+  .card .body{font-size:14.5px;color:var(--ink-2);line-height:1.5}
+
+  /* metric card */
+  .card.metric .big{
+    font-family:var(--serif);
+    font-weight:600;
+    font-size:clamp(46px,7vw,76px);
+    line-height:.95;
+    letter-spacing:-.03em;
+    color:var(--ink);
+    margin:4px 0 6px;
+  }
+  .card.metric .big sup{font-size:.4em;vertical-align:super;color:var(--accent);font-weight:600}
+  .card.metric .big .unit{font-size:.32em;color:var(--mute);font-weight:500;letter-spacing:0;margin-left:6px;font-family:var(--sans)}
+  .card.metric .cap{font-size:13px;color:var(--ink-2);margin:0 0 14px}
+  .card.metric .support{
+    border-top:1px dashed var(--rule-2);
+    padding-top:12px;margin-top:10px;
+    font-family:var(--mono);font-size:11.5px;color:var(--ink-2);
+    line-height:1.5;
+  }
+  .card.metric .support b{color:var(--ink);font-weight:600}
+
+  /* why card */
+  .card.why .body{font-family:var(--serif);font-size:17px;line-height:1.4;color:var(--ink)}
+  .card.why .cite{
+    margin-top:14px;font-family:var(--mono);font-size:11px;
+    color:var(--mute);letter-spacing:.02em;
+  }
+
+  /* edge card — inverted */
+  .card.edge{
+    background:var(--ink);
+    color:var(--paper);
+    border-color:var(--ink);
+  }
+  .card.edge .tag{color:var(--accent-soft)}
+  .card.edge .tag .n{background:var(--accent-soft);color:var(--ink)}
+  .card.edge .body{color:#E9E3D3;font-size:14.5px}
+  .card.edge .body strong{color:var(--accent-soft);font-weight:600}
+  .card.edge .body .num{color:#fff;font-family:var(--mono);font-weight:600}
+  .card.edge .src{
+    margin-top:12px;font-family:var(--mono);font-size:10.5px;
+    color:#9C9484;letter-spacing:.04em;border-top:1px solid #3A352C;padding-top:10px;
+  }
+
+  /* ---------- Section scaffold ---------- */
+  section.block{
+    padding:54px 0 18px;
+    border-top:1px solid var(--rule-2);
+  }
+  .shead{
+    display:flex;align-items:baseline;gap:14px;margin-bottom:22px;
+  }
+  .shead .idx{
+    font-family:var(--mono);font-size:11px;color:var(--accent);
+    letter-spacing:.2em;
+  }
+  .shead h2{
+    font-family:var(--serif);font-weight:600;
+    font-size:clamp(20px,2.4vw,26px);
+    margin:0;letter-spacing:-.01em;
+  }
+  .shead .rule{flex:1;height:1px;background:var(--rule-2)}
+  .slead{color:var(--ink-2);max-width:62ch;margin:0 0 22px;font-size:15px}
+
+  /* ---------- Methodology ---------- */
+  .methgrid{
+    display:grid;grid-template-columns:1.1fr 1fr;gap:34px;
+  }
+  @media (max-width:780px){.methgrid{grid-template-columns:1fr;gap:24px}}
+  .methgrid p{margin:0 0 14px;font-size:14.5px;color:var(--ink-2)}
+  .methgrid p b{color:var(--ink)}
+  .sidepanel{
+    border:1px solid var(--rule-2);background:var(--paper-2);
+    padding:18px;
+  }
+  .sidepanel h4{
+    margin:0 0 12px;font-family:var(--mono);font-size:11px;
+    letter-spacing:.18em;color:var(--accent);text-transform:uppercase;
+  }
+  .ops{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:12px}
+  .ops li{display:grid;grid-template-columns:auto 1fr;gap:10px;font-size:13.5px;color:var(--ink-2)}
+  .ops .k{font-family:var(--mono);color:var(--ink);font-weight:600;min-width:64px}
+  .tiers{margin-top:16px;border-top:1px dashed var(--rule-2);padding-top:14px}
+  .tierrow{display:grid;grid-template-columns:auto 1fr;gap:10px;font-size:13px;margin-bottom:8px;color:var(--ink-2)}
+  .tierrow .t{font-family:var(--mono);font-weight:600;color:var(--accent-ink);min-width:118px;font-size:11.5px;letter-spacing:.02em}
+  .formula{
+    font-family:var(--mono);font-size:12.5px;
+    background:var(--paper);border:1px solid var(--rule-2);
+    padding:8px 10px;margin:8px 0;color:var(--ink);overflow-x:auto;
+  }
+
+  /* ---------- Results stat grid ---------- */
+  .statgrid{
+    display:grid;
+    grid-template-columns:repeat(12,1fr);
+    gap:14px;
+  }
+  .stat{
+    border:1px solid var(--rule-2);
+    padding:16px 16px 14px;
+    background:var(--paper);
+    display:flex;flex-direction:column;gap:6px;
+    min-width:0;
+  }
+  .stat .num{
+    font-family:var(--serif);font-weight:600;
+    font-size:clamp(26px,3vw,34px);line-height:1;
+    letter-spacing:-.02em;color:var(--ink);
+  }
+  .stat .num .sm{font-size:.5em;color:var(--mute);font-family:var(--sans);font-weight:500;margin-left:4px}
+  .stat .num .acc{color:var(--accent)}
+  .stat .lab{font-size:12.5px;color:var(--ink-2);line-height:1.4}
+  .stat .src{font-family:var(--mono);font-size:10px;color:var(--mute);letter-spacing:.03em;margin-top:auto;padding-top:8px}
+  /* spans */
+  .s-3{grid-column:span 3}
+  .s-4{grid-column:span 4}
+  .s-6{grid-column:span 6}
+  @media (max-width:780px){.s-3,.s-4,.s-6{grid-column:span 12}}
+  .stat.flag{border-left:3px solid var(--accent)}
+  .stat.ok .num .acc{color:var(--ok)}
+
+  .bullets{
+    margin-top:26px;display:grid;grid-template-columns:1fr 1fr;gap:14px 34px;
+  }
+  @media (max-width:780px){.bullets{grid-template-columns:1fr}}
+  .bitem{font-size:13.5px;color:var(--ink-2);line-height:1.5;padding-left:18px;position:relative;border-top:1px solid var(--rule-2);padding-top:12px}
+  .bitem .h{display:block;font-weight:600;color:var(--ink);margin-bottom:3px;font-size:13.5px}
+  .bitem::before{content:"";position:absolute;left:0;top:18px;width:8px;height:1px;background:var(--accent)}
+
+  /* ---------- Strengths / Limitations ---------- */
+  .duo{display:grid;grid-template-columns:1fr 1fr;gap:24px}
+  @media (max-width:780px){.duo{grid-template-columns:1fr;gap:18px}}
+  .col h3{
+    font-family:var(--mono);font-size:11px;letter-spacing:.2em;
+    margin:0 0 14px;text-transform:uppercase;
+    display:flex;align-items:center;gap:8px;
+  }
+  .col h3 .glyph{width:14px;height:14px;display:inline-flex;align-items:center;justify-content:center;font-size:11px}
+  .col.pros h3{color:var(--ok)} .col.pros h3 .glyph{background:var(--ok);color:var(--paper)}
+  .col.cons h3{color:var(--accent)} .col.cons h3 .glyph{background:var(--accent);color:var(--paper)}
+  .col ul{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:12px}
+  .col li{
+    font-size:13.5px;color:var(--ink-2);line-height:1.5;
+    padding-left:16px;position:relative;
+  }
+  .col li::before{
+    content:"";position:absolute;left:0;top:9px;width:8px;height:1px;
+  }
+  .col.pros li::before{background:var(--ok)}
+  .col.cons li::before{background:var(--accent)}
+  .col li b{color:var(--ink);font-weight:600}
+  .col.cons li{border-left:2px solid var(--accent-soft);padding-left:12px}
+  .col.cons li::before{display:none}
+
+  /* ---------- Questions ---------- */
+  .qlist{display:grid;grid-template-columns:1fr;gap:14px;counter-reset:q}
+  .q{
+    display:grid;grid-template-columns:42px 1fr;gap:18px;
+    border-top:1px solid var(--rule-2);padding-top:14px;
+    counter-increment:q;
+  }
+  .q:first-child{border-top:none;padding-top:0}
+  .q .qn{
+    font-family:var(--mono);font-size:11px;color:var(--accent);
+    letter-spacing:.1em;padding-top:2px;
+  }
+  .q .qn::before{content:"Q." counter(q);display:block}
+  .q .qt{font-size:14px;color:var(--ink-2);line-height:1.5}
+  .q .qt b{color:var(--ink);font-weight:600}
+
+  /* ---------- Footer ---------- */
+  footer.foot{
+    margin-top:60px;padding:30px 0 70px;
+    border-top:2px solid var(--ink);
+    display:flex;justify-content:space-between;align-items:center;
+    flex-wrap:wrap;gap:14px;
+  }
+  footer.foot .src{
+    font-family:var(--mono);font-size:12.5px;
+  }
+  footer.foot .src a{font-weight:600}
+  footer.foot .meta{
+    font-family:var(--mono);font-size:11px;color:var(--mute);
+    letter-spacing:.04em;
+  }
+  footer.foot .meta b{color:var(--ink-2);font-weight:600}
+
+  /* ---------- Staggered load reveal ---------- */
+  @keyframes rise{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+  .rise{opacity:0;animation:rise .5s ease-out forwards}
+  .d1{animation-delay:.05s}.d2{animation-delay:.12s}.d3{animation-delay:.19s}
+  .d4{animation-delay:.26s}.d5{animation-delay:.33s}.d6{animation-delay:.40s}
+  .d7{animation-delay:.47s}.d8{animation-delay:.54s}
+  @media (prefers-reduced-motion:reduce){.rise{animation:none;opacity:1}}
+</style>
+</head>
+<body>
+
+<!-- ============ TOP NAV ============ -->
+<nav class="topnav" aria-label="primary">
+  <a class="back" href="./index.html" title="Back to today's digest">↩ Today's digest</a>
+  <span class="sep">/</span>
+  <span class="id">2608.05863</span>
+  <span class="sep">·</span>
+  <span class="jumps">
+    <a href="#method">Method</a>
+    <a href="#results">Results</a>
+    <a href="#balance">Strengths&nbsp;/&nbsp;Limits</a>
+    <a href="#questions">Questions</a>
+  </span>
+</nav>
+
+<div class="wrap">
+
+  <!-- ============ HERO ============ -->
+  <header class="hero">
+    <p class="eyebrow rise d1">
+      <span class="dot"></span>
+      Runtime Observability <span class="dim">·</span> Formal Verification <span class="dim">·</span>
+      <span class="dim">2026-08-06</span> <span class="dim">·</span> LLM Serving
+    </p>
+
+    <h1 class="herotitle rise d2">
+      Runtime Observability for <em>Heterogeneous Attention Memory</em>
+    </h1>
+    <p class="papersub rise d2">
+      <b>WitCert</b> / witprobe-attention-memory &nbsp;·&nbsp;
+      arXiv:<b>2608.05863</b> &nbsp;·&nbsp; Apache-2.0 artifacts &nbsp;·&nbsp; Lean-checked
+    </p>
+
+    <div class="finding rise d3">
+      <span class="strike"></span>
+      <p>
+        Typed, <span class="hl">machine-decidable</span> error contracts turn four classes of attention memory into an <span class="hl">executable, Lean-verified</span> request-level risk ledger.
+      </p>
+    </div>
+
+    <div class="metarow rise d4">
+      <div class="authors">
+        <span class="who">Fanzhe Wei</span> · Li Liu · Ziyang Wang · Chenyu Wang
+        <span class="lab">Metask Lab &nbsp;—&nbsp; behind Kimi-Linear-48B; access to a real 2026-06-25 production incident</span>
+      </div>
+      <div class="chips" aria-label="topics">
+        <span class="chip">kv-cache-compression</span>
+        <span class="chip">attention-memory</span>
+        <span class="chip">formal-verification</span>
+        <span class="chip">lean</span>
+        <span class="chip">runtime-observability</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- ============ ASSET ROW ============ -->
+  <section class="assets" aria-label="key assets">
+
+    <!-- KEY METRIC -->
+    <div class="card metric rise d5">
+      <p class="tag"><span class="n">1</span> KEY METRIC</p>
+      <div class="big">−0.94<span class="unit">% throughput</span></div>
+      <p class="cap">Always-on fused Triton meter, one declared layer, <b>under CUDA graphs</b> &mdash; inside the per-concurrency noise floor (TTFT&nbsp;P99 −0.14%).</p>
+      <div class="support">
+        Ledger replayed over <b>12.4M</b> entry reads (8-way concurrency)<br>
+        max spend <b>Σδ = 0.009984 ≤ δ_req = 0.01</b><br>
+        <b>0</b> violations in 120,661 pre-authorized entries
+      </div>
+    </div>
+
+    <!-- WHY THIS MATTERS -->
+    <div class="card why rise d6">
+      <p class="tag"><span class="n">2</span> WHY THIS MATTERS</p>
+      <p class="body">
+        Modern attention is no longer one KV cache &mdash; dense, latent&nbsp;(MLA), sparse selectors, and recurrent states each <i>fail differently</i> under compression. WitCert answers the long-avoided serving question: can compressed/latent/sparse memory still be <b>trusted at runtime</b>.
+      </p>
+      <p class="cite">Distilled from the Relevance section.</p>
+    </div>
+
+    <!-- CRITICAL EDGE -->
+    <div class="card edge rise d7">
+      <p class="tag"><span class="n">3</span> CRITICAL EDGE</p>
+      <p class="body">
+        Per-layer bounds <strong>do not compose across depth</strong> &mdash; the summed request-level budget is <span class="num">vacuous (36.3 over 43 layers)</span>. The inter-layer error bridge is explicitly flagged as <strong>unsolved</strong>.
+      </p>
+      <p class="src">From Critical Assessment / Limitations</p>
+    </div>
+
+  </section>
+
+  <!-- ============ METHODOLOGY ============ -->
+  <section class="block rise d8" id="method">
+    <div class="shead">
+      <span class="idx">01</span>
+      <h2>Methodology</h2>
+      <span class="rule"></span>
+    </div>
+    <p class="slead">
+      Four concerns are kept separate: a <b>registry</b> (per-architecture injection points), <b>adapters</b> (tensor + validity-mask extraction), architecture-independent <b>meters</b> (the mathematics), and a <b>runtime</b> keyed by <span class="mono">(owner, layer, path)</span> that always emits a coverage record.
+    </p>
+
+    <div class="methgrid">
+      <div>
+        <p>
+          Any attention memory at step <i>t</i> is written as three operators. Compression replaces <span class="mono">m_t</span> with <span class="mono">m̂_t</span>; the goal is to bound <span class="mono">‖y_t − ŷ_t‖</span> from locally computable witnesses the serving stack <i>actually possesses</i>.
+        </p>
+        <div class="formula">U_t(m_t,x_t) &nbsp;·&nbsp; S_t(q_t,m_t) &nbsp;·&nbsp; R_t(q_t,m_t,I_t)</div>
+        <p>
+          A <b>contract</b> at each stage exposes <span class="mono">(a, b, δ)</span> with <span class="mono">e_out ≤ a·e_in + b</span> holding except with probability δ. Series composition is the affine rule plus a union bound; the non-trivial part is making every <span class="mono">a, b, δ</span> <b>computable from production quantities</b> and honestly tier-labeled.
+        </p>
+        <p>
+          Cross-metric composition needs <b>proved bridges</b>: witness→score (Cauchy–Schwarz) and score→distribution (TV ≤ ½(e^{2ε}−1)). An unregistered metric is a <b>hard error</b>, not a silent demotion.
+        </p>
+      </div>
+
+      <aside class="sidepanel">
+        <h4>The three operators</h4>
+        <ul class="ops">
+          <li><span class="k">update</span><span>write new memory object each step</span></li>
+          <li><span class="k">select</span><span>rank-prefix / sparse mask over candidates</span></li>
+          <li><span class="k">read</span><span>attention read against the memory</span></li>
+        </ul>
+
+        <div class="tiers">
+          <h4 style="color:var(--accent)">Strength tiers (machine-decided)</h4>
+          <div class="tierrow"><span class="t">CERTIFIED</span><span>sound upper bound exists &amp; not saturated (δ=0 entry)</span></div>
+          <div class="tierrow"><span class="t">PARTIALLY</span><span>holds only on a decidable subset (e.g. margin &gt; 2ε)</span></div>
+          <div class="tierrow"><span class="t">EMPIRICAL</span><span>observation, no bound &mdash; never enters certified ledger</span></div>
+          <p style="font-size:11.5px;color:var(--mute);margin:8px 0 0;font-family:var(--mono)">
+            composition inherits the weakest tier; the system refuses to print "end-to-end certified" unless earned.
+          </p>
+        </div>
+      </aside>
+    </div>
+  </section>
+
+  <!-- ============ RESULTS ============ -->
+  <section class="block" id="results">
+    <div class="shead">
+      <span class="idx">02</span>
+      <h2>Results &amp; Highlights</h2>
+      <span class="rule"></span>
+    </div>
+    <p class="slead">
+      Six models across five architecture families on 8×H200 + sglang 0.5.13.post1. Every number is frozen from a probe artifact; a claim guard fails the build on mismatch.
+    </p>
+
+    <div class="statgrid">
+
+      <div class="stat flag">
+        <div class="num">0<span class="sm">/ 4,032</span></div>
+        <div class="lab">Tier-A violations in the latent meter (GLM-5.2-W4AFP8, MLA). 98.9% Tier-B coverage at τ=0.2.</div>
+        <div class="src">latent meter validation</div>
+      </div>
+
+      <div class="stat ok">
+        <div class="num"><span class="acc">99.26%</span><span class="sm">·99.40%</span></div>
+        <div class="lab">Rank-prefix top-1 stability certified for rows on GLM (top-2048) and V4-Flash (top-512) &mdash; zero flips inside the certified region.</div>
+        <div class="src">sparse-selection, reframed</div>
+      </div>
+
+      <div class="stat">
+        <div class="num"><span class="acc">8.7×</span></div>
+        <div class="lab">Pre-authorization rate lifted <b>7.8% → 67.5%</b> by upgrading the certified object to the exact rounding conditional distribution.</div>
+        <div class="src">finite-product radius</div>
+      </div>
+
+      <div class="stat">
+        <div class="num">0<span class="sm">foreign reads</span></div>
+        <div class="lab">Across <b>8,228,864</b> ownership checks, 8-way concurrency. The first concurrent run surfaced a 3.4% namespace collision invisible under serial traffic.</div>
+        <div class="src">request-level ledger</div>
+      </div>
+
+      <div class="stat s-4 flag">
+        <div class="num"><span class="acc">0.050</span> <span class="sm">vs 1.000</span></div>
+        <div class="lab">DeepSeek-V4 silent corruption (12-doc needle). Packed arm collapses with radix cache off vs. FP8 baseline &mdash; masked by radix caching in production.</div>
+        <div class="src">case study</div>
+      </div>
+
+      <div class="stat s-4 ok">
+        <div class="num"><span class="acc">1.000</span> <span class="sm">vs 0.200</span></div>
+        <div class="lab">Write-site invalidation <b>restores</b> accuracy under 4-way concurrency, six machine-checked criteria. Quantizer intrinsic error (0.0245) is unreachable from readings.</div>
+        <div class="src">fix · bilateral causal</div>
+      </div>
+
+      <div class="stat s-4">
+        <div class="num">0<span class="sm">/ 144</span></div>
+        <div class="lab">Corruption-sentinel false alarms (Qwen2.5-7B). One-sided 95% upper bound on FPR is <b>2.06%</b> &mdash; not a claim of zero.</div>
+        <div class="src">sentinel honesty</div>
+      </div>
+
+    </div>
+
+    <div class="bullets">
+      <div class="bitem">
+        <span class="h">The type checker rejected the authors' own first chain.</span>
+        An early version summed a dimensionless storage ratio with selection total-variation &mdash; an illegal cross-metric addition, caught at Lean elaboration. The retracted numbers appear nowhere else; the guard now forbids them.
+      </div>
+      <div class="bitem">
+        <span class="h">Full 28-layer coverage is diagnostic-only.</span>
+        Under CUDA graphs, one declared fused layer is inside the noise floor. Full 28-layer graph coverage is <span class="mono">−10.16%</span> throughput &mdash; a diagnostic mode, not an always-on claim.
+      </div>
+      <div class="bitem">
+        <span class="h">Eviction is the structural boundary.</span>
+        Every observed corruption sits in an eviction or slot-reuse regime. The zero-eviction, identity-isolated configuration is <b>exact (1.000)</b> across three independent 12-doc rounds.
+      </div>
+      <div class="bitem">
+        <span class="h">Detection is a budget, not a limit.</span>
+        99% confidence for a single corrupted slot takes <span class="mono">148 / 74 / 37 / 19</span> rounds at <span class="mono">r = 32 / 64 / 128 / 256</span>; 2 of 4 injected slots were located, matching Lemma&nbsp;3's 0.072 tail probability.
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ STRENGTHS / LIMITATIONS ============ -->
+  <section class="block" id="balance">
+    <div class="shead">
+      <span class="idx">03</span>
+      <h2>Strengths &amp; Limitations</h2>
+      <span class="rule"></span>
+    </div>
+
+    <div class="duo">
+      <div class="col pros">
+        <h3><span class="glyph">+</span> Strengths</h3>
+        <ul>
+          <li><b>Orthogonal contribution.</b> Unifies four memory classes under one typed algebra with machine-decidable tiers &mdash; genuinely orthogonal to per-object KV-quant work (KIVI, KVQuant, GEAR, SnapKV, H2O).</li>
+          <li><b>The type discipline does real work.</b> It caught the authors' own illegal cross-metric composition &mdash; and the paper publishes that fact. That self-adjudication is what makes the formalism trustworthy.</li>
+          <li><b>Auditable formalization.</b> Lean/mathlib, finite-Ω, no measure theory; rebuilds with <span class="mono">cd formal &amp;&amp; bash check all.sh</span>; axioms down to the standard three (no <span class="mono">sorryAx</span>).</li>
+          <li><b>Real production diagnosis.</b> The DeepSeek-V4 case is a hard, controlled ablation &mdash; not narrative &mdash; pinning a radix-masked 95-point collapse to slot-reuse rather than quantization.</li>
+          <li><b>Scope discipline.</b> Explicit "Not yet shown" column; a pre-registered gate that failed is honored (fused-kernel stage skipped); quality claims stay directional.</li>
+        </ul>
+      </div>
+
+      <div class="col cons">
+        <h3><span class="glyph">!</span> Limitations</h3>
+        <ul>
+          <li><b>No inter-layer error bridge.</b> Per-layer TV bounds don't compose across depth (each layer is a distinct distribution); summed request budget is vacuous (<span class="mono">36.3 / 43</span>). "The next theorem the type system is waiting for."</li>
+          <li><b>Always-on ≠ every layer.</b> One declared fused layer is in the noise floor; full 28-layer graph coverage is <span class="mono">−10.16%</span>. Any contract needing every layer cannot stay resident.</li>
+          <li><b>Quality evidence is directional.</b> <span class="mono">n=8</span> prompts against a stability floor where two server restarts already disagree on 2/8 &mdash; a protective effect is described, not shown.</li>
+          <li><b>Eviction-safe production consumption is open.</b> Only the zero-eviction identity-isolated config is certified; the microscopic mediator of the association stays open after nine instrumented rounds.</li>
+          <li><b>Narrow matrix.</b> One model, one serving stack, small retrieval batteries, largely single-seed &mdash; a five-level failure taxonomy, not production coverage.</li>
+          <li><b>No end-to-end cost benefit claimed.</b> The unoptimized staged consumer serves at <span class="mono">0.884× / 1.131× cost</span> per output token.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ QUESTIONS ============ -->
+  <section class="block" id="questions">
+    <div class="shead">
+      <span class="idx">04</span>
+      <h2>Questions for Further Exploration</h2>
+      <span class="rule"></span>
+    </div>
+
+    <div class="qlist">
+      <div class="q">
+        <div class="qn"></div>
+        <div class="qt">What is a sound <b>inter-layer error bridge</b> that lets per-layer attention-TV bounds compose into a non-vacuous request-level output-distance bound? &mdash; explicitly flagged as the next theorem the type system is waiting for.</div>
+      </div>
+      <div class="q">
+        <div class="qn"></div>
+        <div class="qt">Can the eviction/slot-reuse <b>microscopic mediator</b> (open after nine instrumented rounds) be pinned down &mdash; in selection metadata, index semantics, or timing state? Would a <span class="mono">(slot, generation)</span> refinement obligation <b>prevent</b> the failure class rather than mitigate it timing-sensitively?</div>
+      </div>
+      <div class="q">
+        <div class="qn"></div>
+        <div class="qt">How does cost/quality shift when the <b>fused meter reaches full 28-layer coverage</b> under CUDA graphs (currently −10.16%)? Is there a sub-sampling or hierarchical aggregation that stays inside the noise floor?</div>
+      </div>
+      <div class="q">
+        <div class="qn"></div>
+        <div class="qt">Could the telescoping δ-budget and the anytime-valid e-process sentinel extend to <b>non-attention memory</b> &mdash; MoE expert caches, prefix-cache identity, disaggregated KV transfer &mdash; where the same "structurally green, semantically wrong" failure appeared (the PD-disaggregation arm returned 0.000 with zero transport errors)?</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ FOOTER ============ -->
+  <footer class="foot">
+    <span class="src">↗ <a href="./2608.05863.md">Markdown source</a></span>
+    <span class="meta">
+      <b>WitCert</b> · arXiv:2608.05863 · 2026-08-06 · rendered from source markdown
+    </span>
+  </footer>
+
+</div>
+
+<script>
+  // Smooth in-page jumps; respects reduced-motion via CSS for reveals.
+  (function(){
+    var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    document.querySelectorAll('.topnav .jumps a').forEach(function(a){
+      a.addEventListener('click', function(e){
+        var id = a.getAttribute('href').slice(1);
+        var el = document.getElementById(id);
+        if(!el) return;
+        e.preventDefault();
+        var top = el.getBoundingClientRect().top + window.pageYOffset - 12;
+        if(reduce){ window.scrollTo(0, top); }
+        else { window.scrollTo({top: top, behavior: 'smooth'}); }
+      });
+    });
+  })();
+</script>
+</body>
+</html>

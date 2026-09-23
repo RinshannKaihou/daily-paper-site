@@ -1,0 +1,699 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Where To Look? — Causal Tracing of Vision Encoders in VLMs</title>
+<style>
+  :root {
+    --bg: #f6f2ea;
+    --bg-raised: #fbf8f1;
+    --ink: #1a1614;
+    --ink-2: #3a342e;
+    --muted: #6b6259;
+    --line: #e3dccf;
+    --line-strong: #cfc6b5;
+    --accent: #b4451f;
+    --accent-soft: #f3e4dc;
+    --neg: #1a1614;
+    --shadow: 0 1px 0 var(--line);
+    --serif: "Iowan Old Style", "Palatino Linotype", Palatino, "Hoefler Text", Georgia, serif;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", system-ui, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    --mono: "SF Mono", "JetBrains Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  }
+
+  * { box-sizing: border-box; }
+
+  html { -webkit-text-size-adjust: 100%; }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.65;
+    font-feature-settings: "kern", "liga", "calt";
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* ---------- Fixed nav ---------- */
+  .nav {
+    position: fixed;
+    top: 14px;
+    left: 14px;
+    z-index: 50;
+    font-family: var(--sans);
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+  }
+  .nav a {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 7px 12px;
+    background: var(--ink);
+    color: var(--bg);
+    text-decoration: none;
+    border-radius: 4px;
+    box-shadow: 0 2px 10px rgba(26,22,20,0.18);
+    transition: transform .15s ease, background .15s ease;
+  }
+  .nav a:hover { background: var(--accent); transform: translateY(-1px); }
+
+  /* ---------- Layout shell ---------- */
+  .shell {
+    width: min(95vw, 1100px);
+    margin: 0 auto;
+    padding: 64px 0 48px;
+  }
+
+  /* ---------- Hero band ---------- */
+  .hero {
+    padding: 28px 0 34px;
+    border-bottom: 1px solid var(--line);
+  }
+  .hero .eyebrow {
+    font-family: var(--sans);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin: 0 0 18px;
+  }
+  .hero .eyebrow .sep { color: var(--line-strong); margin: 0 8px; font-weight: 400; }
+
+  .finding {
+    font-family: var(--serif);
+    font-weight: 700;
+    font-size: clamp(30px, 5.6vw, 58px);
+    line-height: 1.06;
+    letter-spacing: -0.018em;
+    color: var(--ink);
+    margin: 0 0 22px;
+    max-width: 18ch;
+  }
+  .finding em {
+    font-style: italic;
+    color: var(--accent);
+    font-weight: 700;
+  }
+
+  .paper-title {
+    font-family: var(--sans);
+    font-size: 15px;
+    font-weight: 600;
+    margin: 0 0 6px;
+  }
+  .paper-title a {
+    color: var(--ink);
+    text-decoration: none;
+    border-bottom: 1px solid var(--line-strong);
+    transition: color .15s ease, border-color .15s ease;
+  }
+  .paper-title a:hover { color: var(--accent); border-color: var(--accent); }
+
+  .byline {
+    font-size: 13.5px;
+    color: var(--muted);
+    margin: 0 0 14px;
+  }
+  .byline .arxiv {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--ink-2);
+  }
+
+  .chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .chips li {
+    font-size: 11.5px;
+    font-weight: 500;
+    letter-spacing: 0.02em;
+    color: var(--ink-2);
+    background: var(--bg-raised);
+    border: 1px solid var(--line);
+    padding: 3px 9px;
+    border-radius: 100px;
+  }
+
+  .zh-epigraph {
+    margin: 18px 0 0;
+    padding: 12px 16px;
+    border-left: 3px solid var(--accent);
+    background: var(--bg-raised);
+    font-size: 13.5px;
+    line-height: 1.7;
+    color: var(--ink-2);
+    font-family: var(--sans);
+  }
+  .zh-epigraph b { color: var(--accent); font-weight: 700; }
+
+  /* ---------- Asset row ---------- */
+  .assets {
+    display: grid;
+    grid-template-columns: 1fr 1.1fr 1.1fr;
+    gap: 0;
+    margin: 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .asset {
+    padding: 28px 26px;
+    border-right: 1px solid var(--line);
+    position: relative;
+  }
+  .asset:last-child { border-right: none; }
+  .asset .label {
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin: 0 0 14px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .asset .label::before {
+    content: "";
+    width: 14px; height: 2px;
+    background: var(--accent);
+    display: inline-block;
+  }
+
+  /* metric card */
+  .metric .big {
+    font-family: var(--serif);
+    font-weight: 800;
+    font-size: clamp(54px, 7.5vw, 86px);
+    line-height: 0.95;
+    letter-spacing: -0.03em;
+    color: var(--accent);
+    margin: 0;
+  }
+  .metric .big .approx { font-size: 0.5em; vertical-align: 0.18em; color: var(--ink-2); font-weight: 600;}
+  .metric .what {
+    font-family: var(--mono);
+    font-size: 12.5px;
+    color: var(--ink);
+    margin: 14px 0 6px;
+    font-weight: 600;
+  }
+  .metric .note {
+    font-size: 13px;
+    color: var(--muted);
+    margin: 0;
+    line-height: 1.55;
+  }
+
+  /* why-this-matters */
+  .matters p {
+    font-family: var(--serif);
+    font-size: 19px;
+    line-height: 1.42;
+    color: var(--ink);
+    margin: 0;
+    font-weight: 500;
+  }
+  .matters p .hl { color: var(--accent); font-weight: 700; }
+
+  /* critical edge — inverted */
+  .edge {
+    background: var(--neg);
+    color: var(--bg);
+    border-right: none;
+  }
+  .edge .label { color: #c9c0b1; }
+  .edge .label::before { background: var(--accent); }
+  .edge p {
+    font-family: var(--serif);
+    font-size: 17px;
+    line-height: 1.45;
+    margin: 0;
+    color: #f1ece0;
+  }
+  .edge p .warn { color: #f0a78b; font-weight: 700; }
+  .edge .foot {
+    margin: 12px 0 0;
+    font-size: 12px;
+    color: #9a9081;
+    font-family: var(--mono);
+  }
+
+  /* ---------- Body sections ---------- */
+  .section { padding: 40px 0 8px; border-bottom: 1px solid var(--line); }
+  .section:last-of-type { border-bottom: none; }
+  .section h2 {
+    font-family: var(--sans);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin: 0 0 18px;
+  }
+  .section h2 .num {
+    font-family: var(--mono);
+    color: var(--muted);
+    margin-right: 10px;
+    font-weight: 500;
+  }
+
+  .lead {
+    font-family: var(--serif);
+    font-size: 20px;
+    line-height: 1.5;
+    color: var(--ink);
+    margin: 0 0 14px;
+    max-width: 62ch;
+  }
+  .body p {
+    font-size: 15px;
+    line-height: 1.7;
+    color: var(--ink-2);
+    margin: 0 0 12px;
+    max-width: 68ch;
+  }
+  .body .formula {
+    display: inline-block;
+    font-family: var(--mono);
+    font-size: 13.5px;
+    background: var(--accent-soft);
+    color: var(--accent);
+    padding: 1px 7px;
+    border-radius: 3px;
+    font-weight: 600;
+    margin: 0 1px;
+  }
+
+  /* ---------- Results tables ---------- */
+  .table-wrap { overflow-x: auto; }
+  table.results {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13.5px;
+    margin: 6px 0 4px;
+    min-width: 520px;
+  }
+  table.results caption {
+    caption-side: top;
+    text-align: left;
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--ink);
+    padding: 0 0 10px;
+    font-family: var(--sans);
+  }
+  table.results caption .sub {
+    display: block;
+    font-weight: 400;
+    color: var(--muted);
+    font-size: 12px;
+    margin-top: 2px;
+  }
+  table.results th, table.results td {
+    text-align: left;
+    padding: 9px 12px;
+    border-bottom: 1px solid var(--line);
+  }
+  table.results thead th {
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--muted);
+    border-bottom: 1px solid var(--line-strong);
+    background: var(--bg-raised);
+  }
+  table.results td.num {
+    font-family: var(--mono);
+    font-size: 13px;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+  table.results tbody tr:hover { background: var(--bg-raised); }
+  table.results .ref td { background: var(--accent-soft); font-style: italic; }
+  table.results .ref td:first-child { color: var(--accent); font-weight: 600; font-style: normal;}
+  table.results .neg-val { color: var(--accent); font-weight: 700; }
+  table.results .seed { color: var(--muted); font-size: 11px; font-family: var(--mono); }
+
+  .stat-strip {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 0;
+    margin: 22px 0 4px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    overflow: hidden;
+    background: var(--bg-raised);
+  }
+  .stat-strip .cell {
+    padding: 16px 18px;
+    border-right: 1px solid var(--line);
+  }
+  .stat-strip .cell:last-child { border-right: none; }
+  .stat-strip .k {
+    font-size: 10.5px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--muted);
+    font-weight: 600;
+    margin: 0 0 6px;
+  }
+  .stat-strip .v {
+    font-family: var(--serif);
+    font-weight: 700;
+    font-size: 26px;
+    color: var(--ink);
+    letter-spacing: -0.01em;
+    line-height: 1.1;
+  }
+  .stat-strip .v .unit { font-family: var(--mono); font-size: 13px; color: var(--muted); font-weight: 500; margin-left: 4px;}
+  .stat-strip .v .vs { font-family: var(--mono); font-size: 13px; color: var(--muted); font-weight: 500; }
+  .stat-strip .d { font-size: 12px; color: var(--muted); margin: 4px 0 0; }
+
+  /* ---------- Strengths / Limitations ---------- */
+  .duo {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    overflow: hidden;
+  }
+  .duo .col { padding: 22px 24px; }
+  .duo .col:first-child { border-right: 1px solid var(--line); background: var(--bg-raised); }
+  .duo .col h3 {
+    font-family: var(--sans);
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    margin: 0 0 14px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .duo .pro h3 { color: var(--ink); }
+  .duo .pro h3 .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); display:inline-block; }
+  .duo .con h3 { color: var(--muted); }
+  .duo .con h3 .dot { width: 8px; height: 8px; border-radius: 50%; background: transparent; border: 1.5px solid var(--muted); display:inline-block; box-sizing: border-box; }
+  .duo ul { margin: 0; padding: 0; list-style: none; }
+  .duo li {
+    font-size: 13.5px;
+    line-height: 1.55;
+    color: var(--ink-2);
+    padding: 9px 0 9px 18px;
+    border-bottom: 1px dashed var(--line);
+    position: relative;
+  }
+  .duo li:last-child { border-bottom: none; }
+  .duo .pro li::before { content: "+"; position: absolute; left: 0; top: 9px; color: var(--accent); font-weight: 700; }
+  .duo .con li::before { content: "–"; position: absolute; left: 0; top: 9px; color: var(--muted); font-weight: 700; }
+  .duo li b { color: var(--ink); font-weight: 600; }
+
+  /* ---------- Questions ---------- */
+  .qlist { counter-reset: q; margin: 0; padding: 0; list-style: none; display: grid; gap: 10px; }
+  .qlist li {
+    counter-increment: q;
+    padding: 14px 16px 14px 52px;
+    background: var(--bg-raised);
+    border: 1px solid var(--line);
+    border-radius: 5px;
+    position: relative;
+    font-size: 14px;
+    line-height: 1.55;
+    color: var(--ink-2);
+  }
+  .qlist li::before {
+    content: counter(q, decimal-leading-zero);
+    position: absolute;
+    left: 14px; top: 13px;
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--accent);
+    letter-spacing: 0.04em;
+  }
+  .qlist li b { color: var(--ink); }
+
+  /* ---------- Footer ---------- */
+  footer.foot {
+    margin-top: 40px;
+    padding: 22px 0 0;
+    border-top: 1px solid var(--line);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+  footer.foot .src {
+    font-family: var(--sans);
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--ink);
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    border-bottom: 1px solid var(--line-strong);
+    padding-bottom: 2px;
+    transition: color .15s, border-color .15s;
+  }
+  footer.foot .src:hover { color: var(--accent); border-color: var(--accent); }
+  footer.foot .meta {
+    font-family: var(--mono);
+    font-size: 11.5px;
+    color: var(--muted);
+  }
+
+  /* ---------- Load reveal ---------- */
+  .reveal { opacity: 0; transform: translateY(10px); animation: rise .6s cubic-bezier(.2,.7,.2,1) forwards; }
+  .d0 { animation-delay: .02s; }
+  .d1 { animation-delay: .10s; }
+  .d2 { animation-delay: .18s; }
+  .d3 { animation-delay: .26s; }
+  .d4 { animation-delay: .34s; }
+  .d5 { animation-delay: .42s; }
+  @keyframes rise { to { opacity: 1; transform: translateY(0); } }
+  @media (prefers-reduced-motion: reduce) {
+    .reveal { animation: none; opacity: 1; transform: none; }
+  }
+
+  /* ---------- Responsive ---------- */
+  @media (max-width: 880px) {
+    .assets { grid-template-columns: 1fr; }
+    .asset { border-right: none; border-bottom: 1px solid var(--line); }
+    .asset:last-child { border-bottom: none; }
+    .duo { grid-template-columns: 1fr; }
+    .duo .col:first-child { border-right: none; border-bottom: 1px solid var(--line); }
+    .stat-strip { grid-template-columns: 1fr; }
+    .stat-strip .cell { border-right: none; border-bottom: 1px solid var(--line); }
+    .stat-strip .cell:last-child { border-bottom: none; }
+  }
+  @media (max-width: 720px) {
+    .shell { padding: 56px 16px 36px; }
+    .finding { max-width: 100%; }
+    .nav { top: 10px; left: 10px; }
+    .nav a { padding: 6px 10px; font-size: 12px; }
+  }
+</style>
+</head>
+<body>
+
+<nav class="nav">
+  <a href="./index.html">↩ Today's digest</a>
+</nav>
+
+<main class="shell">
+
+  <!-- ============ HERO ============ -->
+  <header class="hero">
+    <p class="eyebrow reveal d0">Mechanistic Interpretability <span class="sep">/</span> Work-in-progress <span class="sep">/</span> Negative result</p>
+
+    <h1 class="finding reveal d0">
+      The vision tokens that most <em>causally</em> drive a VLM's answer rarely sit on the queried object.
+    </h1>
+
+    <p class="paper-title reveal d1">
+      <a href="https://arxiv.org/abs/2608.10758" target="_blank" rel="noopener">Where To Look? — Causal Tracing of Vision Encoders in VLMs</a>
+    </p>
+    <p class="byline reveal d1">
+      Naren Kumar S, Tirth Bhatt, Mayank Singh <span style="color:var(--line-strong)">·</span> LINGO Group, IIT Gandhinagar <span style="color:var(--line-strong)">·</span> <span class="arxiv">arXiv:2608.10758</span> <span style="color:var(--line-strong)">·</span> 2026-08-11
+    </p>
+
+    <ul class="chips reveal d1">
+      <li>causal-tracing</li>
+      <li>activation-patching</li>
+      <li>vision-language-models</li>
+      <li>visual-grounding</li>
+      <li>mechanistic-interpretability</li>
+    </ul>
+
+    <p class="zh-epigraph reveal d2">
+      <b>一句话总结 ·</b> 把 activation patching 搬进 VLM 视觉编码器，测 (layer, token) 的因果贡献 Γ 与图像块&ndash;目标框 IoU 的相关性——在 CLIP 及 6 个大模型上 Corr(Γ, IoU) 一律接近 0，即"因果最重要的视觉 token 往往不在目标物体所在区域"。
+    </p>
+  </header>
+
+  <!-- ============ ASSET ROW ============ -->
+  <section class="assets reveal d2">
+
+    <!-- KEY METRIC -->
+    <div class="asset metric">
+      <p class="label">Key metric</p>
+      <p class="big"><span class="approx">≈</span>0.062</p>
+      <p class="what">Corr(Γ, IoU) &mdash; CLIP baseline</p>
+      <p class="note">Over 100 referring-expression samples. Indistinguishable from the <b>0.0 null</b>; no p-value or CI reported. The same near-zero floor holds across 6 larger VLMs.</p>
+    </div>
+
+    <!-- WHY THIS MATTERS -->
+    <div class="asset matters">
+      <p class="label">Why this matters</p>
+      <p>VLM <span class="hl">attention &amp; importance maps are weak evidence</span> of where the model actually looks — a <span class="hl">causal</span>, multi-model negative result for grounding and attribution tooling.</p>
+    </div>
+
+    <!-- CRITICAL EDGE -->
+    <div class="asset edge">
+      <p class="label">Critical edge</p>
+      <p><span class="warn">The null may be a statistical artifact.</span> Γ is heavy-tailed, IoU is zero-inflated (most tokens have IoU = 0), and the paper never specifies Pearson vs Spearman nor runs a rank-based robustness check.</p>
+      <p class="foot">+ unnamed dataset · undefined table columns · single-seed SmolVLM row</p>
+    </div>
+
+  </section>
+
+  <!-- ============ METHODOLOGY ============ -->
+  <section class="section reveal d3">
+    <h2><span class="num">01</span>Methodology — a three-pass causal probe inside the ViT</h2>
+
+    <p class="lead">Run the vision tower three times — clean, corrupted, and singly-patched — and ask: <em>how much of the lost image–text similarity does one (layer, token) activation restore?</em></p>
+
+    <div class="body">
+      <p>A <b>clean</b> pass feeds the original image and records <span class="formula">s_clean = ⟨f_img(I), f_text(T)⟩</span>. A <b>corrupted</b> pass feeds a degraded image (Gaussian noise, later DDPM noise or blur) and records <span class="formula">s_corr</span>. A <b>patched</b> pass restores one intermediate ViT activation at (layer <em>l</em>, token <em>t</em>) from the clean run, recording <span class="formula">s_patch</span>. The causal contribution is the fraction of the gap recovered:</p>
+
+      <p style="text-align:center; font-family:var(--mono); font-size:15px; color:var(--ink); margin:14px 0; padding:10px; background:var(--bg-raised); border:1px solid var(--line); border-radius:5px;">
+        Γ<sub>l,t</sub> &nbsp;=&nbsp; ( s_patch − s_corr ) / ( s_clean − s_corr )
+      </p>
+
+      <p>For spatial grounding, each patch token is mapped back to its fixed image region P<sub>t</sub>, and <span class="formula">IoU(P_t, B)</span> is computed against the referring-expression ground-truth box. The headline statistic is <b>Corr(Γ, IoU)</b>, with a layer-resolved <span class="formula">Corr_l</span> testing whether alignment emerges with depth. Experiments run in three stages: (1) CLIP as a clean contrastive testbed; (2) the identical protocol on six VLMs under DDPM + blur with 6–10 seeds; (3) a planned longitudinal ViT-vs-SigLIP study — explicitly future work.</p>
+    </div>
+  </section>
+
+  <!-- ============ RESULTS ============ -->
+  <section class="section reveal d3">
+    <h2><span class="num">02</span>Results — alignment stays at the floor, while causal strength is huge</h2>
+
+    <div class="stat-strip">
+      <div class="cell">
+        <p class="k">Headline correlation</p>
+        <p class="v">0.062 <span class="unit">CLIP</span></p>
+        <p class="d">Corr(Γ, IoU), 100 samples — vs a 0.0 null.</p>
+      </div>
+      <div class="cell">
+        <p class="k">Causally huge, spatially wrong</p>
+        <p class="v">0.718 <span class="vs">Γ ⟶ IoU 0.049</span></p>
+        <p class="d">A single token strongly restores the score yet barely touches the box.</p>
+      </div>
+      <div class="cell">
+        <p class="k">Max Γ observed</p>
+        <p class="v">0.945 <span class="unit">LLaVA-1.5</span></p>
+        <p class="d">Top tokens are real — just not on the object.</p>
+      </div>
+    </div>
+
+    <div class="table-wrap" style="margin-top:22px;">
+      <table class="results">
+        <caption>Corr(Γ, IoU) across models &mdash; two corruption operators
+          <span class="sub">mean ± std over 6–10 seeds (CLIP: single run, n=100). Every cell sits within ±0.03 of the 0.062 reference floor.</span>
+        </caption>
+        <thead>
+          <tr><th>Model</th><th class="num">DDPM</th><th class="num">Blur</th><th>Δ (blur − DDPM)</th></tr>
+        </thead>
+        <tbody>
+          <tr class="ref"><td>CLIP <span class="seed">(reference)</span></td><td class="num">0.0620</td><td class="num">—</td><td>—</td></tr>
+          <tr><td>DeepSeek-VL</td><td class="num">0.0531 ± 0.0334</td><td class="num">0.0520 ± 0.0041</td><td>≈ −0.001</td></tr>
+          <tr><td>Qwen-2.5</td><td class="num">0.0912 ± 0.0422</td><td class="num">0.0294 ± 0.0100</td><td>≈ −0.062 (3× drop)</td></tr>
+          <tr><td>LLaVA-NeXT</td><td class="num">0.0419 ± 0.0166</td><td class="num neg-val">−0.0217 ± 0.0052</td><td class="neg-val">sign reversal</td></tr>
+          <tr><td>LLaVA-1.5</td><td class="num">0.0509 ± 0.0329</td><td class="num">—</td><td>—</td></tr>
+          <tr><td>InternVL-2</td><td class="num">0.0397 ± 0.0224</td><td class="num">0.0121 ± 0.0033</td><td>≈ −0.028</td></tr>
+          <tr><td>SmolVLM <span class="seed">(single seed)</span></td><td class="num">0.0011 ± 0.0000</td><td class="num">—</td><td>—</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="table-wrap" style="margin-top:18px;">
+      <table class="results">
+        <caption>Max Γ among top-ranked tokens — strong causal tokens exist everywhere
+          <span class="sub">rebuts the "no causally important tokens" counter-explanation.</span>
+        </caption>
+        <thead>
+          <tr><th>Model</th><th class="num">Max Γ · DDPM</th><th class="num">Max Γ · Blur</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Qwen-2.5</td><td class="num">0.5365 ± 0.3822</td><td class="num">0.8034 ± 0.0868</td></tr>
+          <tr><td>LLaVA-1.5</td><td class="num neg-val">0.9451 ± 0.3710</td><td class="num">—</td></tr>
+          <tr><td>SmolVLM</td><td class="num">0.1726 ± 0.0000</td><td class="num neg-val">−0.4906 (anomalous)</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p style="font-size:13px; color:var(--muted); margin-top:14px; max-width:68ch;">
+      Layer-wise <span class="formula" style="background:var(--bg-raised); color:var(--ink-2);">Corr_l</span> stays low across all CLIP layers — only a small late rise, arguing against the intuition that grounding crystallises near the encoder output. The string-puzzle probe (Gemini-3.1 Pro) is reported qualitatively only: traces endpoints when colours differ, fails when all strings share a colour. No Δ<sub>color</sub> value, no N.
+    </p>
+  </section>
+
+  <!-- ============ STRENGTHS / LIMITATIONS ============ -->
+  <section class="section reveal d4">
+    <h2><span class="num">03</span>Strengths vs. Limitations</h2>
+    <div class="duo">
+      <div class="col pro">
+        <h3><span class="dot"></span>Strengths</h3>
+        <ul>
+          <li><b>Genuinely causal.</b> Γ is an intervention, not an attention/saliency heuristic — a real methodological step up from attention-map grounding.</li>
+          <li><b>Robustness discipline.</b> Two corruption operators (DDPM + blur) and 6–10 seeds for most models, with mean ± std reported.</li>
+          <li><b>Pre-empts the obvious rebuttal</b> — "there are no causal tokens" — by reporting per-model max Γ.</li>
+          <li><b>Clean probe design.</b> String puzzle holds geometry fixed, varies only colour, isolating appearance dependence.</li>
+          <li><b>Honest in places:</b> flags Γ can exceed [0,1], that SmolVLM's single run can't support statistics, and that ViT results may not transfer to SigLIP.</li>
+        </ul>
+      </div>
+      <div class="col con">
+        <h3><span class="dot"></span>Limitations</h3>
+        <ul>
+          <li><b>ViT-only.</b> SigLIP encoders (many current VLMs) are deferred — architectural generality untested.</li>
+          <li><b>Coarse IoU.</b> Fixed axis-aligned patches around small objects guarantee low IoU regardless of representation, biasing correlation downward.</li>
+          <li><b>Zero-inflated IoU unaddressed.</b> Needs a top-k / rank-based analysis before the null reads as a claim about representations.</li>
+          <li><b>Similarity surrogate undefined</b> for autoregressive VLMs (Qwen-2.5, LLaVA) — only image–text similarity is used for CLIP.</li>
+          <li><b>String probe is thin:</b> one proprietary model, one dataset instance, no accuracy table, no baseline, no human ceiling.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ QUESTIONS ============ -->
+  <section class="section reveal d5">
+    <h2><span class="num">04</span>Open questions for follow-up</h2>
+    <ol class="qlist">
+      <li><b>Artifact or finding?</b> Does Spearman, or a top-k analysis restricted to tokens whose patches touch the box, change the near-zero correlation?</li>
+      <li><b>Where is the positive control?</b> Run the same pipeline on GLIP / Grounding DINO / a segmentation-supervised encoder — does Corr(Γ, IoU) rise? If not, the instrument itself is suspect.</li>
+      <li><b>Which sub-module is patched</b> — residual stream, attention output, or MLP output — and does the correlation differ across them?</li>
+      <li><b>What do high-Γ / low-IoU tokens encode?</b> Register tokens? Attention sinks? Background-scene globals? Clustering would turn a negative result into a mechanistic account.</li>
+      <li><b>Does weak alignment predict failures?</b> Do low-Corrr samples correlate with referring-expression comprehension errors — connecting interpretability to task behaviour?</li>
+    </ol>
+  </section>
+
+  <footer class="foot">
+    <a class="src" href="./2608.10758.md">↗ Markdown source</a>
+    <span class="meta">2608.10758 · generated from source markdown · not browser-verified</span>
+  </footer>
+
+</main>
+
+</body>
+</html>

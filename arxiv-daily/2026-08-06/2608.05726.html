@@ -1,0 +1,494 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>2608.05726 — RNG Debias for LLM-as-a-Judge</title>
+<style>
+  :root{
+    --paper:#F6F2EA;
+    --paper-2:#EFE9DD;
+    --ink:#171512;
+    --ink-soft:#4A4540;
+    --ink-mute:#8A8278;
+    --rule:#D9D1C2;
+    --accent:#BE3A0E;       /* burnt vermillion — single accent */
+    --accent-soft:#F2D9CC;
+    --good:#2F6B3E;
+    --bad:#8A2A12;
+    --maxw:min(95vw,1100px);
+    --serif:"Iowan Old Style","Palatino Linotype",Palatino,"Book Antiqua",Georgia,"Times New Roman",serif;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI","Helvetica Neue",Helvetica,Arial,sans-serif;
+    --mono:"SF Mono","JetBrains Mono","Fira Code",Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    background:var(--paper);
+    color:var(--ink);
+    font-family:var(--sans);
+    font-size:16px;
+    line-height:1.55;
+    -webkit-font-smoothing:antialiased;
+    text-rendering:optimizeLegibility;
+  }
+  /* faint paper grain */
+  body::before{
+    content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
+    background-image:radial-gradient(rgba(23,21,18,.035) 1px,transparent 1px);
+    background-size:3px 3px;mix-blend-mode:multiply;
+  }
+  a{color:var(--accent);text-decoration:none}
+  a:hover{text-decoration:underline;text-underline-offset:3px}
+
+  /* ---- fixed nav ---- */
+  .topnav{
+    position:fixed;top:14px;left:14px;z-index:50;
+    background:var(--ink);color:var(--paper);
+    padding:8px 13px;border-radius:2px;
+    font-size:12.5px;letter-spacing:.02em;
+    box-shadow:0 6px 18px -8px rgba(0,0,0,.4);
+    transition:background .15s;
+  }
+  .topnav a{color:inherit}
+  .topnav:hover{background:var(--accent)}
+
+  .wrap{
+    position:relative;z-index:1;
+    max-width:var(--maxw);
+    margin:0 auto;
+    padding:64px 28px 80px;
+  }
+
+  /* ---- meta strip ---- */
+  .meta{
+    display:flex;flex-wrap:wrap;gap:10px 18px;align-items:baseline;
+    font-size:12px;letter-spacing:.14em;text-transform:uppercase;
+    color:var(--ink-mute);
+    border-bottom:1px solid var(--rule);
+    padding-bottom:14px;margin-bottom:30px;
+  }
+  .meta .id{font-family:var(--mono);color:var(--accent);letter-spacing:.04em}
+  .meta .dot{color:var(--rule)}
+
+  /* ---- hero ---- */
+  .hero{margin-bottom:46px}
+  .hero h1{
+    font-family:var(--serif);
+    font-weight:600;
+    font-size:clamp(22px,3vw,30px);
+    line-height:1.18;
+    letter-spacing:-.01em;
+    margin:0 0 22px;
+    max-width:42ch;
+  }
+  .authors{font-size:13.5px;color:var(--ink-soft);margin-bottom:24px}
+  .authors .affil{color:var(--ink-mute);font-style:italic}
+
+  .kicker{
+    display:inline-block;
+    font-size:11px;letter-spacing:.22em;text-transform:uppercase;
+    color:var(--accent);font-weight:600;
+    margin-bottom:14px;
+    border-top:2px solid var(--accent);
+    padding-top:8px;
+  }
+  .finding{
+    font-family:var(--serif);
+    font-weight:500;
+    font-size:clamp(26px,4.6vw,46px);
+    line-height:1.1;
+    letter-spacing:-.018em;
+    margin:0 0 18px;
+    max-width:20ch;
+  }
+  .finding em{font-style:italic;color:var(--accent);font-weight:500}
+  .finding-attr{
+    font-size:12px;letter-spacing:.12em;text-transform:uppercase;
+    color:var(--ink-mute);
+  }
+
+  .chips{display:flex;flex-wrap:wrap;gap:7px;margin-top:26px}
+  .chip{
+    font-size:11.5px;letter-spacing:.04em;
+    padding:4px 10px;border:1px solid var(--rule);
+    border-radius:999px;color:var(--ink-soft);
+    background:var(--paper-2);
+  }
+
+  /* ---- asset row ---- */
+  .assets{
+    display:grid;
+    grid-template-columns:1.15fr 1fr 1fr;
+    gap:0;
+    border-top:2px solid var(--ink);
+    border-bottom:1px solid var(--rule);
+    margin-bottom:54px;
+  }
+  .asset{padding:24px 22px 26px;border-right:1px solid var(--rule);position:relative}
+  .asset:last-child{border-right:none}
+  .asset .label{
+    font-size:10.5px;letter-spacing:.2em;text-transform:uppercase;
+    color:var(--ink-mute);font-weight:600;margin-bottom:14px;
+  }
+  .metric .big{
+    font-family:var(--serif);
+    font-weight:600;
+    font-size:clamp(48px,8vw,76px);
+    line-height:.92;letter-spacing:-.03em;
+    color:var(--accent);
+    margin:2px 0 6px;
+  }
+  .metric .unit{font-size:14px;color:var(--ink-soft);letter-spacing:.02em}
+  .metric .ctx{font-size:13px;color:var(--ink-soft);margin-top:12px;max-width:30ch}
+  .metric .ctx b{color:var(--ink)}
+  .matters p{font-size:14.5px;line-height:1.5;color:var(--ink);margin:0;font-family:var(--serif)}
+  .edge{
+    background:linear-gradient(180deg,transparent,rgba(190,58,14,.04));
+  }
+  .edge p{font-size:14px;line-height:1.5;margin:0;color:var(--ink)}
+  .edge .mark{
+    position:absolute;top:24px;right:22px;
+    font-family:var(--serif);font-size:22px;color:var(--accent);line-height:1;
+  }
+
+  /* ---- section heads ---- */
+  .sec-head{
+    display:flex;align-items:baseline;gap:14px;
+    margin:0 0 22px;
+  }
+  .sec-head .num{
+    font-family:var(--mono);font-size:12px;color:var(--accent);
+    letter-spacing:.06em;
+  }
+  .sec-head h2{
+    font-family:var(--serif);font-weight:600;
+    font-size:clamp(20px,2.6vw,26px);
+    margin:0;letter-spacing:-.01em;
+  }
+  section{margin-bottom:54px}
+
+  /* ---- methodology stages ---- */
+  .stages{
+    display:grid;grid-template-columns:repeat(3,1fr);gap:18px;
+    counter-reset:stage;
+  }
+  .stage{
+    background:var(--paper-2);
+    border-top:3px solid var(--ink);
+    padding:18px 18px 20px;
+    position:relative;
+  }
+  .stage .tag{
+    font-family:var(--mono);font-size:11px;color:var(--accent);
+    letter-spacing:.08em;margin-bottom:8px;
+  }
+  .stage h3{
+    font-family:var(--serif);font-weight:600;font-size:16.5px;
+    margin:0 0 8px;line-height:1.25;
+  }
+  .stage p{font-size:13px;color:var(--ink-soft);margin:0;line-height:1.5}
+  .stage .formula{
+    font-family:var(--mono);font-size:12px;
+    background:var(--paper);border:1px solid var(--rule);
+    padding:6px 9px;margin-top:10px;display:inline-block;
+    color:var(--ink);
+  }
+
+  /* ---- results / comparison viz ---- */
+  .results-grid{
+    display:grid;grid-template-columns:1.3fr 1fr;gap:34px;align-items:start;
+  }
+  .viz{background:var(--paper-2);padding:22px 22px 18px;border:1px solid var(--rule)}
+  .viz h4{
+    font-family:var(--serif);font-weight:600;font-size:15px;margin:0 0 4px;
+  }
+  .viz .sub{font-size:11.5px;color:var(--ink-mute);margin-bottom:18px;letter-spacing:.02em}
+  .bar-row{margin-bottom:11px}
+  .bar-row .lbl{
+    display:flex;justify-content:space-between;align-items:baseline;
+    font-size:12px;margin-bottom:3px;
+  }
+  .bar-row .lbl .name{font-weight:600;letter-spacing:.01em}
+  .bar-row .lbl .val{font-family:var(--mono);color:var(--ink-soft)}
+  .bar-row .lbl .val.win{color:var(--accent);font-weight:700}
+  .bar-track{height:9px;background:var(--paper);border:1px solid var(--rule)}
+  .bar-fill{height:100%;background:var(--ink-mute)}
+  .bar-fill.win{background:var(--accent)}
+  .viz-note{font-size:11px;color:var(--ink-mute);margin-top:12px;line-height:1.4}
+
+  .highlights ul{margin:0;padding-left:0;list-style:none}
+  .highlights li{
+    font-size:13.5px;line-height:1.5;color:var(--ink);
+    padding:10px 0 10px 16px;border-bottom:1px solid var(--rule);
+    position:relative;
+  }
+  .highlights li:last-child{border-bottom:none}
+  .highlights li::before{
+    content:"";position:absolute;left:0;top:18px;
+    width:7px;height:7px;background:var(--accent);
+  }
+  .highlights li b{color:var(--ink)}
+
+  /* ---- strengths / limitations split ---- */
+  .split{
+    display:grid;grid-template-columns:1fr 1fr;gap:0;
+    border:1px solid var(--rule);
+  }
+  .split .col{padding:22px 22px 24px}
+  .split .col:first-child{border-right:1px solid var(--rule);background:var(--paper-2)}
+  .split h3{
+    font-family:var(--serif);font-weight:600;font-size:17px;margin:0 0 14px;
+    display:flex;align-items:center;gap:8px;
+  }
+  .split .str h3 .glyph{color:var(--good)}
+  .split .lim h3 .glyph{color:var(--bad)}
+  .split ul{margin:0;padding-left:15px}
+  .split li{font-size:13px;line-height:1.5;color:var(--ink-soft);margin-bottom:10px}
+  .split li:last-child{margin-bottom:0}
+  .split li b{color:var(--ink)}
+
+  /* ---- questions ---- */
+  .qlist{display:grid;grid-template-columns:1fr 1fr;gap:14px 28px;counter-reset:q}
+  .qlist .q{
+    counter-increment:q;padding:14px 0 14px 38px;position:relative;
+    border-top:1px solid var(--rule);
+  }
+  .qlist .q::before{
+    content:counter(q,decimal-leading-zero);
+    position:absolute;left:0;top:14px;
+    font-family:var(--mono);font-size:12px;color:var(--accent);letter-spacing:.04em;
+  }
+  .qlist .q p{margin:0;font-size:13.5px;line-height:1.5;color:var(--ink)}
+
+  /* ---- footer ---- */
+  .foot{
+    margin-top:64px;padding-top:20px;border-top:2px solid var(--ink);
+    display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;
+    font-size:12px;color:var(--ink-mute);letter-spacing:.02em;
+  }
+  .foot .src{
+    font-family:var(--mono);
+    border:1px solid var(--ink);padding:7px 12px;color:var(--ink);
+  }
+  .foot .src:hover{background:var(--ink);color:var(--paper);text-decoration:none}
+
+  /* ---- responsive ---- */
+  @media (max-width:880px){
+    .assets{grid-template-columns:1fr}
+    .asset{border-right:none;border-bottom:1px solid var(--rule)}
+    .stages{grid-template-columns:1fr}
+    .results-grid{grid-template-columns:1fr;gap:28px}
+    .split{grid-template-columns:1fr}
+    .split .col:first-child{border-right:none;border-bottom:1px solid var(--rule)}
+    .qlist{grid-template-columns:1fr}
+    .wrap{padding:56px 20px 60px}
+    .topnav{top:10px;left:10px;font-size:11.5px}
+  }
+
+  /* ---- entrance ---- */
+  @media (prefers-reduced-motion:no-preference){
+    .hero,.assets>*,section{animation:rise .5s cubic-bezier(.2,.7,.2,1) both}
+    .assets>*:nth-child(2){animation-delay:.06s}
+    .assets>*:nth-child(3){animation-delay:.12s}
+    section:nth-of-type(2){animation-delay:.1s}
+    section:nth-of-type(3){animation-delay:.14s}
+    @keyframes rise{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+  }
+</style>
+</head>
+<body>
+
+<nav class="topnav"><a href="./index.html">↩ Today's digest</a></nav>
+
+<div class="wrap">
+
+  <!-- meta -->
+  <div class="meta">
+    <span class="id">arXiv:2608.05726</span>
+    <span class="dot">·</span>
+    <span>06 Aug 2026</span>
+    <span class="dot">·</span>
+    <span>cs.CL</span>
+    <span class="dot">·</span>
+    <span>JAIST</span>
+  </div>
+
+  <!-- HERO -->
+  <header class="hero">
+    <div class="kicker">Key finding</div>
+    <p class="finding">Turn the LLM's <em>inability</em> to roll a fair die into a logit-level fix that debiases its scores — no labels needed.</p>
+    <div class="finding-attr">RNG Debias · Deb-R / Deb-T</div>
+
+    <h1>Mitigating Scoring Bias in LLM-as-a-Judge via Random Number Generation</h1>
+    <p class="authors">
+      Yuma Asato · Kiyoaki Shirai · Natthawut Kertkeidkachorn
+      &nbsp;— <span class="affil">Japan Advanced Institute of Science and Technology</span>
+    </p>
+
+    <div class="chips">
+      <span class="chip">LLM-as-a-Judge</span>
+      <span class="chip">scoring bias</span>
+      <span class="chip">debiasing</span>
+      <span class="chip">random number generation</span>
+      <span class="chip">logit correction</span>
+      <span class="chip">training-free</span>
+    </div>
+  </header>
+
+  <!-- ASSET ROW -->
+  <div class="assets">
+    <div class="asset metric">
+      <div class="label">Key metric</div>
+      <div class="big">52.6<span style="font-size:.5em">%</span></div>
+      <div class="unit">MSE reduction on SummEval</div>
+      <p class="ctx">Average MSE falls <b>2.15 → 1.02</b> (Deb-T), beating CC's 1.40 and DC's 1.94. STS-B SDD drops <b>6.44 → 1.80</b>.</p>
+    </div>
+
+    <div class="asset matters">
+      <div class="label">Why this matters</div>
+      <p>A label-free, plug-in debiaser that bolts onto G-Eval / Prometheus — making open-weight LLM judges track human agreement more closely, and automated leaderboards more trustworthy.</p>
+    </div>
+
+    <div class="asset edge">
+      <div class="label">Critical edge</div>
+      <span class="mark">⚠</span>
+      <p>No significance testing, and the dev-tuned <span style="font-family:var(--mono)">λ</span> carries an unresolved generalisation gap — plus the method can <b>amplify</b> bias on LLM-Alignment where the model's mode already sits on low-bias "3".</p>
+    </div>
+  </div>
+
+  <!-- METHODOLOGY -->
+  <section>
+    <div class="sec-head"><span class="num">01</span><h2>How it works</h2></div>
+    <div class="stages">
+      <div class="stage">
+        <div class="tag">STAGE 1 · PROBE</div>
+        <h3>Measure latent number bias</h3>
+        <p>Ask the LLM to "generate a random integer in [min,max]" via 100 paraphrases; keep the top-10 by lowest perplexity. Average per-token probabilities into P<sub>random</sub>(y).</p>
+        <span class="formula">floor p<sub>min</sub> = 1e−12</span>
+      </div>
+      <div class="stage">
+        <div class="tag">STAGE 2 · ENCODE</div>
+        <h3>Build the correction term</h3>
+        <p>Deviation from uniform becomes a log-space bias term — negative for over-generated numbers, positive for under-generated ones. Deb-T prepends the task instruction to capture task-specific bias.</p>
+        <span class="formula">B(y) = log U(y) − log P<sub>random</sub>(y)</span>
+      </div>
+      <div class="stage">
+        <div class="tag">STAGE 3 · CORRECT</div>
+        <h3>Revise logits at scoring time</h3>
+        <p>Apply λ·B(y) to the scoring logits and take the G-Eval probability-weighted sum. Zero-shot, training-free; λ tuned on dev (search 0.1–1.0); temp fixed at 0.2.</p>
+        <span class="formula">P̃(y) = softmax(l(y) + λ·B(y))</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- RESULTS -->
+  <section>
+    <div class="sec-head"><span class="num">02</span><h2>Results</h2></div>
+    <div class="results-grid">
+      <div class="viz">
+        <h4>Lower is better · SummEval average MSE</h4>
+        <div class="sub">5-fold CV, coherence scoring, averaged over 5 open-weight LLMs</div>
+
+        <div class="bar-row">
+          <div class="lbl"><span class="name">Vanilla</span><span class="val">2.15</span></div>
+          <div class="bar-track"><div class="bar-fill" style="width:100%"></div></div>
+        </div>
+        <div class="bar-row">
+          <div class="lbl"><span class="name">DC (Distribution Cal.)</span><span class="val">1.94</span></div>
+          <div class="bar-track"><div class="bar-fill" style="width:90.2%"></div></div>
+        </div>
+        <div class="bar-row">
+          <div class="lbl"><span class="name">CC (Contextual Cal.)</span><span class="val">1.40</span></div>
+          <div class="bar-track"><div class="bar-fill" style="width:65.1%"></div></div>
+        </div>
+        <div class="bar-row">
+          <div class="lbl"><span class="name">Deb-T (ours)</span><span class="val win">1.02</span></div>
+          <div class="bar-track"><div class="bar-fill win" style="width:47.4%"></div></div>
+        </div>
+
+        <div style="height:18px"></div>
+        <h4 style="margin-top:6px">Lower is better · STS-B average SDD (KL divergence)</h4>
+        <div class="sub">New metric: avg KL between predicted &amp; ground-truth score distributions</div>
+
+        <div class="bar-row">
+          <div class="lbl"><span class="name">Vanilla</span><span class="val">6.44</span></div>
+          <div class="bar-track"><div class="bar-fill" style="width:100%"></div></div>
+        </div>
+        <div class="bar-row">
+          <div class="lbl"><span class="name">CC</span><span class="val">5.59</span></div>
+          <div class="bar-track"><div class="bar-fill" style="width:86.8%"></div></div>
+        </div>
+        <div class="bar-row">
+          <div class="lbl"><span class="name">DC</span><span class="val">4.22</span></div>
+          <div class="bar-track"><div class="bar-fill" style="width:65.5%"></div></div>
+        </div>
+        <div class="bar-row">
+          <div class="lbl"><span class="name">Deb-R (ours)</span><span class="val win">1.80</span></div>
+          <div class="bar-track"><div class="bar-fill win" style="width:27.9%"></div></div>
+        </div>
+
+        <p class="viz-note">Bars scaled to the worst value in each group. Deb-T/Deb-R shown in accent. DC sees ground-truth dev labels; the proposed method is label-free.</p>
+      </div>
+
+      <div class="highlights">
+        <ul>
+          <li><b>STS-B Spearman 61.9 → 71.5</b> (Deb-T), beating CC (68.1) and DC (61.0); weakest evaluator Llama-3.1-8B lifted from 7.45 to 47.0.</li>
+          <li><b>Deb-T &gt; Deb-R</b> on most settings — confirming latent bias is task- and score-range-dependent (Qwen/Mistral cluster on "1"; Gemma spikes at both ends).</li>
+          <li><b>SDD metric</b> catches distribution-level gains that Spearman/MSE miss — where the method wins most decisively.</li>
+          <li><b>One honest failure:</b> on LLM-Alignment / HelpSteer2 the method barely helps and can inflate the already-dominant "3".</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- STRENGTHS / LIMITATIONS -->
+  <section>
+    <div class="sec-head"><span class="num">03</span><h2>Strengths &amp; limitations</h2></div>
+    <div class="split">
+      <div class="col str">
+        <h3><span class="glyph">+</span> Strengths</h3>
+        <ul>
+          <li><b>Label-free at measurement time</b> — needs only the score range; a one-line logit edit bolts onto any decoder judge.</li>
+          <li><b>Figure 3 visualisation</b> of per-model, per-task bias is genuinely informative (Qwen/Mistral's "1"-fixation; range effect).</li>
+          <li><b>SDD metric</b> surfaces distribution gains rank/point metrics miss.</li>
+          <li><b>Candid failure reporting</b> on LLM-Alignment with a mechanistic explanation, not a hand-wave.</li>
+        </ul>
+      </div>
+      <div class="col lim">
+        <h3><span class="glyph">−</span> Limitations</h3>
+        <ul>
+          <li><b>No significance testing</b>; several headline margins are small and over only five models.</li>
+          <li><b>λ generalisation gap</b> (§4.5): best dev λ ≠ best test λ — acknowledged, unresolved.</li>
+          <li><b>Zero-shot only</b>; few-shot / CoT prompts (which shift calibration) deferred.</li>
+          <li><b>Scale untested</b>: models 7B–14B only; no read on frontier judges already &gt;80 Spearman.</li>
+          <li><b>Can backfire</b> when the mode sits on low-bias "3"; no per-sample λ gating.</li>
+          <li><b>RNG prompt set</b> is ChatGPT-o3-generated; only meta-prompt disclosed; T<sub>p</sub>=10 "intuitively set."</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- QUESTIONS -->
+  <section>
+    <div class="sec-head"><span class="num">04</span><h2>Open questions</h2></div>
+    <div class="qlist">
+      <div class="q"><p>Would per-sample adaptive λ (gated to 0 when the model is already confident) rescue the LLM-Alignment failure — estimable without ground truth?</p></div>
+      <div class="q"><p>Does latent-number bias transfer: can a cheap proxy task's bias correct an expensive target task, or must Deb-T be re-measured per task?</p></div>
+      <div class="q"><p>How does the correction interact with few-shot / chain-of-thought judging prompts, which shift both accuracy and calibration?</p></div>
+      <div class="q"><p>Do frontier closed judges (GPT-4 / Claude-class) show the same uniform-deviation, and does correction still help once Spearman &gt; 80?</p></div>
+      <div class="q"><p>Can B(y) be learned jointly with a small reward model rather than Monte-Carlo RNG — smoothing the dev/test λ gap?</p></div>
+      <div class="q"><p>Is SDD a better proxy than Spearman for downstream ranking usefulness, and does it track per-sample human agreement?</p></div>
+    </div>
+  </section>
+
+  <!-- FOOTER -->
+  <div class="foot">
+    <span>Asato, Shirai &amp; Kertkeidkachorn · JAIST · 2026 · dashboard from source summary</span>
+    <a class="src" href="./2608.05726.md">↗ Markdown source</a>
+  </div>
+
+</div>
+
+</body>
+</html>

@@ -1,0 +1,539 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>INT8 on Blackwell Ultra (B300) — Audit Brief · 2608.11693</title>
+<style>
+  :root{
+    --paper:#f4f0e6;
+    --paper-2:#ece5d5;
+    --paper-3:#e3dbc7;
+    --ink:#1c1814;
+    --ink-2:#4a4339;
+    --ink-3:#7a7060;
+    --rule:#d8cfbd;
+    --rule-strong:#b8ac94;
+    --accent:#b45309;      /* amber / ochre — audit-finding */
+    --accent-2:#92400e;
+    --accent-soft:#f3e4cf;
+    --danger:#991b1b;      /* oxblood — critical edge */
+    --danger-bg:#f6e7e3;
+    --ok:#4d7c0f;          /* olive — parity / positive */
+    --code-bg:#e6dec9;
+
+    --serif:"Iowan Old Style","Palatino Linotype",Palatino,"Hoefler Text","URW Palladio L",Georgia,serif;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Noto Sans CJK SC","Microsoft YaHei",sans-serif;
+    --mono:"JetBrains Mono","SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:var(--paper);
+    color:var(--ink);
+    font-family:var(--sans);
+    font-size:16px;
+    line-height:1.65;
+    -webkit-font-smoothing:antialiased;
+    text-rendering:optimizeLegibility;
+  }
+  /* faint newsprint grain via layered repeating gradient — no blobs, just texture */
+  body::before{
+    content:"";position:fixed;inset:0;pointer-events:none;z-index:0;opacity:.35;
+    background-image:repeating-linear-gradient(0deg,rgba(28,24,20,.018) 0 1px,transparent 1px 3px);
+  }
+  a{color:var(--accent-2);text-decoration:none;border-bottom:1px solid var(--rule-strong);}
+  a:hover{color:var(--accent);border-color:var(--accent);}
+
+  /* ───── fixed nav ───── */
+  .nav{
+    position:fixed;top:14px;left:16px;z-index:20;
+    font-family:var(--mono);font-size:12.5px;letter-spacing:.02em;
+    background:var(--paper);border:1px solid var(--rule-strong);
+    padding:7px 12px;border-radius:2px;
+    box-shadow:2px 2px 0 var(--ink);
+  }
+  .nav a{border:none;color:var(--ink);font-weight:600;}
+  .nav a:hover{color:var(--accent);}
+
+  .wrap{
+    position:relative;z-index:1;
+    max-width:min(95vw,1100px);
+    margin:0 auto;
+    padding:64px 28px 56px;
+  }
+
+  /* ───── hero ───── */
+  .hero{
+    border-top:3px solid var(--ink);
+    border-bottom:1px solid var(--rule-strong);
+    padding:30px 0 34px;
+    margin-bottom:30px;
+  }
+  .kicker{
+    font-family:var(--mono);font-size:11.5px;letter-spacing:.18em;
+    text-transform:uppercase;color:var(--ink-3);
+    display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin-bottom:26px;
+  }
+  .kicker .tag-accent{color:var(--accent-2);font-weight:700;}
+  .kicker .dot{width:5px;height:5px;background:var(--ink-3);border-radius:50%;display:inline-block;}
+
+  .finding{
+    font-family:var(--serif);
+    font-style:italic;
+    font-weight:600;
+    font-size:clamp(2.1rem,6.4vw,4.6rem);
+    line-height:1.04;
+    letter-spacing:-.015em;
+    margin:0 0 22px;
+    color:var(--ink);
+    max-width:18ch;
+  }
+  .finding .sep{color:var(--accent);font-style:normal;}
+  .finding .hl{
+    background:linear-gradient(180deg,transparent 62%,var(--accent-soft) 62%);
+    padding:0 .06em;
+  }
+
+  .sub-finding{
+    font-family:var(--serif);
+    font-size:clamp(1.02rem,1.7vw,1.22rem);
+    line-height:1.5;
+    color:var(--ink-2);
+    max-width:62ch;
+    margin:0 0 30px;
+  }
+  .sub-finding b{color:var(--ink);font-weight:600;}
+
+  .meta{
+    display:flex;flex-wrap:wrap;align-items:baseline;gap:8px 18px;
+    font-size:14px;color:var(--ink-2);
+    border-top:1px dashed var(--rule-strong);padding-top:16px;
+  }
+  .meta .title{
+    font-family:var(--serif);font-style:italic;font-size:15px;color:var(--ink);
+  }
+  .meta .sep{color:var(--rule-strong);}
+  .meta .who{font-weight:600;color:var(--ink);}
+  .meta .date{font-family:var(--mono);font-size:12.5px;color:var(--ink-3);}
+
+  .chips{display:flex;flex-wrap:wrap;gap:7px;margin-top:14px;}
+  .chip{
+    font-family:var(--mono);font-size:11px;letter-spacing:.04em;
+    padding:3px 9px;border:1px solid var(--rule-strong);border-radius:20px;
+    color:var(--ink-2);background:var(--paper-2);
+  }
+  .chip.primary{border-color:var(--accent);color:var(--accent-2);background:var(--accent-soft);}
+
+  /* ───── asset row ───── */
+  .assets{
+    display:grid;grid-template-columns:1.15fr 1fr 1fr;gap:18px;margin-bottom:34px;
+  }
+  .card{
+    background:var(--paper-2);
+    border:1px solid var(--rule-strong);
+    padding:22px 22px 24px;
+    position:relative;
+    opacity:0;transform:translateY(10px);
+    animation:rise .6s cubic-bezier(.2,.7,.3,1) forwards;
+  }
+  .assets .card:nth-child(1){animation-delay:.05s;}
+  .assets .card:nth-child(2){animation-delay:.15s;}
+  .assets .card:nth-child(3){animation-delay:.25s;}
+  @keyframes rise{to{opacity:1;transform:none;}}
+
+  .card-label{
+    font-family:var(--mono);font-size:10.5px;letter-spacing:.16em;
+    text-transform:uppercase;color:var(--ink-3);margin-bottom:12px;
+    display:flex;align-items:center;gap:8px;
+  }
+  .card-label .n{
+    display:inline-grid;place-items:center;width:18px;height:18px;
+    background:var(--ink);color:var(--paper);font-size:10px;border-radius:2px;
+    font-family:var(--mono);letter-spacing:0;
+  }
+
+  /* metric card */
+  .metric .num{
+    font-family:var(--mono);
+    font-weight:700;
+    font-size:clamp(3.4rem,9vw,5.6rem);
+    line-height:.95;letter-spacing:-.04em;
+    color:var(--accent);
+    margin:2px 0 4px;
+  }
+  .metric .caption{
+    font-size:13.5px;color:var(--ink-2);line-height:1.45;margin-bottom:16px;
+  }
+  .metric .caption b{color:var(--ink);}
+  .bars{display:flex;flex-direction:column;gap:7px;border-top:1px dashed var(--rule);padding-top:13px;}
+  .bar-row{display:grid;grid-template-columns:54px 1fr 52px;align-items:center;gap:10px;font-size:12px;}
+  .bar-row .gpu{font-family:var(--mono);color:var(--ink-3);}
+  .bar-track{height:9px;background:var(--paper-3);border:1px solid var(--rule);position:relative;}
+  .bar-fill{height:100%;background:var(--accent);}
+  .bar-fill.parity{background:var(--ok);}
+  .bar-row .ratio{font-family:var(--mono);text-align:right;color:var(--ink-2);font-weight:600;}
+  .bar-row .ratio.bad{color:var(--accent);}
+  .bar-note{font-family:var(--mono);font-size:10.5px;color:var(--ink-3);margin-top:9px;letter-spacing:.02em;}
+
+  /* why-this-matters card */
+  .matter .body-txt{
+    font-family:var(--serif);font-size:1.16rem;line-height:1.42;color:var(--ink);
+  }
+  .matter .body-txt em{color:var(--accent-2);font-style:italic;}
+
+  /* critical edge card */
+  .edge{background:var(--danger-bg);border-color:#d9a59c;}
+  .edge .card-label{color:var(--danger);}
+  .edge .card-label .n{background:var(--danger);}
+  .edge .body-txt{font-family:var(--serif);font-size:1.06rem;line-height:1.45;color:#4a1414;}
+  .edge .body-txt b{color:var(--danger);}
+  .edge .corner{
+    position:absolute;top:14px;right:16px;
+    font-family:var(--mono);font-size:10px;letter-spacing:.18em;
+    color:var(--danger);opacity:.7;
+  }
+
+  /* ───── body grid ───── */
+  .body-grid{
+    display:grid;grid-template-columns:1fr 1fr;gap:18px;
+  }
+  .full{grid-column:1 / -1;}
+  .body-grid .card{background:var(--paper);}
+  .body-grid .card h3{
+    font-family:var(--serif);font-style:italic;font-weight:600;
+    font-size:1.42rem;line-height:1.15;margin:2px 0 14px;color:var(--ink);
+  }
+  .body-grid .card p{margin:0 0 11px;color:var(--ink-2);font-size:14.5px;line-height:1.6;}
+  .body-grid .card p:last-child{margin-bottom:0;}
+
+  /* methodology two-column inner */
+  .meth-inner{display:grid;grid-template-columns:1.25fr 1fr;gap:24px;align-items:start;}
+  .meth-steps{list-style:none;margin:0;padding:0;counter-reset:s;border-left:1px solid var(--rule-strong);}
+  .meth-steps li{
+    counter-increment:s;position:relative;padding:4px 0 4px 26px;font-size:13px;line-height:1.45;color:var(--ink-2);
+  }
+  .meth-steps li::before{
+    content:counter(s,decimal-leading-zero);
+    position:absolute;left:-1px;top:4px;transform:translateX(-50%);
+    font-family:var(--mono);font-size:10.5px;font-weight:700;
+    background:var(--paper);color:var(--accent-2);padding:0 4px;
+  }
+  .meth-steps li b{color:var(--ink);font-weight:600;}
+
+  /* results table */
+  table.audit{
+    width:100%;border-collapse:collapse;font-size:13px;margin-top:4px;
+  }
+  table.audit thead th{
+    text-align:left;font-family:var(--mono);font-size:10.5px;letter-spacing:.1em;
+    text-transform:uppercase;color:var(--ink-3);
+    border-bottom:2px solid var(--ink);padding:7px 10px 7px 0;
+  }
+  table.audit tbody td{
+    border-bottom:1px solid var(--rule);padding:10px 10px 10px 0;
+    vertical-align:top;color:var(--ink-2);line-height:1.4;
+  }
+  table.audit tbody tr:hover{background:var(--paper-2);}
+  table.audit td.layer{font-family:var(--mono);font-weight:700;color:var(--ink);white-space:nowrap;font-size:12px;}
+  table.audit td.status b{color:var(--accent-2);}
+  .res-stats{
+    display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-top:18px;
+    border-top:1px dashed var(--rule-strong);padding-top:16px;
+  }
+  .stat .k{font-family:var(--mono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3);margin-bottom:4px;}
+  .stat .v{font-family:var(--mono);font-weight:700;font-size:1.05rem;color:var(--ink);}
+  .stat .v .bad{color:var(--accent);}
+  .stat .d{font-size:11.5px;color:var(--ink-2);margin-top:2px;line-height:1.35;}
+
+  /* strengths / limitations */
+  .panel-list{list-style:none;margin:0;padding:0;}
+  .panel-list li{
+    position:relative;padding:7px 0 7px 22px;font-size:13.5px;line-height:1.5;color:var(--ink-2);
+    border-bottom:1px dashed var(--rule);
+  }
+  .panel-list li:last-child{border-bottom:none;}
+  .panel-list li::before{
+    position:absolute;left:0;top:7px;font-family:var(--mono);font-weight:700;font-size:13px;
+  }
+  .strengths .panel-list li::before{content:"+";color:var(--ok);}
+  .limits .panel-list li::before{content:"–";color:var(--danger);}
+
+  /* questions */
+  .q-list{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:1fr 1fr;gap:8px 24px;}
+  .q-list li{
+    counter-increment:q;position:relative;padding-left:28px;font-size:13px;line-height:1.45;color:var(--ink-2);
+  }
+  .q-list{counter-reset:q;}
+  .q-list li::before{
+    content:"Q" counter(q);position:absolute;left:0;top:0;
+    font-family:var(--mono);font-size:10.5px;font-weight:700;color:var(--accent-2);
+  }
+
+  /* inline code tokens */
+  .tok{
+    font-family:var(--mono);font-size:.88em;
+    background:var(--code-bg);padding:.05em .36em;border-radius:2px;
+    color:var(--ink);border:1px solid var(--rule);white-space:nowrap;
+  }
+
+  /* footer */
+  footer{
+    margin-top:40px;padding-top:18px;border-top:3px double var(--ink);
+    display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;
+    font-family:var(--mono);font-size:12px;color:var(--ink-3);
+  }
+  footer a{font-weight:600;}
+
+  /* ───── responsive ───── */
+  @media (max-width:920px){
+    .meth-inner{grid-template-columns:1fr;gap:16px;}
+    .res-stats{grid-template-columns:1fr;}
+    .q-list{grid-template-columns:1fr;}
+  }
+  @media (max-width:720px){
+    .wrap{padding:60px 18px 40px;}
+    .assets{grid-template-columns:1fr;}
+    .body-grid{grid-template-columns:1fr;}
+    .finding{max-width:none;}
+    .nav{font-size:11.5px;padding:6px 10px;}
+  }
+  @media (prefers-reduced-motion:reduce){
+    .card{opacity:1;transform:none;animation:none;}
+  }
+</style>
+</head>
+<body>
+
+<nav class="nav" aria-label="Back navigation">
+  <a href="./index.html">↩ Today's digest</a>
+</nav>
+
+<main class="wrap">
+
+  <!-- ════════ HERO ════════ -->
+  <header class="hero">
+    <div class="kicker">
+      <span class="tag-accent">AUDIT BRIEF</span>
+      <span class="dot"></span>
+      <span>arXiv 2608.11693</span>
+      <span class="dot"></span>
+      <span>Technical Report · Aug 2026</span>
+      <span class="dot"></span>
+      <span>Source-level, measurement-free</span>
+    </div>
+
+    <h1 class="finding">
+      In the datasheet.<span class="sep"> · </span><span class="hl">Carved out of the ISA.</span>
+    </h1>
+
+    <p class="sub-finding">
+      <b>INT8 W8A8 is undeployable by default on NVIDIA Blackwell Ultra (B300)</b> — a four-layer
+      silent exit across <b>spec</b>, <b>PTX ISA</b>, <b>CUTLASS</b>, and the <b>vLLM / SGLang</b> serving engines.
+    </p>
+
+    <div class="meta">
+      <a class="title" href="https://arxiv.org/abs/2608.11693" target="_blank" rel="noopener">"Spec Sheets Are Not Kernels: An ISA- and Source-Level Audit of INT8 Availability on NVIDIA Blackwell Ultra" ↗</a>
+      <span class="sep">·</span>
+      <span class="who">Teng-Ruei Chen</span>
+      <span class="sep">·</span>
+      <span class="date">2026-08-12</span>
+      <div class="chips">
+        <span class="chip primary">GPU architecture</span>
+        <span class="chip">Quantization</span>
+        <span class="chip">INT8 W8A8</span>
+        <span class="chip">LLM inference</span>
+        <span class="chip">Hardware audit</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- ════════ ASSET ROW ════════ -->
+  <section class="assets" aria-label="Headline assets">
+
+    <!-- KEY METRIC -->
+    <article class="card metric">
+      <div class="card-label"><span class="n">1</span> Key metric · spec ratio</div>
+      <div class="num">~30:1</div>
+      <div class="caption">
+        <b>FP8 : INT8</b> dense tensor-core peak on B300
+        (<span class="tok">4.5 PFLOPS</span> FP8 vs <span class="tok">150 TOPS</span> INT8).
+        The entire discontinuity is B200 → B300.
+      </div>
+      <div class="bars" aria-label="FP8:INT8 parity by generation">
+        <div class="bar-row">
+          <span class="gpu">H200</span>
+          <span class="bar-track"><span class="bar-fill parity" style="width:100%"></span></span>
+          <span class="ratio">1 : 1</span>
+        </div>
+        <div class="bar-row">
+          <span class="gpu">B200</span>
+          <span class="bar-track"><span class="bar-fill parity" style="width:100%"></span></span>
+          <span class="ratio">1 : 1</span>
+        </div>
+        <div class="bar-row">
+          <span class="gpu">B300</span>
+          <span class="bar-track"><span class="bar-fill" style="width:3.3%"></span></span>
+          <span class="ratio bad">1 : 30</span>
+        </div>
+        <div class="bar-note">bar = INT8 peak relative to that GPU's FP8 peak</div>
+      </div>
+    </article>
+
+    <!-- WHY THIS MATTERS -->
+    <article class="card matter">
+      <div class="card-label"><span class="n">2</span> Why this matters</div>
+      <p class="body-txt">
+        Memory <em>capacity</em> transfers across an H200 → B300 migration;
+        INT8 <em>compute-path</em> planning silently does not — an asymmetry invisible in any single document.
+      </p>
+    </article>
+
+    <!-- CRITICAL EDGE -->
+    <article class="card edge">
+      <span class="corner">⚠ SCOPE LIMIT</span>
+      <div class="card-label"><span class="n">!</span> Critical edge</div>
+      <p class="body-txt">
+        <b>TensorRT-LLM</b> — the most widely deployed closed serving stack — is <b>excluded</b>.
+        A production shop on TRT-LLM cannot conclude from this audit whether its INT8 path works.
+      </p>
+    </article>
+
+  </section>
+
+  <!-- ════════ BODY GRID ════════ -->
+  <section class="body-grid">
+
+    <!-- METHODOLOGY -->
+    <article class="card methodology full">
+      <div class="card-label"><span class="n">M</span> Methodology</div>
+      <h3>A documentary, source-level audit — deliberately measurement-free.</h3>
+      <div class="meth-inner">
+        <div>
+          <p>
+            Every claim is <b>pinned to an artifact</b> and traced through four layers, not benchmarked.
+            The author explicitly reports no throughput, latency, or accuracy numbers — a companion
+            measurement study is "in preparation." The method is a layered trace, cross-checked against
+            <b>shipped release binaries</b> (not just dev branches), with full reproducibility
+            (URLs, commits, digests, access dates all 2026-08-11) centralized in Appendix A.
+          </p>
+          <p>
+            A functional reroute check on <span class="tok">sm_89</span> (Ada) confirms the Triton
+            escape hatch produces <b>identical greedy output</b> across three kernel configs — verifying
+            the mechanism, not its B300 throughput.
+          </p>
+        </div>
+        <ol class="meth-steps">
+          <li><b>Spec.</b> Per-GPU tensor-core peaks compared as FP8:INT8 ratios across H200 / B200 / B300.</li>
+          <li><b>ISA.</b> PTX v9.3 read for <span class="tok">.kind::i8</span> targets &amp; the four "except" exclusions.</li>
+          <li><b>Kernel lib.</b> CUTLASS <span class="tok">dcf215a</span> — SM103 INT8 UMMA guarded out; FP8 unconditional.</li>
+          <li><b>Serving.</b> vLLM <span class="tok">v0.27.1</span> &amp; SGLang <span class="tok">b20c375</span> build gates &amp; dispatch tables.</li>
+        </ol>
+      </div>
+    </article>
+
+    <!-- RESULTS -->
+    <article class="card results full">
+      <div class="card-label"><span class="n">R</span> Results · the four-layer exit</div>
+      <h3>Each layer's decision is locally rational. Combined, INT8 is factually unavailable.</h3>
+      <table class="audit">
+        <thead>
+          <tr><th>Layer</th><th>Pinned artifact</th><th>INT8 status on B300</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="layer">01 · Spec</td>
+            <td>Blackwell Ultra Datasheet</td>
+            <td class="status"><b>Listed</b>: 150 TOPS dense — but ~30:1 vs FP8 (was 1:1 on H200 &amp; B200).</td>
+          </tr>
+          <tr>
+            <td class="layer">02 · PTX ISA</td>
+            <td>PTX v9.3 / rev 8.8</td>
+            <td class="status"><span class="tok">.kind::i8</span> on sm_100a/101a/110a only — <b>sm_103a absent</b>; "except .kind::i8" ×4. FP4 extended in same revision.</td>
+          </tr>
+          <tr>
+            <td class="layer">03 · Kernel lib</td>
+            <td>CUTLASS <span class="tok">dcf215a</span></td>
+            <td class="status"><b>0</b> SM103 INT8 generators. <span class="tok">GenerateSM100()</span> guards INT8 UMMA out of any {100f,101f,103a} build; FP8 unconditional.</td>
+          </tr>
+          <tr>
+            <td class="layer">04 · vLLM</td>
+            <td>v0.27.1 (<span class="tok">6c95a641</span>)</td>
+            <td class="status">SM100 dispatch passes <span class="tok">nullptr</span> → <b>hard error at first forward</b>, after a full model load. <span class="tok">get_min_capability()</span>=75, so cc 10.3 passes every load-time check.</td>
+          </tr>
+          <tr>
+            <td class="layer">05 · SGLang</td>
+            <td><span class="tok">b20c375</span></td>
+            <td class="status"><span class="tok">int8_gemm_kernel.cu</span> arch tags stop at Sm90; INT8 tuning configs cover only A100 / A800 / H20 — vs FP8 already on B200/H100/H200/…</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="res-stats">
+        <div class="stat">
+          <div class="k">FP64 co-traveler</div>
+          <div class="v"><span class="bad">37 → 1.2</span> TFLOPS</div>
+          <div class="d">B200 → B300. Same ~30× factor — a coordinated integer/FP64 deprioritization toward FP4/FP8.</div>
+        </div>
+        <div class="stat">
+          <div class="k">Profiler landmine</div>
+          <div class="v">false-negative</div>
+          <div class="d">Grepping tcgen05 int instructions on sm_103 misclassifies native INT8 as a fallback. Reliable test: <span class="tok">sm__inst_executed_pipe_tensor_op_imma.sum</span> counter.</div>
+        </div>
+        <div class="stat">
+          <div class="k">Escape hatch</div>
+          <div class="v">Triton JIT</div>
+          <div class="d"><span class="tok">VLLM_DISABLED_KERNELS=CutlassInt8ScaledMMLinearKernel</span> reroutes — functional, throughput <b>unmeasured</b>.</div>
+        </div>
+      </div>
+    </article>
+
+    <!-- STRENGTHS / LIMITATIONS -->
+    <article class="card strengths">
+      <div class="card-label"><span class="n">+</span> Strengths</div>
+      <h3>Explanatory, not just descriptive.</h3>
+      <ul class="panel-list">
+        <li>ISA root cause (<span class="tok">.kind::i8</span> never on sm_103a) explains the software layers — not merely their symptoms.</li>
+        <li>Within-revision controlled contrast: FP4 extended to sm_103a in PTX 8.8, INT8 not — a clean argument against "oversight."</li>
+        <li>Disciplined pinned sourcing; cross-checks main commits against shipped release binaries.</li>
+        <li>Practical guardrails: IMMA-counter profiler criterion, ~1B smoke-test fixture, digest-pinning.</li>
+        <li>Honest disclaimers: no concealment narrative; the break is B200→B300, not Hopper→Blackwell.</li>
+      </ul>
+    </article>
+
+    <article class="card limits">
+      <div class="card-label"><span class="n">–</span> Limitations</div>
+      <h3>Real scope edges the author flags.</h3>
+      <ul class="panel-list">
+        <li><b>No performance measurements</b> by design — the Triton-reroute throughput question is open.</li>
+        <li><b>TensorRT-LLM</b> (most-deployed closed stack) is not audited.</li>
+        <li>Point-in-time findings on fast-moving repos; the audit caught a within-hours <span class="tok">:latest</span> drift (2→3 INT8 backends).</li>
+        <li>Single author; two author-local artifacts (marketplace snapshot, sm_89 run) not independently re-derivable.</li>
+        <li>Rubin-generation behavior out of scope; cannot predict future <span class="tok">.kind::i8</span> re-exposure.</li>
+      </ul>
+    </article>
+
+    <!-- QUESTIONS -->
+    <article class="card questions full">
+      <div class="card-label"><span class="n">?</span> Open questions for further exploration</div>
+      <ol class="q-list">
+        <li>Real Triton-reroute INT8 throughput on sm_103 vs FP8 / NVFP4 and legacy warp-level IMMA?</li>
+        <li>Does TensorRT-LLM ship a Blackwell INT8 GEMM — and does it emit IMMA or fall back to dequantize-to-BF16?</li>
+        <li>Have any SM103 INT8 generators or tuning configs landed in vLLM/SGLang/CUTLASS since 2026-08-11?</li>
+        <li>Is the ~30:1 ratio realized in either direction on B300 silicon — does FP8 hit 4.5 PFLOPS, IMMA even 150 TOPS?</li>
+        <li>Cost of the silent capacity-vs-compute asymmetry across a realistic H200→B300 mixed-precision migration?</li>
+        <li>Could a firmware/microcode update or future PTX revision re-expose <span class="tok">.kind::i8</span> on sm_103a without a respin?</li>
+      </ol>
+    </article>
+
+  </section>
+
+  <footer>
+    <span>Audit brief · distilled from the source summary</span>
+    <a href="./2608.11693.md">↗ Markdown source</a>
+  </footer>
+
+</main>
+
+</body>
+</html>

@@ -1,0 +1,427 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mitigating Scoring Bias in LLM-as-a-Judge via RNG · 2608.05726</title>
+<style>
+  :root{
+    --bg:#0e0f12;
+    --panel:#16181d;
+    --panel-2:#1c1f26;
+    --ink:#e8eaed;
+    --ink-dim:#9aa0a8;
+    --ink-faint:#5f656e;
+    --rule:#262a32;
+    --accent:#c9a227;   /* single accent: warm gold */
+    --accent-soft:rgba(201,162,39,.14);
+    --warn:#c95a4d;
+    --ok:#6fae6f;
+    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    background:var(--bg);
+    color:var(--ink);
+    font-family:var(--sans);
+    font-size:15px;
+    line-height:1.55;
+    -webkit-font-smoothing:antialiased;
+    padding:28px 18px 64px;
+  }
+  .wrap{
+    max-width:min(95vw,1100px);
+    margin:0 auto;
+  }
+
+  /* ── Top nav ───────────────────────────────────── */
+  .topnav{
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    margin-bottom:22px;
+    font-size:13px;
+  }
+  .topnav a{
+    color:var(--ink-dim);
+    text-decoration:none;
+    border:1px solid var(--rule);
+    padding:6px 12px;
+    border-radius:6px;
+    transition:color .15s,border-color .15s,background .15s;
+  }
+  .topnav a:hover{color:var(--accent);border-color:var(--accent);background:var(--accent-soft)}
+  .topnav .meta{color:var(--ink-faint);font-family:var(--mono);font-size:12px}
+
+  /* ── Hero band (non-linear: asymmetric grid) ──── */
+  .hero{
+    display:grid;
+    grid-template-columns:1.7fr 1fr;
+    gap:0;
+    background:var(--panel);
+    border:1px solid var(--rule);
+    border-radius:14px;
+    overflow:hidden;
+  }
+  .hero-main{padding:30px 32px 28px;border-right:1px solid var(--rule)}
+  .hero-eyebrow{
+    font-family:var(--mono);
+    font-size:11.5px;
+    letter-spacing:.12em;
+    text-transform:uppercase;
+    color:var(--accent);
+    margin-bottom:14px;
+    display:flex;
+    align-items:center;
+    gap:10px;
+  }
+  .hero-eyebrow .dot{width:7px;height:7px;border-radius:50%;background:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+  .hero h1{
+    margin:0 0 14px;
+    font-size:27px;
+    line-height:1.22;
+    font-weight:650;
+    letter-spacing:-.01em;
+    color:#fff;
+  }
+  .hero h1 em{color:var(--accent);font-style:normal;font-weight:650}
+  .hero-sub{color:var(--ink-dim);font-size:14.5px;margin:0 0 18px}
+  .hero-authors{font-size:13px;color:var(--ink-faint);font-family:var(--mono)}
+  .hero-authors b{color:var(--ink-dim);font-weight:500}
+
+  .hero-side{
+    padding:30px 28px;
+    background:var(--panel-2);
+    display:flex;
+    flex-direction:column;
+    justify-content:space-between;
+    gap:18px;
+  }
+  .kv{display:grid;grid-template-columns:auto 1fr;gap:8px 14px;font-size:13px}
+  .kv dt{color:var(--ink-faint);font-family:var(--mono);font-size:11.5px;letter-spacing:.04em;text-transform:uppercase}
+  .kv dd{margin:0;color:var(--ink)}
+  .pill{
+    display:inline-block;
+    font-family:var(--mono);
+    font-size:11px;
+    padding:2px 8px;
+    border-radius:999px;
+    border:1px solid var(--rule);
+    color:var(--ink-dim);
+    margin:1px 3px 1px 0;
+  }
+  .pill.accent{color:var(--accent);border-color:rgba(201,162,39,.4);background:var(--accent-soft)}
+
+  /* ── Asset row (3 cards) ───────────────────────── */
+  .assets{
+    display:grid;
+    grid-template-columns:repeat(3,1fr);
+    gap:14px;
+    margin-top:14px;
+  }
+  .card{
+    background:var(--panel);
+    border:1px solid var(--rule);
+    border-radius:12px;
+    padding:20px 20px 18px;
+    position:relative;
+    overflow:hidden;
+  }
+  .card .tag{
+    font-family:var(--mono);
+    font-size:10.5px;
+    letter-spacing:.14em;
+    text-transform:uppercase;
+    color:var(--ink-faint);
+    margin-bottom:12px;
+    display:flex;align-items:center;gap:8px;
+  }
+  .card .tag .ix{
+    display:inline-flex;align-items:center;justify-content:center;
+    width:18px;height:18px;border-radius:4px;
+    background:var(--accent-soft);color:var(--accent);
+    font-size:11px;font-weight:700;
+  }
+  .card.finding .body{font-size:15.5px;line-height:1.5;color:#fff;font-weight:500}
+  .card.finding .body mark{background:none;color:var(--accent);font-weight:650}
+  .card.metric .num{
+    font-family:var(--mono);
+    font-size:42px;
+    font-weight:700;
+    color:var(--accent);
+    line-height:1;
+    letter-spacing:-.02em;
+    margin-bottom:6px;
+  }
+  .card.metric .num small{font-size:18px;color:var(--ink-dim);font-weight:500}
+  .card.metric .desc{font-size:13px;color:var(--ink-dim);line-height:1.45}
+  .card.metric .desc b{color:var(--ink);font-weight:600}
+  .card.why .body{font-size:14px;color:var(--ink);line-height:1.5}
+  .card.why .body b{color:#fff}
+
+  /* ── Body grid (non-linear asymmetric) ─────────── */
+  .body{
+    display:grid;
+    grid-template-columns:1.35fr 1fr;
+    gap:14px;
+    margin-top:14px;
+  }
+  .panel{
+    background:var(--panel);
+    border:1px solid var(--rule);
+    border-radius:12px;
+    padding:22px 24px;
+  }
+  .panel h2{
+    margin:0 0 14px;
+    font-size:13px;
+    letter-spacing:.1em;
+    text-transform:uppercase;
+    color:var(--ink-faint);
+    font-weight:600;
+    display:flex;align-items:center;gap:10px;
+  }
+  .panel h2::before{
+    content:"";width:14px;height:2px;background:var(--accent);display:inline-block;
+  }
+  .panel p{margin:0 0 10px;color:var(--ink-dim);font-size:14px}
+  .panel p:last-child{margin-bottom:0}
+  .panel ul{margin:0;padding-left:18px}
+  .panel li{margin-bottom:7px;font-size:14px;color:var(--ink-dim);line-height:1.5}
+  .panel li b{color:var(--ink);font-weight:600}
+  .panel code{
+    font-family:var(--mono);
+    font-size:12.5px;
+    background:var(--panel-2);
+    border:1px solid var(--rule);
+    border-radius:4px;
+    padding:1px 5px;
+    color:var(--accent);
+  }
+
+  /* Critical edge — spans full width, distinct treatment */
+  .edge{
+    grid-column:1 / -1;
+    border-left:3px solid var(--warn);
+  }
+  .edge h2::before{background:var(--warn)}
+  .edge .lede{color:#fff;font-size:15px;line-height:1.55;margin-bottom:12px}
+  .edge .lede b{color:var(--warn)}
+
+  /* Method formula block */
+  .formula{
+    font-family:var(--mono);
+    font-size:13px;
+    background:var(--panel-2);
+    border:1px solid var(--rule);
+    border-radius:8px;
+    padding:14px 16px;
+    margin:12px 0;
+    color:var(--ink);
+    overflow-x:auto;
+  }
+  .formula .acc{color:var(--accent)}
+
+  /* Results mini-table */
+  .res{
+    width:100%;
+    border-collapse:collapse;
+    font-size:13px;
+    font-family:var(--mono);
+  }
+  .res th,.res td{
+    text-align:right;
+    padding:6px 8px;
+    border-bottom:1px solid var(--rule);
+  }
+  .res th:first-child,.res td:first-child{text-align:left;color:var(--ink-dim)}
+  .res thead th{color:var(--ink-faint);font-weight:500;font-size:11px;text-transform:uppercase;letter-spacing:.05em}
+  .res tbody tr:hover{background:var(--panel-2)}
+  .res .win{color:var(--accent);font-weight:700}
+  .res .lose{color:var(--ink-faint)}
+  .res caption{caption-side:bottom;text-align:left;color:var(--ink-faint);font-size:11px;font-family:var(--sans);padding-top:8px}
+
+  /* Bias taxonomy chips */
+  .taxonomy{display:flex;flex-direction:column;gap:8px;margin-top:4px}
+  .tx-row{display:grid;grid-template-columns:90px 1fr;gap:10px;align-items:center;font-size:13px}
+  .tx-name{font-family:var(--mono);color:var(--ink);font-size:12px}
+  .tx-bar{height:18px;background:var(--panel-2);border-radius:4px;position:relative;border:1px solid var(--rule)}
+  .tx-bar .seg{position:absolute;top:0;bottom:0;background:var(--accent);opacity:.85;border-radius:3px}
+  .tx-note{font-size:11px;color:var(--ink-faint);font-family:var(--mono)}
+
+  /* Footer */
+  .foot{
+    margin-top:26px;
+    padding-top:18px;
+    border-top:1px solid var(--rule);
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    font-size:12.5px;
+    color:var(--ink-faint);
+  }
+  .foot a{color:var(--accent);text-decoration:none;border-bottom:1px solid rgba(201,162,39,.3)}
+  .foot a:hover{border-bottom-color:var(--accent)}
+  .foot .src{font-family:var(--mono)}
+
+  /* Responsive */
+  @media (max-width:880px){
+    .hero{grid-template-columns:1fr}
+    .hero-main{border-right:none;border-bottom:1px solid var(--rule)}
+    .assets{grid-template-columns:1fr}
+    .body{grid-template-columns:1fr}
+  }
+
+  /* Subtle entrance — no marketing, just quiet reveal */
+  @media (prefers-reduced-motion:no-preference){
+    .hero,.assets .card,.body .panel{opacity:0;transform:translateY(8px);animation:rise .5s ease forwards}
+    .assets .card:nth-child(1){animation-delay:.05s}
+    .assets .card:nth-child(2){animation-delay:.1s}
+    .assets .card:nth-child(3){animation-delay:.15s}
+    .body .panel{animation-delay:.2s}
+    @keyframes rise{to{opacity:1;transform:none}}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- TOP NAV -->
+  <nav class="topnav">
+    <a href="./index.html">↩ Today's digest</a>
+    <span class="meta">arXiv:2608.05726 · 2026-08-07 · JAIST</span>
+  </nav>
+
+  <!-- HERO BAND -->
+  <header class="hero">
+    <div class="hero-main">
+      <div class="hero-eyebrow"><span class="dot"></span>LLM-as-a-Judge · Debiasing · Calibration</div>
+      <h1>Mitigating Scoring Bias in LLM-as-a-Judge via <em>Random Number Generation</em></h1>
+      <p class="hero-sub">A training-free logit debiaser: make the judge "roll a fair die" over the score range, measure how unfair the die is, and subtract that off at inference.</p>
+      <div class="hero-authors"><b>Yuma Asato · Kiyoaki Shirai · Natthawut Kertkeidkachorn</b> — Japan Advanced Institute of Science and Technology</div>
+    </div>
+    <aside class="hero-side">
+      <dl class="kv">
+        <dt>Method</dt><dd>Deb-T / Deb-R (training-free)</dd>
+        <dt>Models</dt><dd>5 open LLMs, 7B–14B</dd>
+        <dt>Benchmarks</dt><dd>4 tasks (SummEval, STS-B, SemRel2024, HelpSteer2)</dd>
+        <dt>Baselines</dt><dd>Vanilla · CC · DC</dd>
+        <dt>Hyperparam</dt><dd>single scalar λ (dev-tuned)</dd>
+      </dl>
+      <div>
+        <span class="pill accent">training-free</span>
+        <span class="pill">logit-space</span>
+        <span class="pill">zero-shot</span>
+        <span class="pill">plug-and-play</span>
+      </div>
+    </aside>
+  </header>
+
+  <!-- ASSET ROW (3 cards) -->
+  <section class="assets">
+    <div class="card finding">
+      <div class="tag"><span class="ix">1</span>Key Finding</div>
+      <div class="body">An LLM's <mark>latent number bias</mark> — its deviation from uniform when asked to generate random scores — can be measured via RNG prompts and <mark>subtracted from score-token logits</mark> to debias LLM-as-a-Judge, no training required.</div>
+    </div>
+    <div class="card metric">
+      <div class="tag"><span class="ix">2</span>Key Metric</div>
+      <div class="num">+44.6<small> pts</small></div>
+      <div class="desc"><b>STS-B · Llama-3.1-8B · Spearman</b><br>Deb-T lifts 7.45 → 47.0, beating Distribution Calibration (2.43) by +44.6 and Contextual Calibration (31.5) by +15.5.</div>
+    </div>
+    <div class="card why">
+      <div class="tag"><span class="ix">3</span>Why This Matters</div>
+      <div class="body">Directly tackles LLM-as-a-Judge <b>scoring bias</b> — a core pain for any auto-eval pipeline — with a training-free, <b>plug-and-play</b> logit correction usable as a standard debias component.</div>
+    </div>
+  </section>
+
+  <!-- BODY GRID -->
+  <section class="body">
+
+    <!-- LEFT: method + formula -->
+    <div class="panel">
+      <h2>Method in one breath</h2>
+      <p>Two stages. <b>Preprocess:</b> auto-generate 100 RNG prompts ("generate a random integer between min and max score"), keep the 10 lowest-perplexity ones, and read the LLM's probability over score tokens <code>Y={0..N}</code>. Deviation from uniform = <b>latent number bias</b>. <b>Deb-T</b> prepends the task instruction to capture task-conditional bias; <b>Deb-R</b> uses the bare RNG prompt.</p>
+      <div class="formula">
+debias term:  <span class="acc">B(y) = log U(y) − log P_random(y)</span><br>
+inference:    P̃(y) = softmax( l(y) + λ · B(y) )<br>
+final score:  s_llm = Σ P̃(y) · y      <span style="color:var(--ink-faint)">// expectation, not argmax</span>
+      </div>
+      <p>λ is the only hyperparameter — a single scalar searched on dev over <code>{0.1 … 1.0}</code>. No gradients, no training. The whole thing bolts onto any HF <code>generate-with-logits</code> call.</p>
+    </div>
+
+    <!-- RIGHT: results table -->
+    <div class="panel">
+      <h2>Results at a glance</h2>
+      <table class="res">
+        <caption>SummEval · Spearman ×100 · avg over 5 LLMs (higher = better)</caption>
+        <thead><tr><th>Method</th><th>SummEval</th><th>STS-B</th><th>STR</th></tr></thead>
+        <tbody>
+          <tr><td>Vanilla</td><td>34.4</td><td class="lose">61.9</td><td>2.86*</td></tr>
+          <tr><td>CC</td><td>36.8</td><td>68.1</td><td class="win">0.967*</td></tr>
+          <tr><td>DC</td><td class="lose">32.2</td><td class="lose">61.0</td><td>—</td></tr>
+          <tr><td>Deb-R</td><td>35.0</td><td>65.0</td><td>2.37*</td></tr>
+          <tr><td><b style="color:var(--accent)">Deb-T</b></td><td class="win">38.0</td><td class="win">71.5</td><td>1.21*</td></tr>
+        </tbody>
+      </table>
+      <p style="font-size:12px;color:var(--ink-faint);margin-top:10px">* STR column is MSE (lower better). Deb-T wins Summ &amp; STS clearly; on STR it takes Spearman but <b>loses MSE to CC</b>. The HelpSteer2 / LLM-Alignment task is a <b>declared failure</b> — see Critical Edge.</p>
+    </div>
+
+    <!-- CRITICAL EDGE — full width -->
+    <div class="panel edge">
+      <h2>Critical Edge · the sharpest critique</h2>
+      <p class="lede">The correction is <b>structurally identical</b> to Contextual Calibration's affine logit shift — the only real delta is <i>what context you use to elicit the bias</i> (RNG prompt vs. CC's "N/A"). It is a <b>calibration-elicitation variant</b>, not a new debiasing paradigm. Worse, the "outperforms" headline rests on <b>point estimates with no error bars, no significance tests, no standard deviations</b> — several gaps (notably STR Spearman: Deb-T 61.7 vs CC 62.8) are <b>within unacknowledged noise</b>.</p>
+      <ul>
+        <li><b>Brittle λ:</b> dev-best λ often fails to transfer to test (Table 5: Llama STS jumps 14.2 → 41.9 when λ grid extends to 10) — flagged as open, unfixed.</li>
+        <li><b>No frontier judges:</b> all models ≤14B; silent on GPT-4 / Claude / 70B+ — the models most people actually deploy as judges.</li>
+        <li><b>Known unmitigated failure:</b> ships with a broken 4th task (HelpSteer2) where vanilla models collapse onto majority score 3, which has low RNG bias — so the debiaser <b>amplifies the error instead of correcting it</b>.</li>
+        <li><b>Not apples-to-apples:</b> only zero-shot, temp-0.2 tested, yet compares against G-Eval whose whole premise is CoT-based probability weighting.</li>
+        <li><b>Reproducibility gap:</b> RNG-prompt generation depends on closed ChatGPT-o3; the 100 seed prompts aren't fully released.</li>
+      </ul>
+    </div>
+
+    <!-- Bias taxonomy -->
+    <div class="panel" style="grid-column:1 / -1">
+      <h2>Per-LLM bias taxonomy · the genuinely useful practitioner artifact</h2>
+      <p style="margin-bottom:14px">From Figure 3: latent number biases are <b>highly idiosyncratic per model</b>, and visibly <b>reshaped by prepending the task instruction</b> (Deb-T vs Deb-R). This is the most convincing figure in the paper.</p>
+      <div class="taxonomy">
+        <div class="tx-row">
+          <span class="tx-name">Llama-3.1-8B</span>
+          <div class="tx-bar"><div class="seg" style="left:80%;width:20%"></div></div>
+          <span class="tx-note">favors the highest scores</span>
+        </div>
+        <div class="tx-row">
+          <span class="tx-name">Prometheus-7B</span>
+          <div class="tx-bar"><div class="seg" style="left:80%;width:20%"></div></div>
+          <span class="tx-note">favors the highest scores</span>
+        </div>
+        <div class="tx-row">
+          <span class="tx-name">Gemma-2-9B</span>
+          <div class="tx-bar"><div class="seg" style="left:0;width:15%"></div><div class="seg" style="left:82%;width:18%"></div></div>
+          <span class="tx-note">bimodal — lowest + highest</span>
+        </div>
+        <div class="tx-row">
+          <span class="tx-name">Qwen2.5-14B</span>
+          <div class="tx-bar"><div class="seg" style="left:15%;width:18%"></div></div>
+          <span class="tx-note">favors "1"</span>
+        </div>
+        <div class="tx-row">
+          <span class="tx-name">Mistral-7B</span>
+          <div class="tx-bar"><div class="seg" style="left:15%;width:18%"></div></div>
+          <span class="tx-note">favors "1"</span>
+        </div>
+      </div>
+    </div>
+
+  </section>
+
+  <!-- FOOTER -->
+  <footer class="foot">
+    <span>Generated from source summary · 2026-08-07</span>
+    <a class="src" href="./2608.05726.md">↗ Markdown source</a>
+  </footer>
+
+</div>
+</body>
+</html>
