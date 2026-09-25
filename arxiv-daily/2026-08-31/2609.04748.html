@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cache-Induced Divergence in LLM Serving · 2609.04748 · Paper Dashboard</title>
+<style>
+  :root{
+    --accent:#b45309;
+    --accent-bright:#e8a155;
+    --accent-soft:rgba(180,83,9,.16);
+    --paper:#f6f4ef;
+    --card:#fffdf8;
+    --ink:#1c1917;
+    --muted:#6f675c;
+    --line:#e3dccd;
+    --line-strong:#cfc6b4;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,"PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+    --serif:ui-serif,Georgia,"Times New Roman","Songti SC",SimSun,serif;
+    --mono:ui-monospace,"SF Mono",SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
+  }
+  *{box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%}
+  body{
+    margin:0;color:var(--ink);font:16px/1.65 var(--sans);
+    background-color:var(--paper);
+    background-image:
+      linear-gradient(rgba(28,25,23,.03) 1px,transparent 1px),
+      linear-gradient(90deg,rgba(28,25,23,.03) 1px,transparent 1px);
+    background-size:36px 36px;
+  }
+  a{color:var(--ink)}
+
+  /* fixed nav */
+  .topnav{position:fixed;top:14px;left:14px;z-index:60}
+  .topnav a{
+    display:inline-flex;align-items:center;gap:7px;text-decoration:none;
+    font:600 12.5px/1 var(--sans);color:var(--ink);
+    background:var(--card);border:1px solid var(--line-strong);border-radius:999px;
+    padding:8px 14px;box-shadow:0 1px 0 rgba(28,25,23,.04);
+    transition:border-color .2s ease, box-shadow .2s ease;
+  }
+  .topnav a:hover{border-color:var(--accent)}
+  .topnav.scrolled a{box-shadow:0 4px 14px rgba(28,25,23,.1)}
+
+  .page{width:min(95vw,1100px);margin:0 auto;padding:86px 0 36px}
+
+  /* hero */
+  .eyebrow{
+    display:flex;align-items:center;gap:10px;margin:0;
+    font:600 11px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--muted);
+  }
+  .eyebrow::before{content:"";width:26px;height:2px;background:var(--accent);flex:none}
+  .finding{
+    font-family:var(--serif);font-weight:600;
+    font-size:clamp(1.8rem,4.3vw,3rem);line-height:1.16;letter-spacing:-.015em;
+    margin:20px 0 16px;max-width:46rem;
+  }
+  .finding .hl{background:linear-gradient(transparent 60%,var(--accent-soft) 60%)}
+  .papertitle{font-size:15px;line-height:1.5;margin:0 0 2px;max-width:52rem}
+  .papertitle a{text-decoration:underline;text-decoration-color:var(--accent);text-underline-offset:3px}
+  .alias{color:var(--muted);font-size:13px;margin:0 0 14px}
+  .meta{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;font-size:13.5px;color:var(--muted)}
+  .meta .author{color:var(--ink);font-weight:600}
+  .meta .dot{color:var(--line-strong)}
+  .chips{display:flex;flex-wrap:wrap;gap:6px;width:100%;margin-top:2px}
+  .chip{
+    font:500 10.5px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;
+    border:1px solid var(--line-strong);border-radius:999px;padding:5px 10px;
+    color:var(--muted);background:var(--card);
+  }
+
+  /* asset row */
+  .assets{display:grid;grid-template-columns:1.05fr 1fr 1fr;gap:14px;margin:28px 0 20px}
+  .asset{
+    background:var(--card);border:1px solid var(--line);border-radius:10px;
+    padding:18px 18px 16px;position:relative;
+  }
+  .label{
+    display:flex;align-items:center;gap:8px;margin:0;
+    font:700 10.5px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--muted);
+  }
+  .label::before{content:"";width:3px;height:11px;background:var(--accent);border-radius:1px;flex:none}
+  .metric .big{
+    font-family:var(--mono);font-weight:650;font-variant-numeric:tabular-nums;
+    font-size:clamp(1.9rem,3.4vw,2.55rem);line-height:1.08;letter-spacing:-.03em;
+    margin:12px 0 9px;
+  }
+  .metric .big .arrow{color:var(--accent)}
+  .metric .ctx{font-size:12.5px;color:var(--muted);line-height:1.55;margin:0}
+  .why p{margin:12px 0 0;font-size:14.5px;line-height:1.62}
+  .edge{background:#221e1a;border-color:#221e1a;color:#f0e9dd}
+  .edge .label{color:var(--accent-bright)}
+  .edge .label::before{background:var(--accent-bright)}
+  .edge p{margin:12px 0 0;font-size:14px;line-height:1.62;color:#e4dccd}
+
+  /* body grid */
+  .grid{display:grid;grid-template-columns:repeat(12,1fr);gap:14px}
+  .card{grid-column:span 12;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:20px 22px}
+  .card h2{
+    display:flex;align-items:center;gap:9px;margin:0 0 14px;
+    font:700 11.5px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--ink);
+  }
+  .card h2::before{content:"";width:3px;height:12px;background:var(--accent);border-radius:1px}
+  .card p.lead{margin:0 0 12px;font-size:14px;color:var(--muted);line-height:1.6}
+  .card ul{margin:0;padding:0;list-style:none}
+  .card li{position:relative;padding:8px 0 8px 20px;border-bottom:1px dashed var(--line);font-size:14px;line-height:1.62}
+  .card li:last-child{border-bottom:0}
+  .card li::before{content:"▸";position:absolute;left:2px;top:9px;color:var(--accent);font-size:11px}
+  .card li strong{font-weight:650}
+  .setup{
+    font:12px/1.75 var(--mono);color:var(--muted);
+    background:rgba(28,25,23,.035);border:1px solid var(--line);border-radius:8px;
+    padding:10px 13px;margin:0 0 12px;
+  }
+  .setup b{color:var(--ink);font-weight:600}
+  .subh{font:650 11.5px var(--mono);letter-spacing:.1em;text-transform:uppercase;margin:16px 0 6px;color:var(--ink)}
+
+  .statstrip{
+    display:flex;flex-wrap:wrap;gap:12px 28px;
+    margin:14px 0;padding:13px 0;
+    border-top:1px dashed var(--line);border-bottom:1px dashed var(--line);
+  }
+  .stat .v{font:650 19px/1.2 var(--mono);letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+  .stat .v .acc{color:var(--accent)}
+  .stat .k{font:500 10.5px/1.5 var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+
+  .datatable{width:100%;border-collapse:collapse;margin:4px 0 2px;font-size:13.5px}
+  .datatable th{
+    font:600 10.5px/1.4 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted);
+    text-align:left;padding:6px 8px;border-bottom:1px solid var(--line-strong);
+  }
+  .datatable td{padding:8px;border-bottom:1px solid var(--line);vertical-align:middle}
+  .datatable tr:last-child td{border-bottom:0}
+  .datatable .w{font-family:var(--mono);font-weight:600;white-space:nowrap}
+  .datatable .num,.datatable th.num{text-align:right;font-family:var(--mono);font-variant-numeric:tabular-nums;white-space:nowrap}
+  .datatable .barcell{width:44%}
+  .bar{height:8px;background:rgba(28,25,23,.055);border-radius:4px;overflow:hidden}
+  .bar i{display:block;height:100%;background:var(--accent);opacity:.72;border-radius:4px}
+  .foot{font-size:12px;color:var(--muted);line-height:1.6;margin:8px 0 0}
+
+  .strengths li::before{content:"+";font:700 13px var(--mono);color:var(--accent);top:9px}
+  .limitations li::before{content:"−";font:700 13px var(--mono);color:var(--muted);top:9px}
+
+  .questions ol{margin:0;padding:0;list-style:none;counter-reset:q}
+  .questions li{counter-increment:q;position:relative;padding:9px 0 9px 36px;border-bottom:1px dashed var(--line);font-size:14px;line-height:1.62}
+  .questions li:last-child{border-bottom:0}
+  .questions li::before{
+    content:counter(q,decimal-leading-zero);position:absolute;left:0;top:11px;
+    font:650 12px var(--mono);color:var(--accent);
+  }
+
+  footer.site{
+    width:min(95vw,1100px);margin:26px auto 0;padding:18px 0 36px;
+    border-top:1px solid var(--line-strong);
+    display:flex;justify-content:space-between;flex-wrap:wrap;gap:10px 20px;
+    font-size:13px;color:var(--muted);
+  }
+  footer.site a{color:var(--ink);text-decoration:none;border-bottom:1px solid var(--accent);padding-bottom:1px}
+  footer.site a:hover{color:var(--accent)}
+
+  /* motion */
+  @keyframes rise{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+  .hero>*{animation:rise .55s cubic-bezier(.2,.7,.3,1) both}
+  .hero>*:nth-child(1){animation-delay:.02s}
+  .hero>*:nth-child(2){animation-delay:.08s}
+  .hero>*:nth-child(3){animation-delay:.14s}
+  .hero>*:nth-child(4){animation-delay:.18s}
+  .hero>*:nth-child(5){animation-delay:.22s}
+  .assets .asset{animation:rise .55s cubic-bezier(.2,.7,.3,1) both}
+  .assets .asset:nth-child(1){animation-delay:.26s}
+  .assets .asset:nth-child(2){animation-delay:.33s}
+  .assets .asset:nth-child(3){animation-delay:.4s}
+  .js .card{opacity:0;transform:translateY(14px);transition:opacity .55s cubic-bezier(.2,.7,.3,1),transform .55s cubic-bezier(.2,.7,.3,1)}
+  .js .card.in{opacity:1;transform:none}
+  @media (prefers-reduced-motion:reduce){
+    *{animation:none!important;transition:none!important}
+    .js .card{opacity:1;transform:none}
+  }
+
+  /* responsive */
+  @media (min-width:720px){
+    .card.methodology{grid-column:span 5}
+    .card.results{grid-column:span 7}
+    .card.strengths,.card.limitations{grid-column:span 6}
+  }
+  @media (max-width:859px){
+    .assets{grid-template-columns:1fr 1fr}
+    .asset.metric{grid-column:span 2}
+  }
+  @media (max-width:719px){
+    .assets{grid-template-columns:1fr}
+    .asset.metric{grid-column:auto}
+    .page{padding-top:78px}
+    .card{padding:17px 16px}
+  }
+</style>
+</head>
+<body>
+
+<nav class="topnav" aria-label="Site navigation">
+  <a href="./index.html">↩ Today's digest</a>
+</nav>
+
+<main class="page">
+
+  <header class="hero">
+    <p class="eyebrow">Paper Dashboard · arXiv 2609.04748</p>
+    <h1 class="finding">With sampling fully pinned, cache-disabled reruns are bit-identical; enabling caching alone <span class="hl">reroutes agent trajectories</span> — quantization amplifies the divergence, it doesn't cause it.</h1>
+    <p class="papertitle"><a href="https://arxiv.org/abs/2609.04748">Same Request, Different Answer: Quantization Amplifies Cache-Induced Divergence in LLM Serving</a></p>
+    <p class="alias">量化放大LLM服务中缓存引起的分歧</p>
+    <div class="meta">
+      <span class="author">Aditi Patodiya</span>
+      <span class="dot">·</span>
+      <span>2026-09-04</span>
+      <span class="dot">·</span>
+      <span>independent researcher, IEEE Senior Member</span>
+      <div class="chips">
+        <span class="chip">llm-serving</span>
+        <span class="chip">prefix-caching</span>
+        <span class="chip">quantization</span>
+        <span class="chip">reproducibility</span>
+        <span class="chip">inference-reliability</span>
+      </div>
+    </div>
+  </header>
+
+  <section class="assets" aria-label="Key assets">
+    <article class="asset metric">
+      <p class="label">Key Metric</p>
+      <p class="big">36.2% <span class="arrow">→</span> 77.5%</p>
+      <p class="ctx">Cross-arm agent-trajectory divergence as weights go F16 → Q3_K_M (Qwen2.5-7B on llama.cpp, caching on; Cochrane-Armitage p = 1.3×10⁻⁸).</p>
+    </article>
+    <article class="asset why">
+      <p class="label">Why This Matters</p>
+      <p>Same request, same seed, different answer: caching silently reroutes LLM agent runs — evaluations that ignore cache state aren't measuring what they think.</p>
+    </article>
+    <article class="asset edge">
+      <p class="label">Critical Edge</p>
+      <p>The amplification claim outruns the data at the coarse end: Q4_K_M and Q3_K_M intervals overlap, and a two-point grid cannot separate amplifier from plateau.</p>
+    </article>
+  </section>
+
+  <section class="grid" aria-label="Paper details">
+
+    <article class="card methodology">
+      <h2>Methodology</h2>
+      <p class="setup"><b>Setup</b> — llama.cpp b10434 (GGUF F16→Q3_K_M) · vLLM 0.11.0 (FP16) · Qwen2.5-7B/14B, Llama-3.1-8B · 1× RTX 4090 · CUDA 12.6</p>
+      <ul>
+        <li><strong>Paired within-arm design.</strong> Every configuration runs the full 80-episode workload twice; the cache-disabled rerun doubles as an internal validity check — any difference there would expose an uncontrolled confounder.</li>
+        <li><strong>Everything else frozen.</strong> Greedy decoding, temperature 0, seed 42, batch size 1, serial requests; KV cache held at 16-bit so cache precision never co-varies with weight format.</li>
+        <li><strong>Two workloads.</strong> BFCL multi-turn base (80 episodes, ~7–13 requests each — exactly the shape prefix caching accelerates) plus a GSM8K bridge where each item is served four times, twice per path, so a flip only counts when each path agrees with itself.</li>
+        <li><strong>Three isolation experiments.</strong> Execution-order arm; disabling llama.cpp's server-level host-memory prompt cache (default-on, 8192 MiB, since Oct 2025); a cache-state restore control with cold state verified from cached-token telemetry.</li>
+        <li><strong>Strict measures.</strong> Divergence on emitted token identifiers (reworded-identical answers still count); Wilson intervals, moving-block bootstrap, exact McNemar, 81% power against a 1-point shift.</li>
+      </ul>
+    </article>
+
+    <article class="card results">
+      <h2>Results &amp; Highlights</h2>
+      <p class="lead">Greedy decoding at batch size 1 is a deterministic function of the input on both stacks — every divergence below is attributable to caching.</p>
+
+      <div class="statstrip">
+        <div class="stat"><div class="v">0<span class="acc">/</span>800</div><div class="k">bit-identical cache-off reruns</div></div>
+        <div class="stat"><div class="v"><span class="acc">−37.5</span> pp</div><div class="k">re-run divergence from one flag</div></div>
+        <div class="stat"><div class="v">89–93%</div><div class="k">GSM8K accuracy, unchanged</div></div>
+        <div class="stat"><div class="v">40<span class="acc">/</span>40</div><div class="k">cached path reproduces with state restored</div></div>
+      </div>
+
+      <ul>
+        <li><strong>Bit-identical baseline (RQ1).</strong> 0 of 800 episodes diverged across ten configurations — per-episode 95% upper bound 1.6%, pooled 0.5%.</li>
+        <li><strong>The real culprit (RQ2).</strong> A single flag — disabling the host-memory prompt cache — moves re-run divergence 38.8% → 1.2%; with cache state restored, both paths reproduce 40/40 yet still differ on 14/40. Deterministic given cache state; irreproducible in practice because that state is invisible and never reset.</li>
+        <li><strong>Instability without direction (RQ5).</strong> GSM8K flips split 13 cached-favor vs 7 recompute-favor (McNemar p = 0.26); aggregate accuracy flat at 89–93%.</li>
+        <li><strong>One token propagates.</strong> At 16-bit, 3.5% of single requests diverge vs 36.3% of ~10-request agent episodes.</li>
+        <li><strong>Self-caught artifact.</strong> The original scorer mis-scored 11–38% of responses on format alone, inflating flips ~4×; corrected figures reported and shipped in the artifact.</li>
+      </ul>
+
+      <p class="subh">Quantization gradient (RQ3)</p>
+      <table class="datatable">
+        <thead>
+          <tr><th>Weights</th><th class="num">Cross-arm divergence</th><th class="barcell"></th></tr>
+        </thead>
+        <tbody>
+          <tr><td class="w">F16</td><td class="num">36.2%</td><td class="barcell"><div class="bar"><i style="width:36.2%"></i></div></td></tr>
+          <tr><td class="w">Q8_0</td><td class="num">61.3%</td><td class="barcell"><div class="bar"><i style="width:61.3%"></i></div></td></tr>
+          <tr><td class="w">Q4_K_M</td><td class="num">70.0%</td><td class="barcell"><div class="bar"><i style="width:70%"></i></div></td></tr>
+          <tr><td class="w">Q3_K_M</td><td class="num">77.5%</td><td class="barcell"><div class="bar"><i style="width:77.5%"></i></div></td></tr>
+        </tbody>
+      </table>
+      <p class="foot">Qwen2.5-7B on llama.cpp, caching enabled; z = 5.68. The pattern holds with the second cache layer disabled (40.0 / 81.2 / 77.5). On vLLM FP16 the cross-arm rate is 62.5% — not implementation-specific. Qwen2.5-14B at Q4_K_M hits 91.2%.</p>
+    </article>
+
+    <article class="card strengths">
+      <h2>Strengths</h2>
+      <ul>
+        <li><strong>Cleanest published determinism baseline:</strong> 0/800 bit-identical episodes turns the whole paper into a controlled experiment — every later divergence is cache-attributable.</li>
+        <li><strong>Causal isolation done with experiments, not arguments:</strong> order → second cache layer → cache state, including the restore control.</li>
+        <li><strong>Discovery with practical bite:</strong> llama.cpp's default-on host-memory prompt cache is a hidden divergence source a single flag removes.</li>
+        <li><strong>Instrument-grade honesty:</strong> self-caught scorer bug, wider bootstrap interval reported, explicit refusal to claim degradation the data cannot support.</li>
+        <li><strong>Actionable guidance:</strong> evaluations should record engine, version, and cache configuration; engines should report per-request cache exposure.</li>
+      </ul>
+    </article>
+
+    <article class="card limitations">
+      <h2>Limitations</h2>
+      <ul>
+        <li><strong>Narrow scope by design:</strong> three 7–14B open models, one RTX 4090, two engines, one agentic benchmark — nothing on frontier models, hosted endpoints, or multi-tenant load.</li>
+        <li><strong>Outcome half underpowered:</strong> the agentic success floor (1.2–18.8%) leaves 12-vs-7 flips; the directionality conclusion rests on the GSM8K bridge.</li>
+        <li><strong>Residual confounds, disclosed but unresolved:</strong> first grid ran with the second cache layer at default; vLLM arms launched by different scripts; some cells run once.</li>
+        <li><strong>Strict criterion overstates semantic change:</strong> token-identifier divergence flags identical answers in different words; the quality-side arm is the underpowered half.</li>
+        <li><strong>No intervention evaluation:</strong> batch-invariant kernels are discussed but never tested; the throughput cost of "pin configuration + reset state" is unknown.</li>
+      </ul>
+    </article>
+
+    <article class="card questions">
+      <h2>Questions for Further Exploration</h2>
+      <ol>
+        <li>Would batch-invariant kernels eliminate cross-arm divergence entirely at Q3_K_M, or does quantization-era logit crowding make some divergence unavoidable?</li>
+        <li>How does the effect behave under realistic multi-tenant load, where eviction and concurrent batching interact with the host-memory prompt cache?</li>
+        <li>Does "instability without direction" hold for reasoning models with long chain-of-thought, where one early flip can compound instead of washing out?</li>
+        <li>Can per-request cache-exposure telemetry become a runtime detector on vLLM — e.g., prompt-hash fingerprinting at the proxy layer?</li>
+        <li>Amplifier or plateau? A denser quantization grid (Q6_K, Q5_K_M, Q2_K) plus logit-margin instrumentation could separate margin compression from saturation.</li>
+      </ol>
+    </article>
+
+  </section>
+</main>
+
+<footer class="site">
+  <a href="./2609.04748.md">↗ Markdown source</a>
+  <a href="https://arxiv.org/abs/2609.04748">arXiv:2609.04748 ↗</a>
+</footer>
+
+<script>
+  document.documentElement.classList.add('js');
+  var nav = document.querySelector('.topnav');
+  addEventListener('scroll', function(){ nav.classList.toggle('scrolled', scrollY > 8); }, {passive:true});
+  if ('IntersectionObserver' in window) {
+    var io = new IntersectionObserver(function(entries){
+      for (var i = 0; i < entries.length; i++) {
+        if (entries[i].isIntersecting) { entries[i].target.classList.add('in'); io.unobserve(entries[i].target); }
+      }
+    }, {threshold:.1});
+    document.querySelectorAll('.grid .card').forEach(function(c){ io.observe(c); });
+  } else {
+    document.querySelectorAll('.grid .card').forEach(function(c){ c.classList.add('in'); });
+  }
+</script>
+</body>
+</html>

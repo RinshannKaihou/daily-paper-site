@@ -1,0 +1,400 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TrainSDC — Silent Data Corruption in LLM Training · Dashboard</title>
+<style>
+  :root{
+    --paper:#faf8f4;
+    --ink:#1c1917;
+    --ink-soft:#5b544c;
+    --ink-faint:#8a8177;
+    --line:#e4ddd2;
+    --accent:#b0430f;          /* rust — reliability / fault-tolerance */
+    --accent-deep:#8c350c;
+    --accent-tint:#f6e9df;
+    --accent-tint-2:#fdf4ec;
+    --dark:#1f1b17;
+    --dark-text:#f3ede4;
+    --mono:ui-monospace,"SF Mono",SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,"PingFang SC","Hiragino Sans GB","Noto Sans CJK SC","Microsoft YaHei",sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{scroll-behavior:smooth}
+  body{
+    background:var(--paper);
+    color:var(--ink);
+    font-family:var(--sans);
+    font-size:16px;
+    line-height:1.6;
+    -webkit-font-smoothing:antialiased;
+  }
+  ::selection{background:var(--accent);color:#fff}
+
+  .wrap{width:min(95vw,1100px);margin:0 auto;padding:0 4px}
+
+  /* ── fixed nav ─────────────────────────── */
+  .topnav{
+    position:fixed;top:14px;left:14px;z-index:50;
+  }
+  .topnav a{
+    display:inline-block;
+    font-family:var(--mono);font-size:12px;letter-spacing:.02em;
+    color:var(--ink-soft);text-decoration:none;
+    background:rgba(250,248,244,.92);
+    border:1px solid var(--line);
+    padding:7px 12px;border-radius:999px;
+    transition:color .15s,border-color .15s,transform .15s;
+  }
+  .topnav a:hover{color:var(--accent);border-color:var(--accent);transform:translateX(-2px)}
+
+  /* ── hero ──────────────────────────────── */
+  .hero{padding:84px 0 30px;border-bottom:2px solid var(--ink)}
+  .eyebrow{
+    font-family:var(--mono);font-size:11.5px;letter-spacing:.14em;text-transform:uppercase;
+    color:var(--accent);font-weight:600;
+    display:flex;flex-wrap:wrap;gap:6px 14px;align-items:baseline;
+  }
+  .eyebrow .dim{color:var(--ink-faint)}
+  .finding{
+    margin-top:18px;
+    font-size:clamp(28px,4.6vw,47px);
+    line-height:1.16;
+    font-weight:800;
+    letter-spacing:-0.022em;
+    max-width:21ch;
+    text-wrap:balance;
+  }
+  .finding em{font-style:normal;color:var(--accent)}
+  .ptitle{margin-top:20px;font-size:15.5px;font-weight:600;color:var(--ink)}
+  .ptitle a{color:var(--ink);text-decoration:none;border-bottom:1.5px solid var(--accent);padding-bottom:1px}
+  .ptitle a:hover{color:var(--accent)}
+  .meta{
+    margin-top:8px;font-size:13px;color:var(--ink-soft);
+    display:flex;flex-wrap:wrap;gap:5px 0;align-items:center;
+  }
+  .meta .sep{margin:0 9px;color:var(--line)}
+  .chips{display:inline-flex;flex-wrap:wrap;gap:6px;margin-left:2px}
+  .chip{
+    font-family:var(--mono);font-size:10.5px;letter-spacing:.04em;
+    color:var(--accent-deep);background:var(--accent-tint);
+    border:1px solid #ecd6c5;border-radius:4px;padding:2.5px 8px;white-space:nowrap;
+  }
+
+  /* ── asset row ─────────────────────────── */
+  .assets{
+    display:grid;grid-template-columns:1.25fr 1fr 1.1fr;gap:14px;
+    padding:22px 0 26px;border-bottom:1px solid var(--line);
+  }
+  .asset{border-radius:10px;padding:20px 20px 18px;position:relative}
+  .asset .label{
+    font-family:var(--mono);font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;
+    display:block;margin-bottom:12px;font-weight:600;
+  }
+  .asset-metric{background:var(--accent-tint-2);border:1px solid #ecd6c5}
+  .asset-metric .label{color:var(--accent)}
+  .bignum{
+    font-family:var(--mono);
+    font-size:clamp(46px,5.5vw,64px);font-weight:700;line-height:.95;
+    color:var(--accent);letter-spacing:-0.04em;white-space:nowrap;
+  }
+  .bignum small{font-size:.32em;font-weight:600;letter-spacing:0;color:var(--accent-deep);margin-left:6px}
+  .metric-ctx{margin-top:10px;font-size:13px;line-height:1.55;color:var(--ink-soft)}
+  .metric-ctx strong{color:var(--ink);font-weight:650}
+  .metric-foot{margin-top:10px;font-family:var(--mono);font-size:11px;color:var(--accent-deep)}
+
+  .asset-why{background:#fff;border:1px solid var(--line)}
+  .asset-why .label{color:var(--ink-faint)}
+  .why-text{font-size:16.5px;line-height:1.5;font-weight:550;color:var(--ink);text-wrap:pretty}
+  .why-src{margin-top:14px;font-family:var(--mono);font-size:11px;color:var(--ink-faint)}
+
+  .asset-edge{background:var(--dark);border:1px solid var(--dark)}
+  .asset-edge .label{color:#e8a170}
+  .edge-text{font-size:15px;line-height:1.55;color:var(--dark-text);font-weight:500;text-wrap:pretty}
+  .edge-text strong{color:#f0b98b;font-weight:650}
+  .edge-src{margin-top:14px;font-family:var(--mono);font-size:11px;color:#9a8f81}
+
+  /* ── body grid ─────────────────────────── */
+  .grid{
+    display:grid;grid-template-columns:repeat(6,1fr);gap:14px;
+    padding:26px 0 8px;
+  }
+  .card{
+    background:#fff;border:1px solid var(--line);border-radius:10px;
+    padding:22px 22px 20px;
+  }
+  .card h2{
+    font-size:12px;font-family:var(--mono);letter-spacing:.16em;text-transform:uppercase;
+    color:var(--ink-faint);font-weight:600;display:flex;align-items:baseline;gap:10px;
+  }
+  .card h2 .idx{color:var(--accent);font-weight:700}
+  .card h3.sub{font-size:16px;font-weight:700;margin:14px 0 6px;letter-spacing:-.01em}
+  .card p{font-size:14px;color:var(--ink-soft);margin-top:10px}
+  .card p strong, .card li strong{color:var(--ink);font-weight:650}
+  .card ul{list-style:none;margin-top:10px}
+  .card li{
+    font-size:13.5px;color:var(--ink-soft);line-height:1.55;
+    padding:7px 0 7px 18px;position:relative;
+    border-top:1px solid #f1ece3;
+  }
+  .card li:first-child{border-top:none}
+  .card li::before{
+    content:"";position:absolute;left:2px;top:14px;
+    width:7px;height:7px;border:1.5px solid var(--accent);border-radius:1px;
+  }
+  .card li b{color:var(--ink);font-weight:650}
+
+  .span-method{grid-column:span 3}
+  .span-results{grid-column:span 3}
+  .span-zh{grid-column:span 2}
+  .span-strengths{grid-column:span 2}
+  .span-limits{grid-column:span 2}
+  .span-questions{grid-column:span 6}
+
+  /* methodology flow */
+  .flow{counter-reset:step;margin-top:12px}
+  .flow li{padding-left:34px;counter-increment:step}
+  .flow li::before{
+    content:counter(step,decimal-leading-zero);
+    width:auto;height:auto;border:none;border-radius:3px;
+    top:7px;left:0;background:var(--accent-tint);color:var(--accent-deep);
+    font-family:var(--mono);font-size:10.5px;font-weight:700;padding:2px 5px;
+  }
+  .setup{
+    margin-top:14px;padding:11px 13px;background:var(--paper);
+    border:1px dashed var(--line);border-radius:7px;
+    font-family:var(--mono);font-size:11.5px;line-height:1.7;color:var(--ink-soft);
+  }
+  .setup b{color:var(--accent-deep);font-weight:700}
+
+  /* results table */
+  .tbl{width:100%;border-collapse:collapse;margin-top:14px;font-size:12.5px}
+  .tbl caption{
+    text-align:left;font-family:var(--mono);font-size:11px;color:var(--ink-faint);
+    padding-bottom:8px;letter-spacing:.04em;
+  }
+  .tbl th{
+    text-align:left;font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;
+    color:var(--ink-faint);font-weight:600;padding:6px 8px;border-bottom:2px solid var(--ink);
+  }
+  .tbl td{padding:7px 8px;border-bottom:1px solid #f1ece3;color:var(--ink-soft);font-variant-numeric:tabular-nums}
+  .tbl td:first-child{font-weight:600;color:var(--ink)}
+  .tbl tr.hero-row td{
+    background:var(--accent-tint-2);color:var(--accent-deep);font-weight:700;
+    border-top:1.5px solid var(--accent);border-bottom:1.5px solid var(--accent);
+  }
+  .tbl tr.hero-row td:first-child{color:var(--accent)}
+  .num{font-family:var(--mono);font-size:12px}
+
+  /* zh card */
+  .zh .card-zh-body{margin-top:12px}
+  .zh li{line-height:1.85}
+  .zh li::before{border-radius:50%}
+
+  /* questions */
+  .qgrid{display:grid;grid-template-columns:1fr 1fr;gap:0 28px;margin-top:12px}
+  .qgrid li{font-size:13.5px}
+  .qgrid li::before{
+    content:"?";width:auto;height:auto;border:none;background:none;
+    left:0;top:7px;color:var(--accent);font-family:var(--mono);font-weight:700;font-size:13px;
+  }
+
+  /* strengths / limits contrast */
+  .span-strengths h2 .idx{color:#3d6b35}
+  .span-strengths li::before{border-color:#3d6b35;border-radius:50%}
+  .span-limits{background:#fdf6ef;border-color:#eBD9c5}
+  .span-limits h2{color:#a06a35}
+  .span-limits h2 .idx{color:var(--accent)}
+  .span-limits li::before{border-color:var(--accent);border-radius:50%}
+
+  /* footer */
+  footer{
+    margin-top:26px;padding:22px 0 46px;border-top:2px solid var(--ink);
+    display:flex;justify-content:space-between;flex-wrap:wrap;gap:10px;align-items:center;
+  }
+  footer a{
+    font-family:var(--mono);font-size:12.5px;color:var(--ink-soft);text-decoration:none;
+    border-bottom:1px solid var(--line);padding-bottom:2px;transition:color .15s;
+  }
+  footer a:hover{color:var(--accent);border-color:var(--accent)}
+  footer .gen{font-family:var(--mono);font-size:11px;color:var(--ink-faint)}
+
+  /* reveal animation */
+  .rv{opacity:0;transform:translateY(14px);transition:opacity .6s ease,transform .6s ease}
+  .rv.in{opacity:1;transform:none}
+
+  @media (max-width:900px){
+    .assets{grid-template-columns:1fr 1fr}
+    .asset-metric{grid-column:span 2}
+    .span-method,.span-results{grid-column:span 6}
+    .span-zh{grid-column:span 6}
+    .span-strengths,.span-limits{grid-column:span 3}
+  }
+  @media (max-width:720px){
+    .hero{padding-top:74px}
+    .finding{max-width:none}
+    .assets{grid-template-columns:1fr}
+    .asset-metric{grid-column:span 1}
+    .span-strengths,.span-limits{grid-column:span 6}
+    .qgrid{grid-template-columns:1fr}
+    .tbl{display:block;overflow-x:auto}
+  }
+</style>
+</head>
+<body>
+
+<nav class="topnav"><a href="./index.html">↩ Today's digest</a></nav>
+
+<div class="wrap">
+
+  <!-- ══ HERO ══ -->
+  <header class="hero rv">
+    <div class="eyebrow">
+      <span>Silent Data Corruption</span>
+      <span class="dim">·</span>
+      <span>LLM Training Reliability</span>
+      <span class="dim">·</span>
+      <span class="dim">arXiv:2608.30769</span>
+    </div>
+    <h1 class="finding">Bit-flip damage in LLM training is path-dependent — <em>Q/K faults do the most lasting harm</em> — so protection should be partitioned, not uniform.</h1>
+    <p class="ptitle"><a href="https://arxiv.org/abs/2608.30769">TrainSDC: Characterizing and Mitigating Silent Data Corruption in Large Language Model Training</a></p>
+    <p class="meta">
+      <span>Zhipeng Xia, Haotian Xu, Siyu Yun, Liqi Lin, et al.</span>
+      <span class="sep">|</span>
+      <span>Zhejiang University + Huawei</span>
+      <span class="sep">|</span>
+      <span>2026-08-31</span>
+      <span class="chips">
+        <span class="chip">silent-data-corruption</span>
+        <span class="chip">fault-tolerance</span>
+        <span class="chip">llm-training</span>
+        <span class="chip">distributed-training</span>
+      </span>
+    </p>
+  </header>
+
+  <!-- ══ ASSET ROW ══ -->
+  <section class="assets">
+    <article class="asset asset-metric rv">
+      <span class="label">Key metric</span>
+      <div class="bignum">≤0.175<small>ΔPPL</small></div>
+      <p class="metric-ctx">Dense faults — <strong>100,000 corrupted elements per event</strong> — held to this perplexity deviation on Llama-3.2-1B. Unprotected training diverges to nonfinite; the best baseline (Harmful-update) sits at 1.25.</p>
+      <p class="metric-foot">overhead 1.65% (Llama) / 6.76% (Qwen) step time</p>
+    </article>
+
+    <article class="asset asset-why rv">
+      <span class="label">Why this matters</span>
+      <p class="why-text">Turns silent-corruption defense from blanket redundancy into partitioned protection — a deployable recipe for keeping multi-week LLM training runs trustworthy at ~2–7% cost.</p>
+      <p class="why-src">distilled from Relevance / TL;DR</p>
+    </article>
+
+    <article class="asset asset-edge rv">
+      <span class="label">Critical edge</span>
+      <p class="edge-text">Evidence stops at <strong>0.6B–1B models trained from scratch for 100M tokens</strong> — roughly two orders of magnitude below the production regimes where SDC actually bites; whether Q/K dominance holds at 7B–70B is untested.</p>
+      <p class="edge-src">Critical Assessment</p>
+    </article>
+  </section>
+
+  <!-- ══ BODY GRID ══ -->
+  <main class="grid">
+
+    <article class="card span-method rv">
+      <h2><span class="idx">01</span> Methodology — characterize, then protect each regime</h2>
+      <ul class="flow">
+        <li><b>Characterize.</b> Inject transient faults (4 random bit flips per element) into every module's forward activations and backward gradients; score damage with D_Maximum / D_final, normalized by each clean run's nondeterminism envelope so a value &gt;1 exceeds every clean-to-clean difference.</li>
+        <li><b>Observe two regimes.</b> Forward vulnerability is path-dependent: Q/K-path outputs cause the only persistent final-loss deviation yet turn weakly observable after softmax/residual; V, MLP and block outputs are transient. Backward vulnerability is module-agnostic, governed by the gradient exponent distribution.</li>
+        <li><b>Protect each differently.</b> Q/K path executed twice and verified with paired 64-bit raw/indexed XOR fingerprints (128 bits); a Residual Gain Guard compares each DDP rank's log-RMS residual gain to the median of other ranks (robust z-score, α=2.5) and discards + replays on alarm; backward, exponent-aware scaling multiplies loss by 2<sup>15</sup> and divides gradients by 2<sup>15</sup> — an algebraically identical update that relocates gradients out of bf16's bit-flip amplification region.</li>
+      </ul>
+      <p class="setup"><b>eval:</b> Llama-3.2-1B &amp; Qwen3-0.6B from random init · 100M tokens · 8×A100 DDP · bf16 AMP · 813-event bit-flip protocol · vs Loss-spike / Inf-NaN / ATTNChecker / Harmful-update / LLMFT</p>
+    </article>
+
+    <article class="card span-results rv">
+      <h2><span class="idx">02</span> Results — the dense-fault endgame</h2>
+      <table class="tbl">
+        <caption>Dense faults, 100k corrupted elements/event (Table 1 + overheads)</caption>
+        <thead><tr><th>Method</th><th>ΔPPL Llama</th><th>ΔPPL Qwen</th><th>Top-1 agree</th><th>Overhead</th></tr></thead>
+        <tbody>
+          <tr><td>No protection</td><td class="num">nonfinite</td><td class="num">nonfinite</td><td class="num">—</td><td class="num">0%</td></tr>
+          <tr><td>Loss-spike detect</td><td class="num">27.60</td><td class="num">36.30</td><td class="num">82.6–83.4%</td><td class="num">—</td></tr>
+          <tr><td>ATTNChecker (ABFT)</td><td class="num">25.40</td><td class="num">37.10</td><td class="num">—</td><td class="num">7.65 / 36.70%</td></tr>
+          <tr><td>LLMFT (OSDI'26)</td><td class="num">22.20</td><td class="num">29.50</td><td class="num">—</td><td class="num">13.50 / 5.62%</td></tr>
+          <tr><td>Harmful-update</td><td class="num">1.25</td><td class="num">1.14</td><td class="num">—</td><td class="num">12.10 / 11.20%</td></tr>
+          <tr class="hero-row"><td>TrainSDC</td><td class="num">0.173</td><td class="num">0.175</td><td class="num">98.6 / 98.8%</td><td class="num">1.65 / 6.76%</td></tr>
+        </tbody>
+      </table>
+      <ul>
+        <li><b>Sparse faults (10 elements/event):</b> ΔPPL ≤ 0.004, Top-1 99.1%, and D_final lands <b>below the clean nondeterminism envelope</b> — statistically indistinguishable from fault-free training.</li>
+        <li><b>Exact where it matters:</b> Q/K recomputation missed 0 direct corruptions of protected targets; all 797 missed forward events sit outside the recompute boundary.</li>
+        <li><b>Components are complementary:</b> exponent scaling alone hits nonfinite ("found_inf") under dense faults — prevention without detection is not enough.</li>
+        <li><b>Operational hygiene:</b> 0/200 clean false positives, 0.061% step-level FPR over full 814-step traces; k=15 stayed admissible for 74,000 consecutive Pythia-1B pretraining steps.</li>
+      </ul>
+    </article>
+
+    <article class="card span-zh rv zh">
+      <h2><span class="idx">03</span> 核心贡献</h2>
+      <div class="card-zh-body">
+        <ul>
+          <li><b>首个跨模块、跨前向/反向的 SDC 表征</b>，用清洁运行的非确定性包络区分瞬时损伤与持久损伤。</li>
+          <li>两条关键观察：前向脆弱性<b>路径依赖</b>（Q/K 持久且弱可观测），反向脆弱性<b>模块无关</b>、由梯度指数分布主导。</li>
+          <li>分区防护框架：Q/K 重算 + 128-bit XOR 指纹校验、跨 DDP rank 残差增益守卫、指数感知梯度缩放（k=15）。</li>
+          <li>813 次注入协议下，稠密故障 ΔPPL 压到 ≤0.175，开销仅 1.65%–6.76%。</li>
+        </ul>
+      </div>
+    </article>
+
+    <article class="card span-strengths rv">
+      <h2><span class="idx">04</span> Strengths</h2>
+      <ul>
+        <li>Every protection component maps to a measured observation — a unusually clean characterization→design loop.</li>
+        <li>Q/K recomputation gives a <b>crisp exact guarantee</b>, not a statistical one, on the targets that matter most.</li>
+        <li>Deployability beyond the benchmark: calibrated thresholds, full-trace FPR accounting, 154-checkpoint stability study.</li>
+        <li>Exemplary honesty: missed-alarm taxonomy, clean-run envelopes, and a negative result (sparse recall) all disclosed.</li>
+      </ul>
+    </article>
+
+    <article class="card span-limits rv">
+      <h2><span class="idx">05</span> Limitations</h2>
+      <ul>
+        <li>Sparse-fault recall is low (~41–43% forward; guard alone 35%/15%) — quality is carried by <b>prevention, not detection</b>.</li>
+        <li>Synthetic single-layer bit flips only; no production fault traces; bf16-specific analysis, no fp16/fp8.</li>
+        <li>No head-to-head with full duplication (DMR/SparTrain) despite the positioning claim; XOR collision probability unanalyzed.</li>
+        <li>Guard presumes DDP replication — rank-median reference does not obviously port to pipeline/tensor parallelism; Qwen overhead (6.76%) exceeds LLMFT (5.62%).</li>
+      </ul>
+    </article>
+
+    <article class="card span-questions rv">
+      <h2><span class="idx">06</span> Questions for further exploration</h2>
+      <ul class="qgrid">
+        <li>Do Q/K dominance and the gradient-exponent story survive at 7B–70B with pretrained-weight continuation?</li>
+        <li>How should the Residual Gain Guard work under pipeline/tensor parallelism, where no peer rank computes the identical layer?</li>
+        <li>What is the analytical collision probability of the paired 128-bit XOR fingerprints — and would a third mixer close the gap?</li>
+        <li>Can exponent-aware scaling co-design with mixed-precision GradScaler instead of disabling auto scale adjustment?</li>
+        <li>How does the framework fare against real production fault traces (Meta LLMFIT) and correlated multi-bit faults?</li>
+      </ul>
+    </article>
+
+  </main>
+
+  <footer>
+    <a href="./2608.30769.md">↗ Markdown source</a>
+    <span class="gen">generated 2026-09-25 · not browser-verified · arXiv:2608.30769</span>
+    <a href="https://arxiv.org/abs/2608.30769">arxiv.org/abs/2608.30769 ↗</a>
+  </footer>
+
+</div>
+
+<script>
+  (function(){
+    var els=document.querySelectorAll('.rv');
+    if(!('IntersectionObserver' in window)){els.forEach(function(e){e.classList.add('in')});return;}
+    var io=new IntersectionObserver(function(entries){
+      entries.forEach(function(en){
+        if(en.isIntersecting){en.target.classList.add('in');io.unobserve(en.target);}
+      });
+    },{threshold:0.08});
+    els.forEach(function(e,i){e.style.transitionDelay=(Math.min(i,5)*70)+'ms';io.observe(e);});
+  })();
+</script>
+</body>
+</html>
