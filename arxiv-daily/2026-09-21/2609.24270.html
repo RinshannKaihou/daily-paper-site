@@ -1,0 +1,454 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dissecting How Die Scaling Breaks GPU Fine-grained Scheduling — arXiv 2609.24270</title>
+<style>
+  :root{
+    --bg:#f4f2ec;
+    --surface:#fcfbf8;
+    --ink:#1d1a14;
+    --muted:#6e6a5e;
+    --faint:#96917f;
+    --line:#ded9c9;
+    --accent:#c2410c;
+    --accent-soft:#f8ebe2;
+    --accent-line:#e5c4ac;
+    --coal:#191712;
+    --coal-2:#211e17;
+    --coal-fg:#f1eee6;
+    --coal-muted:#a39f90;
+    --coal-line:rgba(241,238,230,.16);
+    --w:min(95vw,1100px);
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI","Helvetica Neue",Helvetica,Arial,"PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+    --mono:ui-monospace,"SF Mono","Cascadia Mono",Menlo,Consolas,"Liberation Mono",monospace;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{-webkit-text-size-adjust:100%}
+  body{
+    font-family:var(--sans);
+    background:var(--bg);
+    color:var(--ink);
+    line-height:1.6;
+    font-size:15px;
+  }
+  a{color:inherit}
+
+  /* ---------- fixed nav ---------- */
+  .topnav{position:fixed;top:14px;left:14px;z-index:50}
+  .topnav a{
+    display:inline-block;
+    font-family:var(--mono);font-size:11.5px;letter-spacing:.02em;
+    text-decoration:none;color:var(--ink);
+    background:var(--surface);
+    border:1px solid var(--line);
+    border-radius:4px;
+    padding:6px 11px;
+    box-shadow:0 2px 10px -6px rgba(25,23,18,.4);
+  }
+  .topnav a:hover{border-color:var(--accent);color:var(--accent)}
+
+  /* ---------- hero ---------- */
+  .hero{background:var(--coal);color:var(--coal-fg);padding:96px 0 84px}
+  .hero-inner{width:var(--w);margin:0 auto}
+  .kicker{
+    font-family:var(--mono);font-size:11px;font-weight:500;
+    letter-spacing:.16em;text-transform:uppercase;
+    color:var(--accent);
+    margin-bottom:26px;
+  }
+  .finding{
+    font-size:clamp(1.85rem,3.4vw + .8rem,3.25rem);
+    font-weight:800;
+    line-height:1.14;
+    letter-spacing:-.022em;
+    max-width:30ch;
+    text-wrap:balance;
+  }
+  .finding .hot{color:#e8814d}
+  .hero-meta{
+    margin-top:44px;
+    padding-top:22px;
+    border-top:1px solid var(--coal-line);
+    display:grid;
+    grid-template-columns:minmax(0,1.5fr) minmax(0,1fr);
+    gap:20px 40px;
+    align-items:start;
+  }
+  .paper-title{
+    font-size:15.5px;font-weight:650;line-height:1.4;
+    color:var(--coal-fg);text-decoration:none;
+    border-bottom:1px solid transparent;
+  }
+  .paper-title:hover{color:#e8814d}
+  .authors{margin-top:7px;font-size:12.5px;color:var(--coal-muted);line-height:1.55}
+  .authors b{color:var(--coal-fg);font-weight:550}
+  .hero-side{text-align:right}
+  .pubdate{font-family:var(--mono);font-size:12px;color:var(--coal-muted);letter-spacing:.04em}
+  .chips{display:flex;flex-wrap:wrap;gap:6px;justify-content:flex-end;margin-top:12px}
+  .chip{
+    font-family:var(--mono);font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;
+    color:var(--coal-muted);
+    border:1px solid var(--coal-line);
+    border-radius:3px;
+    padding:3px 8px;
+    white-space:nowrap;
+  }
+
+  /* ---------- load animation ---------- */
+  @keyframes rise{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
+  .a1{animation:rise .55s cubic-bezier(.2,.7,.3,1) both}
+  .a2{animation:rise .55s cubic-bezier(.2,.7,.3,1) .08s both}
+  .a3{animation:rise .55s cubic-bezier(.2,.7,.3,1) .18s both}
+  .a4{animation:rise .6s cubic-bezier(.2,.7,.3,1) .28s both}
+  @media (prefers-reduced-motion:reduce){
+    .a1,.a2,.a3,.a4{animation:none}
+    .js [data-reveal]{opacity:1;transform:none;transition:none}
+  }
+
+  /* ---------- asset row ---------- */
+  .assets{width:var(--w);margin:-46px auto 0;position:relative;z-index:5;
+    display:grid;grid-template-columns:1.1fr .95fr 1.2fr;gap:16px}
+  .asset{
+    background:var(--surface);
+    border:1px solid var(--line);
+    border-radius:10px;
+    padding:24px 26px 22px;
+    box-shadow:0 18px 40px -24px rgba(25,23,18,.45);
+  }
+  .label{
+    font-family:var(--mono);font-size:10.5px;font-weight:600;
+    letter-spacing:.15em;text-transform:uppercase;color:var(--muted);
+  }
+  .metric-num{
+    font-family:var(--mono);font-weight:700;
+    font-size:clamp(3.4rem,5.6vw,4.5rem);
+    letter-spacing:-.04em;line-height:1.05;
+    color:var(--accent);
+    margin:10px 0 6px;
+    font-variant-numeric:tabular-nums;
+  }
+  .metric-cap{font-size:13.5px;line-height:1.5;color:var(--ink);font-weight:550}
+  .metric-sub{margin-top:8px;font-size:12px;line-height:1.55;color:var(--muted)}
+  .why-text{margin-top:12px;font-size:16.5px;line-height:1.55;font-weight:550;letter-spacing:-.005em}
+  .why-zh{margin-top:12px;padding-top:10px;border-top:1px solid var(--line);
+    font-size:12.5px;line-height:1.8;color:var(--muted)}
+  .asset-edge{background:var(--accent-soft);border-color:var(--accent-line)}
+  .asset-edge .label{color:var(--accent)}
+  .edge-text{margin-top:12px;font-size:15px;line-height:1.6;color:var(--ink)}
+  .edge-text b{color:var(--accent);font-weight:650}
+
+  /* ---------- body grid ---------- */
+  .body-grid{width:var(--w);margin:20px auto 0;display:grid;
+    grid-template-columns:repeat(12,1fr);gap:16px}
+  .card{
+    background:var(--surface);
+    border:1px solid var(--line);
+    border-radius:10px;
+    padding:22px 24px;
+  }
+  .c-method{grid-column:span 5}
+  .c-results{grid-column:span 7}
+  .c-strengths{grid-column:span 6}
+  .c-limits{grid-column:span 6}
+  .c-questions{grid-column:span 12}
+  .card-head{display:flex;align-items:baseline;gap:10px;margin-bottom:14px}
+  .idx{font-family:var(--mono);font-size:10.5px;color:var(--faint);letter-spacing:.08em}
+  .card-title{font-size:16px;font-weight:750;letter-spacing:-.01em}
+  .card p{font-size:13.5px;color:var(--ink);line-height:1.65}
+
+  /* methodology flow */
+  .flow{display:flex;flex-direction:column}
+  .flow-step{display:grid;grid-template-columns:26px 1fr;gap:0 12px;position:relative;padding-bottom:16px}
+  .flow-step:not(:last-child)::before{
+    content:"";position:absolute;left:12px;top:24px;bottom:2px;width:1px;background:var(--line);
+  }
+  .flow-dot{
+    width:25px;height:25px;border:1px solid var(--accent-line);border-radius:50%;
+    display:flex;align-items:center;justify-content:center;
+    font-family:var(--mono);font-size:10.5px;font-weight:700;color:var(--accent);
+    background:var(--accent-soft);
+  }
+  .flow-step h4{font-size:13.5px;font-weight:700;letter-spacing:-.005em;margin:3px 0 3px}
+  .flow-step p{font-size:12.8px;color:var(--muted);line-height:1.6}
+  .flow-step code{font-family:var(--mono);font-size:11.5px;background:var(--bg);
+    border:1px solid var(--line);border-radius:3px;padding:0 4px}
+  .method-stats{
+    margin-top:4px;padding-top:14px;border-top:1px solid var(--line);
+    font-family:var(--mono);font-size:11.5px;color:var(--muted);line-height:2;
+  }
+  .method-stats b{color:var(--accent);font-weight:700}
+
+  /* tables */
+  .tbl-wrap{overflow-x:auto}
+  table{width:100%;border-collapse:collapse;font-size:12.8px}
+  th{
+    font-family:var(--mono);font-size:10px;font-weight:600;
+    letter-spacing:.12em;text-transform:uppercase;color:var(--muted);
+    text-align:left;padding:0 10px 7px 0;
+    border-bottom:1.5px solid var(--ink);
+    white-space:nowrap;
+  }
+  td{padding:8px 10px 8px 0;border-bottom:1px solid var(--line);vertical-align:top;line-height:1.5}
+  tr:last-child td{border-bottom:none}
+  td.num,th.num{text-align:right;padding-right:0;white-space:nowrap}
+  td.num{font-family:var(--mono);font-size:12.3px;font-variant-numeric:tabular-nums}
+  .hot-num{color:var(--accent);font-weight:700}
+  .gpu-tag{font-family:var(--mono);font-size:11.5px;font-weight:700}
+  .tbl-note{margin-top:10px;font-size:11.5px;color:var(--muted);line-height:1.6}
+  .tbl-note b{color:var(--ink);font-weight:600}
+  .res-tables table{margin-bottom:18px}
+  .res-tables table:last-of-type{margin-bottom:0}
+
+  /* variability bars */
+  .var-block{margin-top:20px;padding-top:16px;border-top:1px solid var(--line)}
+  .var-title{font-family:var(--mono);font-size:10px;font-weight:600;letter-spacing:.12em;
+    text-transform:uppercase;color:var(--muted);margin-bottom:10px}
+  .var-row{display:grid;grid-template-columns:minmax(0,1fr) 34px 15px;gap:10px;align-items:center;margin-bottom:7px}
+  .var-row .vl{font-size:12px;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .var-row .vn{font-family:var(--mono);font-size:12px;text-align:right;font-variant-numeric:tabular-nums}
+  .var-track{height:9px;background:var(--bg);border:1px solid var(--line);border-radius:2px;position:relative}
+  .var-fill{position:absolute;inset:1px auto 1px 1px;background:#4a463a;border-radius:1px}
+  .var-fill.lead{background:var(--accent)}
+
+  /* strengths / limitations */
+  .plist{list-style:none}
+  .plist li{
+    position:relative;padding:0 0 11px 20px;
+    font-size:13.2px;line-height:1.6;color:var(--ink);
+  }
+  .plist li:last-child{padding-bottom:0}
+  .plist li::before{content:"";position:absolute;left:2px;top:9px;width:8px;height:2px;background:var(--accent)}
+  .c-limits .plist li::before{background:#8a8574}
+  .plist li b{font-weight:650}
+  .panel-s{border-top:3px solid var(--accent);border-radius:0 0 10px 10px;border-left-color:var(--line);border-right-color:var(--line);border-bottom-color:var(--line)}
+  .panel-l{border-top:3px solid #8a8574;border-radius:0 0 10px 10px;border-left-color:var(--line);border-right-color:var(--line);border-bottom-color:var(--line)}
+
+  /* questions */
+  .q-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:2px 34px;margin-top:2px}
+  .q-item{display:grid;grid-template-columns:26px 1fr;gap:10px;padding:9px 0;border-bottom:1px dashed var(--line);font-size:13px;line-height:1.6;color:var(--ink)}
+  .q-grid .q-item:nth-last-child(-n+2){border-bottom:none}
+  .q-n{font-family:var(--mono);font-size:11px;color:var(--accent);font-weight:700;padding-top:3px}
+
+  /* footer */
+  footer{margin-top:26px;border-top:1px solid var(--line);background:var(--bg)}
+  .foot-inner{width:var(--w);margin:0 auto;padding:26px 0 64px;
+    display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap}
+  .foot-inner a{
+    font-family:var(--mono);font-size:12px;text-decoration:none;color:var(--muted);
+    border-bottom:1px solid var(--line);padding-bottom:2px;
+  }
+  .foot-inner a:hover{color:var(--accent);border-color:var(--accent)}
+  .foot-tag{font-family:var(--mono);font-size:11px;color:var(--faint);letter-spacing:.04em}
+
+  /* reveal on scroll (JS-gated) */
+  .js [data-reveal]{opacity:0;transform:translateY(12px);transition:opacity .55s ease,transform .55s ease}
+  .js [data-reveal].in{opacity:1;transform:none}
+
+  /* ---------- responsive ---------- */
+  @media (max-width:980px){
+    .assets{grid-template-columns:1fr 1fr}
+    .asset-edge{grid-column:span 2}
+    .c-method,.c-results{grid-column:span 12}
+  }
+  @media (max-width:720px){
+    .hero{padding:82px 0 70px}
+    .hero-meta{grid-template-columns:1fr;gap:16px}
+    .hero-side{text-align:left}
+    .chips{justify-content:flex-start}
+    .assets{grid-template-columns:1fr;margin-top:-30px}
+    .asset-edge{grid-column:auto}
+    .body-grid{grid-template-columns:1fr}
+    .c-method,.c-results,.c-strengths,.c-limits,.c-questions{grid-column:auto}
+    .q-grid .q-item:nth-last-child(-n+2){border-bottom:1px dashed var(--line)}
+    .q-grid .q-item:last-child{border-bottom:none}
+  }
+</style>
+</head>
+<body>
+<script>document.documentElement.classList.add('js');</script>
+
+<nav class="topnav" aria-label="Back">
+  <a href="./index.html">&#8617;&nbsp;Today&rsquo;s digest</a>
+</nav>
+
+<header class="hero">
+  <div class="hero-inner">
+    <p class="kicker a1">Paper Brief &mdash; arXiv:2609.24270</p>
+    <h1 class="finding a2">Die scaling made modern GPUs physically asymmetric: <span class="hot">equal SM counts no longer guarantee equal performance.</span></h1>
+    <div class="hero-meta a3">
+      <div>
+        <a class="paper-title" href="https://arxiv.org/abs/2609.24270">Dissecting How Die Scaling Breaks GPU Fine-grained Scheduling</a>
+        <p class="authors"><b>Xiaoze Fan</b>, Jianhao Wang, Weihao Cui, et al. &mdash; Shanghai Jiao Tong University &middot; National University of Singapore &middot; NVIDIA</p>
+      </div>
+      <div class="hero-side">
+        <p class="pubdate">2026-09-21 &middot; 11 authors</p>
+        <div class="chips">
+          <span class="chip">GPU-architecture</span>
+          <span class="chip">NUMA</span>
+          <span class="chip">Fine-grained scheduling</span>
+          <span class="chip">LLM serving</span>
+          <span class="chip">Systems benchmarking</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</header>
+
+<main>
+  <!-- asset row -->
+  <section class="assets" aria-label="Key assets">
+    <article class="asset a3">
+      <p class="label">Key Metric</p>
+      <p class="metric-num">1.22&times;</p>
+      <p class="metric-cap">Peak GroupGEMM speedup from NUMA-aware placement vs. CUTLASS &mdash; across 16 (N,K,M) configurations on H200 + B200.</p>
+      <p class="metric-sub">Also: +14.3% decode throughput for multiplexed Qwen3-8B serving on H200.</p>
+    </article>
+    <article class="asset a4">
+      <p class="label">Why This Matters</p>
+      <p class="why-text">Explains why equal-SM GPU allocations can differ 1.33&times; in throughput, and delivers deployable NUMA-aware placement for LLM serving, co-location scheduling, and kernel tuning.</p>
+      <p class="why-zh">对多卡推理服务、GPU 共置调度与内核优化具有很强的实践参考价值。</p>
+    </article>
+    <article class="asset asset-edge a4">
+      <p class="label">Critical Edge</p>
+      <p class="edge-text">The <b>1.22&times;</b> headline is GroupGEMM-only: attention kernels &mdash; what LLM serving actually runs &mdash; gain far less from NUMA awareness, and even <b>regress on B200</b> with small KV caches.</p>
+    </article>
+  </section>
+
+  <!-- body grid -->
+  <section class="body-grid">
+
+    <article class="card c-method" data-reveal>
+      <div class="card-head"><span class="idx">01</span><h2 class="card-title">Methodology</h2></div>
+      <div class="flow">
+        <div class="flow-step">
+          <span class="flow-dot">A</span>
+          <div>
+            <h4>Cluster probing &rarr; compute topology</h4>
+            <p>Thread Block Clusters guarantee co-scheduled SMs share a GPC. Launches at cluster sizes 3&ndash;8 log <code>%smid</code>: recurring SMs are &ldquo;normal&rdquo;; the rest are floorsweep-dependent &ldquo;random&rdquo; SMs.</p>
+          </div>
+        </div>
+        <div class="flow-step">
+          <span class="flow-dot">B</span>
+          <div>
+            <h4>L2 bandwidth probing &rarr; place random SMs</h4>
+            <p>Same-GPC SMs contend on the Xbar. Each random SM is swept against known GPCs and assigned to the one with the lowest added bandwidth.</p>
+          </div>
+        </div>
+        <div class="flow-step">
+          <span class="flow-dot">C</span>
+          <div>
+            <h4>Latency + bit-flip probes &rarr; memory NUMA</h4>
+            <p>~100k address samples per pinned SM yield local/remote HBM and L2 latency; flipping each address bit recovers the XOR partition hash &mdash; 16 bits on H200, 4KB granularity.</p>
+          </div>
+        </div>
+        <div class="flow-step">
+          <span class="flow-dot">D</span>
+          <div>
+            <h4>Asymmetry-aware scheduling</h4>
+            <p>Persistent thread blocks pinned by discovered affinity; memory placed NUMA-locally via O(1) 4KB remapping (all NVIDIA GPUs) or a driver MLOP modification (Blackwell+).</p>
+          </div>
+        </div>
+      </div>
+      <p class="method-stats">&lt;<b>1 min</b> per GPU &middot; hash ~<b>10 s</b> (15 min for 80GB) &middot; <b>100%</b> cross-machine agreement</p>
+    </article>
+
+    <article class="card c-results res-tables" data-reveal>
+      <div class="card-head"><span class="idx">02</span><h2 class="card-title">Results</h2></div>
+      <div class="tbl-wrap">
+        <table>
+          <thead>
+            <tr><th>Measured asymmetry</th><th class="num">Remote HBM latency</th><th class="num">Remote L2</th><th class="num">Effective L2</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><span class="gpu-tag">H200</span></td><td class="num">~490 &rarr; ~655 cyc <span class="hot-num">(+34%)</span></td><td class="num">~1.5&times;</td><td class="num">65.8% of 60MB</td></tr>
+            <tr><td><span class="gpu-tag">B200</span></td><td class="num">~552 &rarr; ~920 cyc <span class="hot-num">(+67%)</span></td><td class="num">~2&times;</td><td class="num">64.7% of 125MB</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="tbl-wrap" style="margin-top:16px">
+        <table>
+          <thead>
+            <tr><th>Scheduling result</th><th class="num">Measured</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>GroupGEMM, NUMA-aware vs. CUTLASS (16 configs)</td><td class="num hot-num">up to 1.22&times;</td></tr>
+            <tr><td>B200 MLA decode, 70/78 SM split &mdash; NUMA-only, blocks land on random SMs</td><td class="num">1.10&times; &rarr; <span class="hot-num">0.78&times;</span></td></tr>
+            <tr><td>mini-SGLang decode (Qwen3-8B), Adaptive-NUMA vs. Cluster-Aware</td><td class="num hot-num">+14.3% H200 / +10.4% B200</td></tr>
+            <tr><td>Cluster-Mismatched overlap vs. CA on B200</td><td class="num">&minus;18.9%</td></tr>
+            <tr><td>Co-located tenants, cluster size 8 &mdash; first-allocated wins</td><td class="num hot-num">1.18&times; H200 / 1.33&times; B200</td></tr>
+            <tr><td>AMD MI300X (characterization only) &mdash; affinity groups / latency tiers</td><td class="num">4 / 3 (~707&ndash;926 cyc)</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="tbl-note"><b>Remote HBM bandwidth is LTC-fabric-limited, not HBM-limited</b> &mdash; remote lines are replicated into local L2 (reload ~310/596 cyc), evicting local data. CA and AN standalone are within noise (no implementation overhead).</p>
+      <div class="var-block">
+        <p class="var-title">Same SKU, different silicon &mdash; GPC layouts across 28 H200s</p>
+        <div class="var-row"><span class="vl">Six 16-SM GPCs + two 18-SM GPCs (dominant layout)</span><span class="vn">23</span><span class="var-track"><span class="var-fill lead" style="width:calc(23/28*98%)"></span></span></div>
+        <div class="var-row"><span class="vl">Contain a 12-SM GPC</span><span class="vn">3</span><span class="var-track"><span class="var-fill" style="width:calc(3/28*98%)"></span></span></div>
+        <div class="var-row"><span class="vl">Contain a 14-SM GPC</span><span class="vn">1</span><span class="var-track"><span class="var-fill" style="width:calc(1/28*98%)"></span></span></div>
+        <div class="var-row"><span class="vl">Contain a 10-SM GPC</span><span class="vn">1</span><span class="var-track"><span class="var-fill" style="width:calc(1/28*98%)"></span></span></div>
+      </div>
+    </article>
+
+    <article class="card c-strengths panel-s" data-reveal>
+      <div class="card-head"><span class="idx">03</span><h2 class="card-title">Strengths</h2></div>
+      <ul class="plist">
+        <li><b>First black-box, per-chip characterization</b> of floorsweeping and NUMA asymmetry on shipping H200/B200/H100 PCIe &mdash; validated and cheap to re-run (&lt;1 min/GPU).</li>
+        <li><b>Vendor-undocumented facts with immediate impact:</b> cluster-size-8 kernels silently avoid random SMs; Green Context allocation order swings tenant throughput 1.33&times;; MIG disables even normal SMs.</li>
+        <li><b>Two allocation mechanisms span generations</b> &mdash; remap-based for all NVIDIA GPUs, driver-based for Blackwell+ &mdash; with open-sourced code.</li>
+        <li><b>Unusually honest reporting:</b> shows its own negative results (B200 small-KV regression, remap overhead) and distills separately actionable lessons.</li>
+      </ul>
+    </article>
+
+    <article class="card c-limits panel-l" data-reveal>
+      <div class="card-head"><span class="idx">04</span><h2 class="card-title">Limitations</h2></div>
+      <ul class="plist">
+        <li><b>Requires kernel rewrites</b> (persistent thread blocks) plus CUDA driver + MIG modifications &mdash; closed-source serving stacks cannot adopt the techniques today.</li>
+        <li><b>The 1.22&times; headline is GroupGEMM-specific;</b> attention gains are modest and negative for small KV caches on B200.</li>
+        <li><b>Thin end-to-end LLM evidence:</b> one model (Qwen3-8B), one operating point, on a research fork &mdash; no SLA or production-trace evaluation.</li>
+        <li><b>Per-chip calibration;</b> durability across driver/firmware updates is unexamined. MI300X is characterized but never exploited by a scheduler.</li>
+        <li><b>Assumes cluster-compatible co-located kernels;</b> mismatches force compromises costing up to &minus;18.9%.</li>
+      </ul>
+    </article>
+
+    <aside class="card c-questions" data-reveal>
+      <div class="card-head"><span class="idx">05</span><h2 class="card-title">Questions for Further Exploration</h2></div>
+      <div class="q-grid">
+        <div class="q-item"><span class="q-n">Q1</span><span>Does topology awareness compound with speculative decoding, chunked prefill, or MoE expert placement &mdash; or do they compete for the same degrees of freedom?</span></div>
+        <div class="q-item"><span class="q-n">Q2</span><span>Could NVIDIA expose SM&rarr;GPC maps and partition hashes officially via CUDA device attributes, removing the reverse-engineering burden?</span></div>
+        <div class="q-item"><span class="q-n">Q3</span><span>Are chip-specific mappings stable across driver updates, GPU resets, and thermal cycles &mdash; and can calibrations be cached per chip serial number?</span></div>
+        <div class="q-item"><span class="q-n">Q4</span><span>Do the placement principles transfer to AMD MI300X&rsquo;s XCD/AID topology, where three latency tiers exceed binary local/remote placement?</span></div>
+        <div class="q-item"><span class="q-n">Q5</span><span>How should cloud schedulers price &ldquo;cluster-capable&rdquo; normal SMs vs. random SMs to internalize the observed 1.33&times; allocation-order externality?</span></div>
+      </div>
+    </aside>
+
+  </section>
+</main>
+
+<footer>
+  <div class="foot-inner">
+    <a href="./2609.24270.md">&#8599;&nbsp;Markdown source</a>
+    <span class="foot-tag">arXiv:2609.24270 &middot; 2026-09-21</span>
+    <a href="https://arxiv.org/abs/2609.24270">&#8599;&nbsp;arXiv abs</a>
+  </div>
+</footer>
+
+<script>
+  (function(){
+    var els = document.querySelectorAll('[data-reveal]');
+    if (!('IntersectionObserver' in window)) {
+      els.forEach(function(el){ el.classList.add('in'); });
+      return;
+    }
+    var io = new IntersectionObserver(function(entries){
+      entries.forEach(function(e){
+        if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); }
+      });
+    }, { threshold: 0.08 });
+    els.forEach(function(el){ io.observe(el); });
+  })();
+</script>
+</body>
+</html>

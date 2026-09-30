@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>2609.25782 — Hot–Cold Tiering of HBM + HBF for Agentic LLM Serving</title>
+<style>
+  :root{
+    --paper:#F7F4EE;
+    --card:#FFFFFF;
+    --ink:#211B12;
+    --muted:#6E6553;
+    --line:#E4DDCB;
+    --line-strong:#211B12;
+    --accent:#BC3E12;          /* the one semantic accent: "hot" */
+    --accent-ink:#96300C;
+    --accent-tint:rgba(188,62,18,.07);
+    --dark:#262019;            /* critical-edge panel: contrast by value, not hue */
+    --dark-line:#453B2C;
+    --dark-text:#F3EDDF;
+    --dark-muted:#BDB098;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,"PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+    --mono:ui-monospace,"SF Mono",SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
+  }
+  *{box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%}
+  body{
+    margin:0;background:var(--paper);color:var(--ink);
+    font:400 .85rem/1.68 var(--sans); /* CJK-friendly line-height */
+  }
+  a{color:var(--accent-ink)}
+  a:hover{color:var(--accent)}
+
+  /* ---------- fixed nav ---------- */
+  .back-nav{
+    position:fixed;top:14px;left:14px;z-index:60;
+    font:600 11.5px/1 var(--mono);letter-spacing:.04em;
+    color:var(--ink);text-decoration:none;
+    background:var(--card);border:1px solid var(--line);border-radius:999px;
+    padding:9px 14px;box-shadow:0 1px 0 rgba(33,27,18,.06);
+  }
+  .back-nav:hover{border-color:var(--accent);color:var(--accent)}
+
+  .page{width:min(95vw,1100px);margin:0 auto;padding:72px 0 40px}
+
+  /* ---------- reveal choreography ---------- */
+  @keyframes rise{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+  .hero{animation:rise .6s cubic-bezier(.2,.7,.2,1) both}
+  .asset:nth-child(1){animation:rise .6s cubic-bezier(.2,.7,.2,1) .14s both}
+  .asset:nth-child(2){animation:rise .6s cubic-bezier(.2,.7,.2,1) .22s both}
+  .asset:nth-child(3){animation:rise .6s cubic-bezier(.2,.7,.2,1) .30s both}
+  html.js .card{opacity:0;transform:translateY(14px);transition:opacity .55s cubic-bezier(.2,.7,.2,1),transform .55s cubic-bezier(.2,.7,.2,1)}
+  html.js .card.in{opacity:1;transform:none}
+  @media (prefers-reduced-motion:reduce){
+    *,*::before,*::after{animation:none!important;transition:none!important}
+    html.js .card{opacity:1;transform:none}
+  }
+
+  /* ---------- hero ---------- */
+  .kicker{
+    display:flex;align-items:center;gap:10px;
+    font:600 11px/1 var(--mono);letter-spacing:.15em;text-transform:uppercase;color:var(--muted);
+    margin:0 0 22px;
+  }
+  .kicker::before{content:"";width:9px;height:9px;background:var(--accent);flex:none}
+  .finding{
+    margin:0 0 26px;max-width:20em;
+    font-size:clamp(1.7rem,1rem + 2.6vw,2.5rem);
+    font-weight:750;letter-spacing:-.02em;line-height:1.32;
+  }
+  .finding .hl{color:var(--accent);font-variant-numeric:tabular-nums}
+  .paper-meta{border-top:1px solid var(--line-strong);padding-top:14px;max-width:46em}
+  .paper-title{font-size:1rem;font-weight:650;line-height:1.45;margin:0 0 6px}
+  .paper-title a{color:var(--ink);text-decoration-color:var(--line);text-underline-offset:3px}
+  .paper-title a:hover{color:var(--accent);text-decoration-color:var(--accent)}
+  .byline{font:400 12px/1.7 var(--mono);color:var(--muted);margin:0}
+  .byline b{color:var(--ink);font-weight:600}
+  .chips{list-style:none;display:flex;flex-wrap:wrap;gap:8px;padding:0;margin:16px 0 0}
+  .chips li{
+    font:500 10.5px/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;
+    color:var(--muted);border:1px solid var(--line);border-radius:999px;padding:6px 11px;background:var(--card);
+  }
+
+  /* ---------- shared card chrome ---------- */
+  .label{
+    display:flex;align-items:baseline;gap:8px;
+    font:700 10.5px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--muted);
+    margin:0 0 14px;
+  }
+  .label .idx{color:var(--accent)}
+
+  /* ---------- asset row (larger than body cards, always) ---------- */
+  .assets{display:grid;grid-template-columns:1.05fr 1fr 1.2fr;gap:16px;margin:34px 0 18px}
+  .asset{border:1px solid var(--line);border-radius:10px;background:var(--card);padding:22px 22px 24px}
+  .metric .big{
+    display:block;font:700 clamp(3rem,6.5vw,4.3rem)/1 var(--mono);
+    letter-spacing:-.04em;color:var(--accent);font-variant-numeric:tabular-nums;margin:2px 0 10px -3px;
+  }
+  .metric .cap{font-size:1.06rem;font-weight:650;line-height:1.45;margin:0}
+  .metric .sub{font:400 11.5px/1.6 var(--mono);color:var(--muted);margin:10px 0 0}
+  .why .lede{font-size:1.08rem;font-weight:650;line-height:1.5;margin:0}
+  .why .zh{font-size:.98rem;line-height:1.8;color:var(--muted);margin:12px 0 0}
+  .edge{background:var(--dark);border-color:var(--dark)}
+  .edge .label{color:var(--dark-muted)}
+  .edge .label .idx{color:#E06A3B}
+  .edge .lede{font-size:1.08rem;font-weight:650;line-height:1.5;color:var(--dark-text);margin:0}
+  .edge .note{font:400 11.5px/1.65 var(--mono);color:var(--dark-muted);margin:12px 0 0;padding-top:10px;border-top:1px solid var(--dark-line)}
+
+  /* ---------- body grid ---------- */
+  .body-grid{display:grid;grid-template-columns:repeat(12,1fr);gap:16px;margin-top:16px}
+  .card{
+    border:1px solid var(--line);border-radius:10px;background:var(--card);
+    padding:20px 22px 22px;grid-column:span 12;
+  }
+  .card h2{font-size:1rem;font-weight:700;letter-spacing:-.01em;margin:0 0 4px}
+  .card .lede{color:var(--muted);margin:0 0 14px;font-size:.85rem}
+
+  .method{grid-column:span 5}
+  .flow{list-style:none;margin:0;padding:0;counter-reset:step}
+  .flow li{position:relative;padding:0 0 14px 34px;counter-increment:step}
+  .flow li::before{
+    content:counter(step,decimal-leading-zero);
+    position:absolute;left:0;top:2px;
+    font:700 10.5px/1 var(--mono);color:var(--accent);letter-spacing:.05em;
+  }
+  .flow li:not(:last-child)::after{
+    content:"";position:absolute;left:4px;top:18px;bottom:2px;width:1px;background:var(--line);
+  }
+  .flow b{display:block;font-weight:700;font-size:.87rem;margin-bottom:2px}
+  .flow p{margin:0;color:var(--muted);font-size:.82rem;line-height:1.6}
+  .flow .n{font-family:var(--mono);font-size:.78rem;color:var(--ink)}
+
+  .diagram{overflow-x:auto;margin:4px 0 16px;border:1px solid var(--line);border-radius:8px;background:#FCFBF7;padding:10px 8px 6px}
+  .diagram svg{display:block;width:100%;min-width:560px;height:auto}
+  .diagram-cap{font:400 10.5px/1.6 var(--mono);color:var(--muted);margin:8px 2px 0}
+
+  .results{grid-column:span 7}
+  .bimodal{
+    display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 12px;
+    background:var(--accent-tint);border:1px solid rgba(188,62,18,.18);border-radius:8px;
+    padding:12px 16px;margin:0 0 16px;
+  }
+  .bimodal .b{font:700 1.25rem/1.2 var(--mono);letter-spacing:-.02em;color:var(--accent-ink);font-variant-numeric:tabular-nums}
+  .bimodal .w{font-size:.85rem;font-weight:600}
+  .bimodal .arr{font:700 1.1rem/1 var(--mono);color:var(--muted)}
+  .bimodal .bnote{flex-basis:100%;font:400 10.5px/1.5 var(--mono);color:var(--muted)}
+  table{width:100%;border-collapse:collapse;margin:0 0 6px}
+  caption{caption-side:top;text-align:left;font:700 10.5px/1 var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--muted);padding:0 0 8px}
+  th{
+    text-align:left;font:600 10px/1.4 var(--mono);letter-spacing:.09em;text-transform:uppercase;
+    color:var(--muted);border-bottom:1.5px solid var(--line-strong);padding:7px 8px;
+  }
+  td{padding:8px;border-bottom:1px solid var(--line);vertical-align:top;font-size:.83rem}
+  td.num{font-family:var(--mono);font-size:.8rem;white-space:nowrap;font-variant-numeric:tabular-nums}
+  tr.best td{background:var(--accent-tint)}
+  tr.best td:first-child{font-weight:700}
+  tr.best .num{color:var(--accent-ink);font-weight:700}
+  .fn{font:400 10.5px/1.6 var(--mono);color:var(--muted);margin:8px 0 0}
+  .tbl-gap{height:14px}
+
+  .panel{grid-column:span 6}
+  .panel ul{list-style:none;margin:0;padding:0}
+  .panel li{position:relative;padding:0 0 10px 20px;font-size:.84rem;line-height:1.6}
+  .panel li::before{content:"";position:absolute;left:2px;top:.62em;width:7px;height:7px;background:var(--accent)}
+  .limits li::before{background:#C9BFA9}
+  .limits li b{color:var(--accent-ink)}
+
+  .questions{grid-column:span 12}
+  .questions ol{list-style:none;margin:0;padding:0;columns:2;column-gap:36px}
+  .questions li{
+    break-inside:avoid;position:relative;padding:0 0 12px 30px;
+    font-size:.84rem;line-height:1.6;color:var(--muted);
+  }
+  .questions li b{color:var(--ink);font-weight:650}
+  .questions li::before{
+    content:"Q";position:absolute;left:0;top:1px;
+    font:700 11px/1.5 var(--mono);color:var(--accent);
+  }
+
+  footer{
+    margin-top:26px;padding-top:16px;border-top:1px solid var(--line-strong);
+    display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;
+    font:500 11.5px/1.6 var(--mono);color:var(--muted);
+  }
+  footer a{color:var(--ink);text-decoration-color:var(--line);text-underline-offset:3px}
+  footer a:hover{color:var(--accent);text-decoration-color:var(--accent)}
+
+  /* ---------- responsive ---------- */
+  @media (max-width:960px){
+    .assets{grid-template-columns:1fr 1fr}
+    .asset.edge{grid-column:span 2}
+    .method{grid-column:span 12}
+    .results{grid-column:span 12}
+    .panel{grid-column:span 6}
+  }
+  @media (max-width:720px){
+    .page{padding-top:84px}
+    .assets{grid-template-columns:1fr}
+    .asset.edge{grid-column:span 1}
+    .panel{grid-column:span 12}
+    .questions ol{columns:1}
+    .finding{max-width:none}
+  }
+</style>
+</head>
+<body>
+<a class="back-nav" href="./index.html">&#8617;&nbsp;Today&rsquo;s digest</a>
+
+<main class="page">
+
+  <!-- ============ HERO ============ -->
+  <header class="hero">
+    <p class="kicker">Paper dashboard &middot; IEEE CAL letter &middot; 4 pages &middot; arXiv 2609.25782</p>
+    <h1 class="finding">
+      Tiering agentic KV between HBM and High Bandwidth Flash keeps resume overhead
+      <span class="hl">near&nbsp;zero</span> while scaling one GPU to
+      <span class="hl">3,900</span> concurrent sessions.
+    </h1>
+    <div class="paper-meta">
+      <p class="paper-title">
+        <a href="https://arxiv.org/abs/2609.25782">Hot&ndash;Cold Tiering of HBM and High Bandwidth Flash for Agentic LLM Serving</a>
+      </p>
+      <p class="byline">
+        <b>Jongjin Baek &middot; Won Ji &middot; Seungjae Yoo &middot; Joo-Young Kim</b><br>
+        2026-09-21 &middot; simulation study &middot; Qwen3-Coder-30B-A3B on SWE-bench Verified agent trajectories
+      </p>
+      <ul class="chips">
+        <li>LLM-serving</li><li>KV-cache</li><li>high-bandwidth-flash</li><li>agentic-AI</li><li>memory-hierarchy</li>
+      </ul>
+    </div>
+  </header>
+
+  <!-- ============ ASSET ROW ============ -->
+  <section class="assets" aria-label="Key takeaways">
+
+    <article class="asset metric">
+      <p class="label"><span class="idx">01</span> Key metric &middot; sessions / GPU</p>
+      <span class="big">3,900</span>
+      <p class="cap">concurrent agent sessions on one GPU &mdash; up from 165 with HBM alone (&asymp;24&times;)</p>
+      <p class="sub">3 TiB HBF cold pool &middot; hot set needs only ~3% of resident KV capacity</p>
+    </article>
+
+    <article class="asset why">
+      <p class="label"><span class="idx">02</span> Why this matters</p>
+      <p class="lede">Agent sessions pause for minutes yet must retain full context &mdash; this is a quantitative playbook for tiering memory beneath them.</p>
+      <p class="zh" lang="zh">把&ldquo;暂停会话的 KV 必须常驻 HBM&rdquo;的死结，转成 HBM&#65291;HBF 冷热分层的量化选型依据：容量、恢复延迟、功耗、闪存寿命一次算清。</p>
+    </article>
+
+    <article class="asset edge">
+      <p class="label"><span class="idx">03</span> Critical edge</p>
+      <p class="lede">Nothing here exists in silicon &mdash; every number simulates a projected HBF whose HBM-matching bandwidth is precisely what the latency-hiding argument depends on.</p>
+      <p class="note">&#9888; Internal inconsistency: the abstract claims &ldquo;2.4&times;&rdquo; sessions; the evaluation reports 165&rarr;3,900 (&asymp;24&times;). Never reconciled.</p>
+    </article>
+
+  </section>
+
+  <!-- ============ BODY GRID ============ -->
+  <section class="body-grid">
+
+    <!-- Methodology -->
+    <article class="card method">
+      <p class="label"><span class="idx">04</span> Methodology</p>
+      <h2>Trace-driven simulation of a co-packaged substrate</h2>
+      <div class="diagram" role="img" aria-label="Data-path diagram: GPU talks to the HBM base die over the GPU-HBM bus; the base die holds the hot set plus a router with staging buffers; evictions and resume fetches cross a D2D link to the HBF cold pool.">
+        <svg viewBox="0 0 660 150" xmlns="http://www.w3.org/2000/svg" font-family="ui-monospace,Menlo,monospace">
+          <defs>
+            <marker id="ah" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0,0 L8,4 L0,8 z" fill="#6E6553"/>
+            </marker>
+          </defs>
+          <!-- GPU -->
+          <rect x="6" y="48" width="88" height="58" rx="6" fill="#FFFFFF" stroke="#211B12"/>
+          <text x="50" y="73" text-anchor="middle" font-size="12" font-weight="700" fill="#211B12">GPU</text>
+          <text x="50" y="90" text-anchor="middle" font-size="9.5" fill="#6E6553">decode</text>
+          <!-- bus -->
+          <line x1="96" y1="77" x2="136" y2="77" stroke="#6E6553" stroke-width="1.5" marker-start="url(#ah)" marker-end="url(#ah)"/>
+          <text x="116" y="64" text-anchor="middle" font-size="9" fill="#6E6553">GPU&#8211;HBM</text>
+          <text x="116" y="98" text-anchor="middle" font-size="9" fill="#6E6553">8 TB/s</text>
+          <!-- HBM base die -->
+          <rect x="136" y="24" width="212" height="106" rx="6" fill="#FFFFFF" stroke="#211B12"/>
+          <text x="242" y="44" text-anchor="middle" font-size="11" font-weight="700" fill="#211B12">HBM base die &#183; 192 GiB</text>
+          <rect x="148" y="54" width="188" height="38" rx="4" fill="rgba(188,62,18,.08)" stroke="#BC3E12" stroke-width="1"/>
+          <text x="242" y="70" text-anchor="middle" font-size="9.5" font-weight="700" fill="#96300C">hot set &#8212; hard-pinned</text>
+          <text x="242" y="85" text-anchor="middle" font-size="9" fill="#96300C">3% capacity &#183; ~98% reads</text>
+          <text x="242" y="112" text-anchor="middle" font-size="9" fill="#6E6553">router + staging &#183; double-buffered</text>
+          <!-- D2D -->
+          <line x1="350" y1="77" x2="424" y2="77" stroke="#6E6553" stroke-width="1.5" stroke-dasharray="4 3" marker-start="url(#ah)" marker-end="url(#ah)"/>
+          <text x="387" y="64" text-anchor="middle" font-size="9" fill="#6E6553">D2D link</text>
+          <text x="387" y="98" text-anchor="middle" font-size="9" fill="#6E6553">evict &#8646; resume</text>
+          <!-- HBF -->
+          <rect x="424" y="24" width="230" height="106" rx="6" fill="#EFECE3" stroke="#211B12"/>
+          <text x="539" y="44" text-anchor="middle" font-size="11" font-weight="700" fill="#211B12">HBF cold pool &#183; 3 TiB SLC</text>
+          <text x="539" y="70" text-anchor="middle" font-size="9.5" fill="#211B12">paused sessions &#183; write-on-evict</text>
+          <text x="539" y="86" text-anchor="middle" font-size="9" fill="#6E6553">25 &#956;s read &#183; 100k P/E &#183; WAF &#8776; 1.02</text>
+          <text x="539" y="112" text-anchor="middle" font-size="9" fill="#6E6553">off the critical path</text>
+        </svg>
+      </div>
+      <p class="diagram-cap">NAND latency hides behind D2D transfer and CPU-side tokenization inside ~8 s median tool gaps.</p>
+      <ol class="flow">
+        <li><b>Workload</b>
+          <p>mini-swe-agent trajectories on SWE-bench Verified; Qwen3-Coder-30B-A3B (<span class="n">56.8 GiB</span> MoE weights, <span class="n">96 KiB</span> KV/token). Peaks <span class="n">~16.7k</span> tokens (<span class="n">1.53 GiB</span> KV), avg <span class="n">0.82 GiB</span> resident; <span class="n">1.5 MiB</span> blocks; heavy-tailed tool gaps (median <span class="n">~8 s</span>).</p></li>
+        <li><b>Simulator</b>
+          <p>B200 node: <span class="n">192 GiB</span> HBM3e @ <span class="n">8 TB/s</span>, <span class="n">2.25 PFLOP/s</span>. HBF = <span class="n">3 TiB</span> SLC, HBM-matched bandwidth, <span class="n">25 &mu;s</span> read, <span class="n">100k</span> P/E cycles; read energy swept <span class="n">8&ndash;30 pJ/bit</span> vs HBM &asymp;<span class="n">3.5</span>.</p></li>
+        <li><b>Data paths</b>
+          <p>Decode reads stay on the GPU&ndash;HBM bus; resume fetches and evictions cross the D2D link, double-buffered so NAND latency never surfaces; resume prefetch overlaps CPU tokenization.</p></li>
+        <li><b>Policies</b>
+          <p>LRU at block granularity with hard-pinned active blocks; write-on-evict exploits immutable, erase-block-aligned KV &mdash; each block written to HBF at most once.</p></li>
+        <li><b>Baselines &amp; metrics</b>
+          <p>All-KV-to-flash over PCIe 5.0 (<span class="n">64 GB/s</span>) / NVLink-C2C (<span class="n">450 GB/s</span>); recompute-on-resume. Metrics: resumed-turn TBT, resume hit rate, throughput, HBF lifetime, read power.</p></li>
+      </ol>
+    </article>
+
+    <!-- Results -->
+    <article class="card results">
+      <p class="label"><span class="idx">05</span> Results</p>
+      <h2>The bimodality pays for everything</h2>
+      <div class="bimodal">
+        <span class="b">3%</span><span class="w">of resident capacity</span>
+        <span class="arr">&rarr;</span>
+        <span class="b">~98%</span><span class="w">of read traffic</span>
+        <span class="bnote">hot set vs cold pool &middot; N<sub>a</sub> = 48 concurrent sessions &middot; Fig.&nbsp;3</span>
+      </div>
+
+      <table>
+        <caption>Resume-turn added latency &middot; N<sub>a</sub> = 48</caption>
+        <thead><tr><th scope="col">Resume path</th><th scope="col">Added TBT</th></tr></thead>
+        <tbody>
+          <tr class="best"><td>HBM+HBF tiering (write-on-evict)</td><td class="num">+0.084 ms</td></tr>
+          <tr><td>NVLink-C2C host offload &middot; 450 GB/s</td><td class="num">1.0 ms</td></tr>
+          <tr><td>PCIe 5.0 host offload &middot; 64 GB/s</td><td class="num">7.0 ms</td></tr>
+          <tr><td>Recompute-on-resume (re-prefill)</td><td class="num">~14 ms</td></tr>
+        </tbody>
+      </table>
+
+      <div class="tbl-gap"></div>
+
+      <table>
+        <caption>System-level outcomes</caption>
+        <thead><tr><th scope="col">Metric</th><th scope="col">Value</th></tr></thead>
+        <tbody>
+          <tr><td>Concurrent sessions per GPU</td><td class="num">165 &rarr; 3,900 &nbsp;(~24&times;)&sup1;</td></tr>
+          <tr><td>TBT per agent (SLO 50 ms)</td><td class="num">14 ms @ 48 &middot; 27 ms @ 128</td></tr>
+          <tr><td>Resume hit rate (N<sub>a</sub> 16&rarr;48&rarr;128)</td><td class="num">1.00 &rarr; 0.47 &rarr; &asymp;0.00</td></tr>
+          <tr><td>HBF write amplification</td><td class="num">&asymp;1.02 &nbsp;(gen-purpose SSD: 2&ndash;4)</td></tr>
+          <tr><td>HBF lifetime @ N<sub>a</sub> = 48</td><td class="num">~20 y vs ~11 y all-to-flash</td></tr>
+          <tr><td>Read power saved vs all-flash</td><td class="num">~7.6 kW / 8-GPU node</td></tr>
+        </tbody>
+      </table>
+      <p class="fn">&sup1; Abstract states &ldquo;2.4&times;&rdquo;; the letter never reconciles it with the evaluation&rsquo;s ~24&times;. Power figure at 20 pJ/bit (sweep: 2.1&ndash;12.2 kW across 8&ndash;30 pJ/bit). Hit rate falls to &asymp;0 with latency still ~0 &mdash; cold fetches run as pure I/O off the compute path.</p>
+    </article>
+
+    <!-- Strengths -->
+    <article class="card panel">
+      <p class="label"><span class="idx">06</span> Strengths</p>
+      <ul>
+        <li>Driven by a measured characterization (3% / ~98%) &mdash; not a generic &ldquo;flash is big&rdquo; argument; the tiering policy follows directly from it.</li>
+        <li>Endurance co-designed with KV immutability: WAF &asymp; 1.02, ~20-y lifetime, analyzed per N<sub>a</sub> rather than hand-waved.</li>
+        <li>Mechanisms isolated &mdash; the resume-hit-rate sweep separates tiering benefit from interconnect effects; each metric traced to its governing factor.</li>
+        <li>Honest framing: the power analysis itself rules out hot-set-from-HBF (~950 W/device); HBF positioned as complement, not replacement.</li>
+        <li>The user-visible SLO (50 ms TBT) is the primary latency metric &mdash; relevant to serving practice.</li>
+      </ul>
+    </article>
+
+    <!-- Limitations -->
+    <article class="card panel limits">
+      <p class="label"><span class="idx">07</span> Limitations</p>
+      <ul>
+        <li><b>Simulation-only:</b> no prototype of the base-die router/staging; all results inherit assumed HBF specs (3 TiB SLC, HBM-matched bandwidth, 25 &mu;s, 100k P/E).</li>
+        <li>One model, one benchmark family; dependence on ~8 s median tool gaps is never stress-tested.</li>
+        <li>Fixed 1.5 MiB block size asserted, not swept; LRU + pinning un-compared against alternatives.</li>
+        <li>No CXL/DRAM-expansion baseline and no cost model &mdash; capacity-per-dollar vs simply adding host memory is unquantified.</li>
+        <li><b>Abstract&rsquo;s &ldquo;2.4&times;&rdquo;</b> conflicts with the evaluation&rsquo;s 165&rarr;3,900 (~24&times;).</li>
+        <li>KV quantization / in-session compression excluded by fiat &mdash; they would break the write-once guarantee.</li>
+        <li>4-page CAL format: thin WAF derivation, arrival-process and prefill-interference treatment.</li>
+      </ul>
+    </article>
+
+    <!-- Questions -->
+    <article class="card questions">
+      <p class="label"><span class="idx">08</span> Questions for further exploration</p>
+      <ol>
+        <li><b>Bursty arrivals:</b> does the &le;0.1 ms resume overhead survive a traffic spike that evicts most of the cold pool &mdash; and how fast is recovery?</li>
+        <li><b>Missing tier:</b> would a CXL-attached DRAM tier capture most of the capacity benefit at lower cost than a novel co-packaged substrate?</li>
+        <li><b>Unexamined knobs:</b> how sensitive are results to block size (asserted, not swept) and to KV-per-token across GQA/MLA architectures?</li>
+        <li><b>Fast tools:</b> what happens when tool calls return in milliseconds, shrinking the tokenization window that hides resume fetches?</li>
+        <li><b>Broken immutability:</b> how does write-on-evict interact with KV quantization or in-session compression?</li>
+        <li><b>Real stacks:</b> can 165&rarr;3,900 reproduce on vLLM/SGLang once HBF-class devices ship, given the idealized overlap assumption?</li>
+      </ol>
+    </article>
+
+  </section>
+
+  <footer>
+    <a href="./2609.25782.md">&#8599; Markdown source &middot; 2609.25782.md</a>
+    <span>Generated from the bilingual paper summary &middot; <a href="https://arxiv.org/abs/2609.25782">arxiv.org/abs/2609.25782</a></span>
+  </footer>
+
+</main>
+
+<script>
+  document.documentElement.classList.add('js');
+  var io = new IntersectionObserver(function (entries) {
+    entries.forEach(function (e) {
+      if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); }
+    });
+  }, { threshold: 0.1 });
+  document.querySelectorAll('.card').forEach(function (c) { io.observe(c); });
+</script>
+</body>
+</html>
