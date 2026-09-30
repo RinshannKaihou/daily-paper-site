@@ -1,7 +1,7 @@
 ---
 title: "arXiv 周报 / Weekly Overview — 2026-09-21"
 date: 2026-09-21
-week: "2026-0921-0927"
+week: "2026-09-21..2026-09-27"
 tags:
   - arxiv
   - weekly
