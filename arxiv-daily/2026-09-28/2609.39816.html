@@ -1,0 +1,687 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Beyond Accuracy — Prefix-Invariant Fast Matrix Multiplication · arXiv 2609.39816</title>
+<meta name="description" content="Paper dashboard: fast FP8 matrix multiplication silently breaks LLM prefix invariance while accuracy looks normal; a certified int8 construction restores it bitwise.">
+<style>
+  :root {
+    --paper: #F5F3EC;
+    --card: #FCFBF7;
+    --ink: #201D17;
+    --muted: #6E685A;
+    --hairline: #DCD6C6;
+    --accent: #C03A1C;
+    --accent-tint: #F5E5DC;
+    --accent-bright: #F2795C;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  }
+
+  * { box-sizing: border-box; }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  ::selection { background: var(--accent); color: var(--paper); }
+
+  a { color: inherit; }
+  a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  .digest-link {
+    position: fixed;
+    top: 14px;
+    left: 14px;
+    z-index: 50;
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: 0.04em;
+    text-decoration: none;
+    color: var(--ink);
+    background: var(--card);
+    border: 1px solid var(--ink);
+    padding: 6px 11px;
+    transition: background .15s ease, color .15s ease;
+  }
+  .digest-link:hover { background: var(--ink); color: var(--paper); }
+
+  .page {
+    width: min(95vw, 1100px);
+    margin: 0 auto;
+    padding: 84px 0 56px;
+  }
+
+  /* ---------- load reveal ---------- */
+  @keyframes rise {
+    from { opacity: 0; transform: translateY(14px); }
+    to   { opacity: 1; transform: none; }
+  }
+  .reveal { animation: rise .55s cubic-bezier(.2,.7,.2,1) both; }
+  .d1 { animation-delay: .05s; }
+  .d2 { animation-delay: .14s; }
+  .d3 { animation-delay: .22s; }
+  .d4 { animation-delay: .30s; }
+  .d5 { animation-delay: .38s; }
+  .d6 { animation-delay: .46s; }
+  .d7 { animation-delay: .54s; }
+  @media (prefers-reduced-motion: reduce) {
+    .reveal { animation: none; }
+    html { scroll-behavior: auto; }
+  }
+
+  /* ---------- hero ---------- */
+  .kicker {
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: .16em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin: 0 0 18px;
+  }
+
+  h1.finding {
+    font-size: clamp(2.1rem, 5vw, 3.5rem);
+    line-height: 1.07;
+    letter-spacing: -0.022em;
+    font-weight: 800;
+    margin: 0 0 26px;
+    max-width: 24ch;
+  }
+  h1.finding em {
+    font-style: normal;
+    color: var(--accent);
+    text-decoration: underline;
+    text-decoration-thickness: .06em;
+    text-underline-offset: .14em;
+  }
+
+  .meta { border-top: 2px solid var(--ink); padding-top: 16px; }
+  .meta h2 {
+    font-size: 1.05rem;
+    font-weight: 650;
+    line-height: 1.35;
+    margin: 0 0 6px;
+    letter-spacing: -0.01em;
+  }
+  .meta h2 a { text-decoration-color: var(--hairline); text-underline-offset: .18em; }
+  .meta h2 a:hover { text-decoration-color: var(--accent); color: var(--accent); }
+
+  .authors { font-size: .88rem; color: var(--muted); margin: 0 0 2px; }
+  .authors .affil { font-family: var(--mono); font-size: .78rem; }
+  .dateline { font-family: var(--mono); font-size: .78rem; color: var(--muted); margin: 0 0 14px; }
+
+  .chips {
+    list-style: none;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 0;
+    margin: 0;
+  }
+  .chips li {
+    font-family: var(--mono);
+    font-size: 11.5px;
+    letter-spacing: .03em;
+    border: 1px solid var(--hairline);
+    background: var(--card);
+    padding: 4px 10px;
+    color: var(--ink);
+  }
+
+  /* ---------- asset row ---------- */
+  .assets {
+    display: grid;
+    grid-template-columns: 1.15fr 1fr 1.15fr;
+    gap: 14px;
+    margin-top: 44px;
+  }
+  .asset {
+    border: 1px solid var(--hairline);
+    background: var(--card);
+    padding: 22px 22px 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .asset .label {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin: 0;
+  }
+  .metric .big {
+    font-family: var(--mono);
+    font-size: clamp(3rem, 6vw, 4.3rem);
+    font-weight: 700;
+    letter-spacing: -0.04em;
+    line-height: 1;
+    color: var(--accent);
+    margin: 4px 0 0;
+    font-variant-numeric: tabular-nums;
+  }
+  .metric .sub { font-size: .86rem; line-height: 1.5; color: var(--ink); margin: 0; }
+  .metric .sub a, .edge a { color: inherit; text-underline-offset: .18em; }
+  .metric .sub a:hover, .edge a:hover { color: var(--accent); }
+
+  .why-text {
+    font-size: 1.02rem;
+    line-height: 1.55;
+    margin: 4px 0 0;
+    font-weight: 500;
+    letter-spacing: -0.005em;
+  }
+
+  .asset.edge {
+    background: var(--ink);
+    border-color: var(--ink);
+    color: #F1EEE6;
+  }
+  .asset.edge .label { color: var(--accent-bright); }
+  .asset.edge p.edge-text { font-size: .95rem; line-height: 1.55; margin: 4px 0 0; }
+  .asset.edge p.edge-text a:hover { color: var(--accent-bright); }
+
+  /* ---------- verdict strip ---------- */
+  .verdict {
+    margin: 14px 0 0;
+    border-left: 3px solid var(--accent);
+    background: var(--card);
+    border-top: 1px solid var(--hairline);
+    border-right: 1px solid var(--hairline);
+    border-bottom: 1px solid var(--hairline);
+    padding: 14px 18px;
+    font-size: .95rem;
+    line-height: 1.55;
+  }
+  .verdict strong { font-family: var(--mono); font-size: .78rem; letter-spacing: .12em; text-transform: uppercase; color: var(--accent); margin-right: 8px; }
+
+  /* ---------- body ---------- */
+  .body { margin-top: 56px; display: grid; gap: 52px; }
+
+  .sec-head {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    border-bottom: 2px solid var(--ink);
+    padding-bottom: 8px;
+    margin-bottom: 20px;
+  }
+  .sec-no { font-family: var(--mono); font-size: 13px; color: var(--accent); }
+  .sec-title { font-size: 1.25rem; font-weight: 750; letter-spacing: -0.015em; margin: 0; }
+  .sec-note { margin-left: auto; font-family: var(--mono); font-size: 11px; color: var(--muted); letter-spacing: .06em; }
+
+  /* methodology steps */
+  .steps { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
+  .step { border: 1px solid var(--hairline); background: var(--card); padding: 16px 16px 14px; }
+  .step .no { font-family: var(--mono); font-size: 12px; color: var(--accent); display: block; margin-bottom: 6px; }
+  .step h3 { font-size: .95rem; margin: 0 0 6px; font-weight: 700; letter-spacing: -0.01em; }
+  .step p { font-size: .82rem; line-height: 1.55; color: var(--ink); margin: 0; }
+  .step p .quiet { color: var(--muted); }
+
+  /* tables */
+  .table-block { margin-bottom: 34px; }
+  .table-block:last-child { margin-bottom: 0; }
+  h3.table-title {
+    font-size: .98rem;
+    font-weight: 700;
+    margin: 0 0 2px;
+    letter-spacing: -0.01em;
+  }
+  p.table-sub { font-size: .8rem; color: var(--muted); margin: 0 0 12px; font-family: var(--mono); }
+
+  table { width: 100%; border-collapse: collapse; font-size: .88rem; background: var(--card); }
+  th {
+    text-align: left;
+    font-family: var(--mono);
+    font-size: 10.5px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: .1em;
+    color: var(--muted);
+    border-bottom: 2px solid var(--ink);
+    padding: 8px 10px;
+  }
+  td { padding: 9px 10px; border-bottom: 1px solid var(--hairline); vertical-align: top; line-height: 1.5; }
+  td.num, th.num { text-align: right; font-family: var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  td.num { font-size: .84rem; }
+  .flag { font-weight: 700; color: var(--accent); }
+  .safe { font-weight: 700; }
+  .ci { display: block; font-size: .74rem; color: var(--muted); font-family: var(--mono); }
+  tr.flip td { background: var(--accent-tint); }
+  tr.flip td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
+  .rowlocal { font-family: var(--mono); font-size: .78rem; }
+  tfoot td, .table-note { font-size: .78rem; color: var(--muted); padding: 8px 10px 0; border-bottom: none; line-height: 1.5; }
+  .table-note { padding: 8px 0 0; }
+
+  /* beyond-audit facts */
+  .facts { list-style: none; margin: 0; padding: 0; }
+  .facts li {
+    display: grid;
+    grid-template-columns: 220px 1fr;
+    gap: 14px;
+    padding: 11px 2px;
+    border-bottom: 1px solid var(--hairline);
+    font-size: .88rem;
+  }
+  .facts .k { font-family: var(--mono); font-size: .78rem; color: var(--muted); letter-spacing: .02em; padding-top: 2px; }
+  .facts .v { line-height: 1.5; }
+  .facts .v b { color: var(--accent); font-variant-numeric: tabular-nums; }
+
+  /* strengths / limitations */
+  .duo { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .panel { background: var(--card); border: 1px solid var(--hairline); padding: 20px 22px; }
+  .panel.strengths { border-top: 3px solid var(--ink); }
+  .panel.limitations { border-top: 3px solid var(--accent); }
+  .panel .label {
+    font-family: var(--mono); font-size: 11px; letter-spacing: .14em;
+    text-transform: uppercase; color: var(--muted); margin: 0 0 12px;
+  }
+  .panel.limitations .label { color: var(--accent); }
+  .panel ul { margin: 0; padding: 0; list-style: none; }
+  .panel li {
+    font-size: .86rem; line-height: 1.55;
+    padding: 9px 0 9px 16px;
+    border-bottom: 1px solid var(--hairline);
+    position: relative;
+  }
+  .panel li:last-child { border-bottom: none; }
+  .panel li::before { content: "—"; position: absolute; left: 0; color: var(--muted); }
+  .panel li strong { font-weight: 700; }
+
+  /* questions */
+  ol.questions { list-style: none; counter-reset: q; margin: 0; padding: 0; }
+  ol.questions li {
+    counter-increment: q;
+    display: grid;
+    grid-template-columns: 44px 1fr;
+    gap: 12px;
+    padding: 13px 2px;
+    border-bottom: 1px solid var(--hairline);
+    font-size: .95rem;
+    line-height: 1.55;
+  }
+  ol.questions li::before {
+    content: "Q" counter(q);
+    font-family: var(--mono);
+    font-size: 12.5px;
+    font-weight: 700;
+    color: var(--accent);
+    padding-top: 3px;
+  }
+
+  /* ---------- footer ---------- */
+  footer {
+    margin-top: 64px;
+    border-top: 2px solid var(--ink);
+    padding-top: 16px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px 22px;
+    align-items: baseline;
+    font-family: var(--mono);
+    font-size: 12.5px;
+  }
+  footer a { text-decoration: none; border-bottom: 1px solid var(--hairline); padding-bottom: 1px; }
+  footer a:hover { color: var(--accent); border-color: var(--accent); }
+  footer .colophon { margin-left: auto; color: var(--muted); font-size: 11.5px; }
+
+  /* ---------- responsive ---------- */
+  @media (max-width: 960px) {
+    .assets { grid-template-columns: 1fr 1fr; }
+    .asset.edge { grid-column: 1 / -1; }
+    .steps { grid-template-columns: 1fr 1fr; }
+    .facts li { grid-template-columns: 170px 1fr; }
+  }
+  @media (max-width: 720px) {
+    .page { width: 92vw; padding-top: 96px; }
+    .assets, .steps, .duo { grid-template-columns: 1fr; }
+    .facts li { grid-template-columns: 1fr; gap: 3px; }
+    h1.finding { max-width: none; }
+    .sec-note { display: none; }
+    td, th { padding-left: 6px; padding-right: 6px; }
+    footer .colophon { margin-left: 0; width: 100%; }
+  }
+</style>
+</head>
+<body>
+
+<a class="digest-link" href="./index.html">&#8617;&nbsp;Today&rsquo;s digest</a>
+
+<main class="page">
+
+  <!-- ================= HERO ================= -->
+  <header class="hero reveal d1">
+    <p class="kicker">Paper dashboard &mdash; arXiv 2609.39816 &middot; cs.LG &middot; 2026-09-28 issue</p>
+    <h1 class="finding">Fast FP8 matrix multiplication <em>silently flips LLM answers</em> while every accuracy metric looks perfectly normal.</h1>
+    <div class="meta">
+      <h2><a href="https://arxiv.org/abs/2609.39816">Beyond Accuracy: Prefix-Invariant Realizations of Low-Precision Fast Matrix Multiplication</a></h2>
+      <p class="authors">Shuxiao Xie*, Shuyang Xie*, Yuan Cao, Dezhi Ran, Wei Yang, Tao Xie
+        <span class="affil">&mdash; TLAIC &middot; Fudan ISAC &middot; HIT &middot; PKU &middot; SIOC</span></p>
+      <p class="dateline">2026-09-28 &middot; v1 preprint (30 Sep 2026), not peer reviewed &middot; *equal contribution</p>
+      <ul class="chips">
+        <li>fast-matrix-multiplication</li>
+        <li>prefix-invariance</li>
+        <li>quantization</li>
+        <li>numerical-stability</li>
+        <li>llm-inference</li>
+      </ul>
+    </div>
+  </header>
+
+  <!-- ================= ASSET ROW ================= -->
+  <section class="assets" aria-label="Key assets">
+    <article class="asset metric reveal d2">
+      <p class="label">Key metric</p>
+      <p class="big">772.4&times;</p>
+      <p class="sub">perplexity spread across the <a href="#blindness">512 exactly-equivalent sign variants</a> of two-level Strassen &mdash; every stability criterion scored all of them with one identical value.</p>
+    </article>
+
+    <article class="asset why reveal d3">
+      <p class="label">Why this matters</p>
+      <p class="why-text">A textbook case of aggressive optimization silently corrupting outputs &mdash; algorithm-level silent data corruption that accuracy alone will never catch.</p>
+    </article>
+
+    <article class="asset edge reveal d4">
+      <p class="label">Critical edge</p>
+      <p class="edge-text">Certification exists only for int8; FP8 &mdash; the format actually deployed &mdash; has none. And the first Triton kernels run <a href="#cost">2.04&ndash;27.9&times; slower</a> than classical int8. No wall-clock win today.</p>
+    </article>
+  </section>
+
+  <p class="verdict reveal d5"><strong>Verdict</strong>Once certified, realization choice becomes a pure cost decision: any certified implementation is bitwise equal to classical int8, so no fast realization can ever change a scored likelihood again.</p>
+
+  <!-- ================= BODY ================= -->
+  <div class="body">
+
+    <!-- 01 Methodology -->
+    <section class="reveal d6" id="method">
+      <div class="sec-head">
+        <span class="sec-no">01</span>
+        <h2 class="sec-title">Methodology</h2>
+        <span class="sec-note">distilled &mdash; the full arc in four moves</span>
+      </div>
+      <div class="steps">
+        <article class="step">
+          <span class="no">STEP 1</span>
+          <h3>Formalize</h3>
+          <p>A <em>realization</em> = a fast algorithm&rsquo;s coefficients + its quantization spec. Two-level Strassen uses 49 block products instead of 64; sign matrices yield <strong>512 variants</strong>, exactly equivalent in real arithmetic, free to diverge once quantized. Prefix safety = row-locality: output row <em>t</em> reads only row <em>t</em>. <span class="quiet">FP8 block sums over token rows are not.</span></p>
+        </article>
+        <article class="step">
+          <span class="no">STEP 2</span>
+          <h3>Audit</h3>
+          <p>Kim et al.&rsquo;s protocol: score each answer token in one pass, then replace the token and all later text with the bf16 greedy continuation. Three regimes &mdash; prefix replacement (240 OpenBookQA items), window scoring (five models), packed two-request batches (768 pairs).</p>
+        </article>
+        <article class="step">
+          <span class="no">STEP 3</span>
+          <h3>Show blindness</h3>
+          <p>Every analyzed stability criterion reads coefficients only through absolute values or nonzero patterns &mdash; sign changes are invisible to all of them. Realized error is measured as teacher-forced WikiText-2 perplexity, ratio to bf16.</p>
+        </article>
+        <article class="step">
+          <span class="no">STEP 4</span>
+          <h3>Prove, then build</h3>
+          <p>Theorem 1: prefix-safe form-(1) algorithms need R &ge; mkn block multiplications &mdash; the classical count. Proposition 1 runs Strassen on bounded integer codes instead: rows quantized independently, integer sums never round, scales copied from classical int8. Three coefficient-only conditions guarantee bitwise equality, checked once before any input.</p>
+        </article>
+      </div>
+    </section>
+
+    <!-- 02 Results -->
+    <section class="reveal d7" id="results">
+      <div class="sec-head">
+        <span class="sec-no">02</span>
+        <h2 class="sec-title">Results</h2>
+        <span class="sec-note">evidence ledger &mdash; four tables</span>
+      </div>
+
+      <div class="table-block" id="audit">
+        <h3 class="table-title">Accuracy hides the violation</h3>
+        <p class="table-sub">OpenBookQA, first 240 items &middot; Qwen2.5-14B-Instruct &middot; prefix replaced by bf16 greedy continuation</p>
+        <table>
+          <thead>
+            <tr>
+              <th scope="col">Realization</th>
+              <th scope="col">Row-local</th>
+              <th scope="col" class="num">Accuracy</th>
+              <th scope="col" class="num">Answers flipped / 240</th>
+              <th scope="col" class="num">Token positions changed</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>bf16 baseline <span class="ci">control</span></td>
+              <td class="rowlocal">yes</td>
+              <td class="num">34.58%</td>
+              <td class="num safe">0.00%</td>
+              <td class="num">&mdash;</td>
+            </tr>
+            <tr>
+              <td>Deployed FP8 kernel <span class="ci">control</span></td>
+              <td class="rowlocal">yes</td>
+              <td class="num">&mdash;</td>
+              <td class="num safe">0.00%</td>
+              <td class="num">&mdash;</td>
+            </tr>
+            <tr class="flip">
+              <td>Repaired fast FP8 #1</td>
+              <td class="rowlocal">no</td>
+              <td class="num">35.42%</td>
+              <td class="num flag">5.83% <span class="ci">95% CI 2.92&ndash;8.75</span></td>
+              <td class="num">80.14%</td>
+            </tr>
+            <tr class="flip">
+              <td>Repaired fast FP8 #2</td>
+              <td class="rowlocal">no</td>
+              <td class="num">32.92%</td>
+              <td class="num flag">10.00% <span class="ci">95% CI 6.25&ndash;13.75</span></td>
+              <td class="num">89.00%</td>
+            </tr>
+            <tr class="flip">
+              <td>Unrepaired fast FP8</td>
+              <td class="rowlocal">no</td>
+              <td class="num">18.75%</td>
+              <td class="num flag">54.58%</td>
+              <td class="num">&mdash;</td>
+            </tr>
+          </tbody>
+          <tfoot>
+            <tr><td colspan="5">Repairs fixed accuracy, not invariance &mdash; of repaired #1&rsquo;s 14 changed answers, 9 were wrong both before and after. Flips persist under filler replacement (7.08% / 7.92%) and on ARC-Easy (6.67% / 12.08% vs 0.00% controls).</td></tr>
+          </tfoot>
+        </table>
+      </div>
+
+      <div class="table-block" id="blindness">
+        <h3 class="table-title">Stability criteria are structurally blind</h3>
+        <p class="table-sub">512 sign variants of two-level Strassen &middot; FP8 schedule &middot; teacher-forced WikiText-2</p>
+        <table>
+          <thead>
+            <tr>
+              <th scope="col">Signal</th>
+              <th scope="col">What the 512 variants actually show</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>All analyzed criteria <span class="ci">nonzero count &middot; max |coef| &middot; Ballard Q/E &middot; Xie &Phi;</span></td>
+              <td><strong>One identical value</strong> &mdash; every criterion is invariant under sign changes.</td>
+            </tr>
+            <tr>
+              <td>Perplexity ratio to bf16, realized</td>
+              <td>spans <b>1.367 &ndash; 1056.0</b> &mdash; a <b>772.4&times;</b> spread the criteria cannot see.</td>
+            </tr>
+            <tr>
+              <td>Two variants differing in a single sign</td>
+              <td><b>761.0&times;</b> apart in perplexity.</td>
+            </tr>
+            <tr>
+              <td>Strassen&rsquo;s original signs</td>
+              <td>rank only <b>3.11</b> of 512 by realized error.</td>
+            </tr>
+            <tr>
+              <td>Spread under prefix replacement</td>
+              <td>survives at <b>0.985&times;</b> teacher-forced value (95% CI 0.863&ndash;1.141).</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="table-block" id="certified">
+        <h3 class="table-title">The certified realization is exact and prefix-invariant</h3>
+        <p class="table-sub">two-level Strassen on bounded integer codes &middot; code bound 31 &middot; int8 path</p>
+        <table>
+          <thead>
+            <tr>
+              <th scope="col">Check</th>
+              <th scope="col" class="num">Certified (int8 codes)</th>
+              <th scope="col" class="num">FP8 schedule</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Block multiplications</td>
+              <td class="num"><strong>49 of 64</strong> <span class="ci">0.7656&times; classical</span></td>
+              <td class="num">&mdash;</td>
+            </tr>
+            <tr>
+              <td>Bitwise match vs classical int8</td>
+              <td class="num safe">200/200 tiles</td>
+              <td class="num">&mdash;</td>
+            </tr>
+            <tr>
+              <td>Distinct products across 512 variants</td>
+              <td class="num safe">exactly 1</td>
+              <td class="num flag">0 exact <span class="ci">3.17&times; error spread</span></td>
+            </tr>
+            <tr>
+              <td>Gaussian row perturbations moved</td>
+              <td class="num safe">0 / 496</td>
+              <td class="num flag">48 / 496</td>
+            </tr>
+            <tr>
+              <td>OpenBookQA answers changed, 4 models</td>
+              <td class="num safe">0 / 240</td>
+              <td class="num">&mdash;</td>
+            </tr>
+          </tbody>
+          <tfoot>
+            <tr><td colspan="3">Four models: Qwen2.5-14B-Instruct, Llama-3.1-8B-Instruct, OLMo-2-7B-Instruct, Qwen3-8B. Full code bound 127 via overflow correction (&Acirc; = A&#8320; + 256R&#8342; decomposition).</td></tr>
+          </tfoot>
+        </table>
+      </div>
+
+      <div class="table-block" id="cost">
+        <h3 class="table-title">Cost ledger &mdash; what the saving really costs</h3>
+        <p class="table-sub">the honest accounting the paper itself reports</p>
+        <table>
+          <thead>
+            <tr>
+              <th scope="col">Configuration</th>
+              <th scope="col" class="num">Cost vs classical int8</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Code bound 31 (no correction)</td>
+              <td class="num"><strong>0.7656&times;</strong> multiplications</td>
+            </tr>
+            <tr>
+              <td>Overflow correction &rarr; bound 127 <span class="ci">excess NLL then at or below the FP8 kernel on all 4 models</span></td>
+              <td class="num">0.79&ndash;0.82&times; <span class="ci">worst case 1.43&ndash;1.71&times;</span></td>
+            </tr>
+            <tr class="flip">
+              <td>Triton kernel, one Strassen level <span class="ci">H20 GPU, 4096&times;4096</span></td>
+              <td class="num flag">2.04&ndash;3.17&times; slower</td>
+            </tr>
+            <tr class="flip">
+              <td>Triton kernel, two levels</td>
+              <td class="num flag">27.9&times; slower</td>
+            </tr>
+            <tr>
+              <td>In-model experiments</td>
+              <td class="num">int8 emulated in fp32 <span class="ci">no integer tensor-core hardware run</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="table-block">
+        <h3 class="table-title">Beyond the audit &mdash; the violation generalizes</h3>
+        <p class="table-sub">two further regimes where row-mixing leaks across requests</p>
+        <ul class="facts">
+          <li><span class="k">Window scoring &middot; 5 models</span>
+            <span class="v">Replacing the last three quarters of a 1,024-token window changes <b>18.2&ndash;40.9%</b> of next-token predictions under the unrepaired realization, <b>7.8&ndash;15.2%</b> under the repaired ones, none under controls.</span></li>
+          <li><span class="k">Packed batches &middot; 768 pairs</span>
+            <span class="v">The first request&rsquo;s next-token distribution changes <b>in every pair</b> under the unrepaired realization and repaired #2 (greedy token: 11.9&ndash;13.0% of pairs), never under controls. On Qwen2.5-3B the first request&rsquo;s K/V projections already differ at the first layer.</span></li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- 03 Strengths / Limitations -->
+    <section class="reveal d7" id="assessment">
+      <div class="sec-head">
+        <span class="sec-no">03</span>
+        <h2 class="sec-title">Strengths vs Limitations</h2>
+        <span class="sec-note">contrasting panel</span>
+      </div>
+      <div class="duo">
+        <article class="panel strengths">
+          <p class="label">Strengths</p>
+          <ul>
+            <li><strong>Full arc:</strong> motivated property &rarr; impossibility theorem &rarr; constructive fix &rarr; verification.</li>
+            <li><strong>Meticulous design:</strong> row-local controls, 95% bootstrap CIs, distinct-output census across all 512 variants.</li>
+            <li><strong>Bitwise verification</strong> &mdash; the strongest evidence class available for an invariance claim.</li>
+            <li><strong>Honest cost accounting:</strong> reports its own kernels&rsquo; slowdowns and the correction trade-off instead of hiding them.</li>
+            <li><strong>Realization-agnostic certification:</strong> conditions depend only on coefficients, tiling, and the quantization spec &mdash; checked once, before any input; all 512 variants provably interchangeable.</li>
+          </ul>
+        </article>
+        <article class="panel limitations">
+          <p class="label">Limitations</p>
+          <ul>
+            <li><strong>int8 only:</strong> no FP8 certification, and FP8 is the low-precision format actually deployed in LLM inference.</li>
+            <li><strong>No speed benefit today:</strong> Triton kernels 2.04&ndash;3.17&times; (one level) and 27.9&times; (two levels) slower on H20; in-model runs emulate int8 in fp32.</li>
+            <li><strong>Quality cost at bound 31:</strong> excess NLL worse than the deployed FP8 kernel on 3 of 4 models (raw); the corrected variant&rsquo;s saving erodes to 0.79&ndash;0.82&times; (worst case 1.43&ndash;1.71&times;).</li>
+            <li><strong>Narrow audits:</strong> 240 OpenBookQA items, ARC-Easy, WikiText-2 perplexity &mdash; no generative, MMLU-scale, or long-context evaluation.</li>
+            <li><strong>Theory scope:</strong> Theorem 1 constrains only fixed form-(1) algorithms; learned (AlphaTensor-style) or runtime-reordered schemes are not ruled out.</li>
+          </ul>
+        </article>
+      </div>
+    </section>
+
+    <!-- 04 Questions -->
+    <section class="reveal d7" id="questions">
+      <div class="sec-head">
+        <span class="sec-no">04</span>
+        <h2 class="sec-title">Questions for Further Exploration</h2>
+      </div>
+      <ol class="questions">
+        <li>Can a certified prefix-invariant fast realization be built directly in <strong>FP8</strong> &mdash; exploiting its exact integer structure or hybrid int8-product / FP8-scale schemes?</li>
+        <li>How much of the 49/64 saving can survive engineering: fused tensor-core int8 pipelines, CPU/ASIC integer paths, better call shapes &mdash; can the 2.04&ndash;27.9&times; wall-clock gap close?</li>
+        <li>Do these likelihood flips distort full-benchmark rankings &mdash; how large is the realized ranking distortion when W8A8/FP8-served models score MMLU-scale suites, beyond 240 OpenBookQA items?</li>
+        <li>How does the overflow-correction cost behave on real activation distributions across layers and models &mdash; is the code-bound-127 variant end-to-end multiplication-saving at all?</li>
+        <li>Where else does prefix invariance silently matter &mdash; speculative decoding, KV-cache reuse, batched RL rollouts &mdash; and can cross-request contamination compound over long horizons?</li>
+      </ol>
+    </section>
+
+  </div>
+
+  <!-- ================= FOOTER ================= -->
+  <footer class="reveal d7">
+    <a href="./2609.39816.md">&#8599; Markdown source</a>
+    <a href="./index.html">&#8617; Today&rsquo;s digest</a>
+    <a href="https://arxiv.org/abs/2609.39816">arXiv:2609.39816</a>
+    <a href="https://arxiv.org/pdf/2609.39816">PDF</a>
+    <span class="colophon">Extracted from 2609.39816.md &middot; 2026-09-28 issue &middot; bilingual vault summary</span>
+  </footer>
+
+</main>
+
+</body>
+</html>

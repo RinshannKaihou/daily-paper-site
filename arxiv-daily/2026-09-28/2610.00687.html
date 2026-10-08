@@ -1,0 +1,595 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Leto — In-Place Recovery for LLM Training · 2610.00687</title>
+<style>
+  :root{
+    --bg:#101113;
+    --panel:#17181b;
+    --panel-2:#1c1e22;
+    --line:#2a2d33;
+    --line-soft:#22242a;
+    --text:#e9e7e2;
+    --muted:#9a978f;
+    --faint:#6e6c66;
+    --accent:#ffb224;
+    --accent-ink:#16130a;
+    --accent-dim:rgba(255,178,36,.08);
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI","Helvetica Neue","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+    --mono:ui-monospace,"SF Mono",SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{scroll-behavior:smooth}
+  body{
+    background:var(--bg);color:var(--text);
+    font-family:var(--sans);
+    font-size:15px;line-height:1.65;
+    -webkit-font-smoothing:antialiased;
+  }
+  [lang="zh-CN"]{line-height:1.8}
+  ::selection{background:var(--accent);color:var(--accent-ink)}
+  a{color:inherit}
+
+  .wrap{width:min(95vw,1100px);margin:0 auto}
+
+  /* ---------- top bar ---------- */
+  .topbar{
+    position:sticky;top:0;z-index:50;
+    background:var(--bg);
+    border-bottom:1px solid var(--line-soft);
+  }
+  .topbar-in{
+    display:flex;align-items:center;justify-content:space-between;gap:12px;
+    padding:10px 0;
+  }
+  .digest{
+    font-family:var(--mono);font-size:11.5px;letter-spacing:.04em;
+    color:var(--accent);text-decoration:none;white-space:nowrap;
+    border:1px solid var(--line);border-radius:3px;
+    padding:6px 10px;background:var(--panel);
+  }
+  .digest:hover{border-color:var(--accent)}
+  .topnav{display:flex;gap:18px;flex-wrap:wrap}
+  .topnav a{
+    font-family:var(--mono);font-size:11px;letter-spacing:.12em;
+    text-transform:uppercase;text-decoration:none;color:var(--faint);
+    padding:4px 0;border-bottom:2px solid transparent;
+  }
+  .topnav a:hover{color:var(--text)}
+  .topnav a.active{color:var(--accent);border-bottom-color:var(--accent)}
+
+  /* ---------- hero ---------- */
+  .hero{
+    margin-top:26px;
+    background:var(--panel);
+    border:1px solid var(--line);
+    border-radius:4px;
+    overflow:hidden;
+  }
+  .hazard{
+    height:6px;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='6'%3E%3Crect width='12' height='6' fill='%23ffb224'/%3E%3Cpolygon points='0,6 6,0 9,0 3,6' fill='%23101113'/%3E%3Cpolygon points='12,6 18,0 21,0 15,6' fill='%23101113'/%3E%3Cpolygon points='-12,6 -6,0 -3,0 -9,6' fill='%23101113'/%3E%3C/svg%3E");
+    background-size:12px 6px;background-repeat:repeat-x;
+  }
+  .hero-in{padding:34px 36px 30px}
+  .kicker{
+    display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;
+    font-family:var(--mono);font-size:11px;letter-spacing:.14em;
+    text-transform:uppercase;color:var(--muted);
+  }
+  .kicker .id{color:var(--accent)}
+  .kicker .zh{letter-spacing:.06em}
+  .finding{
+    margin:18px 0 20px;
+    font-size:clamp(1.85rem,4.2vw,3.05rem);
+    font-weight:750;line-height:1.16;letter-spacing:-.02em;
+    max-width:22em;
+  }
+  .finding em{font-style:normal;color:var(--accent)}
+  .meta{
+    display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 10px;
+    font-size:13.5px;color:var(--muted);
+  }
+  .meta .title a{
+    color:var(--text);text-decoration:none;font-weight:600;
+    border-bottom:1px solid var(--line);
+  }
+  .meta .title a:hover{color:var(--accent);border-bottom-color:var(--accent)}
+  .meta .sep{color:var(--faint)}
+  .meta a.plain{color:var(--muted);text-decoration:none;border-bottom:1px dotted var(--faint)}
+  .meta a.plain:hover{color:var(--accent)}
+  .chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px}
+  .chip{
+    font-family:var(--mono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;
+    color:var(--muted);border:1px solid var(--line);border-radius:2px;
+    padding:4px 9px;background:var(--bg);
+  }
+  .chip::before{content:"";display:inline-block;width:5px;height:5px;border-radius:1px;background:var(--accent);margin-right:7px;vertical-align:1px}
+
+  /* ---------- asset row ---------- */
+  .assets{
+    display:grid;grid-template-columns:1.25fr 1fr 1fr;gap:14px;
+    margin-top:14px;
+  }
+  .asset{
+    background:var(--panel);border:1px solid var(--line);border-radius:4px;
+    padding:20px 22px;display:flex;flex-direction:column;gap:10px;
+  }
+  .label{
+    font-family:var(--mono);font-size:10.5px;letter-spacing:.16em;
+    text-transform:uppercase;color:var(--accent);
+  }
+  .metric-num{
+    font-family:var(--mono);font-weight:700;
+    font-size:clamp(2.9rem,6.5vw,4.6rem);
+    line-height:1;color:var(--accent);letter-spacing:-.03em;
+  }
+  .metric-sub{font-size:13px;color:var(--text)}
+  .metric-fine{font-size:12px;color:var(--muted)}
+  .ministats{display:flex;gap:0;border-top:1px solid var(--line-soft);margin-top:auto;padding-top:12px}
+  .ministats div{flex:1}
+  .ministats div + div{border-left:1px solid var(--line-soft);padding-left:14px}
+  .ministats b{display:block;font-family:var(--mono);font-size:16px;color:var(--text)}
+  .ministats span{font-size:11px;color:var(--faint)}
+  .why p{font-size:14.5px}
+  .why .zh-note{font-size:13px;color:var(--muted)}
+  .ctx{
+    font-family:var(--mono);font-size:11px;color:var(--faint);
+    border-top:1px solid var(--line-soft);padding-top:12px;margin-top:auto;
+  }
+  .ctx b{color:var(--muted);font-weight:600}
+  .edge{background:var(--accent);border-color:var(--accent)}
+  .edge .label{color:var(--accent-ink);opacity:.65}
+  .edge p{color:var(--accent-ink);font-size:14.5px;font-weight:550}
+  .edge p b{font-weight:800}
+
+  /* ---------- body ---------- */
+  .bodynav{display:flex;gap:22px;padding:34px 0 6px;flex-wrap:wrap}
+  .bodynav a{
+    font-family:var(--mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;
+    color:var(--faint);text-decoration:none;
+  }
+  .bodynav a b{color:var(--accent);font-weight:600;margin-right:6px}
+  .bodynav a:hover{color:var(--text)}
+
+  section{scroll-margin-top:70px}
+  .sec-head{
+    display:flex;align-items:baseline;gap:14px;
+    margin:40px 0 16px;padding-bottom:10px;
+    border-bottom:1px solid var(--line);
+  }
+  .sec-head .no{
+    font-family:var(--mono);font-size:12px;color:var(--accent);letter-spacing:.1em;
+  }
+  .sec-head h2{
+    font-size:17px;font-weight:700;letter-spacing:.01em;
+  }
+  .sec-head .aside{margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--faint)}
+
+  .method-grid{display:grid;grid-template-columns:1.15fr .85fr;gap:14px;align-items:start}
+  .prose p{margin-bottom:12px;color:var(--text)}
+  .prose p:last-child{margin-bottom:0}
+  .prose b{color:var(--accent)}
+  .prose .zh{color:var(--muted);font-size:13.5px}
+  .mech{margin:12px 0 0;list-style:none}
+  .mech li{
+    padding:10px 0 10px 16px;border-left:2px solid var(--line);
+    margin-bottom:2px;
+  }
+  .mech li + li{border-top:none}
+  .mech li b{display:block;color:var(--text);font-size:13.5px}
+  .mech li:hover{border-left-color:var(--accent)}
+  .mech li span{font-size:13px;color:var(--muted)}
+
+  .diagram{
+    background:var(--panel);border:1px solid var(--line);border-radius:4px;
+    padding:18px;font-family:var(--mono);
+  }
+  .diagram .d-title{font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--faint);margin-bottom:12px}
+  .d-node{
+    border:1px solid var(--line);border-radius:3px;background:var(--panel-2);
+    padding:9px 12px;font-size:11.5px;line-height:1.5;
+  }
+  .d-node b{color:var(--text);letter-spacing:.06em}
+  .d-node span{color:var(--muted)}
+  .d-node.dead{border-left:3px solid var(--faint);color:var(--muted)}
+  .d-node.dead b{color:var(--muted);text-decoration:line-through;text-decoration-color:var(--faint)}
+  .d-node.take{border-left:3px solid var(--accent)}
+  .d-arrow{
+    color:var(--accent);font-size:11px;padding:6px 0 6px 14px;letter-spacing:.04em;
+  }
+  .d-bar{
+    margin-top:10px;border:1px dashed var(--line);border-radius:3px;
+    padding:8px 12px;font-size:11px;color:var(--muted);
+  }
+  .d-bar b{color:var(--accent)}
+
+  /* ---------- results ---------- */
+  .res-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  table{
+    width:100%;border-collapse:collapse;
+    background:var(--panel);border:1px solid var(--line);border-radius:4px;
+    font-size:13px;
+  }
+  caption{
+    caption-side:top;text-align:left;
+    font-family:var(--mono);font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;
+    color:var(--faint);padding:0 2px 8px;
+  }
+  th{
+    font-family:var(--mono);font-size:10px;letter-spacing:.14em;text-transform:uppercase;
+    color:var(--muted);font-weight:600;text-align:left;
+    padding:10px 12px;border-bottom:1px solid var(--line);
+  }
+  td{padding:9px 12px;border-bottom:1px solid var(--line-soft);vertical-align:top}
+  tr:last-child td{border-bottom:none}
+  td.num,th.num{text-align:right;font-family:var(--mono);white-space:nowrap}
+  td .note{display:block;font-size:11px;color:var(--faint)}
+  tr.win td{background:var(--accent-dim)}
+  tr.win td:first-child{border-left:2px solid var(--accent);font-weight:650}
+  tr.win td.num{color:var(--accent);font-weight:700}
+  td.bad{color:var(--muted)}
+  .tbl-note{font-size:11.5px;color:var(--faint);margin-top:8px;font-family:var(--mono)}
+
+  .tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-top:14px}
+  .tile{
+    background:var(--panel);border:1px solid var(--line);border-radius:4px;
+    padding:14px 16px;
+  }
+  .tile b{
+    display:block;font-family:var(--mono);font-size:19px;color:var(--accent);
+    margin-bottom:4px;letter-spacing:-.01em;
+  }
+  .tile span{font-size:12px;color:var(--muted);line-height:1.5;display:block}
+  .tile .sim{color:var(--faint)}
+
+  /* ---------- tradeoffs ---------- */
+  .sides{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  .side{
+    background:var(--panel);border:1px solid var(--line);border-radius:4px;
+    padding:18px 20px;
+  }
+  .side h3{
+    font-family:var(--mono);font-size:11px;letter-spacing:.16em;text-transform:uppercase;
+    margin-bottom:12px;font-weight:600;
+  }
+  .side.plus h3{color:var(--accent)}
+  .side.minus h3{color:var(--muted)}
+  .side ul{list-style:none}
+  .side li{
+    font-size:13.5px;color:var(--text);
+    padding:8px 0 8px 18px;position:relative;
+    border-bottom:1px solid var(--line-soft);
+  }
+  .side li:last-child{border-bottom:none}
+  .side li::before{
+    position:absolute;left:0;top:9px;
+    font-family:var(--mono);font-size:12px;
+  }
+  .side.plus li::before{content:"+";color:var(--accent)}
+  .side.minus li::before{content:"−";color:var(--faint)}
+  .side li b{font-weight:650}
+  .side li span{color:var(--muted)}
+
+  /* ---------- questions ---------- */
+  .questions{
+    background:var(--panel);border:1px solid var(--line);border-radius:4px;
+    padding:20px 24px;
+    display:grid;grid-template-columns:1fr 1fr;gap:4px 34px;
+  }
+  .q{
+    display:flex;gap:14px;padding:11px 0;
+    border-bottom:1px solid var(--line-soft);
+    font-size:13.5px;
+  }
+  .q:last-child,.q:nth-last-child(2):nth-child(odd){border-bottom:none}
+  .q i{
+    font-style:normal;font-family:var(--mono);font-size:12px;color:var(--accent);
+    padding-top:2px;flex:none;
+  }
+  .q span{color:var(--text)}
+  .q span b{font-weight:650}
+
+  /* ---------- provenance + footer ---------- */
+  .prov{
+    margin-top:40px;border-top:1px solid var(--line);
+    padding:18px 0 6px;
+    font-family:var(--mono);font-size:11px;color:var(--faint);line-height:1.9;
+  }
+  .prov b{color:var(--muted);font-weight:600;letter-spacing:.1em}
+  footer{margin:26px 0 46px}
+  .foot-in{
+    display:flex;flex-wrap:wrap;gap:10px 26px;align-items:center;
+    padding-top:16px;border-top:1px solid var(--line);
+    font-family:var(--mono);font-size:12px;
+  }
+  .foot-in a{color:var(--accent);text-decoration:none}
+  .foot-in a:hover{text-decoration:underline}
+  .foot-in .dim{color:var(--faint);margin-left:auto}
+
+  /* ---------- motion ---------- */
+  @keyframes rise{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+  .hero,.a1,.a2,.a3,.bodynav{animation:rise .6s ease both}
+  .a1{animation-delay:.08s}.a2{animation-delay:.16s}.a3{animation-delay:.24s}.bodynav{animation-delay:.3s}
+  .reveal{opacity:0;transform:translateY(14px);transition:opacity .55s ease,transform .55s ease}
+  .reveal.in{opacity:1;transform:none}
+  @media (prefers-reduced-motion:reduce){
+    *,*::before,*::after{animation:none!important;transition:none!important}
+    .reveal{opacity:1;transform:none}
+  }
+
+  /* ---------- responsive ---------- */
+  @media (max-width:980px){
+    .assets{grid-template-columns:1fr 1fr}
+    .a1{grid-column:1 / -1}
+    .method-grid{grid-template-columns:1fr}
+    .tiles{grid-template-columns:repeat(2,1fr)}
+  }
+  @media (max-width:720px){
+    .hero-in{padding:24px 20px}
+    .assets{grid-template-columns:1fr}
+    .res-grid,.sides,.questions{grid-template-columns:1fr}
+    .q:nth-last-child(2){border-bottom:1px solid var(--line-soft)}
+    .q:last-child{border-bottom:none}
+    .topnav{gap:12px}
+    .topnav a{letter-spacing:.08em}
+    .foot-in .dim{margin-left:0}
+  }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="wrap topbar-in">
+    <a class="digest" href="./index.html">↩ Today&rsquo;s digest</a>
+    <nav class="topnav" id="topnav">
+      <a href="#method">Method</a>
+      <a href="#results">Results</a>
+      <a href="#tradeoffs">Trade-offs</a>
+      <a href="#questions">Questions</a>
+    </nav>
+  </div>
+</div>
+
+<main class="wrap">
+
+  <!-- ============ HERO ============ -->
+  <header class="hero">
+    <div class="hazard" aria-hidden="true"></div>
+    <div class="hero-in">
+      <div class="kicker">
+        <span class="id">arXiv 2610.00687</span>
+        <span>Systems · Fault Tolerance</span>
+        <span>2026-09-28</span>
+        <span class="zh" lang="zh-CN">故障后原位接管 · 不重载检查点</span>
+      </div>
+      <h1 class="finding">
+        When a GPU fault leaves the hardware alive, Leto resumes training <em>in place</em> in 6–19&nbsp;s — skipping the checkpoint reload entirely.
+      </h1>
+      <div class="meta">
+        <span class="title"><a href="https://arxiv.org/abs/2610.00687" target="_blank" rel="noopener">Leto: Fast In-Place Recovery for LLM Training on Surviving Hardware</a></span>
+        <span class="sep">·</span>
+        <span>Geon-Woo Kim · Joon Ha Kim · Daehyeok Kim — UT Austin</span>
+        <span class="sep">·</span>
+        <a class="plain" href="https://arxiv.org/pdf/2610.00687" target="_blank" rel="noopener">PDF ↗</a>
+      </div>
+      <div class="chips">
+        <span class="chip">fault-tolerance</span>
+        <span class="chip">distributed-training</span>
+        <span class="chip">GPU-memory-faults</span>
+        <span class="chip">erasure-coding</span>
+        <span class="chip">checkpoint-recovery</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- ============ ASSET ROW ============ -->
+  <div class="assets">
+    <div class="asset a1">
+      <span class="label">Key Metric</span>
+      <div class="metric-num">6–19&thinsp;s</div>
+      <p class="metric-sub">from failure to resumed training — <b>3.6–6.5×</b> faster than the best checkpointing baseline (Gemini+/MoEvent+/JIT-Ckpt+) on all five workloads. <a href="#results" style="color:inherit">↓ Results</a></p>
+      <p class="metric-fine">72×A100, one HOF injected every 10 min · replays at most one interrupted iteration.</p>
+      <div class="ministats">
+        <div><b>+13.7&thinsp;pp</b><span>ETTR vs Gemini+ (94.2% vs 80.5%, Kimi-MoE 49.4B)</span></div>
+        <div><b>0.6–0.8%</b><span>steady-state overhead, fault-free</span></div>
+      </div>
+    </div>
+    <div class="asset a2 why">
+      <span class="label">Why This Matters</span>
+      <p>HBM uncorrectable errors that ECC contains are treated as first-class: a system-level mitigation <em>after</em> memory faults — and currently the fastest recovery path for LLM training.</p>
+      <p class="zh-note" lang="zh-CN">把被 ECC 隔离的显存不可纠错误当一等公民处理——内存硬件出错后的系统级缓解，也是当前最快的训练恢复路径。</p>
+      <p class="ctx">HOFs are common in the wild: <b>22.7%</b> of failures in ByteDance&rsquo;s 19-job study · <b>73%</b> in a 256-GPU study.</p>
+    </div>
+    <div class="asset a3 edge">
+      <span class="label">Critical Edge</span>
+      <p>The 131,072-GPU headline rests on <b>simulation alone</b>, assuming independent, non-overlapping failures. HBM faults are emulated at exactly the 16-page tolerance boundary — <b>real ECC events never tested</b>. At 0% HOFs, Leto is 0.3&thinsp;pp <b>worse</b> than plain Gemini+.</p>
+    </div>
+  </div>
+
+  <!-- ============ BODY NAV ============ -->
+  <nav class="bodynav">
+    <a href="#method"><b>01</b>Method</a>
+    <a href="#results"><b>02</b>Results</a>
+    <a href="#tradeoffs"><b>03</b>Trade-offs</a>
+    <a href="#questions"><b>04</b>Open Questions</a>
+  </nav>
+
+  <!-- ============ 01 METHOD ============ -->
+  <section id="method" class="reveal">
+    <div class="sec-head">
+      <span class="no">01</span>
+      <h2>Methodology — retain the state, don&rsquo;t rebuild it</h2>
+      <span class="aside">Megatron-Core v0.13.1 · PyTorch 2.8.0 · NCCL 2.27.3</span>
+    </div>
+    <div class="method-grid">
+      <div class="prose">
+        <p>Leto targets <b>HOFs</b> — hardware-operable failures where a trainer process dies but its GPU stays usable: ECC-contained HBM errors that retire pages without resetting the device, and transient network outages that hang collectives. Fatal failures (dead hardware) fall back to ordinary checkpointing, unchanged. Three mechanisms make in-place takeover possible:</p>
+        <ul class="mech">
+          <li><b>Resilient Memory Pool (RMP)</b>
+            <span>Retained model state is split into 2&thinsp;GiB protection groups (1,024 × 2&thinsp;MiB HBM pages) guarded by two tiers of Reed–Solomon parity — 16 + 1 pages — held entirely in host memory, so redundancy costs zero scarce HBM. Faulty pages are localized by bisecting <span style="font-family:var(--mono)">EHWPOISON</span> regions and rebuilt from parity.</span></li>
+          <li><b>Resumable Model Updater (RMU)</b>
+            <span>Because optimizer updates are commutative and RS codes are linear, applying a chunk&rsquo;s delta to the data also updates its parity with the same delta. Each update becomes a chunk-level transaction — undo buffer plus in-stream commit markers — so a mid-update crash resumes at the last committed chunk, with no full-model snapshot.</span></li>
+          <li><b>Preinitialization Controller</b>
+            <span>A same-node shadow trainer pre-builds the CUDA context, NCCL communicators and runtime modules (≈2.2&thinsp;GiB on OLMoE). When active training needs the memory, an allocator OOM callback tears the shadow down in levels L1/L2/L3 and later re-adopts the highest level that fits the observed headroom.</span></li>
+        </ul>
+        <p class="zh" lang="zh-CN">一句话：让“幸存硬件上的模型状态 + 可复用进程状态”被新进程直接接管，而不是检查点重载 + 重算 + 进程重建。</p>
+      </div>
+      <div class="diagram" aria-label="Recovery topology diagram">
+        <div class="d-title">Recovery topology — per node</div>
+        <div class="d-node dead"><b>ACTIVE TRAINER</b><br><span>dies on HOF · SIGKILL / poisoned pages</span></div>
+        <div class="d-arrow">▼ &nbsp;shadow takes over in place — no checkpoint reload</div>
+        <div class="d-node take"><b>SHADOW TRAINER → promoted</b><br><span>pre-init CUDA ctx 494 MiB · NCCL 1,512 MiB · runtime 196 MiB<br>reclaimed L1/L2/L3 on OOM, re-adopted after</span></div>
+        <div class="d-node" style="margin-top:8px"><b>STATE MANAGER</b><br><span>RMP — 2 GiB groups · RS(16+1) parity<br>RMU — chunk transactions · undo + commit markers</span></div>
+        <div class="d-bar"><b>HOST DRAM</b> — all parity lives here · zero HBM cost<br><span style="color:var(--faint)">in-HBM parity would cost 256 MiB–1 GiB on Kimi-MoE</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 02 RESULTS ============ -->
+  <section id="results" class="reveal">
+    <div class="sec-head">
+      <span class="no">02</span>
+      <h2>Results</h2>
+      <span class="aside">72×A100-40G (AWS) + 12×A100-80G testbeds · 5 models, 4B–49.4B</span>
+    </div>
+    <div class="res-grid">
+      <table>
+        <caption>Kimi-MoE 49.4B · one HOF / 10 min · recovery &amp; productive time</caption>
+        <thead>
+          <tr><th>System</th><th class="num">Recovery</th><th class="num">ETTR</th></tr>
+        </thead>
+        <tbody>
+          <tr class="win"><td>Leto <span class="note">interval 32</span></td><td class="num">16 s</td><td class="num">94.2%</td></tr>
+          <tr class="win"><td>Leto <span class="note">interval 11 · 15 s init + 5 s recompute</span></td><td class="num">19 s</td><td class="num">91.0%</td></tr>
+          <tr><td>Gemini+ <span class="note">best, interval 5 · 35 s init + 53 s recompute</span></td><td class="num">88 s</td><td class="num bad">80.5%</td></tr>
+          <tr><td>Gemini</td><td class="num">127 s</td><td class="num bad">74.1%</td></tr>
+        </tbody>
+      </table>
+      <table>
+        <caption>Fault-free iteration cost — OLMoE · 12.7 s baseline (Table 1)</caption>
+        <thead>
+          <tr><th>Design</th><th class="num">Iteration</th><th class="num">Overhead</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Reference, no protection</td><td class="num">12,663 ms</td><td class="num">—</td></tr>
+          <tr class="win"><td>Leto RMU</td><td class="num">12,693 ms</td><td class="num">+0.6%</td></tr>
+          <tr><td>Async snapshot strawman</td><td class="num">—</td><td class="num bad">+5.7%</td></tr>
+          <tr><td>Sync snapshot strawman</td><td class="num">—</td><td class="num bad">+6.33%</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="tbl-note">Longer checkpoint intervals help Leto (no rollback on HOF) but hurt baselines — Leto beats Gemini+&rsquo;s tuned peak by 11.3 pp (OLMoE) and 13.7 pp (Kimi-MoE).</p>
+    <div class="tiles">
+      <div class="tile"><b>36 / 140 ms</b><span>fault localization / parity rebuild after an injected memory fault</span></div>
+      <div class="tile"><b>Bit-exact</b><span>post-HOF loss matches the fault-free reference; without RMU, training goes NaN after the first mid-update HOF</span></div>
+      <div class="tile"><b>11 s vs 37 s</b><span>HOF recovery on a real GCP spot-eviction trace (8 evictions / 80 min) — ETTR 91.2% vs 86.6%</span></div>
+      <div class="tile"><b>95–96% <span class="sim">@131K GPUs*</span></b><span>simulated DeepSeek-V4 1.6T, 100% HOFs, vs Gemini+ 83.0–85.3% · *least-validated part of the evaluation</span></div>
+    </div>
+  </section>
+
+  <!-- ============ 03 TRADE-OFFS ============ -->
+  <section id="tradeoffs" class="reveal">
+    <div class="sec-head">
+      <span class="no">03</span>
+      <h2>Trade-offs</h2>
+      <span class="aside">what the evaluation actually establishes — and what it doesn&rsquo;t</span>
+    </div>
+    <div class="sides">
+      <div class="side plus">
+        <h3>Strengths</h3>
+        <ul>
+          <li><b>3.6–6.5× faster recovery</b> than the strongest baselines on all five workloads, at only 0.6–0.8% steady-state cost — an exceptional trade for a fault-tolerance layer.</li>
+          <li><b>Redundancy without HBM:</b> two-tier host-memory parity, with the avoided cost quantified (256 MiB–1 GiB on Kimi-MoE) rather than hand-waved.</li>
+          <li><b>Crash consistency without snapshots:</b> RMU runs at ~10× lower overhead than snapshot strawmen, with bit-exact recovery verified empirically.</li>
+          <li><b>OOM-aware preinit:</b> L1/L2/L3 reclamation resolves the shadow-vs-MoE memory conflict, with per-level recovery costs measured (26–52 s).</li>
+          <li><b>Unusually complete evaluation:</b> tuned SOTA baselines, both failure classes, a public spot trace, correctness verification, and a simulator with published error bounds (MAPE 2.18%).</li>
+        </ul>
+      </div>
+      <div class="side minus">
+        <h3>Limitations</h3>
+        <ul>
+          <li><b>HOF-conditional value:</b> benefit scales with the HOF share (22.7%–73%, measured on other operators&rsquo; clusters); at 0% HOFs Leto is 0.3 pp worse than plain Gemini+. <a href="#questions" style="color:var(--faint)">→ Q5</a></li>
+          <li><b>Scale is simulated:</b> real experiments top out at 72 A100s; 16K–131K-GPU results assume independent, uniform, non-overlapping failures.</li>
+          <li><b>Synthetic fault model:</b> exactly 16 pages per group, at the tolerance cliff — no real HBM ECC events; bursty, row-granular, recurring faults unmeasured.</li>
+          <li><b>Deeply NVIDIA-specific:</b> A100 + CUDA UVM + NCCL + Megatron; the PyTorch allocator OOM-hook coupling is fragile across framework versions.</li>
+          <li><b>Short runs:</b> 30 minutes with one scheduled failure each; multi-day fault accumulation and shadow churn unobserved. Under memory pressure recovery degrades to 52 s.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 04 QUESTIONS ============ -->
+  <section id="questions" class="reveal">
+    <div class="sec-head">
+      <span class="no">04</span>
+      <h2>Open Questions</h2>
+      <span class="aside">for further exploration</span>
+    </div>
+    <div class="questions">
+      <div class="q"><i>Q1</i><span>How does two-tier RMP behave under <b>realistic ECC distributions</b> — bursty row-granular, recurring faults on aging GPUs — and how often does the checkpoint fallback trigger in production?</span></div>
+      <div class="q"><i>Q2</i><span>Could RMP parity mismatch be repurposed as a <b>silent-data-corruption detector</b> for bit flips ECC misses, rather than handling only reported uncorrectable errors?</span></div>
+      <div class="q"><i>Q3</i><span>Does the design <b>port to H100/Blackwell</b> or non-NVIDIA stacks, given the dependence on CUDA virtual-memory APIs, allocator internals, and NCCL?</span></div>
+      <div class="q"><i>Q4</i><span>How do <b>correlated failures</b> (rack power, fabric incidents) at 100K-GPU scale change the 95–96% ETTR conclusion — can state retention survive a top-of-rack partition?</span></div>
+      <div class="q"><i>Q5</i><span>What is the <b>true HOF ratio</b> across clusters — niche optimization or common case? Should orchestrators classify HOF vs FF automatically, as Leto assumes?</span></div>
+      <div class="q"><i>Q6</i><span>Could retained in-place state <b>verify recovered data</b> — replay the interrupted chunk against parity — to catch silent corruption from before the page failed?</span></div>
+    </div>
+  </section>
+
+  <!-- ============ PROVENANCE / FOOTER ============ -->
+  <div class="prov">
+    <b>PROVENANCE</b> — UT Austin systems group with prior GPU-resilience work (&ldquo;Story of Two GPUs&rdquo;, Hopper checkpointing, inference profiling simulator) · ~7.8K lines Python + 2.4K lines C++/CUDA · system &amp; simulator promised open-source · claims strongest at testbed scale; 131K-GPU figures are simulation.
+  </div>
+
+  <footer>
+    <div class="hazard" style="margin-bottom:16px" aria-hidden="true"></div>
+    <div class="foot-in">
+      <a href="./2610.00687.md">↗ Markdown source</a>
+      <a href="https://arxiv.org/abs/2610.00687" target="_blank" rel="noopener">arXiv abs ↗</a>
+      <a href="https://arxiv.org/pdf/2610.00687" target="_blank" rel="noopener">PDF ↗</a>
+      <span class="dim">2610.00687 · dashboard generated 2026-10-08 · bilingual digest</span>
+    </div>
+  </footer>
+
+</main>
+
+<script>
+(function(){
+  // Reveal body sections on scroll
+  var reveals = document.querySelectorAll('.reveal');
+  if ('IntersectionObserver' in window) {
+    var ro = new IntersectionObserver(function(entries){
+      entries.forEach(function(e){
+        if (e.isIntersecting) { e.target.classList.add('in'); ro.unobserve(e.target); }
+      });
+    }, {rootMargin:'0px 0px -8% 0px', threshold:0.05});
+    reveals.forEach(function(el){ ro.observe(el); });
+  } else {
+    reveals.forEach(function(el){ el.classList.add('in'); });
+  }
+
+  // Scroll-spy for the top nav
+  var links = document.querySelectorAll('#topnav a');
+  var map = {};
+  links.forEach(function(a){ map[a.getAttribute('href').slice(1)] = a; });
+  var sections = document.querySelectorAll('section[id]');
+  if ('IntersectionObserver' in window) {
+    var so = new IntersectionObserver(function(entries){
+      entries.forEach(function(e){
+        var a = map[e.target.id];
+        if (!a) return;
+        if (e.isIntersecting) {
+          links.forEach(function(l){ l.classList.remove('active'); });
+          a.classList.add('active');
+        }
+      });
+    }, {rootMargin:'-20% 0px -70% 0px'});
+    sections.forEach(function(s){ so.observe(s); });
+  }
+})();
+</script>
+
+</body>
+</html>
