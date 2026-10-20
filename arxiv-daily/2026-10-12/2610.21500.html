@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>2610.21500 · When the KV Cache Is Slower Than the GPU</title>
+<style>
+  :root{
+    --paper:#f6f4ee;
+    --card:#fffefb;
+    --ink:#1c1913;
+    --muted:#6d6656;
+    --line:#d9d2c2;
+    --accent:#1c56a8;
+    --accent-ink:#123c75;
+    --accent-soft:#e9eff8;
+    --caution:#a23b22;
+    --caution-bg:#f9efe7;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei","Noto Sans CJK SC",sans-serif;
+    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
+  }
+  *,*::before,*::after{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{
+    margin:0;
+    background:var(--paper);
+    color:var(--ink);
+    font-family:var(--sans);
+    font-size:15px;
+    line-height:1.55;
+    -webkit-font-smoothing:antialiased;
+  }
+  ::selection{background:var(--accent);color:#fff}
+
+  /* ---------- fixed digest nav ---------- */
+  .digest-nav{
+    position:fixed;top:14px;left:14px;z-index:50;
+    display:inline-block;
+    background:var(--card);
+    border:1px solid var(--line);
+    border-radius:999px;
+    padding:6px 14px;
+    font-size:12.5px;font-weight:600;
+    color:var(--ink);text-decoration:none;
+    box-shadow:0 1px 3px rgba(28,25,19,.08);
+  }
+  .digest-nav:hover{border-color:var(--accent);color:var(--accent-ink)}
+
+  /* ---------- page frame ---------- */
+  .page{width:min(95vw,1100px);margin:0 auto;padding:56px 0 40px}
+
+  /* ---------- hero ---------- */
+  .hero{padding:8px 0 22px;border-bottom:2px solid var(--ink)}
+  .kicker{
+    margin:0 0 14px;
+    font-family:var(--mono);font-size:11px;font-weight:600;
+    letter-spacing:.14em;text-transform:uppercase;color:var(--muted);
+  }
+  .kicker b{color:var(--accent);font-weight:700}
+  h1.finding{
+    margin:0;
+    font-size:clamp(1.7rem,4.3vw,3.15rem);
+    line-height:1.12;font-weight:800;letter-spacing:-.018em;
+    max-width:24ch;
+  }
+  h1.finding em{font-style:normal;color:var(--accent);box-shadow:inset 0 -0.14em var(--accent-soft)}
+  h1.finding .big{font-family:var(--mono);font-variant-numeric:tabular-nums;color:var(--accent-ink);white-space:nowrap}
+  .zh{
+    margin:14px 0 0;max-width:62ch;
+    font-size:14px;line-height:1.8;color:var(--muted);
+  }
+  .cite{margin:16px 0 0;font-size:14.5px}
+  .cite a{color:var(--accent-ink);font-weight:600;text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:3px}
+  .cite a:hover{color:var(--accent)}
+  .meta{
+    margin:8px 0 0;font-size:13px;color:var(--muted);
+    display:flex;flex-wrap:wrap;gap:6px 14px;align-items:center;
+  }
+  .meta .who b{color:var(--ink);font-weight:600}
+  .chips{display:inline-flex;flex-wrap:wrap;gap:6px}
+  .chip{
+    border:1px solid var(--line);border-radius:999px;
+    padding:1px 10px;font-size:11px;letter-spacing:.03em;
+    color:var(--accent-ink);background:var(--card);
+  }
+
+  /* ---------- asset row ---------- */
+  .assets{
+    display:grid;grid-template-columns:1.05fr 1fr 1.15fr;
+    gap:14px;margin:18px 0 26px;
+  }
+  .card{
+    background:var(--card);
+    border:1px solid var(--line);
+    border-radius:4px;
+    padding:16px 18px;
+  }
+  .label{
+    font-family:var(--mono);font-size:10.5px;font-weight:700;
+    letter-spacing:.14em;text-transform:uppercase;
+    color:var(--muted);margin:0 0 10px;
+    display:flex;align-items:center;gap:8px;
+  }
+  .label::after{content:"";flex:1;height:1px;background:var(--line)}
+
+  .metric .num{
+    font-family:var(--mono);font-variant-numeric:tabular-nums;
+    font-size:clamp(3.1rem,5.6vw,4.4rem);
+    font-weight:800;line-height:1;letter-spacing:-.03em;
+    color:var(--accent);margin:2px 0 8px;
+  }
+  .metric .num small{font-size:.38em;font-weight:700;color:var(--accent-ink);letter-spacing:0}
+  .card p{margin:0;font-size:13px;color:var(--ink)}
+  .card p.sub{color:var(--muted);font-size:12.5px;margin-top:6px}
+  .why{background:var(--accent-soft);border-color:#c9d8ee}
+  .why .label{color:var(--accent-ink)}
+  .why p{font-size:14px;font-weight:500;line-height:1.6}
+  .why p .m{font-family:var(--mono);font-size:.9em}
+  .edge{background:var(--caution-bg);border-color:#e0c2b2}
+  .edge .label{color:var(--caution)}
+  .edge p{font-size:13.5px;line-height:1.6}
+  .edge p b{color:var(--caution)}
+  .edge p .m{font-family:var(--mono);font-size:.88em;font-weight:600}
+
+  /* ---------- body grid ---------- */
+  .body-grid{display:grid;grid-template-columns:5fr 7fr;gap:14px}
+  .span2{grid-column:1/-1}
+  .pair{display:grid;grid-template-columns:1fr 1fr;gap:14px;grid-column:1/-1}
+  .bottom{display:grid;grid-template-columns:7fr 5fr;gap:14px;grid-column:1/-1}
+  .card h2{
+    margin:0 0 10px;font-size:16.5px;font-weight:800;letter-spacing:-.01em;
+  }
+  .card h2 .zh-h{font-weight:500;font-size:12.5px;color:var(--muted);margin-left:8px}
+  .card .lead{margin:0 0 12px;font-size:13px;color:var(--muted)}
+
+  /* methodology */
+  .flow{list-style:none;margin:0 0 14px;padding:0}
+  .flow li{
+    display:grid;grid-template-columns:34px 1fr;gap:10px;
+    padding:8px 0;border-top:1px solid var(--line);
+  }
+  .flow li:first-child{border-top:none;padding-top:0}
+  .flow .n{
+    font-family:var(--mono);font-weight:700;font-size:13px;color:var(--accent);
+    padding-top:1px;
+  }
+  .flow b{display:block;font-size:13.5px;margin-bottom:2px}
+  .flow span{font-size:12.8px;color:var(--muted);line-height:1.55}
+  .flow .m{font-family:var(--mono);font-size:.9em}
+  .formula{
+    font-family:var(--mono);font-size:12.3px;line-height:1.75;
+    background:#f1eee4;border:1px solid var(--line);border-radius:3px;
+    padding:12px 14px;margin:0;
+  }
+  .formula b{color:var(--accent-ink)}
+  .formula .c{color:var(--caution);font-weight:600}
+
+  /* results */
+  .prodreg{
+    display:flex;gap:10px;align-items:baseline;flex-wrap:wrap;
+    border-left:3px solid var(--caution);
+    background:var(--caution-bg);
+    padding:9px 12px;margin:0 0 12px;
+    font-size:12.8px;line-height:1.5;border-radius:0 3px 3px 0;
+  }
+  .prodreg b{font-family:var(--mono);font-size:.95em;color:var(--caution)}
+  .tablewrap{overflow-x:auto}
+  table{width:100%;border-collapse:collapse;font-size:12.5px}
+  th{
+    font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;
+    color:var(--muted);text-align:right;padding:4px 8px;border-bottom:1.5px solid var(--ink);
+  }
+  th:first-child{text-align:left}
+  td{padding:6px 8px;border-bottom:1px solid var(--line);text-align:right;vertical-align:top}
+  td:first-child{text-align:left;color:var(--ink);font-weight:500}
+  td.m{font-family:var(--mono);font-variant-numeric:tabular-nums;white-space:nowrap}
+  td.d{font-family:var(--mono);font-weight:700;color:var(--accent-ink);white-space:nowrap}
+  tr.hl td{background:#f3f7fd}
+  .tfoot{font-size:11.8px;color:var(--muted);margin:8px 0 0;line-height:1.55}
+  .rb{list-style:none;margin:12px 0 0;padding:0}
+  .rb li{
+    font-size:12.8px;line-height:1.55;color:var(--ink);
+    padding:6px 0 6px 16px;border-top:1px dashed var(--line);position:relative;
+  }
+  .rb li:first-child{border-top:none}
+  .rb li::before{content:"▪";position:absolute;left:0;top:6px;color:var(--accent);font-size:10px}
+  .rb b{font-weight:700}
+  .rb .m{font-family:var(--mono);font-size:.9em}
+
+  /* strengths / limits */
+  .plus h2{color:var(--accent-ink)}
+  .minus h2{color:var(--caution)}
+  .slist{list-style:none;margin:0;padding:0}
+  .slist li{
+    font-size:12.8px;line-height:1.55;padding:7px 0 7px 20px;
+    border-top:1px solid var(--line);position:relative;
+  }
+  .slist li:first-child{border-top:none;padding-top:0}
+  .plus li::before{content:"＋";position:absolute;left:0;color:var(--accent);font-weight:700}
+  .minus li::before{content:"−";position:absolute;left:0;color:var(--caution);font-weight:700}
+  .slist .m{font-family:var(--mono);font-size:.9em}
+
+  /* questions + relevance */
+  .qlist{list-style:none;margin:0;padding:0;counter-reset:q}
+  .qlist li{
+    counter-increment:q;
+    font-size:13px;line-height:1.6;padding:8px 0 8px 34px;
+    border-top:1px solid var(--line);position:relative;
+  }
+  .qlist li:first-child{border-top:none;padding-top:0}
+  .qlist li::before{
+    content:counter(q,decimal-leading-zero);
+    position:absolute;left:0;top:9px;
+    font-family:var(--mono);font-size:11px;font-weight:700;color:var(--accent);
+  }
+  .qlist .m{font-family:var(--mono);font-size:.9em}
+  .relevance p{margin:0;font-size:13.2px;line-height:1.85;color:var(--ink)}
+  .relevance .m{font-family:var(--mono);font-size:.88em}
+  .cred{
+    grid-column:1/-1;
+    border:1px dashed var(--line);border-radius:4px;
+    padding:10px 16px;font-size:12.3px;color:var(--muted);line-height:1.6;
+    background:transparent;
+  }
+  .cred b{color:var(--ink)}
+
+  /* footer */
+  footer{
+    margin-top:22px;padding-top:14px;border-top:2px solid var(--ink);
+    display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px 16px;
+  }
+  footer a{
+    font-size:13px;font-weight:600;color:var(--accent-ink);text-decoration:none;
+  }
+  footer a:hover{text-decoration:underline;text-underline-offset:3px}
+  footer .src{color:var(--ink)}
+
+  /* ---------- reveal ---------- */
+  @keyframes rise{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+  .hero{animation:rise .45s ease both}
+  .assets .card:nth-child(1){animation:rise .45s ease .08s both}
+  .assets .card:nth-child(2){animation:rise .45s ease .16s both}
+  .assets .card:nth-child(3){animation:rise .45s ease .24s both}
+  .body-grid>.card,.body-grid>.pair,.body-grid>.bottom,.body-grid>.cred{animation:rise .5s ease .32s both}
+  @media (prefers-reduced-motion:reduce){
+    *,*::before,*::after{animation:none!important;transition:none!important}
+  }
+
+  /* ---------- responsive ---------- */
+  @media (max-width:900px){
+    .assets{grid-template-columns:1fr 1fr}
+    .assets .card:first-child{grid-column:1/-1}
+    .body-grid{grid-template-columns:1fr}
+  }
+  @media (max-width:720px){
+    .page{padding-top:64px}
+    .assets,.pair,.bottom{grid-template-columns:1fr}
+    h1.finding{max-width:none}
+    .digest-nav{top:8px;left:8px}
+  }
+</style>
+</head>
+<body>
+
+<a class="digest-nav" href="./index.html">↩ Today's digest</a>
+
+<main class="page">
+
+  <!-- ================= HERO ================= -->
+  <header class="hero">
+    <p class="kicker">Systems postmortem · <b>GLM-5.3</b> prefill serving · 8×B300 · PCP8</p>
+    <h1 class="finding">Remote KV-cache hits were <em>slower than recomputing</em> — a break-even-bandwidth model and rank-sharded Valkey tiers cut hit-heavy p99 <span class="big">124×</span>.</h1>
+    <p class="zh">远端 KV 命中（0.88 s）比直接重算（0.31 s）更慢：按 rank 分片 Valkey、异步加载与两项成本模型，把重放流量 p99 从 83.32 s 压到 0.67 s。</p>
+    <p class="cite"><a href="https://arxiv.org/abs/2610.21500">When the KV Cache Is Slower Than the GPU: Scaling Remote KV Tiers for Context-Parallel Prefill</a></p>
+    <div class="meta">
+      <span class="who"><b>Muhammad Ibrahim</b> · Multiverse Computing</span>
+      <span>2026-10-12</span>
+      <span class="chips">
+        <span class="chip">llm-serving</span>
+        <span class="chip">kv-cache</span>
+        <span class="chip">context-parallelism</span>
+        <span class="chip">distributed-systems</span>
+      </span>
+    </div>
+  </header>
+
+  <!-- ================= ASSET ROW ================= -->
+  <section class="assets">
+    <div class="card metric">
+      <p class="label">Key metric — tail latency</p>
+      <div class="num">124×</div>
+      <p>Hit-heavy p99 TTFT <b>83.32 s → 0.67 s</b>; p50 9.70 s → 0.40 s on the 450-request replay (98.5% of tokens served from L2).</p>
+      <p class="sub">Single-instance synchronous tier → 8 sharded Valkey instances + async loading + 3 client-bug fixes.</p>
+    </div>
+    <div class="card why">
+      <p class="label">Why this matters</p>
+      <p>Judge a KV cache tier against your GPUs' prefill rate, not network latency — break-even bandwidth <span class="m">B\* = sR</span> rises with every GPU generation.</p>
+    </div>
+    <div class="card edge">
+      <p class="label">Critical edge</p>
+      <p>The 124× is measured against the paper's <b>own pathological baseline</b> — versus plain recompute, the best config's median hit (<span class="m">0.40 s</span>) is still <b>0.09 s slower</b>.</p>
+    </div>
+  </section>
+
+  <!-- ================= BODY GRID ================= -->
+  <section class="body-grid">
+
+    <!-- Methodology -->
+    <div class="card">
+      <h2>Methodology</h2>
+      <p class="lead">A production regression disciplined into a falsifiable cost model, then fixed and re-validated end to end.</p>
+      <ol class="flow">
+        <li><span class="n">01</span><div><b>Observe</b><span>Enabling LMCache's remote L2 (Valkey) regresses production 16k p99 TTFT <span class="m">3.96 → 17.3 s</span> (32k: <span class="m">6.06 → 25.0 s</span>); rolled back.</span></div></li>
+        <li><span class="n">02</span><div><b>Replay</b><span>The exact 683-request router-log stream on an isolated 8×B300 node, identical container (vLLM 0.31.0, LMCache 0.5.5, FlashInfer 0.7.0, NCCL 2.30, CUDA 13.0); hit-heavy subset = 98.5% L2 tokens.</span></div></li>
+        <li><span class="n">03</span><div><b>Model</b><span>Fit T₀ on one point only; validated out-of-sample (<span class="m">0.79 s</span> predicted vs <span class="m">0.83–0.88 s</span> measured on runs not used for the fit).</span></div></li>
+        <li><span class="n">04</span><div><b>Fix</b><span>Sharded MLA store (chunk <span class="m">c → rank c mod W</span>, Prop. 1 keeps lookup correct), one Valkey per rank via <span class="m">{rank}</span> URL, async loading, three hang-forever client bugs fixed.</span></div></li>
+        <li><span class="n">05</span><div><b>Validate</b><span>Needle-in-a-haystack <span class="m">24/24</span>, 3,000-pattern property test, 30-min 1,549-request soak with zero errors; 5-node SLA benchmark passes.</span></div></li>
+      </ol>
+      <p class="formula">
+T_load = T₀ + ns/B&nbsp;&nbsp;vs&nbsp;&nbsp;T_recompute = n/R<br>
+⇒ break-even <b>B\* = sR ≈ 2.53 GB/s</b> (s = 48.4 KB/tok, R = 52.2k tok/s on one B300 node)<br>
+⇒ fixed floor <span class="c">R·T₀ ≈ 17k tokens</span> — shorter prompts lose at <i>any</i> bandwidth
+      </p>
+    </div>
+
+    <!-- Results -->
+    <div class="card">
+      <h2>Results &amp; Highlights</h2>
+      <p class="prodreg"><b>The regression that started it:</b> with the remote tier ON in production, 16k p99 <b>3.96 → 17.3 s</b>, 32k p99 <b>6.06 → 25.0 s</b> — median unchanged, tail destroyed.</p>
+      <div class="tablewrap">
+        <table>
+          <thead>
+            <tr><th>Measurement</th><th>Before</th><th>After</th><th>Δ</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Hit-heavy p99 TTFT (replay)</td><td class="m">83.32 s</td><td class="m">0.67 s</td><td class="d">124×</td></tr>
+            <tr><td>Hit-heavy p50 TTFT (replay)</td><td class="m">9.70 s</td><td class="m">0.40 s</td><td class="d">24×</td></tr>
+            <tr><td>Aggregate GET bandwidth</td><td class="m">1.71 GB/s</td><td class="m">10.76 GB/s</td><td class="d">6.3×</td></tr>
+            <tr><td>One rank's 8-chunk (99 MB) batch</td><td class="m">440 ms</td><td class="m">70 ms</td><td class="d">6.3×</td></tr>
+            <tr class="hl"><td>Single-node prefill throughput</td><td class="m">43.2k tok/s</td><td class="m">49.4k tok/s</td><td class="d">+14%*</td></tr>
+            <tr><td>5-node SLA: TTFT P90 (limit 70 s)</td><td class="m">—</td><td class="m">30.5 s</td><td class="d">pass</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="tfoot">* Sharded store alone +14%; +34% (57.3–58.0k tok/s) only when combined with an orthogonal upstream FlashInfer kernel fix. LMCache fully off: 51.4k tok/s — caching buys hit capacity, not raw throughput.</p>
+      <ul class="rb">
+        <li><b>The problem, isolated:</b> a 16k hit took <span class="m">0.88 s</span> vs <span class="m">0.31 s</span> to recompute; one Valkey tops out at <span class="m">1.71 GB/s</span> &lt; B\* = 2.53 GB/s, and the sync path becomes an unstable queue (ρ ≈ 1.13, 59 requests queued, GPUs 7% busy).</li>
+        <li><b>Correctness:</b> 24/24 needles across cold/L1/L2/control (up to 166.7k tokens), 36/36 in a concurrent burst, zero errors in the 1,549-request soak.</li>
+        <li><b>Honest ceiling:</b> best config's median hit (<span class="m">0.40 s</span>) remains 0.09 s slower than recompute — the tier's value is tail stability and freed GPU capacity, not median speed.</li>
+      </ul>
+    </div>
+
+    <!-- Strengths / Limitations -->
+    <div class="pair">
+      <div class="card plus">
+        <h2>Strengths</h2>
+        <ul class="slist">
+          <li>Crisp, falsifiable two-parameter cost model (<span class="m">B\* = sR, T₀</span>), validated on configurations not used for the fit.</li>
+          <li>Coordination-free scale-out as a corollary of static chunk ownership: one Valkey per rank, no hashing, no cluster protocol, cross-engine reuse preserved.</li>
+          <li>Correctness treated as first-class: a proof that existing lookup stays correct under sharding, property tests with injected failures, non-determinism-aware needle tests.</li>
+          <li>Every fix upstreamed with a regression test — six LMCache PRs plus the FlashInfer kernel PR.</li>
+          <li>Exceptional measurement honesty: production / replay / model numbers kept separate; the residual 0.09 s gap is decomposed, not hidden.</li>
+        </ul>
+      </div>
+      <div class="card minus">
+        <h2>Limitations</h2>
+        <ul class="slist">
+          <li>Every condition run exactly once; no error bars; differences under ~10% (e.g. sync vs async on 8 instances) not statistically established.</li>
+          <li>One prompt-length bucket (<span class="m">14.7k–17.9k</span>) for all latency results; T₀ fitted on a single point; the ~17k-token break-even is an untested prediction.</li>
+          <li>The 98.5% hit-heavy subset was engineered to fit the cache (flush + prime + restart); production hit rates were 1–35%, and eviction would add EXISTS-to-GET races.</li>
+          <li>Prefill-only replay: KV handoff to decode omitted; multi-engine contention estimated (~2 GB/s for six engines), not measured.</li>
+          <li>Constants specific to GLM-5.3 FP8 MLA on B300; no RDMA-transport or compression alternatives evaluated yet.</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- Questions + Relevance -->
+    <div class="bottom">
+      <div class="card">
+        <h2>Questions for Further Exploration</h2>
+        <ol class="qlist">
+          <li>Where does the ~17k-token break-even move for GQA/MHA models with 5–20× larger per-token KV — a clear median-latency win at much shorter prompts?</li>
+          <li>Would an RDMA-backed store (Mooncake-style) meet <span class="m">B\* = 2.53 GB/s</span>, and does rank-partitioning compose with RDMA transports?</li>
+          <li>Can T₀ be shrunk by batching per-owner chunks into one collective — and would a load-or-recompute admission policy recover the 0.09 s median gap?</li>
+          <li>Do results hold under real multi-engine contention and production eviction, where hit rates drop from 98.5% to 10–35%?</li>
+          <li>How many rank-mismatched kernel inefficiencies (like the SwiGLU that wasted 17% of prefill GPU time under EP8) lurk in other fused kernels?</li>
+        </ol>
+      </div>
+      <div class="card relevance">
+        <h2>Relevance <span class="zh-h">相关性</span></h2>
+        <p>面向大规模 LLM 推理集群中集合通信（AllGather / PCP 锁步）、远端 KV 分层与多引擎共享基础设施的性能与正确性工程："缓存层必须对标硬件预填充速率而非网络延迟"的 <span class="m">B\*=sR</span> 判据、按 rank 无协调扩展远端层的设计，以及三个令引擎静默停摆的客户端 bug，对构建可靠推理服务栈有直接参考价值。</p>
+      </div>
+    </div>
+
+    <div class="cred"><b>Credibility:</b> single-author industry postmortem from Multiverse Computing (real serving infrastructure); production image and versions pinned; all changes public as numbered upstream PRs with tests — but GLM-5.3 weights and the production trace are proprietary, so exact outside reproduction is not possible.</div>
+
+  </section>
+
+  <footer>
+    <a class="src" href="./2610.21500.md">↗ Markdown source</a>
+    <a href="https://arxiv.org/abs/2610.21500">arXiv:2610.21500 ↗</a>
+  </footer>
+
+</main>
+
+</body>
+</html>

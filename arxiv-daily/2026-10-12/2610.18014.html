@@ -1,0 +1,510 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LatentRemedy — KV-cache reuse between conflicting agents · arXiv 2610.18014</title>
+<style>
+  :root{
+    --paper:#f4f1ea;
+    --card:#fffdf8;
+    --ink:#17161b;
+    --ink-soft:#5a564c;
+    --line:#dcd5c4;
+    --line-soft:#e8e2d3;
+    --accent:#1f3bd6;
+    --accent-deep:#14267e;
+    --accent-tint:#e7eafb;
+    --caution:#a8431c;
+    --caution-bg:#f6e7da;
+    --caution-line:#ddb89d;
+    --serif:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,"Songti SC","Noto Serif CJK SC",serif;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI","Helvetica Neue",Helvetica,Arial,"PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+    --mono:ui-monospace,"SF Mono",SFMono-Regular,Menlo,Consolas,"PingFang SC",monospace;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{scroll-behavior:smooth}
+  body{
+    background:var(--paper);
+    color:var(--ink);
+    font-family:var(--sans);
+    font-size:16px;
+    line-height:1.55;
+    border-top:4px solid var(--accent);
+  }
+  ::selection{background:var(--accent-tint)}
+  a{color:var(--accent-deep)}
+
+  /* ---------- fixed digest nav ---------- */
+  .digest-nav{
+    position:fixed;top:16px;left:16px;z-index:50;
+    background:var(--card);
+    border:1px solid var(--line);
+    border-radius:999px;
+    box-shadow:0 6px 18px -12px rgba(20,18,10,.4);
+  }
+  .digest-nav a{
+    display:inline-block;
+    padding:7px 14px;
+    font-size:.78rem;font-weight:600;
+    text-decoration:none;color:var(--ink);
+    letter-spacing:.02em;
+  }
+  .digest-nav a:hover{color:var(--accent)}
+
+  .wrap{width:min(95vw,1100px);margin:0 auto}
+
+  /* ---------- hero ---------- */
+  .hero{padding:76px 8px 22px}
+  .eyebrow{
+    display:flex;flex-wrap:wrap;align-items:center;gap:8px;
+    margin-bottom:18px;
+    animation:rise .55s ease .04s both;
+  }
+  .kicker{
+    font-family:var(--mono);font-size:.68rem;letter-spacing:.14em;
+    text-transform:uppercase;color:var(--ink-soft);
+  }
+  .chip{
+    font-family:var(--mono);font-size:.66rem;letter-spacing:.04em;
+    border:1px solid var(--line);border-radius:999px;
+    padding:3px 10px;color:var(--ink-soft);background:var(--card);
+  }
+  .chip.hot{border-color:var(--accent);color:var(--accent-deep);background:var(--accent-tint)}
+  .finding{
+    font-family:var(--serif);
+    font-size:clamp(1.72rem,4.3vw,3.05rem);
+    line-height:1.14;
+    letter-spacing:-.012em;
+    font-weight:600;
+    max-width:22ch;
+    text-wrap:balance;
+    animation:rise .55s ease .1s both;
+  }
+  .finding em{
+    font-style:italic;color:var(--accent-deep);
+    box-shadow:inset 0 -.14em 0 var(--accent-tint);
+  }
+  .zh-line{
+    margin-top:14px;max-width:68ch;
+    font-size:.8rem;line-height:1.85;color:var(--ink-soft);
+    animation:rise .55s ease .16s both;
+  }
+  .zh-line b{color:var(--ink);font-weight:600}
+  .meta{margin-top:20px;animation:rise .55s ease .22s both}
+  .meta .ptitle{
+    font-family:var(--serif);font-size:1rem;font-weight:600;
+  }
+  .meta .ptitle a{text-decoration:none;color:var(--ink);border-bottom:1px solid var(--accent)}
+  .meta .ptitle a:hover{color:var(--accent-deep)}
+  .meta .authors{font-size:.8rem;color:var(--ink-soft);margin-top:5px}
+  .meta .authors .affil{color:#8a8578}
+  .meta .stamp{
+    margin-top:4px;font-family:var(--mono);font-size:.7rem;
+    letter-spacing:.06em;color:var(--ink-soft);
+  }
+
+  /* ---------- asset row ---------- */
+  .assets{
+    display:grid;grid-template-columns:1.15fr 1fr 1fr;gap:14px;
+    margin:10px 0 26px;
+  }
+  .card{
+    background:var(--card);
+    border:1px solid var(--line);
+    border-radius:10px;
+    padding:20px 22px;
+    box-shadow:0 1px 0 rgba(20,18,10,.03),0 10px 28px -22px rgba(20,18,10,.35);
+  }
+  .label{
+    display:block;
+    font-family:var(--mono);font-size:.64rem;letter-spacing:.16em;
+    text-transform:uppercase;color:var(--ink-soft);
+    margin-bottom:12px;
+  }
+  .a1{animation:rise .55s ease .3s both}
+  .a2{animation:rise .55s ease .36s both}
+  .a3{animation:rise .55s ease .42s both}
+  .metric .num{
+    font-family:var(--mono);
+    font-variant-numeric:tabular-nums;
+    font-size:clamp(2.9rem,5.4vw,4.3rem);
+    font-weight:700;letter-spacing:-.035em;
+    color:var(--accent);line-height:1;
+  }
+  .metric .num .unit{
+    font-size:.42em;font-weight:600;letter-spacing:0;
+    color:var(--ink-soft);margin-left:4px;
+  }
+  .metric .ctx{font-size:.85rem;margin-top:10px;max-width:34ch}
+  .metric .sub{
+    margin-top:12px;padding-top:10px;border-top:1px dashed var(--line);
+    font-family:var(--mono);font-size:.68rem;line-height:1.7;color:var(--ink-soft);
+  }
+  .why p{font-size:.9rem;line-height:1.6}
+  .zh-quote{
+    margin-top:12px;padding:10px 12px;
+    background:var(--paper);border-left:3px solid var(--line);
+    font-size:.74rem;line-height:1.85;color:var(--ink-soft);
+  }
+  .edge{
+    background:var(--caution-bg);
+    border-color:var(--caution-line);
+  }
+  .edge .label{color:var(--caution)}
+  .edge p{font-size:.88rem;line-height:1.6}
+  .edge strong{color:var(--caution);font-variant-numeric:tabular-nums}
+  .edge .sub{margin-top:10px;font-size:.74rem;color:#7c5a41;line-height:1.6}
+
+  /* ---------- body grid ---------- */
+  .body-grid{
+    display:grid;grid-template-columns:repeat(12,1fr);gap:14px;
+    padding-bottom:8px;
+  }
+  .method{grid-column:span 5;animation:rise .55s ease .5s both}
+  .results{grid-column:span 7;animation:rise .55s ease .56s both}
+  .strengths{grid-column:span 6;animation:rise .55s ease .62s both}
+  .limits{grid-column:span 6;animation:rise .55s ease .68s both}
+  .questions{grid-column:span 12;animation:rise .55s ease .74s both}
+  .card h2{
+    font-family:var(--serif);font-size:1.05rem;font-weight:600;
+    letter-spacing:-.01em;margin-bottom:12px;
+  }
+  .card p.body{font-size:.87rem;line-height:1.62;color:#2b2925}
+  .card p.body + p.body{margin-top:10px}
+  .card p.body strong{color:var(--ink)}
+  .num-inline{font-family:var(--mono);font-variant-numeric:tabular-nums;font-size:.92em}
+
+  /* flow sketch */
+  .flow{
+    display:flex;flex-wrap:wrap;align-items:stretch;gap:8px;
+    margin:16px 0 10px;
+  }
+  .fnode{
+    flex:1 1 130px;
+    border:1px solid var(--line);border-radius:8px;
+    background:var(--paper);
+    padding:9px 11px;
+    font-size:.74rem;line-height:1.45;
+  }
+  .fnode small{display:block;color:var(--ink-soft);font-family:var(--mono);font-size:.62rem;margin-top:3px;letter-spacing:.02em}
+  .fnode.hot{border-color:var(--accent);background:var(--accent-tint)}
+  .fnode.hot b{color:var(--accent-deep)}
+  .farrow{
+    align-self:center;color:var(--ink-soft);
+    font-family:var(--mono);font-size:.9rem;
+  }
+  .flow-cap{font-size:.72rem;color:var(--ink-soft);line-height:1.6}
+
+  /* tables */
+  .tbl-wrap{overflow-x:auto;margin:12px 0 4px}
+  table{width:100%;border-collapse:collapse;font-size:.78rem}
+  caption{
+    caption-side:top;text-align:left;
+    font-family:var(--mono);font-size:.64rem;letter-spacing:.12em;
+    text-transform:uppercase;color:var(--ink-soft);
+    padding-bottom:7px;
+  }
+  th,td{padding:7px 10px;text-align:right;border-bottom:1px solid var(--line-soft);white-space:nowrap}
+  th:first-child,td:first-child{text-align:left}
+  thead th{
+    font-family:var(--mono);font-size:.63rem;letter-spacing:.08em;
+    text-transform:uppercase;color:var(--ink-soft);
+    border-bottom:1.5px solid var(--line);
+  }
+  td{font-variant-numeric:tabular-nums;font-family:var(--mono);font-size:.76rem}
+  td:first-child{font-family:var(--sans);font-size:.78rem}
+  .hot-col{color:var(--accent-deep);font-weight:700;background:var(--accent-tint)}
+  .muted{color:#98937f}
+  .tbl-note{font-size:.68rem;color:#98937f;margin-top:6px}
+
+  .chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}
+  .stat{
+    font-family:var(--mono);font-size:.68rem;line-height:1.5;
+    border:1px solid var(--line);border-radius:8px;
+    padding:7px 10px;color:var(--ink-soft);background:var(--paper);
+  }
+  .stat b{color:var(--accent-deep)}
+
+  /* strengths / limits */
+  .panel-list{list-style:none}
+  .panel-list li{
+    position:relative;padding:0 0 10px 20px;
+    font-size:.84rem;line-height:1.55;color:#2b2925;
+  }
+  .panel-list li:last-child{padding-bottom:0}
+  .panel-list li::before{
+    position:absolute;left:0;top:0;
+    font-family:var(--mono);font-weight:700;font-size:.8rem;
+  }
+  .strengths .panel-list li::before{content:"+";color:var(--accent)}
+  .limits .panel-list li::before{content:"–";color:var(--caution)}
+  .limits{border-top:3px solid var(--caution)}
+  .strengths{border-top:3px solid var(--accent)}
+
+  /* questions */
+  .questions ol{
+    list-style:none;counter-reset:q;
+    display:grid;grid-template-columns:repeat(2,1fr);gap:6px 26px;
+  }
+  .questions li{
+    counter-increment:q;
+    font-size:.82rem;line-height:1.55;color:#2b2925;
+    padding:8px 0 8px 34px;position:relative;
+    border-bottom:1px dashed var(--line-soft);
+  }
+  .questions li::before{
+    content:counter(q,decimal-leading-zero);
+    position:absolute;left:0;top:9px;
+    font-family:var(--mono);font-size:.68rem;color:var(--accent);
+    letter-spacing:.05em;
+  }
+
+  footer{
+    display:flex;flex-wrap:wrap;gap:6px 14px;align-items:center;
+    padding:22px 8px 34px;
+    font-size:.76rem;color:var(--ink-soft);
+  }
+  footer a{color:var(--accent-deep);font-weight:600;text-decoration:none;border-bottom:1px solid var(--accent)}
+  footer a:hover{color:var(--accent)}
+
+  @keyframes rise{
+    from{opacity:0;transform:translateY(14px)}
+    to{opacity:1;transform:none}
+  }
+  @media (prefers-reduced-motion:reduce){
+    *,*::before,*::after{animation:none !important;transition:none !important}
+  }
+
+  @media (max-width:920px){
+    .assets{grid-template-columns:1fr}
+    .method,.results,.strengths,.limits{grid-column:span 12}
+    .questions ol{grid-template-columns:1fr}
+    .finding{max-width:none}
+  }
+  @media (max-width:720px){
+    .hero{padding-top:70px}
+    .card{padding:16px 18px}
+    .questions li{padding-left:28px}
+  }
+</style>
+</head>
+<body>
+
+<nav class="digest-nav" aria-label="Back to digest">
+  <a href="./index.html">↩ Today's digest</a>
+</nav>
+
+<main class="wrap">
+
+  <!-- ================= HERO ================= -->
+  <header class="hero">
+    <div class="eyebrow">
+      <span class="kicker">Paper dashboard · 2610.18014</span>
+      <span class="chip hot">KV-Cache Reuse</span>
+      <span class="chip">Multi-Agent Systems</span>
+      <span class="chip">Inference Efficiency</span>
+      <span class="chip">Latent Tokens</span>
+      <span class="chip">Task Interference</span>
+    </div>
+
+    <h1 class="finding">
+      A <em>0.2&nbsp;ms</em>, 16-latent-token MLP adapter repairs the
+      catastrophic accuracy collapse of KV-cache reuse between
+      <em>conflicting</em> agents.
+    </h1>
+
+    <p class="zh-line" lang="zh-CN">
+      <b>一句话总结（节选）</b> — 该文研究多智能体系统中“任务冲突”场景下的非前缀 KV
+      cache 复用问题（直接复用可致高达 90% 的精度损失），提出 LatentRemedy……精度大幅超越
+      CacheBlend、EPIC、KVCOMM、RelayCaching 等修复方法，同时适配器开销仅约 0.2 ms。
+    </p>
+
+    <div class="meta">
+      <p class="ptitle">
+        <a href="https://arxiv.org/abs/2610.18014">LatentRemedy: Efficient Remedy For Non-Prefix KV Cache Reuse in Multi-Agent Systems&nbsp;↗</a>
+      </p>
+      <p class="authors">
+        Zhiwei Chen · Zhongtao Rao · Waikit Xiu · Yuxiang Zhang · et al.
+        <span class="affil">— HKUST (Guangzhou) · Microsoft · Univ. of Hong Kong</span>
+      </p>
+      <p class="stamp">2026-10-12 · cs.CL / cs.AI · v1</p>
+    </div>
+  </header>
+
+  <!-- ================= ASSET ROW ================= -->
+  <section class="assets" aria-label="Key assets">
+
+    <article class="card metric a1">
+      <span class="label">Key metric</span>
+      <div class="num">+53.64<span class="unit">pts</span></div>
+      <p class="ctx">
+        Job Interview accuracy over the strongest reuse baseline —
+        <span class="num-inline">65.00% vs 11.36%</span> (Qwen3-4B, no
+        reasoning); full prefill reaches 69.09%.
+      </p>
+      <p class="sub">
+        TTFT 55.24 ms @ 4,096 shared tokens<br>
+        = 5.2% above direct reuse · 75.7% below full prefill
+      </p>
+    </article>
+
+    <article class="card why a2">
+      <span class="label">Why this matters</span>
+      <p>
+        Serving stacks that share KV caches silently feed one agent another
+        agent's task bias — this work exposes that failure mode and repairs
+        it for ~0.2 ms.
+      </p>
+      <p class="zh-quote" lang="zh-CN">
+        「跨 agent 的非前缀 KV cache 复用正是服务层为省算力而“静默改写”模型实际接收上下文的典型案例。」
+      </p>
+    </article>
+
+    <article class="card edge a3">
+      <span class="label">Critical edge</span>
+      <p>
+        Recovery is far from complete in the very regime the paper motivates:
+        on ArgKP without reasoning, LatentRemedy still trails full prefill
+        <strong>44.55% vs 85.91%</strong> (Qwen3-4B).
+      </p>
+      <p class="sub">
+        Also: only the Qwen3 family is tested, and benchmark labels are
+        validated by the same class of model being evaluated.
+      </p>
+    </article>
+
+  </section>
+
+  <!-- ================= BODY GRID ================= -->
+  <section class="body-grid">
+
+    <!-- Methodology -->
+    <article class="card method">
+      <h2>Methodology — diagnose, then fix</h2>
+      <p class="body">
+        When two agents share a context block but pursue
+        <strong>conflicting tasks</strong>, splicing agent A's cached KV into
+        agent B's forward pass collapses B's accuracy
+        (<span class="num-inline">2.27% vs 85.91%</span> full prefill on
+        ArgKP). Trace analysis shows why: the source task's variables (utility
+        <em>V</em>, share <em>S</em>) leak into the target's reasoning — and
+        simply <strong>repeating the target instruction</strong> after reuse
+        repairs much of the damage. The need is target×context interaction,
+        not cache cleansing.
+      </p>
+      <div class="flow" role="img" aria-label="LatentRemedy pipeline sketch">
+        <div class="fnode">Reused KV block<small>shared context · cache untouched</small></div>
+        <span class="farrow">→</span>
+        <div class="fnode hot"><b>16 latent tokens</b><small>MLP(last hidden of target prefix)</small></div>
+        <span class="farrow">→</span>
+        <div class="fnode">Frozen LLM<small>KL ← full-prefill teacher</small></div>
+      </div>
+      <p class="flow-cap">
+        Latent tokens are appended <em>after</em> the reused block, so causal
+        attention binds target instruction to reused context. Only the MLP
+        trains — KL distillation from the full-prefill next-token
+        distribution, 30 epochs, 3–5 pairs per task family, on ConflictInstruct
+        (240 conflicting task families, 7,200 pairs).
+      </p>
+    </article>
+
+    <!-- Results -->
+    <article class="card results">
+      <h2>Results — near-full accuracy at near-reuse latency</h2>
+
+      <div class="tbl-wrap">
+        <table>
+          <caption>Accuracy on real OOD tasks (%)</caption>
+          <thead>
+            <tr>
+              <th>Task · model · setting</th><th>Direct reuse</th><th>Best reuse baseline</th><th class="hot-col">LatentRemedy</th><th>Full prefill</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Job Interview · 4B · no reasoning</td><td class="muted">—</td><td>11.36</td><td class="hot-col">65.00</td><td>69.09</td>
+            </tr>
+            <tr>
+              <td>Deal or No Deal · 4B · reasoning</td><td>79.09</td><td>92.73 (CacheBlend)</td><td class="hot-col">100.00</td><td>100.00</td>
+            </tr>
+            <tr>
+              <td>ArgKP · 8B · no reasoning</td><td>2.27</td><td class="muted">—</td><td class="hot-col">78.71</td><td>89.09</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="tbl-note">— not reported in the source summary.</p>
+
+      <div class="tbl-wrap">
+        <table>
+          <caption>TTFT at 4,096 shared tokens, Qwen3-4B (ms)</caption>
+          <thead>
+            <tr><th>Method</th><th>TTFT</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Direct reuse</td><td>52.50</td></tr>
+            <tr><td>LatentRemedy</td><td class="hot-col">55.24</td></tr>
+            <tr><td>RelayCaching</td><td>106.17</td></tr>
+            <tr><td>CacheBlend</td><td>122.56</td></tr>
+            <tr><td>KVCOMM</td><td>127.44</td></tr>
+            <tr><td>Full prefill</td><td>227.24</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="chips">
+        <span class="stat"><b>+6.00 / +20.83 / +21.14 pts</b> in-distribution over best reuse baseline (Qwen3-1.7B / 4B / 8B)</span>
+        <span class="stat">adapter <b>0.17–0.26 ms</b> vs 18–20 ms EPIC-16 recompute</span>
+        <span class="stat"><b>1</b> latent token lifts ConflictInstruct 16.00% → <b>40.56%</b> (4B)</span>
+      </div>
+    </article>
+
+    <!-- Strengths -->
+    <article class="card strengths">
+      <h2>Strengths</h2>
+      <ul class="panel-list">
+        <li>Clean diagnose→fix decomposition: preliminary study, failure taxonomy, prompt-level probe, learned remedy — each step empirically grounded.</li>
+        <li>Genuinely cheap: frozen LLM, one MLP, ~0.2 ms inference overhead, near-direct-reuse TTFT scaling to 4,096-token shared blocks.</li>
+        <li>Consistent margins over all four published repair baselines across three model scales, reasoning and no-reasoning reported separately.</li>
+        <li>Data-efficient (3 pairs per task family suffice) and generalizes to three real-world OOD tasks unseen in training.</li>
+        <li>Public code and data; transparent TTFT decomposition with locked clocks, 10-run averages.</li>
+      </ul>
+    </article>
+
+    <!-- Limitations -->
+    <article class="card limits">
+      <h2>Limitations</h2>
+      <ul class="panel-list">
+        <li>Single model family (Qwen3-1.7B/4B/8B); cross-family generalization untested.</li>
+        <li>On ArgKP without reasoning it recovers only about half the gap at 4B (44.55% vs 85.91%) — task conditioning alone does not finish the job.</li>
+        <li>ConflictInstruct is synthetic, label-validated by the same class of model being evaluated; real-world evaluation limited to three dialogue/negotiation tasks.</li>
+        <li>Short contexts (mean shared block 260.6 tokens, latency tested to 4,096); no long-context, batched, or multi-tenant serving experiments.</li>
+        <li>The trainless "repeat the instruction" baseline stays competitive — even winning one setting — and its latency is never benchmarked against LatentRemedy.</li>
+      </ul>
+    </article>
+
+    <!-- Questions -->
+    <article class="card questions">
+      <h2>Questions for further exploration</h2>
+      <ol>
+        <li>Would a single corpus-trained, task-agnostic latent adapter retain the conflicting-task recovery, or is per-distribution training essential?</li>
+        <li>How does it behave at 32k+ shared contexts (real code repositories, documents) and under continuous batching / multi-tenant serving?</li>
+        <li>Can it handle <em>chains</em> of reuse — agent C reusing a cache already remedied for agent B — without compounding interference?</li>
+        <li>Is the ArgKP no-reasoning residual gap a capacity limit of 16 latent tokens, a distillation artifact of the 64-token teacher cap, or intrinsic task confusion?</li>
+        <li>Does the failure taxonomy (source V/S mixing) transfer to RAG prefix reuse, system-prompt sharing across users, or production cache-matching stacks?</li>
+      </ol>
+    </article>
+
+  </section>
+
+  <footer>
+    <a href="./2610.18014.md">↗ Markdown source</a>
+    <span>·</span>
+    <a href="https://arxiv.org/abs/2610.18014">arXiv 2610.18014</a>
+  </footer>
+
+</main>
+
+</body>
+</html>

@@ -1,0 +1,508 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>2610.22454 — Where Prefill Expert Reduction Hurts MoE Models</title>
+<style>
+  :root{
+    --paper:#f4f2ec;
+    --card:#fffdf9;
+    --ink:#191c22;
+    --muted:#5b5f66;
+    --faint:#8a8d93;
+    --hairline:#d9d4c6;
+    --accent:#1c3fb7;        /* single topic accent: systems cobalt */
+    --accent-ink:#12308f;
+    --accent-soft:#e8ebf8;
+    --rust:#a13d22;          /* cautionary contrast, critical edge only */
+    --rust-soft:#f8ede5;
+    --hatch:repeating-linear-gradient(135deg,#e7e3d7 0 6px,#efece2 6px 12px);
+    --font-display:Georgia,"Iowan Old Style","Times New Roman","Songti SC","SimSun",serif;
+    --font-body:-apple-system,BlinkMacSystemFont,"Segoe UI","Helvetica Neue","PingFang SC","Hiragino Sans GB","Microsoft YaHei",Arial,sans-serif;
+    --font-mono:ui-monospace,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{scroll-behavior:smooth}
+  body{
+    background:var(--paper);
+    color:var(--ink);
+    font-family:var(--font-body);
+    font-size:15px;
+    line-height:1.55;
+    -webkit-font-smoothing:antialiased;
+  }
+  ::selection{background:var(--accent);color:#fff}
+  a{color:var(--accent-ink)}
+  a:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+  .zh{line-height:1.75} /* CJK-friendly leading */
+
+  /* ---------- fixed digest nav ---------- */
+  .digest-nav{
+    position:fixed;top:14px;left:14px;z-index:50;
+    font-family:var(--font-mono);font-size:12px;
+    background:var(--card);border:1px solid var(--ink);
+    padding:6px 10px;box-shadow:3px 3px 0 rgba(25,28,34,.16);
+  }
+  .digest-nav a{color:var(--ink);text-decoration:none;font-weight:600}
+  .digest-nav a:hover{color:var(--accent)}
+
+  .wrap{width:min(95vw,1100px);margin:0 auto}
+
+  /* ---------- hero ---------- */
+  .hero{padding:88px 0 18px}
+  .eyebrow{
+    font-family:var(--font-mono);font-size:11px;letter-spacing:.14em;
+    text-transform:uppercase;color:var(--accent-ink);
+    display:flex;gap:10px;align-items:center;margin-bottom:18px;
+  }
+  .eyebrow::before{content:"";width:26px;height:2px;background:var(--accent)}
+  .finding{
+    font-family:var(--font-display);
+    font-size:clamp(1.8rem,4.6vw,3.05rem);
+    line-height:1.16;letter-spacing:-.01em;
+    max-width:22ch;font-weight:700;
+  }
+  .finding em{font-style:normal;color:var(--accent-ink);
+    box-shadow:inset 0 -0.34em var(--accent-soft)}
+  .finding-zh{
+    margin-top:16px;max-width:62ch;color:var(--muted);font-size:14.5px;
+    border-left:3px solid var(--hairline);padding-left:14px;
+  }
+  .paper-meta{margin-top:22px;padding-top:16px;border-top:1px solid var(--hairline)}
+  .paper-title{font-size:15.5px;font-weight:650;max-width:70ch}
+  .paper-title a{text-decoration:none;color:var(--ink)}
+  .paper-title a:hover{color:var(--accent-ink);text-decoration:underline}
+  .byline{margin-top:6px;font-size:13px;color:var(--muted)}
+  .byline .sep{color:var(--faint);margin:0 6px}
+  .chips{margin-top:12px;display:flex;flex-wrap:wrap;gap:6px}
+  .chip{
+    font-family:var(--font-mono);font-size:11px;color:var(--accent-ink);
+    border:1px solid var(--accent);padding:2.5px 9px;border-radius:999px;
+    background:var(--accent-soft);
+  }
+
+  /* ---------- asset row ---------- */
+  .assets{display:grid;grid-template-columns:1.12fr 1fr 1fr;gap:14px;margin:26px 0 8px}
+  .card{
+    background:var(--card);border:1px solid var(--ink);
+    box-shadow:4px 4px 0 rgba(25,28,34,.10);
+    padding:18px 20px;
+  }
+  .asset-label{
+    font-family:var(--font-mono);font-size:10.5px;letter-spacing:.16em;
+    text-transform:uppercase;color:var(--faint);margin-bottom:10px;
+    display:flex;align-items:center;gap:8px;
+  }
+  .asset-label::after{content:"";flex:1;height:1px;background:var(--hairline)}
+  .metric-num{
+    font-family:var(--font-display);font-weight:700;color:var(--accent);
+    font-size:clamp(2.5rem,5.4vw,3.7rem);line-height:1;letter-spacing:-.02em;
+  }
+  .metric-sub{font-family:var(--font-mono);font-size:12px;color:var(--accent-ink);margin-top:4px}
+  .asset-context{margin-top:12px;font-size:13.5px;color:var(--muted)}
+  .asset-context b{color:var(--ink)}
+  .card.why .asset-context{color:var(--ink);font-size:14px;line-height:1.6}
+  .card.edge{background:var(--rust-soft);border-color:var(--rust)}
+  .card.edge .asset-label{color:var(--rust)}
+  .card.edge .asset-label::after{background:#e3c8b8}
+  .card.edge .asset-context{color:#6d4030}
+  .card.edge .edge-claim{font-size:14.5px;color:var(--ink);font-weight:550;line-height:1.55}
+  .card.edge .edge-claim b{color:var(--rust)}
+
+  /* ---------- body ---------- */
+  .body-anchor{
+    display:flex;gap:4px;flex-wrap:wrap;margin:26px 0 14px;
+    font-family:var(--font-mono);font-size:11.5px;
+  }
+  .body-anchor a{
+    text-decoration:none;color:var(--muted);padding:4px 10px;
+    border:1px solid var(--hairline);background:var(--card);
+  }
+  .body-anchor a:hover{border-color:var(--ink);color:var(--ink)}
+  .grid{display:grid;grid-template-columns:repeat(12,1fr);gap:14px}
+  .span7{grid-column:span 7}.span5{grid-column:span 5}
+  .span6{grid-column:span 6}.span12{grid-column:span 12}
+  .body-card{margin-bottom:14px}
+  .body-card h2{
+    font-family:var(--font-display);font-size:19px;letter-spacing:-.01em;
+    padding-bottom:9px;margin-bottom:13px;border-bottom:2px solid var(--ink);
+    display:flex;align-items:baseline;gap:10px;
+  }
+  .body-card h2 .kicker{
+    font-family:var(--font-mono);font-size:10.5px;color:var(--accent-ink);
+    letter-spacing:.14em;text-transform:uppercase;font-weight:400;
+  }
+  .body-card p{margin-bottom:10px;font-size:13.8px;color:var(--ink)}
+  .body-card p.dim{color:var(--muted)}
+  .body-card ul{list-style:none}
+  .body-card ul li{
+    font-size:13.5px;padding:7px 0 7px 20px;position:relative;
+    border-bottom:1px dashed var(--hairline);
+  }
+  .body-card ul li:last-child{border-bottom:none}
+  .body-card ul li::before{
+    content:"▸";position:absolute;left:2px;color:var(--accent);font-size:11px;top:9px;
+  }
+  .body-card ul li b{font-weight:650}
+  .num{font-family:var(--font-mono);font-size:.93em;font-weight:600;white-space:nowrap}
+  .pos{color:var(--accent-ink)} .neg{color:var(--rust)} .flat{color:var(--muted)}
+
+  /* tier flow */
+  .tiers{display:grid;gap:8px;margin-top:4px}
+  .tier{
+    display:grid;grid-template-columns:74px 1fr;gap:12px;align-items:baseline;
+    border:1px solid var(--hairline);background:#faf8f2;padding:9px 12px;
+  }
+  .tier b{font-family:var(--font-mono);font-size:11.5px;color:var(--accent-ink);letter-spacing:.08em}
+  .tier span{font-size:13px;color:var(--muted)}
+  .tier span strong{color:var(--ink);font-weight:600}
+
+  /* ---------- prompt anatomy map ---------- */
+  .pmap{display:grid;gap:11px;margin:6px 0 4px}
+  .pmap-row{display:grid;grid-template-columns:150px 1fr 118px;gap:10px;align-items:center}
+  .pmap-row .fam{font-family:var(--font-mono);font-size:11.5px;color:var(--ink);line-height:1.35}
+  .pmap-row .fam small{display:block;color:var(--faint);font-size:10px}
+  .strip{display:flex;height:30px;border:1px solid var(--ink);overflow:hidden;background:var(--hatch)}
+  .seg{position:relative;height:100%}
+  .seg.full{background:var(--accent)}
+  .seg.full::after{
+    content:attr(data-n);position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+    color:#fff;font-family:var(--font-mono);font-size:9.5px;letter-spacing:.03em;
+  }
+  .pmap-row .eff{font-family:var(--font-mono);font-size:10.5px;color:var(--muted);line-height:1.4;text-align:right}
+  .pmap-row .eff b{color:var(--rust);font-weight:600}
+  .pmap-legend{
+    display:flex;gap:18px;flex-wrap:wrap;margin-top:10px;
+    font-family:var(--font-mono);font-size:10.5px;color:var(--muted);
+  }
+  .sw{display:inline-block;width:14px;height:11px;border:1px solid var(--ink);vertical-align:-1px;margin-right:5px}
+  .sw.a{background:var(--accent)} .sw.h{background:var(--hatch)}
+  .pmap-note{margin-top:10px;font-size:12.5px;color:var(--muted);border-top:1px dashed var(--hairline);padding-top:9px}
+
+  /* ---------- tables ---------- */
+  .tbl-wrap{overflow-x:auto}
+  table{border-collapse:collapse;width:100%;font-size:12.8px}
+  th{
+    font-family:var(--font-mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;
+    color:var(--faint);text-align:left;font-weight:600;
+    border-bottom:2px solid var(--ink);padding:0 10px 6px 0;white-space:nowrap;
+  }
+  td{padding:6.5px 10px 6.5px 0;border-bottom:1px solid var(--hairline);vertical-align:top}
+  tr:last-child td{border-bottom:none}
+  td.v,th.v{text-align:right;font-family:var(--font-mono);white-space:nowrap}
+  td .ci{color:var(--faint);font-size:10.5px;font-family:var(--font-mono)}
+  .results-cols{display:grid;grid-template-columns:1.05fr 1fr 1.1fr;gap:18px}
+  .results-cols h3{
+    font-family:var(--font-mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;
+    color:var(--accent-ink);margin-bottom:9px;
+  }
+  .tbl-note{margin-top:10px;font-size:12px;color:var(--muted)}
+  .serving{
+    margin-top:14px;border:1px solid var(--hairline);background:#faf8f2;padding:11px 14px;
+    display:flex;flex-wrap:wrap;gap:8px 26px;align-items:baseline;
+    font-family:var(--font-mono);font-size:11.5px;color:var(--muted);
+  }
+  .serving b{color:var(--ink);font-weight:600}
+  .serving .tag{font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--rust);margin-right:8px}
+
+  /* strengths / limitations */
+  .panel-label{
+    font-family:var(--font-mono);font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;
+    margin-bottom:4px;display:flex;align-items:center;gap:8px;
+  }
+  .panel-label::after{content:"";flex:1;height:1px;background:var(--hairline)}
+  .card.str .panel-label{color:var(--accent-ink)}
+  .card.str ul li::before{content:"+";font-weight:700;color:var(--accent)}
+  .card.lim .panel-label{color:var(--rust)}
+  .card.lim ul li::before{content:"–";font-weight:700;color:var(--rust)}
+
+  /* questions */
+  .qs ol{list-style:none;counter-reset:q;display:grid;grid-template-columns:repeat(2,1fr);gap:2px 26px}
+  .qs li{
+    counter-increment:q;font-size:13px;color:var(--muted);
+    padding:8px 0 8px 30px;position:relative;border-bottom:1px dashed var(--hairline);
+  }
+  .qs li::before{
+    content:counter(q,decimal-leading-zero);position:absolute;left:0;top:9px;
+    font-family:var(--font-mono);font-size:11px;color:var(--accent);font-weight:600;
+  }
+
+  /* credibility strip */
+  .cred{
+    margin-top:14px;display:flex;flex-wrap:wrap;gap:6px;
+    font-family:var(--font-mono);font-size:10.5px;color:var(--muted);
+  }
+  .cred span{border:1px dashed var(--hairline);padding:3px 9px;background:#faf8f2}
+  .cred .warn{color:var(--rust);border-color:#e3c8b8}
+
+  /* ---------- footer ---------- */
+  footer{
+    margin:30px 0 46px;padding-top:16px;border-top:2px solid var(--ink);
+    display:flex;justify-content:space-between;gap:14px;flex-wrap:wrap;align-items:baseline;
+    font-family:var(--font-mono);font-size:11.5px;color:var(--muted);
+  }
+  footer a{font-weight:600;text-decoration:none}
+  footer a:hover{text-decoration:underline}
+
+  /* ---------- motion ---------- */
+  @keyframes rise{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
+  .hero,.assets,.body-anchor{animation:rise .6s cubic-bezier(.2,.7,.3,1) both}
+  .assets{animation-delay:.12s}
+  .body-anchor{animation-delay:.22s}
+  .js .reveal{opacity:0;transform:translateY(12px)}
+  .js .reveal.in{opacity:1;transform:none;transition:opacity .55s ease,transform .55s cubic-bezier(.2,.7,.3,1)}
+  @media (prefers-reduced-motion:reduce){
+    .hero,.assets,.body-anchor{animation:none}
+    .js .reveal{opacity:1;transform:none;transition:none}
+    html{scroll-behavior:auto}
+  }
+
+  /* ---------- responsive ---------- */
+  @media (max-width:960px){
+    .results-cols{grid-template-columns:1fr}
+    .span7,.span5,.span6{grid-column:span 12}
+    .pmap-row{grid-template-columns:120px 1fr}
+    .pmap-row .eff{grid-column:2;text-align:left}
+  }
+  @media (max-width:720px){
+    .assets{grid-template-columns:1fr}
+    .hero{padding-top:76px}
+    .qs ol{grid-template-columns:1fr}
+    .finding{max-width:none}
+    .card{padding:15px 16px}
+  }
+</style>
+</head>
+<body>
+
+<nav class="digest-nav" aria-label="Back to digest"><a href="./index.html">↩ Today's digest</a></nav>
+
+<div class="wrap">
+
+  <!-- ================= HERO ================= -->
+  <header class="hero">
+    <div class="eyebrow">Paper dashboard · arXiv 2610.22454 · cs.CL</div>
+
+    <h1 class="finding">Prefill expert reduction in MoE models breaks <em>answer form</em> at a handful of boundary tokens — not content, not attention sinks.</h1>
+
+    <p class="finding-zh zh">一句话总结：半数 routed experts 削减造成的短答案 F1 损失，主要不是"找不到答案"，而是"不会按指令简短作答"；损失集中在极少数紧邻答案边界的 prompt token 上——保住约 4% 的任务接口 token 即可把 F1 保持在与原模型 1 分以内。</p>
+
+    <div class="paper-meta">
+      <p class="paper-title"><a href="https://arxiv.org/abs/2610.22454" target="_blank" rel="noopener">Where Prefill Expert Reduction Hurts MoE Models: A Few Prompt Tokens Carry Most of the Short-Answer F1 Loss ↗</a></p>
+      <p class="byline">Zhiyuan Wang (Independent Researcher)<span class="sep">·</span>2026-10-15<span class="sep">·</span>single-author preprint, no peer review<span class="sep">·</span>4 MoE families · HotpotQA / LongBench / code · vLLM 0.31</p>
+      <div class="chips">
+        <span class="chip">mixture-of-experts</span>
+        <span class="chip">prefill acceleration</span>
+        <span class="chip">LLM serving</span>
+        <span class="chip">attention sinks</span>
+        <span class="chip">interpretability</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- ================= ASSET ROW ================= -->
+  <section class="assets" aria-label="Extracted key assets">
+
+    <div class="card metric">
+      <div class="asset-label">Key metric</div>
+      <div class="metric-num">−8.07 <span style="font-size:.38em;letter-spacing:0">F1</span></div>
+      <div class="metric-sub">two tokens, whole loss</div>
+      <p class="asset-context">Reducing only the <b>two chat-template tokens before the answer</b> (8→2 experts, Qwen3, HotpotQA) costs −8.07 F1 — as much as reducing the last eight together. Keeping those two full shrinks the uniform loss from <b>−3.38 to −1.06</b>.</p>
+    </div>
+
+    <div class="card why">
+      <div class="asset-label">Why this matters</div>
+      <p class="asset-context">A concrete placement rule for MoE serving: keep full experts on the task interface — directly relevant to long-context RAG and agentic deployment.</p>
+    </div>
+
+    <div class="card edge">
+      <div class="asset-label">Critical edge</div>
+      <p class="edge-claim">The central practical claim — <b>reading application marks beats positional rules</b> — is not supported by the paper's own data: KeepEnds 32+32 is statistically indistinguishable from Interface-Full.</p>
+    </div>
+
+  </section>
+
+  <!-- ================= BODY ANCHORS ================= -->
+  <nav class="body-anchor" aria-label="Section nav">
+    <a href="#method">01 Method</a><a href="#anatomy">02 Where it hurts</a><a href="#results">03 Results</a><a href="#tradeoffs">04 Strengths / Limits</a><a href="#questions">05 Open questions</a>
+  </nav>
+
+  <div class="grid">
+
+    <!-- ========== METHOD ========== -->
+    <section id="method" class="card body-card span7 reveal">
+      <h2>Methodology <span class="kicker">three-tier causal dissection</span></h2>
+      <p><b>Setup:</b> <span class="num">prefill-only</span> expert reduction — each <em>prompt</em> token keeps its k′ highest-weight routed experts (Qwen3: 8→4, DeepSeek-V2-Lite: 6→3), generated tokens always run all K, shared experts untouched. Primary task: HotpotQA distractor, ~1,800-token prompts, short-answer F1, reasoning off; LongBench, code completion and GSM8K as checks.</p>
+      <div class="tiers">
+        <div class="tier"><b>WHAT</b><span><strong>Token/span/layer/attention interventions</strong> via HF forward hooks (validated against vLLM: −8.02 vs −8.05); F1 split into precision / recall / answer length to separate form from content.</span></div>
+        <div class="tier"><b>WHERE</b><span><strong>Single-token isolation + prefix sweeps</strong> — reduce or keep-full one span at a time; families compared on a shared prompt ruler.</span></div>
+        <div class="tier"><b>WHY</b><span><strong>Prespecified mechanism tests</strong> against attention-sink / super-expert / massive-activation hypotheses, scored by share of the answer-NLL increase each repair removes.</span></div>
+        <div class="tier"><b>SPEND</b><span><strong>Equal-budget placement batches</strong> in vLLM 0.31 on real marked prompts — Interface-Full, KeepEnds, template-role, positional and negative controls, one fused-MoE hook each.</span></div>
+      </div>
+      <p class="dim" style="margin-top:11px">Statistics well above genre norm: four prespecified batches with decision rules written into analysis scripts beforehand, paired bootstrap intervals, Holm correction, full-budget code-path and unmarked-prompt controls; post-hoc comparisons labelled as such.</p>
+      <div class="cred">
+        <span>solo author · independent</span><span>rented GPUs (RTX 6000 / H100 / H200 / A100)</span><span>200–6,000 questions / condition</span><span class="warn">no code release</span><span class="warn">no external registry</span>
+      </div>
+    </section>
+
+    <!-- ========== PROMPT ANATOMY ========== -->
+    <section id="anatomy" class="card body-card span5 reveal">
+      <h2>Where the damage lives <span class="kicker">prompt anatomy</span></h2>
+      <div class="pmap" role="img" aria-label="Schematic prompt layout per model family, showing which segments need full experts">
+        <div class="pmap-row">
+          <div class="fam">Qwen3-30B-A3B<small>8 → 4</small></div>
+          <div class="strip">
+            <div class="seg" style="width:11%"></div><div class="seg" style="width:7%"></div><div class="seg" style="width:64%"></div><div class="seg" style="width:14%"></div><div class="seg full" style="width:4%" data-n="2 tk"></div>
+          </div>
+          <div class="eff">tail: <b>−8.07</b> if cut</div>
+        </div>
+        <div class="pmap-row">
+          <div class="fam">DeepSeek-V2-Lite<small>6 → 3</small></div>
+          <div class="strip">
+            <div class="seg full" style="width:9%" data-n="8–32 tk"></div><div class="seg" style="width:5%"></div><div class="seg" style="width:66%"></div><div class="seg" style="width:20%"></div>
+          </div>
+          <div class="eff">head: keep 32 ⇒ <b>+8.33</b></div>
+        </div>
+        <div class="pmap-row">
+          <div class="fam">Qwen1.5-MoE-A2.7B<small></small></div>
+          <div class="strip">
+            <div class="seg" style="width:12%"></div><div class="seg" style="width:70%"></div><div class="seg" style="width:14%"></div><div class="seg full" style="width:4%" data-n="2 tk"></div>
+          </div>
+          <div class="eff">last 2 (content loss)</div>
+        </div>
+        <div class="pmap-row">
+          <div class="fam">OLMoE-1B-7B<small></small></div>
+          <div class="strip">
+            <div class="seg full" style="width:7%" data-n="ends"></div><div class="seg" style="width:78%"></div><div class="seg full" style="width:15%" data-n="+ tail"></div>
+          </div>
+          <div class="eff">both ends</div>
+        </div>
+      </div>
+      <div class="pmap-legend"><span><span class="sw a"></span>keep full experts</span><span><span class="sw h"></span>reduce to k′ (safe)</span></div>
+      <p class="pmap-note">Strip = schematic prompt (head · demos · 10 documents · question · chat template). The invariant is <b>tokens adjacent to the answer boundary</b>, not any template: with a base model ending in “Answer:” the effect persists (<span class="num neg">−5.69</span>); with reasoning enabled it vanishes (<span class="num flat">−0.12</span>) — until the same trace is replayed as a prompt (<span class="num neg">−10.62</span>).</p>
+    </section>
+
+    <!-- ========== RESULTS ========== -->
+    <section id="results" class="card body-card span12 reveal">
+      <h2>Results <span class="kicker">beyond the headline</span></h2>
+      <div class="results-cols">
+
+        <div class="tbl-wrap">
+          <h3>Localisation — Qwen3</h3>
+          <table>
+            <thead><tr><th>Intervention (uniform 8→4 = −3.38)</th><th class="v">ΔF1</th></tr></thead>
+            <tbody>
+              <tr><td>Keep last 2 prompt tokens full</td><td class="v neg">−1.06 <span class="ci">[−2.10, −0.01]</span></td></tr>
+              <tr><td>8 full tokens at prompt start</td><td class="v neg">−2.78</td></tr>
+              <tr><td>8 full at random positions</td><td class="v neg">−3.27</td></tr>
+              <tr><td>Reduce last 2 only (8→2)</td><td class="v neg">−8.07</td></tr>
+              <tr><td>DeepSeek: keep first 32 full (vs uniform)</td><td class="v pos">+8.33 <span class="ci">[+5.63, +11.21]</span></td></tr>
+            </tbody>
+          </table>
+          <p class="tbl-note">Form, not content: precision <span class="num neg">−4.87</span> vs recall <span class="num neg">−1.09</span>; answers lengthen 2.33→2.49 words; GSM8K “####” compliance 97.7%→84.1% under 8→2 uniform.</p>
+        </div>
+
+        <div class="tbl-wrap">
+          <h3>Mechanism — NLL repair share</h3>
+          <table>
+            <thead><tr><th>Condition</th><th class="v">Qwen3</th><th class="v">DeepSeek</th></tr></thead>
+            <tbody>
+              <tr><td>Keep sensitive positions full</td><td class="v pos">+49% <span class="ci">[+30,+65]</span></td><td class="v pos">+22% <span class="ci">[+10,+33]</span></td></tr>
+              <tr><td>Restore super experts</td><td class="v flat">+8% <span class="ci">[−11,+24]</span></td><td class="v flat">+1%</td></tr>
+              <tr><td>Restore massive activations</td><td class="v flat">+6%</td><td class="v flat">—</td></tr>
+            </tbody>
+          </table>
+          <p class="tbl-note">Sink statistics change ≤3.2% under reduction; layer repair localises to bands 20–27. Mechanism “consistent with”, not uniquely identified by, the evidence.</p>
+        </div>
+
+        <div class="tbl-wrap">
+          <h3>Equal-budget placement — real prompts</h3>
+          <table>
+            <thead><tr><th>Rule vs reference</th><th class="v">ΔF1</th></tr></thead>
+            <tbody>
+              <tr><td>Interface-Full vs unmodified</td><td class="v pos">+0.46 <span class="ci">[−0.62,+1.57]</span></td></tr>
+              <tr><td>Interface-Full vs random-in-docs <span class="ci">(primary)</span></td><td class="v pos">+3.22 <span class="ci">[+1.74,+4.73]</span></td></tr>
+              <tr><td>Same comparison, 2nd batch</td><td class="v pos">+3.05 <span class="ci">[+1.47,+4.68]</span></td></tr>
+              <tr><td>KeepEnds 32+32 vs Interface-Full</td><td class="v flat">undecided (±1.1)</td></tr>
+              <tr><td>Uniform 8→4 (Qwen3, across batches)</td><td class="v neg">−1.8 … −3.5</td></tr>
+            </tbody>
+          </table>
+          <p class="tbl-note">2 of 5 prespecified primaries met. Interface-Full = ~4% of tokens full, 52% of routed-expert slots.</p>
+        </div>
+
+      </div>
+
+      <div class="serving">
+        <span><span class="tag">Serving reality</span></span>
+        <span>TTFT <b>×0.86</b> @ ~11K tokens</span>
+        <span>TTFT <b>×1.02</b> @ ~2K (no saving, unexplained)</span>
+        <span>throughput <b>×1.20–1.22</b> @ concurrency 4</span>
+        <span><b>slower</b> on Qwen3.6-35B (×0.86–0.93)</span>
+      </div>
+    </section>
+
+    <!-- ========== STRENGTHS / LIMITATIONS ========== -->
+    <section id="tradeoffs" class="card body-card span6 str reveal">
+      <div class="panel-label">Strengths</div>
+      <ul>
+        <li>Clean three-tier design (<b>what → where → why</b>) linking token-level interpretability to a serving-level rule on real prompts in vLLM.</li>
+        <li>Statistical hygiene above the norm: prespecified primaries with decision rules, paired bootstrap CIs, Holm correction, negative / inverted / full-budget / unmarked controls, claim-to-batch appendix.</li>
+        <li>Genuine falsification: sink / super-expert / massive-activation hypotheses tested directly and excluded — not gestured at.</li>
+        <li>Form-vs-content decomposition (precision / recall / length, containment, marker compliance) is a simple, reusable diagnostic.</li>
+        <li>Unusual candour — negative and undecided results reported with the same prominence as confirmatory ones.</li>
+      </ul>
+    </section>
+
+    <section class="card body-card span6 lim reveal">
+      <div class="panel-label">Limitations</div>
+      <ul>
+        <li>Task and metric narrowness: short-answer QA with reasoning off; F1 is length-sensitive and the “form loss” framing partly depends on it.</li>
+        <li>Only aggressive reduction tested (halving, 8→2) — milder pruning known to suffice is out of scope; models ≤35B.</li>
+        <li>Mechanism traced only in Qwen3; partial repairs non-monotone; the key clean-keys-and-values patch fails outright (NLL → 6.68).</li>
+        <li>Placement variance (~1.8 pts between identical random placements) is as large as several reported effects and excluded from intervals.</li>
+        <li>Interface-Full leaves an unlocated <span class="num neg">−1.6…−2.4</span> residual on question-first, tool-output and code layouts.</li>
+        <li>Serving measured single-GPU, one request at a time, no prefix caching; 2K-token TTFT null and Qwen3.6 slowdown unexplained.</li>
+      </ul>
+    </section>
+
+    <!-- ========== QUESTIONS ========== -->
+    <section id="questions" class="card body-card span12 qs reveal">
+      <h2>Questions for further exploration <span class="kicker">open threads</span></h2>
+      <ol>
+        <li>Does the boundary-token localisation survive milder reduction (⅔ experts), larger models, or reasoning-enabled workloads — and does it reappear when traces are cached and replayed as prompts?</li>
+        <li>Can the “instruction written into boundary tokens by mid-layer experts” account be uniquely identified with causal scrubbing that avoids the non-monotone mixed-state failures?</li>
+        <li>Where does Interface-Full’s residual 1.6–2.4-point loss on question-first / tool-output / code layouts come from — and can a content-token budget close it without gold labels?</li>
+        <li>Is the negative control’s failure purely positional, or do document-internal full tokens actively harm via inconsistent expert-width states?</li>
+        <li>Does the form-loss diagnostic transfer to other serving-time perturbations — quantization, KV-cache compression, speculative decoding — as a cheap early-warning signal?</li>
+      </ol>
+    </section>
+
+  </div>
+
+  <footer>
+    <a href="./2610.22454.md">↗ Markdown source</a>
+    <span>2610.22454 · distilled from source markdown · not browser-verified</span>
+  </footer>
+
+</div>
+
+<script>
+  // Progressive enhancement: staggered reveal of body cards. Content is fully
+  // visible without JS (the .js gate only adds the pre-reveal state).
+  document.documentElement.classList.add('js');
+  var els = document.querySelectorAll('.reveal');
+  if ('IntersectionObserver' in window) {
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (e) {
+        if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); }
+      });
+    }, { threshold: 0.08 });
+    els.forEach(function (el) { io.observe(el); });
+  } else {
+    els.forEach(function (el) { el.classList.add('in'); });
+  }
+</script>
+
+</body>
+</html>
