@@ -1,0 +1,631 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>2610.32411 — A Broader Look into MLLM's Retrieval Heads</title>
+<style>
+  :root {
+    --paper: #F6F4EE;
+    --card: #FFFFFF;
+    --ink: #1A1712;
+    --muted: #6B655A;
+    --faint: #8F887A;
+    --line: #E4DFD2;
+    --accent: #0F6E8C;          /* single semantic accent: attention-map teal */
+    --accent-deep: #0B556D;
+    --accent-tint: #E7F1F5;
+    --caution-ink: #7C4A0F;     /* functional signal, used ONLY on the critical-edge card */
+    --caution-line: #C98A3A;
+    --caution-tint: #FBF3E6;
+    --serif: Georgia, "Iowan Old Style", "Times New Roman", "Songti SC", "Noto Serif CJK SC", serif;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    font-family: var(--sans);
+    color: var(--ink);
+    background-color: var(--paper);
+    /* hairline blueprint grid — texture, not decoration */
+    background-image:
+      linear-gradient(rgba(26,23,18,0.035) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(26,23,18,0.035) 1px, transparent 1px);
+    background-size: 28px 28px;
+    font-size: 16px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap {
+    width: min(95vw, 1100px);
+    margin: 0 auto;
+    padding: 0 clamp(16px, 3vw, 28px) 56px;
+  }
+
+  a { color: var(--accent-deep); text-decoration-color: rgba(15,110,140,0.4); text-underline-offset: 2px; }
+  a:hover { color: var(--accent); }
+
+  /* ---------- fixed digest nav ---------- */
+  .digest-nav {
+    position: fixed;
+    top: 14px; left: 14px;
+    z-index: 50;
+    font-family: var(--mono);
+    font-size: 12px;
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    padding: 6px 14px;
+    box-shadow: 0 2px 8px rgba(26,23,18,0.07);
+  }
+  .digest-nav a { text-decoration: none; color: var(--ink); }
+  .digest-nav a:hover { color: var(--accent); }
+
+  /* ---------- hero band ---------- */
+  .hero {
+    padding: 96px 0 30px;
+    border-bottom: 3px solid var(--ink);
+  }
+  .kicker {
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 18px;
+  }
+  .kicker .sep { color: var(--faint); margin: 0 6px; }
+  .claim {
+    font-family: var(--serif);
+    font-weight: 700;
+    font-size: clamp(2.05rem, 4.8vw, 3.55rem);
+    line-height: 1.14;
+    letter-spacing: -0.012em;
+    max-width: 20ch;
+    text-wrap: balance;
+  }
+  .claim .em { color: var(--accent-deep); font-style: italic; }
+  .zh-line {
+    margin-top: 16px;
+    max-width: 62ch;
+    font-size: 0.95rem;
+    line-height: 1.85;           /* CJK-friendly */
+    color: var(--muted);
+    border-left: 3px solid var(--line);
+    padding-left: 14px;
+  }
+  .paper-meta { margin-top: 26px; display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 22px; }
+  .paper-title {
+    font-family: var(--serif);
+    font-size: 1.06rem;
+    font-weight: 600;
+  }
+  .byline { font-size: 0.85rem; color: var(--muted); }
+  .byline b { color: var(--ink); font-weight: 600; }
+  .chips { margin-top: 14px; display: flex; flex-wrap: wrap; gap: 8px; list-style: none; }
+  .chips li {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.04em;
+    color: var(--accent-deep);
+    background: var(--accent-tint);
+    border: 1px solid rgba(15,110,140,0.28);
+    border-radius: 999px;
+    padding: 3px 11px;
+  }
+
+  /* ---------- asset row ---------- */
+  .assets {
+    display: grid;
+    grid-template-columns: 1.15fr 1fr 1fr;
+    gap: 16px;
+    margin: 26px 0 14px;
+  }
+  .asset {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 20px 22px 22px;
+    box-shadow: 0 1px 3px rgba(26,23,18,0.05);
+  }
+  .asset-label {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--faint);
+    padding-bottom: 10px;
+    margin-bottom: 14px;
+    border-bottom: 1px solid var(--line);
+  }
+  .metric-card { border-top: 4px solid var(--accent); }
+  .metric-card .asset-label { color: var(--accent-deep); border-bottom-color: rgba(15,110,140,0.25); }
+  .metric {
+    font-family: var(--mono);
+    font-weight: 700;
+    font-size: clamp(2.7rem, 5.6vw, 4.3rem);
+    line-height: 1.02;
+    letter-spacing: -0.03em;
+    color: var(--accent-deep);
+    display: flex;
+    align-items: baseline;
+    gap: 0.14em;
+    white-space: nowrap;
+  }
+  .metric .arrow { color: var(--faint); font-weight: 400; font-size: 0.62em; transform: translateY(-0.08em); }
+  .metric .zero { color: var(--ink); }
+  .metric-unit { font-size: 0.5em; }
+  .metric-ctx {
+    margin-top: 14px;
+    font-size: 0.86rem;
+    line-height: 1.55;
+    color: var(--ink);
+    max-width: 34ch;
+  }
+  .metric-ctx .ctrl { color: var(--muted); }
+
+  .why-card p { font-size: 1.02rem; line-height: 1.62; }
+  .why-card .zh {
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px dashed var(--line);
+    font-size: 0.84rem;
+    line-height: 1.8;
+    color: var(--muted);
+  }
+
+  .edge-card {
+    background: var(--caution-tint);
+    border: 1px solid var(--caution-line);
+    border-top: 4px solid var(--caution-line);
+  }
+  .edge-card .asset-label { color: var(--caution-ink); border-bottom-color: rgba(201,138,58,0.35); }
+  .edge-card p { font-size: 1.0rem; line-height: 1.6; color: #4A300F; }
+  .edge-card .src { display: block; margin-top: 12px; font-size: 0.78rem; color: var(--caution-ink); opacity: 0.8; font-family: var(--mono); }
+
+  /* ---------- body ---------- */
+  .body-grid { margin-top: 30px; display: grid; gap: 16px; }
+
+  .card {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 22px 24px;
+    box-shadow: 0 1px 3px rgba(26,23,18,0.05);
+  }
+  .card-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 16px;
+    padding-bottom: 12px;
+    border-bottom: 2px solid var(--ink);
+  }
+  .card-head h2 {
+    font-family: var(--serif);
+    font-size: 1.22rem;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+  }
+  .card-head .tag {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--faint);
+    white-space: nowrap;
+  }
+
+  /* findings strip */
+  .findings {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 16px;
+  }
+  .finding {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 16px 18px;
+    position: relative;
+    overflow: hidden;
+  }
+  .finding .num {
+    font-family: var(--mono);
+    font-size: 1.9rem;
+    font-weight: 700;
+    color: var(--accent);
+    opacity: 0.28;
+    line-height: 1;
+    position: absolute;
+    top: 12px; right: 14px;
+  }
+  .finding h3 {
+    font-size: 0.8rem;
+    font-family: var(--mono);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--accent-deep);
+    margin-bottom: 8px;
+  }
+  .finding p { font-size: 0.86rem; line-height: 1.55; color: var(--ink); }
+  .finding p b { font-weight: 700; }
+
+  .duo { display: grid; grid-template-columns: 5fr 7fr; gap: 16px; align-items: start; }
+
+  .method-list { list-style: none; display: grid; gap: 14px; }
+  .method-list li { font-size: 0.93rem; line-height: 1.62; padding-left: 16px; position: relative; }
+  .method-list li::before {
+    content: "";
+    position: absolute;
+    left: 0; top: 0.62em;
+    width: 7px; height: 7px;
+    background: var(--accent);
+    border-radius: 1px;
+  }
+  .method-list b { font-weight: 700; }
+
+  .results-card > p.lede { font-size: 0.93rem; color: var(--muted); margin-bottom: 14px; }
+  .results-card table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.88rem;
+    margin: 6px 0 4px;
+  }
+  .results-card caption {
+    caption-side: top;
+    text-align: left;
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--accent-deep);
+    padding-bottom: 8px;
+  }
+  .results-card th, .results-card td { padding: 7px 10px; text-align: left; border-bottom: 1px solid var(--line); }
+  .results-card thead th {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--muted);
+    font-weight: 600;
+  }
+  .results-card td.num, .results-card th.num { text-align: right; font-family: var(--mono); font-size: 0.85rem; white-space: nowrap; }
+  .results-card td.delta { color: var(--accent-deep); font-weight: 700; }
+  .results-card td.drop { color: var(--caution-ink); font-weight: 700; }
+  .results-card .table-note { font-size: 0.78rem; color: var(--muted); margin: 4px 0 16px; line-height: 1.5; }
+  .facts { list-style: none; display: grid; gap: 8px; margin-top: 14px; }
+  .facts li { font-size: 0.9rem; line-height: 1.55; padding-left: 15px; position: relative; }
+  .facts li::before { content: "▪"; position: absolute; left: 0; color: var(--accent); font-size: 0.7rem; top: 0.28em; }
+  .facts b { font-weight: 700; }
+
+  /* strengths vs limitations */
+  .versus { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .panel-pos { border-top: 4px solid var(--accent); }
+  .panel-neg { border-top: 4px solid var(--faint); }
+  .panel-neg .card-head { border-bottom-color: var(--faint); }
+  .panel ul { list-style: none; display: grid; gap: 11px; }
+  .panel li { font-size: 0.91rem; line-height: 1.58; padding-left: 16px; position: relative; }
+  .panel-pos li::before { content: "+"; position: absolute; left: 0; font-family: var(--mono); font-weight: 700; color: var(--accent); }
+  .panel-neg li::before { content: "–"; position: absolute; left: 0; font-family: var(--mono); font-weight: 700; color: var(--caution-line); }
+  .pedigree {
+    margin-top: 16px;
+    padding-top: 12px;
+    border-top: 1px dashed var(--line);
+    font-size: 0.8rem;
+    color: var(--muted);
+    line-height: 1.6;
+  }
+
+  /* questions */
+  .questions ol { list-style: none; counter-reset: q; display: grid; grid-template-columns: 1fr 1fr; gap: 12px 24px; }
+  .questions li {
+    counter-increment: q;
+    font-size: 0.9rem;
+    line-height: 1.6;
+    padding-left: 34px;
+    position: relative;
+  }
+  .questions li::before {
+    content: "Q" counter(q);
+    position: absolute; left: 0; top: 0.1em;
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: var(--accent-deep);
+    background: var(--accent-tint);
+    border: 1px solid rgba(15,110,140,0.25);
+    border-radius: 4px;
+    padding: 1px 5px;
+  }
+
+  /* ---------- footer ---------- */
+  .foot {
+    margin-top: 40px;
+    padding-top: 18px;
+    border-top: 3px solid var(--ink);
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 10px 20px;
+    font-size: 0.84rem;
+    color: var(--muted);
+  }
+  .foot a { font-family: var(--mono); font-size: 0.82rem; }
+
+  /* ---------- load choreography ---------- */
+  @keyframes rise { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: none; } }
+  .rise { opacity: 0; animation: rise 0.6s cubic-bezier(0.2, 0.7, 0.2, 1) forwards; }
+  .d1 { animation-delay: 0.05s; } .d2 { animation-delay: 0.13s; } .d3 { animation-delay: 0.21s; }
+  .d4 { animation-delay: 0.29s; } .d5 { animation-delay: 0.37s; } .d6 { animation-delay: 0.45s; }
+
+  .reveal { opacity: 0; transform: translateY(18px); transition: opacity 0.55s ease, transform 0.55s cubic-bezier(0.2,0.7,0.2,1); }
+  .reveal.in { opacity: 1; transform: none; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .rise, .reveal { opacity: 1 !important; transform: none !important; animation: none !important; transition: none !important; }
+  }
+
+  /* ---------- responsive ---------- */
+  @media (max-width: 960px) {
+    .findings { grid-template-columns: 1fr 1fr; }
+    .duo { grid-template-columns: 1fr; }
+  }
+  @media (max-width: 860px) {
+    .assets { grid-template-columns: 1fr; }
+    .metric { justify-content: flex-start; }
+  }
+  @media (max-width: 720px) {
+    .hero { padding-top: 84px; }
+    .claim { max-width: none; }
+    .versus { grid-template-columns: 1fr; }
+    .findings { grid-template-columns: 1fr; }
+    .questions ol { grid-template-columns: 1fr; }
+    .metric { font-size: clamp(2.4rem, 13vw, 3.4rem); }
+    .paper-meta { gap: 6px 16px; }
+  }
+</style>
+</head>
+<body>
+
+<nav class="digest-nav rise d1"><a href="./index.html">↩ Today's digest</a></nav>
+
+<div class="wrap">
+
+  <!-- ============ HERO: the key finding IS the page ============ -->
+  <header class="hero">
+    <p class="kicker rise d1">arXiv 2610.32411 <span class="sep">·</span> Paper dashboard <span class="sep">·</span> Mechanistic interpretability</p>
+
+    <h1 class="claim rise d2">Omni-modal LLMs recruit a <span class="em">sparse, cross-modally shared</span> set of retrieval heads — ablate them and audio retrieval collapses.</h1>
+
+    <p class="zh-line rise d3">一句话：检索头在全模态模型中保持稀疏、跨音频/视觉大量共享，消融后检索归零；把检索头注意力作为优化目标，文档检索最高提升 6.03 点。</p>
+
+    <div class="paper-meta rise d4">
+      <a class="paper-title" href="https://arxiv.org/abs/2610.32411">A Broader Look into MLLM's Retrieval Heads&nbsp;↗</a>
+      <p class="byline"><b>Jia Wang</b> · Yuqing Li · Jiangnan Li · Zheng Lin · <em>et al.</em> — IIE CAS &amp; Tencent — 2026-10-19</p>
+    </div>
+    <ul class="chips rise d4">
+      <li>retrieval-heads</li>
+      <li>omni-modal-models</li>
+      <li>attention-analysis</li>
+      <li>multimodal-document-retrieval</li>
+    </ul>
+  </header>
+
+  <!-- ============ ASSET ROW ============ -->
+  <section class="assets">
+
+    <article class="asset metric-card rise d3">
+      <p class="asset-label">Key metric · causal ablation</p>
+      <p class="metric">
+        <span id="mFrom">98.3<span class="metric-unit">%</span></span>
+        <span class="arrow">→</span>
+        <span class="zero">0</span>
+      </p>
+      <p class="metric-ctx">Audio exact-match on <b>Qwen2.5-Omni-7B</b> after ablating the top-5% retrieval heads. <span class="ctrl">Layer-matched random ablation leaves it at 96.9% — the collapse is causal, not a side effect.</span></p>
+    </article>
+
+    <article class="asset why-card rise d4">
+      <p class="asset-label">Why this matters</p>
+      <p>Head-level mechanistic interpretability now extends to omni-modal models — and the same attention that explains retrieval can be <b>trained to improve it</b>.</p>
+      <p class="zh">对理解 MLLM 内部证据定位机制与长上下文检索都有直接参考价值，并示范"解释→干预→提升"闭环。</p>
+    </article>
+
+    <article class="asset edge-card rise d5">
+      <p class="asset-label">⚠ Critical edge</p>
+      <p>Every causal audio-visual claim rests on a <b>synthetic six-digit recall needle</b>; no natural audio-visual QA benchmark appears in any causal table.</p>
+      <span class="src">— the paper's own sharpest caveat</span>
+    </article>
+
+  </section>
+
+  <!-- ============ BODY GRID ============ -->
+  <div class="body-grid">
+
+    <!-- four mechanistic findings (distilled, not transcribed) -->
+    <section class="findings reveal">
+      <article class="finding">
+        <span class="num">1</span>
+        <h3>Sparse</h3>
+        <p>Fewer than <b>1 head in 10</b> carries half of all positive calibrated score; concentrated in middle &amp; later-middle layers.</p>
+      </article>
+      <article class="finding">
+        <span class="num">2</span>
+        <h3>Shared</h3>
+        <p><b>69–83%</b> of top-5% heads overlap between audio &amp; visual evidence (chance: &lt;3 heads); full rankings ρ = 0.88–0.92.</p>
+      </article>
+      <article class="finding">
+        <span class="num">3</span>
+        <h3>Preserved</h3>
+        <p>Omni models keep their backbone's retrieval heads — SALMONN vs its Qwen-VL backbone at <b>ρ ≥ 0.97</b>.</p>
+      </article>
+      <article class="finding">
+        <span class="num">4</span>
+        <h3>Causal</h3>
+        <p>Top-5% ablation <b>zeroes audio retrieval</b> in all 4 tested models; matched random ablation barely dents it.</p>
+      </article>
+    </section>
+
+    <div class="duo">
+
+      <!-- methodology -->
+      <article class="card reveal">
+        <div class="card-head">
+          <h2>Methodology, distilled</h2>
+          <span class="tag">How they know</span>
+        </div>
+        <ul class="method-list">
+          <li><b>Calibrated head scoring.</b> Per head: mean question→evidence-span attention, minus the same score under an <b>uninformative question</b> on the identical context (MMRetHead-style); averaged over examples, ranked, top 5% = retrieval heads. Native attention masking respected throughout.</li>
+          <li><b>Paired AV-NIAH.</b> The same six-digit answer is inserted into the same MLVU background video — either spoken (TTS) or shown as a 1-second centered banner — so <b>only evidence modality varies</b>, never content, depth, or question.</li>
+          <li><b>Causal test.</b> Head outputs are zeroed before the attention output projection; the control ablates layer-matched random heads (3 seeds); effects judged by paired cluster-bootstrap with Holm correction on held-out examples.</li>
+          <li><b>Heads as an optimization target.</b> Candidate pages are scored by question→page attention over 16 frozen heads, min/max-rescaled to a fixed logit range; a ranking loss (one positive + one same-document hard negative) trains LoRA adapters on the attention projections. Only MMDocIR page labels are used — layout retrieval is an unsupervised transfer test.</li>
+        </ul>
+        <p class="pedigree">Scope: 18 checkpoints across language, vision-language, and omni-modal groups (Qwen2.5/Qwen3, Qwen-VL, MiniCPM-V/o, BAGEL, Qwen2.5-Omni, SALMONN 2+/Pro), with explicit backbone→omni lineage pairs.</p>
+      </article>
+
+      <!-- results -->
+      <article class="card results-card reveal">
+        <div class="card-head">
+          <h2>Results beyond the headline</h2>
+          <span class="tag">Evidence</span>
+        </div>
+
+        <table>
+          <caption>Training retrieval-head attention · MMDocIR page Micro R@1</caption>
+          <thead>
+            <tr><th>Model</th><th class="num">Untrained</th><th class="num">Trained</th><th class="num">Δ</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Qwen3-VL-8B</td><td class="num">56.45</td><td class="num">62.48</td><td class="num delta">+6.03</td></tr>
+            <tr><td>Qwen2.5-VL-7B</td><td class="num">52.41</td><td class="num">58.10</td><td class="num delta">+5.69</td></tr>
+            <tr><td>Gemma3-12B</td><td class="num">44.75</td><td class="num">46.92</td><td class="num delta">+2.17</td></tr>
+            <tr><td>Random-head scorer (Qwen3-VL-8B)</td><td class="num">—</td><td class="num">38.00</td><td class="num">—</td></tr>
+          </tbody>
+        </table>
+        <p class="table-note">Gain holds in all 10 document domains; macro page R@1 +5.05 (58.81→63.86). The trained scorer tops Col-Phi3-MMDocIR (57.10) and ColPali (54.58) — but the authors themselves flag differing evaluation settings, so treat that as non-leaderboard.</p>
+
+        <table>
+          <caption>Ablating the 14 AV-shared heads (&lt;2% of all) · Qwen2.5-Omni-7B, drop beyond random ablation</caption>
+          <thead>
+            <tr><th>Downstream benchmark</th><th class="num">Base</th><th class="num">Extra drop</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>MathVista (visual math)</td><td class="num">72.5%</td><td class="num drop">−22.3 pp</td></tr>
+            <tr><td>CV-Bench (spatial perception)</td><td class="num">75.5%</td><td class="num drop">−16.3 pp</td></tr>
+            <tr><td>MMStar</td><td class="num">67.0%</td><td class="num drop">−12.2 pp</td></tr>
+            <tr><td>MMMU-Pro</td><td class="num">39.5%</td><td class="num drop">−8.2 pp</td></tr>
+          </tbody>
+        </table>
+        <p class="table-note">Holm-significant on 4/8 tasks per model; exceeds the natural-image-head control in 15 of 16 model-task pairs.</p>
+
+        <ul class="facts">
+          <li><b>Layout retrieval transfers for free</b> (no layout supervision): +1.46 on Qwen3-VL-8B (47.14→48.60), +2.16 on Gemma3-12B.</li>
+          <li><b>Robust to head-set size:</b> gains of +5.31…+6.03 for k = 4…64; trained random-head scorers improve too but stay below even the untrained retrieval-head scorer.</li>
+          <li><b>Out-of-domain is untouched:</b> MMMU +0.50, MMMU-Pro +0.64, MathVista +0.70, MMLongBench-Doc −0.83 — all within one point.</li>
+        </ul>
+      </article>
+    </div>
+
+    <!-- strengths vs limitations: side-by-side, not sequential -->
+    <section class="versus reveal">
+      <article class="card panel panel-pos">
+        <div class="card-head"><h2>Strengths</h2><span class="tag">What holds up</span></div>
+        <ul>
+          <li>Clean experimental design: paired inputs vary only the evidence modality; uninformative-question calibration strips positional and content priors from head scores.</li>
+          <li>Unusually broad coverage — 18 checkpoints, four model groups — with lineage pairs that make the preservation analysis possible, not merely correlational.</li>
+          <li>Closes the interpretability-to-performance loop: one construct (retrieval-head attention) is both lens and target, replicated across three families with an OOD safety check.</li>
+          <li>Statistical hygiene above the subfield norm: matched random controls, cluster bootstrap, Holm correction, sweeps over k and cutoffs.</li>
+        </ul>
+      </article>
+      <article class="card panel panel-neg">
+        <div class="card-head"><h2>Limitations</h2><span class="tag">What to watch</span></div>
+        <ul>
+          <li>Audio-visual mechanism evidence derives entirely from synthetic digit recall — no natural speech or real-video understanding tasks.</li>
+          <li>"Shared across modalities" is conditional on matched content; sharing weakens markedly when the retrieval target differs.</li>
+          <li>Downstream significance covers 4/8 tasks per model and only two omni models; the image-head control itself causes nontrivial drops, so specificity is partial.</li>
+          <li>Ranking training is trained and evaluated only on MMDocIR domains; no cross-domain, hour-long-document, or inference-cost analysis; contexts ≤ 300 s.</li>
+          <li>Layout-granularity gains are small (+0.81…+2.16 Micro R@1) — interesting transfer, not yet decisive.</li>
+        </ul>
+      </article>
+    </section>
+
+    <!-- questions -->
+    <section class="card questions reveal">
+      <div class="card-head"><h2>Open questions this paper leaves</h2><span class="tag">Next probes</span></div>
+      <ol>
+        <li>Do synthetic-needle retrieval heads predict behavior on natural spoken-QA and real video-QA, where evidence is distributed and semantically rich?</li>
+        <li>Do head sets survive RLHF-style post-training or continued pretraining, or does the backbone-preservation property break under larger adaptation?</li>
+        <li>Can more diverse page-level corpora close the layout-retrieval gap, or does fine-grained localization require layout supervision after all?</li>
+        <li>Since the ranking loss updates LoRA on attention projections — do the trained heads remain the top retrieval heads, or does training silently recruit new ones?</li>
+        <li>Can retrieval-head attention serve as a training-free reranker inside multimodal RAG, and how does it interact with token compression over hour-long contexts?</li>
+      </ol>
+    </section>
+
+  </div>
+
+  <footer class="foot">
+    <span>Assembled from the bilingual summary of arXiv 2610.32411 · 18 checkpoints · IIE CAS &amp; Tencent</span>
+    <a href="./2610.32411.md">↗ Markdown source</a>
+  </footer>
+
+</div>
+
+<script>
+(function () {
+  var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  /* count-up on the headline metric: 0 -> 98.3 */
+  var el = document.getElementById('mFrom');
+  if (el) {
+    var unit = el.querySelector('.metric-unit');
+    var target = 98.3;
+    if (reduce) {
+      el.textContent = '';
+      el.appendChild(document.createTextNode(target.toFixed(1)));
+      el.appendChild(unit);
+    } else {
+      var t0 = null, DUR = 1100, DELAY = 450;
+      var step = function (ts) {
+        if (t0 === null) { t0 = ts; requestAnimationFrame(step); return; }
+        var t = Math.min(1, Math.max(0, (ts - t0 - DELAY) / DUR));
+        var eased = 1 - Math.pow(1 - t, 3);
+        var v = target * eased;
+        el.textContent = '';
+        el.appendChild(document.createTextNode(v.toFixed(1)));
+        el.appendChild(unit);
+        if (t < 1) requestAnimationFrame(step);
+        else {
+          el.textContent = '';
+          el.appendChild(document.createTextNode(target.toFixed(1)));
+          el.appendChild(unit);
+        }
+      };
+      requestAnimationFrame(step);
+    }
+  }
+
+  /* scroll reveals */
+  var reveals = document.querySelectorAll('.reveal');
+  if (reduce || !('IntersectionObserver' in window)) {
+    reveals.forEach(function (n) { n.classList.add('in'); });
+  } else {
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (e) {
+        if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); }
+      });
+    }, { threshold: 0.12 });
+    reveals.forEach(function (n) { io.observe(n); });
+  }
+})();
+</script>
+
+</body>
+</html>

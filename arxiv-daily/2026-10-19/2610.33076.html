@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>2610.33076 — Double KV Cache Optimization on Apple Silicon · Dashboard</title>
+<style>
+  :root{
+    --paper:#FAF8F4;
+    --card:#FFFEFB;
+    --ink:#191410;
+    --ink-soft:#6A6156;
+    --ink-faint:#9A9184;
+    --line:#E6DFD2;
+    --line-strong:#D5CCBB;
+    --accent:#B4530A;        /* single topic accent: silicon copper */
+    --accent-deep:#8F4106;
+    --accent-wash:#F7EDE2;
+    --rust:#A3331B;          /* semantic negative only: OOM / dominated / critique */
+    --rust-wash:#FBEEE8;
+    --edge-bg:#241711;
+    --edge-ink:#F4E7DC;
+    --mono:ui-monospace,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI","Helvetica Neue","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{scroll-behavior:smooth}
+  body{
+    font-family:var(--sans);
+    background:var(--paper);
+    color:var(--ink);
+    line-height:1.55;
+    padding:74px 0 0;
+    -webkit-font-smoothing:antialiased;
+  }
+  .topbar{position:fixed;top:0;left:0;right:0;height:3px;background:var(--accent);z-index:60}
+  .nav{
+    position:fixed;top:15px;left:16px;z-index:50;
+    font-family:var(--mono);font-size:12px;letter-spacing:.02em;
+    background:var(--card);border:1px solid var(--line-strong);border-radius:999px;
+    padding:7px 14px;text-decoration:none;color:var(--ink);
+    box-shadow:0 1px 3px rgba(25,20,16,.08);
+    transition:border-color .15s;
+  }
+  .nav:hover{border-color:var(--accent);color:var(--accent-deep)}
+  .wrap{width:min(95vw,1100px);margin:0 auto}
+
+  /* ---------- reveal ---------- */
+  @keyframes up{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+  .r{opacity:0;animation:up .55s cubic-bezier(.2,.7,.2,1) forwards}
+  .d1{animation-delay:.05s}.d2{animation-delay:.13s}.d3{animation-delay:.21s}
+  .d4{animation-delay:.30s}.d5{animation-delay:.38s}.d6{animation-delay:.46s}
+  .io{opacity:0;transform:translateY(16px);transition:opacity .55s ease,transform .55s cubic-bezier(.2,.7,.2,1)}
+  .io.in{opacity:1;transform:none}
+  @media (prefers-reduced-motion:reduce){
+    .r,.io{animation:none;opacity:1;transform:none;transition:none}
+  }
+
+  /* ---------- hero ---------- */
+  .hero{padding:26px 0 26px;border-bottom:1px solid var(--line)}
+  .kicker{
+    display:flex;flex-wrap:wrap;gap:6px 18px;align-items:baseline;
+    font-family:var(--mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;
+    color:var(--ink-soft);margin-bottom:20px;
+  }
+  .kicker b{color:var(--accent-deep);font-weight:600}
+  .kicker .rule{flex:1;border-top:1px dashed var(--line-strong);align-self:center;min-width:30px}
+  h1.finding{
+    font-size:clamp(1.85rem,4.4vw + .4rem,3.3rem);
+    line-height:1.14;font-weight:800;letter-spacing:-.022em;
+    max-width:21ch;margin-bottom:20px;
+  }
+  h1.finding em{font-style:normal;color:var(--accent)}
+  .title-block{display:flex;flex-direction:column;gap:7px}
+  a.paper-title{
+    font-size:15.5px;font-weight:650;color:var(--ink);
+    text-decoration:none;border-bottom:1px solid var(--line-strong);
+    align-self:flex-start;transition:border-color .15s,color .15s;
+  }
+  a.paper-title:hover{color:var(--accent-deep);border-color:var(--accent)}
+  .byline{font-size:13px;color:var(--ink-soft)}
+  .byline b{color:var(--ink);font-weight:600}
+  .chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:9px}
+  .chip{
+    font-family:var(--mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;
+    color:var(--ink-soft);border:1px solid var(--line-strong);border-radius:999px;
+    padding:3px 10px;background:var(--card);
+  }
+  .chip.hot{color:var(--accent-deep);border-color:var(--accent);background:var(--accent-wash)}
+
+  /* ---------- asset row ---------- */
+  .assets{display:grid;grid-template-columns:1.12fr 1fr 1fr;gap:14px;padding:22px 0}
+  .card{
+    background:var(--card);border:1px solid var(--line);border-radius:10px;
+    padding:20px 22px;min-width:0;
+  }
+  .lbl{
+    font-family:var(--mono);font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;
+    color:var(--accent-deep);margin-bottom:12px;display:flex;align-items:baseline;gap:8px;
+  }
+  .lbl .ix{color:var(--ink-faint, #9A9184);font-weight:400}
+  .lbl::after{content:"";flex:1;border-top:1px solid var(--line);align-self:center}
+
+  .metric .num{
+    font-family:var(--mono);font-weight:600;letter-spacing:-.03em;
+    font-size:clamp(3rem,5.6vw,4.4rem);line-height:1;color:var(--accent);
+    font-variant-numeric:tabular-nums;display:flex;align-items:baseline;gap:8px;
+  }
+  .metric .unit{font-size:.34em;letter-spacing:.06em;color:var(--ink-soft);font-weight:500}
+  .metric .ctx{font-size:13px;color:var(--ink);margin-top:12px}
+  .metric .ctx b{font-weight:650}
+  .vsbar{margin-top:14px}
+  .vsbar .vt{height:9px;background:#EFE9DE;border-radius:2px;overflow:hidden;position:relative}
+  .vsbar .vf{position:absolute;inset:0 auto 0 0;width:27%;background:var(--accent);border-radius:2px}
+  .vsbar .vl{
+    display:flex;justify-content:space-between;margin-top:6px;
+    font-family:var(--mono);font-size:10.5px;letter-spacing:.05em;color:var(--ink-soft);
+  }
+  .vsbar .vl b{color:var(--rust);font-weight:600}
+
+  .why p{font-size:14.5px;line-height:1.6}
+  .why p.zh{margin-top:12px;font-size:13px;color:var(--ink-soft);line-height:1.85}
+  .why p.zh b{color:var(--ink);font-weight:600}
+
+  .edge{
+    background:var(--edge-bg);border-color:var(--edge-bg);color:var(--edge-ink);
+    border-top:3px solid var(--rust);
+  }
+  .edge .lbl{color:#FF9E6B}
+  .edge .lbl::after{border-color:#4A352B}
+  .edge .lbl .ix{color:#8A6F60}
+  .edge p.main{font-size:14.5px;line-height:1.6;font-weight:550}
+  .edge p.main b{color:#FFC5A3;font-weight:650}
+  .edge p.sub{margin-top:11px;font-size:12px;line-height:1.65;color:#C9B4A5}
+
+  /* ---------- body grid ---------- */
+  .body{display:grid;grid-template-columns:repeat(12,1fr);gap:14px;padding-bottom:8px}
+  .c5{grid-column:span 5}.c7{grid-column:span 7}.c6{grid-column:span 6}.c12{grid-column:span 12}
+  .card h2{
+    font-size:15.5px;font-weight:700;letter-spacing:-.01em;margin-bottom:10px;
+  }
+  .card ul{list-style:none}
+  .card ul li{
+    font-size:13.5px;line-height:1.62;padding:7px 0 7px 16px;position:relative;
+    border-top:1px solid var(--line);
+  }
+  .card ul li:first-child{border-top:none;padding-top:0}
+  .card ul li::before{
+    content:"—";position:absolute;left:0;color:var(--accent);font-weight:600;
+  }
+  .card ul li b{font-weight:650;color:var(--ink)}
+  .card .fine{font-size:11px;color:var(--ink-soft);line-height:1.6;margin-top:10px}
+
+  /* results */
+  .tblwrap{overflow-x:auto;margin:2px 0 6px}
+  table{border-collapse:collapse;width:100%;font-size:12.5px;font-variant-numeric:tabular-nums}
+  thead th{
+    font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;
+    color:var(--ink-soft);text-align:right;padding:0 10px 7px 0;font-weight:500;
+    border-bottom:1px solid var(--line-strong);white-space:nowrap;
+  }
+  thead th:first-child{text-align:left;padding-left:2px}
+  tbody td{padding:7px 10px 7px 0;text-align:right;border-bottom:1px solid var(--line);white-space:nowrap}
+  tbody td:first-child{text-align:left;padding-left:2px;font-weight:550}
+  tbody tr:last-child td{border-bottom:none}
+  td.win{color:var(--accent-deep);font-weight:700}
+  td.bad{color:var(--rust);font-weight:650}
+  td.dim{color:var(--ink-soft)}
+  tr.hero-row td{background:linear-gradient(to right,var(--accent-wash),transparent 85%)}
+
+  .viz{margin-top:14px;border-top:1px dashed var(--line-strong);padding-top:12px}
+  .viz h3{
+    font-family:var(--mono);font-size:10.5px;letter-spacing:.13em;text-transform:uppercase;
+    color:var(--ink-soft);font-weight:500;margin-bottom:10px;
+  }
+  .brow{display:grid;grid-template-columns:110px 1fr 52px;gap:10px;align-items:center;margin:6px 0}
+  .brow .bl{font-size:11.5px;color:var(--ink);font-weight:550;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .brow .bt{height:9px;background:#EFE9DE;border-radius:2px;position:relative;overflow:hidden}
+  .brow .bf{position:absolute;inset:0 auto 0 0;border-radius:2px;min-width:2px}
+  .bf.acc{background:var(--accent)}
+  .bf.inkbar{background:#B9AE9C}
+  .bf.pred{background:transparent;border:1px dashed var(--ink-soft)}
+  .bf.rustbar{background:var(--rust)}
+  .brow .bv{font-family:var(--mono);font-size:11px;color:var(--ink-soft);text-align:right}
+
+  .facts{margin-top:12px}
+  .facts li b{color:var(--accent-deep)}
+
+  /* strengths vs limits */
+  .pos ul li::before{content:"+";font-weight:700}
+  .neg ul li::before{content:"·";color:var(--rust);font-weight:800}
+  .neg .lbl{color:var(--rust)}
+  .pos,.neg{border-top:3px solid var(--accent)}
+  .neg{border-top-color:var(--rust)}
+
+  /* questions */
+  .qcard{background:transparent;border-style:dashed}
+  .qcard ol{columns:2;column-gap:34px;list-style:none;counter-reset:q}
+  .qcard ol li{
+    counter-increment:q;font-size:12.5px;line-height:1.6;color:var(--ink);
+    padding:6px 0 6px 26px;position:relative;break-inside:avoid;
+  }
+  .qcard ol li::before{
+    content:"Q" counter(q);position:absolute;left:0;top:7px;
+    font-family:var(--mono);font-size:10px;color:var(--accent-deep);font-weight:600;
+  }
+
+  /* footer */
+  footer{
+    margin-top:16px;border-top:1px solid var(--line);padding:16px 0 30px;
+    display:flex;flex-wrap:wrap;gap:8px 22px;align-items:baseline;
+    font-family:var(--mono);font-size:11.5px;color:var(--ink-soft);
+  }
+  footer a{color:var(--accent-deep);text-decoration:none;font-weight:600}
+  footer a:hover{text-decoration:underline}
+  footer .grow{flex:1}
+
+  /* ---------- responsive ---------- */
+  @media (max-width:980px){
+    .assets{grid-template-columns:1fr 1fr}
+    .metric{grid-column:span 2}
+    .c5,.c6,.c7{grid-column:span 12}
+  }
+  @media (max-width:720px){
+    .assets{grid-template-columns:1fr}
+    .metric{grid-column:auto}
+    h1.finding{max-width:none}
+    .qcard ol{columns:1}
+    .brow{grid-template-columns:96px 1fr 46px}
+    .nav{top:auto;bottom:14px}
+    body{padding-top:56px;padding-bottom:56px}
+  }
+</style>
+</head>
+<body>
+<div class="topbar"></div>
+<a class="nav" href="./index.html">&#8617; Today's digest</a>
+
+<div class="wrap">
+
+  <!-- ================= HERO ================= -->
+  <header class="hero">
+    <div class="kicker r d1">
+      <span><b>Paper dashboard</b></span>
+      <span class="rule"></span>
+      <span>arXiv 2610.33076</span>
+      <span>2026-10-19</span>
+      <span>Apple M5 Max &middot; 36&nbsp;GB &middot; MLX 0.32.2</span>
+    </div>
+
+    <h1 class="finding r d2">Fused Metal radial quantization wins at 8K &mdash; yet KV compression <em>buys capacity, not speed</em>: stacking codecs backfires, long contexts collapse.</h1>
+
+    <div class="title-block r d3">
+      <a class="paper-title" href="https://arxiv.org/abs/2610.33076" target="_blank" rel="noopener">Double KV Cache Optimization on Apple Silicon: Block-FP4, Radial Quantization, and Fused Metal Kernels</a>
+      <div class="byline"><b>Ibrokhimsho Abduchaborov</b> &middot; independent researcher, Tajikistan &middot; single-author systems study &middot; no code release</div>
+      <div class="chips">
+        <span class="chip hot">kv-cache-quantization</span>
+        <span class="chip hot">apple-silicon</span>
+        <span class="chip">metal-kernels</span>
+        <span class="chip">mlx</span>
+        <span class="chip">llm-inference</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- ================= ASSET ROW ================= -->
+  <section class="assets">
+    <div class="card metric r d4">
+      <div class="lbl"><span class="ix">A&nbsp;/</span> Key metric &middot; 8K decode</div>
+      <div class="num">46.8<span class="unit">tok/s</span></div>
+      <p class="ctx">Fused Metal Polar radial kernel &mdash; <b>1.84&times;</b> the Python reference (25.4) and <b>+13%</b> over block-FP4 (41.5), at <b>3,456 B/token</b> (3.64&times; compression vs 12,562 bf16).</p>
+      <div class="vsbar">
+        <div class="vt"><span class="vf"></span></div>
+        <div class="vl"><span>46.8 &middot; best compressed path</span><b>still 0.27&times; the 171.4 tok/s bf16 baseline</b></div>
+      </div>
+    </div>
+
+    <div class="card why r d5">
+      <div class="lbl"><span class="ix">B&nbsp;/</span> Why this matters</div>
+      <p>Read it as an honest decomposition of representation vs kernel vs allocator effects &mdash; not as evidence that compression speeds up inference.</p>
+      <p class="zh" lang="zh">与<b>「大规模 ML 计算基础设施」</b>方向高度相关：把 KV 量化的表示层、Metal kernel 融合与分配器行为拆开对照评测的系统工作。</p>
+    </div>
+
+    <div class="card edge r d6">
+      <div class="lbl"><span class="ix">C&nbsp;/</span> Critical edge</div>
+      <p class="main">No model-quality evaluation whatsoever &mdash; <b>no perplexity, no long-context retrieval, no downstream accuracy</b>; every number in the paper is bytes or tok/s.</p>
+      <p class="sub">The accuracy cost of FP4 / radial / double layouts is unknown. Solo author, no peer review, one model&ndash;machine&ndash;framework; prefill regresses below baseline (4,685 vs 5,979 tok/s).</p>
+    </div>
+  </section>
+
+  <!-- ================= BODY GRID ================= -->
+  <main class="body">
+
+    <div class="card c5 io">
+      <div class="lbl"><span class="ix">01&nbsp;/</span> Methodology &middot; distilled</div>
+      <ul>
+        <li><b>One variable, everything fixed.</b> LFM2.5-8B-A1B-OptiQ-4bit weights held constant on an M5 Max (32-core GPU, 36&nbsp;GB unified memory); only the KV-cache path varies across five conditions.</li>
+        <li><b>Contexts 8,192 / 32,768 / 65,536</b> built from deterministic token IDs; decode throughput is a steady-state rate over a fixed 64-token window after warmup.</li>
+        <li><b>Fresh process per condition</b> &mdash; no carried kernel graphs, allocator state, or cache objects. Cache-owned bytes are kept distinct from RSS; no throughput is imputed from failed runs.</li>
+        <li><b>End-to-end decode path</b> includes each implementation's real cache ops (reconstruction, concatenation). No compressed-domain SDPA kernel exists yet, so results measure the cost of <b>returning compressed KV to attention-compatible form</b>.</li>
+        <li><b>Block-FP4 is a structural simulation</b> (16-channel groups, E4M3-like scales, E2M1 symbols packed two-per-byte), not a reproduction of any proprietary kernel.</li>
+      </ul>
+    </div>
+
+    <div class="card c7 io">
+      <div class="lbl"><span class="ix">02&nbsp;/</span> Results &middot; beyond the headline</div>
+      <div class="tblwrap">
+        <table>
+          <thead>
+            <tr>
+              <th>KV path</th><th>8K tok/s</th><th>32K tok/s</th><th>64K tok/s</th><th>B/token @8K</th><th>Compr.</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td>bf16 baseline</td><td>171.4</td><td>91.8</td><td>1.37</td><td>12,562</td><td class="dim">1.00&times;</td></tr>
+            <tr class="hero-row"><td>Fused Metal Polar</td><td class="win">46.8</td><td>1.48</td><td class="bad">OOM</td><td>3,456</td><td>3.64&times;</td></tr>
+            <tr><td>Block-FP4</td><td>41.5</td><td>14.0</td><td class="dim">n/r</td><td>3,473</td><td>3.62&times;</td></tr>
+            <tr><td>Python Polar</td><td>25.4</td><td>1.83</td><td>0.47</td><td>4,241</td><td>2.96&times;</td></tr>
+            <tr><td>FP4&rarr;Polar &ldquo;double&rdquo;</td><td class="bad">15.1</td><td class="dim">n/r</td><td class="dim">n/r</td><td>4,241</td><td>2.96&times;</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="fine">Steady-state decode tok/s. OOM: 33.5&nbsp;GB temporary allocation exceeds MLX's 22.6&nbsp;GB max Metal buffer (36&nbsp;GB physical). n/r: not reported in the summary. Python Polar at 64K switches to a compact 3,072&nbsp;B/token layout (4.01&times;). Ratios derived from reported values.</p>
+
+      <div class="viz">
+        <h3>The 32K collapse &middot; decode tok/s</h3>
+        <div class="brow"><span class="bl">bf16 baseline</span><span class="bt"><span class="bf inkbar" style="width:100%"></span></span><span class="bv">91.8</span></div>
+        <div class="brow"><span class="bl">Block-FP4</span><span class="bt"><span class="bf acc" style="width:15.3%"></span></span><span class="bv">14.0</span></div>
+        <div class="brow"><span class="bl">Python Polar</span><span class="bt"><span class="bf acc" style="width:2%"></span></span><span class="bv">1.83</span></div>
+        <div class="brow"><span class="bl">Fused Metal</span><span class="bt"><span class="bf acc" style="width:1.6%"></span></span><span class="bv">1.48</span></div>
+      </div>
+
+      <div class="viz">
+        <h3>Non-additivity &middot; naive &ldquo;double&rdquo; expectation vs measured</h3>
+        <div class="brow"><span class="bl">3.62&times; &times; 2.96&times; predicted</span><span class="bt"><span class="bf pred" style="width:100%"></span></span><span class="bv">&asymp;10.7&times;</span></div>
+        <div class="brow"><span class="bl">measured FP4&rarr;Polar</span><span class="bt"><span class="bf rustbar" style="width:27.7%"></span></span><span class="bv">2.96&times;</span></div>
+      </div>
+
+      <ul class="facts">
+        <li><b>Ranking inverts at 32K:</b> Fused Metal (1.48) falls behind Python Polar (1.83) &mdash; the 8K fusion win does not extrapolate once iterative-concatenation update overhead dominates.</li>
+        <li><b>Prefill regresses</b> in the winning configuration: 4,685 vs 5,979 tok/s baseline, motivating a batched encode kernel.</li>
+        <li><b>DeepSeek-V4.1-Flash cross-check:</b> FP4-only 3,473 B/token matches their ~3,460 ablation; the residual 4&times; gap to 890 B/token belongs to orthogonal axes (CED, CSA2, SWA), not another scalar codec.</li>
+      </ul>
+    </div>
+
+    <div class="card c6 pos io">
+      <div class="lbl"><span class="ix">03&nbsp;/</span> Strengths</div>
+      <ul>
+        <li><b>Exceptional honesty discipline:</b> slowdowns labeled as slowdowns, the failed 64K run reported as OOM with exact allocation sizes, measured vs unmeasured cleanly separated.</li>
+        <li><b>Clean isolation:</b> model, weights, hardware, framework all fixed; only the cache path varies; fresh processes remove cross-condition contamination.</li>
+        <li><b>The non-additivity lesson</b> is genuinely useful and correctly reconciled with DeepSeek: composition works across orthogonal redundancy axes, not by stacking codecs on the same elements.</li>
+        <li><b>Precise allocator forensics</b> (33.5&nbsp;GB temp vs 22.6&nbsp;GB max buffer vs 36&nbsp;GB physical) points straight to fixes: chunked pre-allocation, paged storage.</li>
+      </ul>
+    </div>
+
+    <div class="card c6 neg io">
+      <div class="lbl"><span class="ix">04&nbsp;/</span> Limitations</div>
+      <ul>
+        <li><b>Zero quality results:</b> perplexity, long-context retrieval, and downstream accuracy entirely unmeasured &mdash; the accuracy cost of every layout is unknown.</li>
+        <li><b>Single checkpoint, single device, single framework version;</b> rankings may shift with head dims or GQA ratio; nothing transfers to CUDA without a matched kernel.</li>
+        <li><b>Stops before SDPA:</b> cannot say whether radial KV is viable inside a real compressed-domain attention kernel &mdash; the one result that would change the conclusion.</li>
+        <li><b>Thin measurement &amp; inconsistencies:</b> 64-token decode window; Python Polar layouts differ across contexts (4,241 &rarr; 3,072 B/token); no code release; no batching or prefix-cache reuse.</li>
+      </ul>
+    </div>
+
+    <div class="card c12 qcard io">
+      <div class="lbl"><span class="ix">05&nbsp;/</span> Questions for further exploration</div>
+      <ol>
+        <li>How much accuracy (perplexity, needle-in-haystack, downstream tasks) do radial and FP4 layouts cost at 3.4&ndash;4.2&nbsp;KB/token &mdash; and does the QJL-style residual sketch close the gap?</li>
+        <li>If a fused SDPA kernel consumed the packed polar layout directly, would the 32K collapse disappear, or only shrink the O(N&sup2;) constant?</li>
+        <li>Would chunked pre-allocation let the Metal path complete at 64K &mdash; and what does throughput look like between 32K and 64K?</li>
+        <li>Does the 8K fusion win survive other head dimensions and GQA ratios (Llama-3.2, Qwen2.5, Gemma-3), or is it an artifact of LFM2.5's MoE cache geometry?</li>
+        <li>Can radial precision compose with CED-style cross-layer sharing without retraining, closing part of the 3,456 &rarr; 890 B/token gap?</li>
+        <li>How do rankings change under batched serving and prefix-cache reuse, where a 3.6&times; smaller cache should matter more?</li>
+      </ol>
+    </div>
+
+  </main>
+
+  <footer>
+    <a href="./2610.33076.md">&#8599; Markdown source</a>
+    <a href="https://arxiv.org/abs/2610.33076" target="_blank" rel="noopener">&#8599; arXiv abs</a>
+    <span class="grow"></span>
+    <span>distilled from 2610.33076.md &middot; figures as reported in the summary</span>
+  </footer>
+
+</div>
+
+<script>
+  // Progressive reveal for below-the-fold cards; no-op when reduced motion is set.
+  (function () {
+    var cards = document.querySelectorAll('.io');
+    if (!('IntersectionObserver' in window) ||
+        window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      cards.forEach(function (c) { c.classList.add('in'); });
+      return;
+    }
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (e) {
+        if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); }
+      });
+    }, { threshold: 0.12 });
+    cards.forEach(function (c) { io.observe(c); });
+  })();
+</script>
+</body>
+</html>

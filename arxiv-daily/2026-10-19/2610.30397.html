@@ -1,0 +1,500 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>2610.30397 — Verified DRAM Address Mapping Reverse Engineering with Threshold Sweep</title>
+<style>
+  /* ============================================================
+     Aesthetic: "latency-lab editorial" — warm paper, graph-grid hero,
+     serif display + mono data numerals. ONE semantic accent (amber =
+     the latency signal rising above threshold). No second hue.
+     ============================================================ */
+  :root{
+    --paper:#FBF8F1;
+    --card:#FFFDF8;
+    --ink:#211D17;
+    --ink2:#5C554B;
+    --ink3:#8A8175;
+    --line:#E7E0D2;
+    --line2:#D9D0BD;
+    --accent:#B4540A;       /* latency signal amber */
+    --accent-deep:#8A3E06;
+    --accent-soft:#F6EBD7;
+    --dark:#211D17;
+    --dark-line:#3E372C;
+    --serif:"Iowan Old Style","Palatino Linotype",Palatino,"Songti SC",STSong,Georgia,"Times New Roman",serif;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI","Helvetica Neue","PingFang SC","Hiragino Sans GB","Microsoft YaHei","Noto Sans CJK SC",sans-serif;
+    --mono:ui-monospace,"SF Mono",SFMono-Regular,Menlo,Consolas,"PingFang SC",monospace;
+  }
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+  html{scroll-behavior:smooth}
+  body{
+    background:var(--paper);
+    color:var(--ink);
+    font-family:var(--sans);
+    font-size:15px;
+    line-height:1.55;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{width:min(95vw,1100px);margin:0 auto}
+  a{color:inherit}
+  .zh{line-height:1.75}
+  section{scroll-margin-top:28px}
+
+  /* ---------- fixed digest nav ---------- */
+  .digest-nav{
+    position:fixed;top:14px;left:14px;z-index:50;
+    font-family:var(--mono);font-size:12px;letter-spacing:.02em;
+    color:var(--ink);text-decoration:none;
+    background:var(--card);border:1px solid var(--line2);
+    border-radius:999px;padding:6px 13px;
+    box-shadow:0 1px 3px rgba(33,29,23,.08);
+    transition:border-color .15s ease, color .15s ease;
+  }
+  .digest-nav:hover{border-color:var(--accent);color:var(--accent-deep)}
+
+  /* ---------- hero: THE KEY FINDING is the hero ---------- */
+  .hero{
+    padding:78px 0 30px;
+    border-bottom:1px solid var(--line);
+    background-image:
+      repeating-linear-gradient(0deg, rgba(138,129,117,.10) 0 1px, transparent 1px 44px),
+      repeating-linear-gradient(90deg, rgba(138,129,117,.10) 0 1px, transparent 1px 44px);
+  }
+  .kicker{
+    font-family:var(--mono);font-size:11.5px;letter-spacing:.14em;
+    text-transform:uppercase;color:var(--ink3);
+    display:flex;flex-wrap:wrap;gap:6px 14px;align-items:baseline;
+  }
+  .kicker b{color:var(--accent-deep);font-weight:600}
+  .finding{
+    font-family:var(--serif);
+    font-size:clamp(1.85rem, 4.4vw, 3.3rem);
+    line-height:1.14;
+    letter-spacing:-.012em;
+    font-weight:600;
+    margin:18px 0 10px;
+    max-width:24ch;
+    text-wrap:balance;
+  }
+  .finding em{font-style:normal;color:var(--accent);border-bottom:3px solid var(--accent-soft)}
+  .finding-zh{
+    font-size:13.5px;color:var(--ink2);max-width:62ch;
+    border-left:2px solid var(--line2);padding-left:12px;
+  }
+  .paper-meta{margin-top:22px;display:flex;flex-direction:column;gap:9px}
+  .paper-title{
+    font-family:var(--serif);font-size:1.06rem;font-weight:500;
+    text-decoration:none;width:fit-content;
+    border-bottom:1px solid var(--line2);
+  }
+  .paper-title:hover{color:var(--accent-deep);border-color:var(--accent)}
+  .authors{font-size:13px;color:var(--ink2)}
+  .authors .affil{color:var(--ink3)}
+  .chips{display:flex;flex-wrap:wrap;gap:7px;list-style:none}
+  .chips li{
+    font-family:var(--mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;
+    color:var(--ink2);border:1px solid var(--line2);border-radius:999px;
+    padding:3px 10px;background:var(--card);
+  }
+  .chips li.hot{color:var(--accent-deep);border-color:var(--accent);}
+
+  /* ---------- asset row ---------- */
+  .assets{
+    display:grid;grid-template-columns:1.08fr 1fr 1.06fr;
+    gap:14px;padding:26px 0 8px;
+  }
+  .asset{
+    background:var(--card);border:1px solid var(--line);border-radius:10px;
+    padding:20px 20px 18px;position:relative;overflow:hidden;
+  }
+  .asset-label{
+    font-family:var(--mono);font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;
+    color:var(--ink3);margin-bottom:12px;display:flex;align-items:center;gap:8px;
+  }
+  .asset-label::before{content:"";width:14px;height:2px;background:var(--accent);flex:none}
+
+  /* metric card */
+  .metric .big{
+    font-family:var(--mono);font-variant-numeric:tabular-nums;
+    font-size:clamp(3.1rem,5.6vw,4.4rem);font-weight:700;
+    color:var(--accent);line-height:1;letter-spacing:-.02em;
+  }
+  .metric .exact{font-family:var(--mono);font-size:11.5px;color:var(--ink3);margin-top:6px}
+  .metric .ctx{font-size:13px;color:var(--ink2);margin-top:10px}
+  .metric .halves{
+    margin-top:14px;padding-top:12px;border-top:1px dashed var(--line2);
+    font-size:12.5px;color:var(--ink2);
+  }
+  .metric .halves b{color:var(--ink);font-family:var(--mono);font-weight:600}
+
+  /* why card */
+  .why p{font-size:14.5px;line-height:1.6;max-width:34ch}
+  .why .zh{margin-top:12px;font-size:12.5px;color:var(--ink3);border-top:1px dashed var(--line2);padding-top:10px}
+
+  /* critical card — inverted */
+  .edge{background:var(--dark);border-color:var(--dark);color:#F1EBDF}
+  .edge .asset-label{color:#C8BFB0}
+  .edge .asset-label::before{background:var(--accent)}
+  .edge .warn{flex:none;display:inline-flex}
+  .edge p{font-size:14px;line-height:1.62;max-width:36ch}
+  .edge p b{color:#F2C084;font-weight:600}
+  .edge .src{margin-top:12px;font-family:var(--mono);font-size:10.5px;color:#9C9484;letter-spacing:.06em;text-transform:uppercase}
+
+  /* ---------- jump row ---------- */
+  .jumps{
+    display:flex;flex-wrap:wrap;gap:4px 22px;justify-content:center;
+    padding:16px 0 22px;border-bottom:1px solid var(--line);
+  }
+  .jumps a{
+    font-family:var(--mono);font-size:11.5px;letter-spacing:.06em;
+    text-decoration:none;color:var(--ink3);
+  }
+  .jumps a:hover{color:var(--accent-deep)}
+  .jumps a b{color:var(--accent);font-weight:600;margin-right:4px}
+
+  /* ---------- body grid ---------- */
+  .body{padding:26px 0 6px;display:grid;grid-template-columns:repeat(12,1fr);gap:14px}
+  .card{
+    background:var(--card);border:1px solid var(--line);border-radius:10px;padding:22px;
+  }
+  .span6{grid-column:span 6}
+  .span12{grid-column:span 12}
+  h2{
+    font-family:var(--serif);font-size:1.32rem;font-weight:600;letter-spacing:-.01em;
+    margin-bottom:4px;
+  }
+  h2 .n{font-family:var(--mono);font-size:.8rem;color:var(--accent);font-weight:600;vertical-align:.28em;margin-right:8px}
+  .card > .sub{font-size:12.5px;color:var(--ink3);margin-bottom:16px;font-family:var(--mono);letter-spacing:.03em}
+  .lead{font-size:14.5px;line-height:1.6;color:var(--ink);margin-bottom:16px}
+  .lead b{color:var(--accent-deep)}
+
+  .steps{list-style:none;counter-reset:st;display:flex;flex-direction:column;gap:12px}
+  .steps li{
+    counter-increment:st;position:relative;padding-left:44px;
+    font-size:13.5px;line-height:1.6;color:var(--ink2);
+  }
+  .steps li::before{
+    content:counter(st,decimal-leading-zero);
+    position:absolute;left:0;top:1px;
+    font-family:var(--mono);font-size:12px;font-weight:600;color:var(--accent);
+    border:1px solid var(--line2);border-radius:6px;padding:2px 6px;background:var(--paper);
+  }
+  .steps li b{color:var(--ink);font-weight:600}
+  .model-chip{
+    margin-top:16px;font-family:var(--mono);font-size:12px;color:var(--accent-deep);
+    background:var(--accent-soft);border:1px solid #EBD9B8;border-radius:7px;
+    padding:9px 12px;line-height:1.5;
+  }
+
+  /* results */
+  .rlist{list-style:none;display:flex;flex-direction:column;gap:11px;margin-bottom:18px}
+  .rlist li{
+    font-size:13.5px;line-height:1.6;color:var(--ink2);
+    padding-left:16px;position:relative;
+  }
+  .rlist li::before{content:"";position:absolute;left:0;top:9px;width:7px;height:2px;background:var(--accent)}
+  .rlist b{color:var(--ink);font-weight:600}
+  .rlist code, td code, .steps code{
+    font-family:var(--mono);font-size:.92em;background:var(--paper);
+    border:1px solid var(--line);border-radius:4px;padding:0 4px;color:var(--ink);
+  }
+  table{width:100%;border-collapse:collapse;font-size:12.5px;margin-bottom:6px}
+  caption{
+    caption-side:top;text-align:left;font-family:var(--mono);font-size:10.5px;
+    letter-spacing:.12em;text-transform:uppercase;color:var(--ink3);padding-bottom:8px;
+  }
+  th{
+    text-align:left;font-family:var(--mono);font-size:10.5px;letter-spacing:.08em;
+    text-transform:uppercase;color:var(--ink3);font-weight:600;
+    border-bottom:1px solid var(--line2);padding:6px 8px;
+  }
+  td{border-bottom:1px solid var(--line);padding:8px;color:var(--ink2);vertical-align:top}
+  tr.win td{background:var(--accent-soft)}
+  tr.win td:first-child{border-left:3px solid var(--accent)}
+  .tbl-note{font-size:12px;color:var(--ink3);margin-bottom:16px}
+
+  figure{margin-top:4px}
+  figure svg{width:100%;height:auto;display:block}
+  figcaption{font-size:11.5px;color:var(--ink3);line-height:1.55;margin-top:8px}
+
+  /* strengths vs limitations */
+  .duo{grid-column:span 12;display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  .panel{border-radius:10px;padding:20px 22px;background:var(--card);border:1px solid var(--line)}
+  .panel h3{
+    font-family:var(--mono);font-size:11px;letter-spacing:.16em;text-transform:uppercase;
+    font-weight:600;margin-bottom:14px;display:flex;align-items:center;gap:8px;
+  }
+  .panel.str{border-left:4px solid var(--accent)}
+  .panel.str h3{color:var(--accent-deep)}
+  .panel.lim{border-left:4px solid var(--ink)}
+  .panel.lim h3{color:var(--ink)}
+  .panel ul{list-style:none;display:flex;flex-direction:column;gap:10px}
+  .panel li{font-size:13px;line-height:1.6;color:var(--ink2);padding-left:14px;position:relative}
+  .panel.str li::before{content:"+";position:absolute;left:0;color:var(--accent);font-weight:700}
+  .panel.lim li::before{content:"–";position:absolute;left:0;color:var(--ink);font-weight:700}
+  .panel li b{color:var(--ink);font-weight:600}
+
+  /* questions */
+  .qlist{
+    list-style:none;display:grid;grid-template-columns:1fr 1fr;gap:9px 26px;
+  }
+  .qlist li{
+    font-size:13px;line-height:1.6;color:var(--ink2);padding-left:34px;position:relative;
+  }
+  .qlist li::before{
+    content:"Q" attr(data-q);
+    position:absolute;left:0;top:2px;
+    font-family:var(--mono);font-size:10.5px;font-weight:600;color:var(--accent);
+  }
+
+  /* credibility strip */
+  .cred{
+    margin-top:14px;background:var(--card);border:1px solid var(--line);border-radius:10px;
+    padding:16px 22px;display:flex;gap:18px;align-items:baseline;flex-wrap:wrap;
+  }
+  .cred .lbl{
+    font-family:var(--mono);font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;
+    color:var(--ink3);flex:none;
+  }
+  .cred p{font-size:12.5px;color:var(--ink2);line-height:1.6;flex:1;min-width:280px}
+  .cred b{color:var(--ink);font-weight:600}
+
+  /* footer */
+  footer{
+    margin-top:26px;border-top:1px solid var(--line);
+    padding:18px 0 34px;display:flex;justify-content:space-between;gap:14px;flex-wrap:wrap;
+    align-items:baseline;
+  }
+  .md-source{
+    font-family:var(--mono);font-size:12.5px;text-decoration:none;color:var(--accent-deep);
+  }
+  .md-source:hover{text-decoration:underline}
+  footer .meta{font-family:var(--mono);font-size:11px;color:var(--ink3);letter-spacing:.04em}
+
+  /* ---------- staggered load ---------- */
+  .rv{opacity:0;transform:translateY(10px);animation:rise .55s cubic-bezier(.2,.7,.2,1) forwards}
+  .d1{animation-delay:.05s}.d2{animation-delay:.13s}.d3{animation-delay:.21s}
+  .d4{animation-delay:.29s}.d5{animation-delay:.37s}.d6{animation-delay:.45s}
+  @keyframes rise{to{opacity:1;transform:none}}
+  @media (prefers-reduced-motion:reduce){
+    .rv{animation:none;opacity:1;transform:none}
+    html{scroll-behavior:auto}
+  }
+
+  /* ---------- responsive ---------- */
+  @media (max-width:920px){
+    .assets{grid-template-columns:1fr 1fr}
+    .asset.metric{grid-column:1 / -1}
+    .finding{max-width:none}
+  }
+  @media (max-width:720px){
+    .body{grid-template-columns:1fr}
+    .span6{grid-column:auto}
+    .duo{grid-column:auto;grid-template-columns:1fr}
+    .assets{grid-template-columns:1fr}
+    .qlist{grid-template-columns:1fr}
+    .hero{padding-top:72px}
+    .metric .big{font-size:3.4rem}
+  }
+</style>
+</head>
+<body>
+
+<a class="digest-nav" href="./index.html">↩ Today's digest</a>
+
+<!-- ================= HERO — the Key Finding IS the hero ================= -->
+<header class="hero">
+  <div class="wrap">
+    <p class="kicker rv d1">
+      <span><b>arXiv 2610.30397</b></span>
+      <span>cs.AR · workshop-style</span>
+      <span>2026-10-19</span>
+      <span>paper dashboard</span>
+    </p>
+
+    <h1 class="finding rv d1">
+      A software-only pipeline recovers <em>and verifies</em> DRAM bank-address
+      masks on ARM boards — with <em>zero prior DRAM knowledge</em>.
+    </h1>
+
+    <p class="finding-zh zh rv d2" lang="zh">
+      纯软件、端到端、无需 DRAM 层级先验（连 bank 数量都不需要）的地址映射逆向 + 软件验证流水线，落地于两代嵌入式内存平台。
+    </p>
+
+    <div class="paper-meta rv d3">
+      <a class="paper-title" href="https://arxiv.org/abs/2610.30397">
+        Verified DRAM Address Mapping Reverse Engineering with Threshold Sweep&nbsp;↗
+      </a>
+      <p class="authors">Hewen Zhang &amp; Ian G. Harris <span class="affil">· University of California, Irvine</span></p>
+      <ul class="chips">
+        <li class="hot">DRAM</li>
+        <li class="hot">Rowhammer</li>
+        <li>Address-mapping RE</li>
+        <li>LPDDR5 / LPDDR4</li>
+        <li>Embedded systems</li>
+      </ul>
+    </div>
+  </div>
+</header>
+
+<!-- ================= ASSET ROW ================= -->
+<section class="wrap assets" aria-label="Key assets">
+  <article class="asset metric rv d3">
+    <p class="asset-label">Key metric · group-verification pass rate</p>
+    <div class="big">0.9969</div>
+    <p class="exact">reported: 0.996907 · 10-round average</p>
+    <p class="ctx">Best 7-mask bank set — Jetson Orin Nano (LPDDR5), threshold τ* = 550 CPU cycles; the highest across the entire swept range.</p>
+    <p class="halves">Drop <b>any one</b> of the 7 masks and the rate halves to <b>≈ 0.4985</b> (0.498454) — exactly as predicted: every mask is individually justified.</p>
+  </article>
+
+  <article class="asset why rv d4">
+    <p class="asset-label">Why this matters</p>
+    <p>Rowhammer bit flips are a classic hardware source of silent data corruption — and address mapping is the prerequisite for targeting them on edge inference hardware.</p>
+    <p class="zh" lang="zh">Rowhammer 比特翻转是静默数据损坏的典型硬件来源；地址映射是定位可翻转地址的前提工具。</p>
+  </article>
+
+  <article class="asset edge rv d5">
+    <p class="asset-label">
+      <span class="warn" aria-hidden="true">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M12 3 L22 20 H2 Z" stroke="#F2C084" stroke-width="2" stroke-linejoin="round"/><line x1="12" y1="9.5" x2="12" y2="14.5" stroke="#F2C084" stroke-width="2"/><circle cx="12" cy="17.4" r="1.15" fill="#F2C084"/></svg>
+      </span>
+      Critical edge
+    </p>
+    <p><b>No Rowhammer bit flip is ever demonstrated</b> — the promised attack payoff is entirely deferred. And verification is self-referential: recovery and checking share one latency side channel, with no external ground truth.</p>
+    <p class="src">from Critical Assessment · Limitations</p>
+  </article>
+</section>
+
+<!-- ================= jump row ================= -->
+<nav class="wrap jumps rv d5" aria-label="Jump to section">
+  <a href="#methodology"><b>01</b>Methodology</a>
+  <a href="#results"><b>02</b>Results</a>
+  <a href="#verdict"><b>03</b>Strengths vs Limitations</a>
+  <a href="#questions"><b>04</b>Open questions</a>
+</nav>
+
+<!-- ================= BODY GRID ================= -->
+<main class="wrap body">
+
+  <section id="methodology" class="card span6 rv d5">
+    <h2><span class="n">01</span>Methodology — distilled</h2>
+    <p class="sub">latency side channel → GF(2) linear algebra → two-stage software verification</p>
+    <p class="lead">The signal: two addresses hitting the <b>same bank, different rows</b> force a PRECHARGE + ACTIVATE — measurably slower than bank-parallel hits. Everything downstream is algebra on that timing gap.</p>
+    <ol class="steps">
+      <li><b>Measure.</b> Collect <b>10,000,000</b> address-pair latency samples per platform, expressed in CPU clock cycles.</li>
+      <li><b>Sweep.</b> Every histogram-derived threshold τ splits the pairs: measured latency &gt; τ ⇒ same-bank candidates.</li>
+      <li><b>Solve.</b> Bank masks are linear functions over GF(2): m(a)=m(b) ⇔ m·(a⊕b)=0. The nullspace of the pair-difference matrix (RREF, 100 subsampled pairs × 200 runs) yields the masks — polynomial-time linear algebra instead of exhaustive enumeration. <b>No bank count is needed as input</b>, which matters: LPDDR5 ships in BG / 8B / 16B bank modes a part number cannot disambiguate.</li>
+      <li><b>Verify.</b> Group verification (Heckel et&nbsp;al., ESORICS 2025): pool 20,000 addresses, 10 rounds — an iteration passes when a same-bank pair is slow and a different-bank pair is fast. Then single-function verification: remove each mask in turn; the pass rate should halve.</li>
+    </ol>
+    <p class="model-chip">p<sub>pass</sub>(τ) = p<sub>same</sub>(τ) · p<sub>diff</sub>(τ) — a threshold-sensitivity model that predicts the usable window <em>before</em> trusting any sweep point.</p>
+  </section>
+
+  <section id="results" class="card span6 rv d6">
+    <h2><span class="n">02</span>Results — beyond the headline</h2>
+    <p class="sub">Jetson Orin Nano (LPDDR5) · Raspberry Pi 4B (LPDDR4)</p>
+    <ul class="rlist">
+      <li><b>Five distinct mask sets</b> recovered on Jetson; the champion 7-mask set hits <b>0.996907 @ τ=550</b>, while lower-dimensional sets are “substantially lower” — several existing at only a single threshold point.</li>
+      <li>The 10M-sample model predicts a high-pass window of <b>≈ 500–570 cycles</b>; the empirical best (550) lands inside it.</li>
+      <li>Scale: 10M samples · 200 solver runs × 100 pairs · 20k verify addresses · 10 rounds · 2 platforms.</li>
+    </ul>
+
+    <table>
+      <caption>Raspberry Pi 4B — head-to-head candidates</caption>
+      <thead>
+        <tr><th>Set</th><th>Masks</th><th>Pass rate</th></tr>
+      </thead>
+      <tbody>
+        <tr class="win">
+          <td><b>Set 2</b> (4 masks)</td>
+          <td><code>0x80000000</code> <code>0x4000</code> <code>0x2000</code> <code>0x1000</code></td>
+          <td><b>≈ 1.0</b> across most of range</td>
+        </tr>
+        <tr>
+          <td>Set 1 (3 masks)</td>
+          <td><code>0x80000000</code> <code>0x2000</code> <code>0x1000</code></td>
+          <td>negligible</td>
+        </tr>
+      </tbody>
+    </table>
+    <p class="tbl-note">Two hypotheses differing by a single mask bit (0x4000) separate cleanly — evidence the verification statistic has real discriminative power.</p>
+
+    <figure>
+      <svg viewBox="0 0 340 132" role="img" aria-label="Schematic histogram: different-bank latencies concentrate low, same-bank latencies high, threshold line at 550 cycles inside the 500 to 570 window">
+        <!-- usable window band 500–570 cycles -->
+        <rect x="211" y="14" width="29" height="98" fill="#F6EBD7" opacity="0.8"/>
+        <!-- baseline -->
+        <line x1="6" y1="112" x2="334" y2="112" stroke="#D9D0BD" stroke-width="1"/>
+        <!-- different-bank hump (low latency) -->
+        <path d="M6 112 C 22 110, 28 42, 60 38 C 94 42, 102 110, 122 112 Z" fill="#CFC5AF"/>
+        <!-- same-bank hump (high latency) -->
+        <path d="M170 112 C 200 110, 208 48, 250 44 C 292 48, 300 110, 326 112 Z" fill="#D98E3F" opacity="0.85"/>
+        <!-- threshold -->
+        <line x1="232" y1="14" x2="232" y2="112" stroke="#8A3E06" stroke-width="1.5" stroke-dasharray="4 3"/>
+        <text x="238" y="21" font-family="Menlo, monospace" font-size="9" fill="#8A3E06">τ* = 550</text>
+        <text x="60" y="30" font-family="Menlo, monospace" font-size="8.5" fill="#8A8175" text-anchor="middle">different-bank</text>
+        <text x="252" y="36" font-family="Menlo, monospace" font-size="8.5" fill="#8A3E06" text-anchor="middle">same-bank</text>
+        <!-- x ticks -->
+        <g font-family="Menlo, monospace" font-size="8" fill="#8A8175">
+          <text x="6" y="124">0</text>
+          <text x="88" y="124" text-anchor="middle">200</text>
+          <text x="170" y="124" text-anchor="middle">400</text>
+          <text x="252" y="124" text-anchor="middle">600</text>
+          <text x="332" y="124" text-anchor="end">800</text>
+          <text x="322" y="106" text-anchor="end">CPU cycles</text>
+        </g>
+      </svg>
+      <figcaption>Schematic, redrawn from the paper’s Fig.&nbsp;2 description: same-bank pairs separate to high latencies; the model’s usable window (≈ 500–570 cycles, shaded) contains the chosen τ*&nbsp;=&nbsp;550.</figcaption>
+    </figure>
+  </section>
+
+  <div class="duo rv d6" id="verdict">
+    <section class="panel str" aria-label="Strengths">
+      <h3>Strengths</h3>
+      <ul>
+        <li><b>No privileged access, no DRAM docs, no bank-count input</b> — user-space only, on cheap commodity boards; exactly the DRAM-agnostic property LPDDR5 requires.</li>
+        <li><b>Record-per-threshold workflow</b> turns a hidden hyperparameter (the latency threshold) into an explicit, evidence-ranked search — a real improvement over single-point inference.</li>
+        <li><b>Raspberry Pi result is near-textbook discrimination:</b> hypotheses differing by one mask (0x4000) split into ≈1.0 vs negligible pass rates.</li>
+        <li><b>Honest, well-scoped writing</b> — prior-work limitations accurately stated; no overclaimed attacks.</li>
+      </ul>
+    </section>
+
+    <section class="panel lim" aria-label="Limitations">
+      <h3>Limitations</h3>
+      <ul>
+        <li><b>Bank functions only</b> — no row, column, channel, or bank-group recovery; not yet sufficient for targeted double-sided Rowhammer.</li>
+        <li><b>No end-to-end Rowhammer validation</b> — recovered masks never trigger a single bit flip; practical value unquantified.</li>
+        <li><b>Self-consistency evidence only</b> — no external ground truth on either platform (a published RPi 4B mapping existed for comparison).</li>
+        <li><b>Hand-set threshold range</b> (500–580 cycles) in platform-specific units, no porting guidance; single-function verification skipped on RPi; no runtime cost reported; no artifact release.</li>
+      </ul>
+    </section>
+  </div>
+
+  <section id="questions" class="card span12 rv d6">
+    <h2><span class="n">04</span>Open questions</h2>
+    <p class="sub">where this work points next</p>
+    <ol class="qlist">
+      <li data-q="1">Do the recovered 7 Jetson masks actually enable double-sided Rowhammer flips on LPDDR5 — and at what rates against its Target Row Refresh?</li>
+      <li data-q="2">Can the GF(2) framework extend to row, column, bank-group, and channel functions for a complete, attack-usable mapping?</li>
+      <li data-q="3">Do cycle-based thresholds survive DVFS, thermal drift, and OS interference — would percentile-based thresholds port across platforms?</li>
+      <li data-q="4">Can published Raspberry Pi 4B mappings serve as ground truth to measure the verifier’s false-positive rate?</li>
+      <li data-q="5">What does the 10M-sample phase cost in wall-clock time — could active sampling reach the same confidence 10× cheaper?</li>
+      <li data-q="6">Does LPDDR5’s 16B bank mode or refresh scheduling ever smear the same-bank distribution enough to break the Fig.&nbsp;2 separation?</li>
+    </ol>
+  </section>
+
+  <aside class="cred span12 rv d6">
+    <span class="lbl">Authors &amp; credibility</span>
+    <p>UC&nbsp;Irvine hardware-security / embedded group. Positioned honestly as a <b>systematization of established parts</b>: DRAMA (USENIX&nbsp;’16) timing channel, Knock-Knock GF(2) nullspace, Heckel et&nbsp;al. (ESORICS&nbsp;’25) verification — the new elements are the threshold sweep and record-every-candidate workflow. <b>No artifact release; no ground-truth comparison of recovered masks.</b></p>
+  </aside>
+
+</main>
+
+<footer class="wrap">
+  <a class="md-source" href="./2610.30397.md">↗ Markdown source</a>
+  <p class="meta">dashboard generated from the summary · assets extracted, not transcribed · arXiv 2610.30397</p>
+</footer>
+
+</body>
+</html>

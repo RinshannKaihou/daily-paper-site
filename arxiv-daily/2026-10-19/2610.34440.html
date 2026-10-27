@@ -1,0 +1,465 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>2610.34440 — Expert Reuse ≠ Speedup · Speculative Decoding for MoE</title>
+<style>
+  :root{
+    --paper:#f6f1e7;
+    --panel:#fbf8f1;
+    --ink:#241d14;
+    --ink-soft:#5f5646;
+    --line:#d9cfba;
+    --line-strong:#241d14;
+    --accent:#b4530a;
+    --accent-deep:#8a3e06;
+    --accent-dark:#e59a45;      /* accent shade for dark surfaces */
+    --tint:rgba(180,83,10,.08);
+    --hero-bg:#251e14;
+    --hero-ink:#f3ead9;
+    --hero-muted:#b4a78e;
+    --font-display:"Iowan Old Style","Palatino Linotype",Palatino,"New York","Source Han Serif SC","Noto Serif CJK SC","PingFang SC",Georgia,serif;
+    --font-body:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue","PingFang SC","Hiragino Sans GB","Microsoft YaHei","Noto Sans CJK SC",Arial,sans-serif;
+    --font-mono:ui-monospace,"SF Mono","JetBrains Mono",Menlo,Consolas,"Liberation Mono",monospace;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{
+    margin:0;
+    background:var(--paper);
+    color:var(--ink);
+    font-family:var(--font-body);
+    font-size:16px;
+    line-height:1.6;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{width:min(95vw,1100px);margin-inline:auto}
+  a{color:var(--accent-deep)}
+  .zh{line-height:1.85}
+
+  /* ---------- fixed digest nav ---------- */
+  .digest-nav{
+    position:fixed;top:14px;left:14px;z-index:50;
+    font-family:var(--font-mono);font-size:.76rem;letter-spacing:.02em;
+    color:var(--ink);text-decoration:none;
+    background:var(--paper);border:1px solid var(--line-strong);
+    border-radius:999px;padding:.42rem .8rem;
+    box-shadow:0 1px 0 var(--line-strong);
+    transition:background .15s ease,color .15s ease;
+  }
+  .digest-nav:hover{background:var(--ink);color:var(--paper)}
+
+  /* ---------- hero ---------- */
+  .hero{
+    background:var(--hero-bg);color:var(--hero-ink);
+    padding:clamp(5.2rem,12vh,7.5rem) 0 clamp(2.4rem,5vh,3.6rem);
+    border-bottom:4px solid var(--accent);
+  }
+  .hero .kicker{
+    font-family:var(--font-mono);font-size:.72rem;letter-spacing:.18em;
+    text-transform:uppercase;color:var(--accent-dark);
+    display:flex;flex-wrap:wrap;gap:.6rem 1.2rem;margin:0 0 1.4rem;
+  }
+  .hero .kicker span{border:1px solid rgba(229,154,69,.4);border-radius:999px;padding:.18rem .62rem}
+  .finding{
+    font-family:var(--font-display);
+    font-size:clamp(1.85rem,1rem + 3.7vw,3.35rem);
+    line-height:1.14;letter-spacing:-0.015em;font-weight:700;
+    margin:0;max-width:24ch;
+    text-wrap:balance;
+  }
+  .finding em{font-style:normal;color:var(--accent-dark);box-shadow:inset 0 -0.14em 0 rgba(229,154,69,.35)}
+  .hero .zh-line{
+    margin:1.4rem 0 0;max-width:72ch;
+    font-size:.9rem;color:var(--hero-muted);
+    border-left:2px solid rgba(229,154,69,.5);padding-left:1rem;
+  }
+  .hero .zh-line b{color:var(--hero-ink);font-weight:600}
+  .hero .meta{margin-top:1.8rem;padding-top:1.2rem;border-top:1px solid rgba(243,234,217,.18)}
+  .hero .title-link{
+    font-family:var(--font-display);font-size:1.05rem;line-height:1.45;
+    color:var(--hero-ink);text-decoration:underline;text-decoration-thickness:1px;
+    text-underline-offset:3px;text-decoration-color:rgba(243,234,217,.5);
+  }
+  .hero .title-link:hover{color:var(--accent-dark);text-decoration-color:var(--accent-dark)}
+  .hero .byline{
+    font-family:var(--font-mono);font-size:.78rem;color:var(--hero-muted);
+    margin:.55rem 0 0;display:flex;flex-wrap:wrap;gap:.35rem 1.1rem;
+  }
+  .chips{display:flex;flex-wrap:wrap;gap:.45rem;margin-top:1rem}
+  .chips span{
+    font-family:var(--font-mono);font-size:.66rem;letter-spacing:.09em;text-transform:uppercase;
+    color:var(--hero-muted);border:1px solid rgba(243,234,217,.28);border-radius:999px;padding:.2rem .6rem;
+  }
+  /* hero load stagger */
+  @keyframes rise{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:none}}
+  .hero .anim{animation:rise .7s cubic-bezier(.2,.7,.2,1) both}
+  .hero .d1{animation-delay:.05s}.hero .d2{animation-delay:.16s}.hero .d3{animation-delay:.28s}
+  .hero .d4{animation-delay:.4s}.hero .d5{animation-delay:.52s}
+
+  /* ---------- asset row ---------- */
+  .assets{
+    display:grid;grid-template-columns:1.15fr 1fr 1fr;gap:14px;
+    margin:clamp(1.4rem,3vh,2rem) auto clamp(1.2rem,2.5vh,1.6rem);
+  }
+  .card{
+    background:var(--panel);border:1px solid var(--line);border-radius:10px;
+    padding:1.15rem 1.2rem 1.2rem;position:relative;
+  }
+  .card .label{
+    font-family:var(--font-mono);font-size:.68rem;letter-spacing:.16em;text-transform:uppercase;
+    color:var(--accent);margin:0 0 .7rem;display:block;
+  }
+  .card-metric{border-top:3px solid var(--accent)}
+  .big-num{
+    font-family:var(--font-mono);font-weight:600;letter-spacing:-0.02em;
+    font-size:clamp(2.7rem,2rem + 3vw,4.1rem);line-height:1;color:var(--accent);
+    margin:0 0 .55rem;font-variant-numeric:tabular-nums;
+  }
+  .card-metric .ctx{font-size:.88rem;color:var(--ink-soft);margin:0;max-width:34ch}
+  .card-metric .ctx b{color:var(--ink)}
+  .card-why p{margin:0;font-size:.98rem;line-height:1.55;max-width:38ch}
+  .card-why .zh-sub{
+    margin:.8rem 0 0;padding-top:.7rem;border-top:1px dashed var(--line);
+    font-size:.8rem;color:var(--ink-soft);
+  }
+  .card-edge{
+    background:var(--tint);border:1px solid rgba(180,83,10,.35);border-left:4px solid var(--accent);
+  }
+  .card-edge .label{color:var(--accent-deep)}
+  .card-edge p{margin:0;font-size:.94rem;line-height:1.55}
+  .card-edge .note{
+    margin:.7rem 0 0;padding-top:.6rem;border-top:1px dashed rgba(180,83,10,.35);
+    font-size:.78rem;color:var(--ink-soft);
+  }
+  .card a.jump{font-family:var(--font-mono);font-size:.72rem;text-decoration:none;white-space:nowrap}
+  .card a.jump:hover{text-decoration:underline}
+
+  /* ---------- credibility strip ---------- */
+  .cred{
+    display:flex;flex-wrap:wrap;gap:.4rem 1.4rem;align-items:baseline;
+    border:1px dashed var(--line);border-radius:8px;
+    padding:.7rem 1rem;margin-bottom:clamp(1.6rem,4vh,2.6rem);
+    font-family:var(--font-mono);font-size:.72rem;color:var(--ink-soft);line-height:1.7;
+  }
+  .cred b{color:var(--ink);font-weight:600}
+
+  /* ---------- body panels ---------- */
+  .panel{
+    background:var(--panel);border:1px solid var(--line);border-radius:10px;
+    padding:clamp(1.2rem,2.5vw,1.8rem);margin-bottom:clamp(1.2rem,3vh,1.8rem);
+  }
+  .panel-head{
+    display:flex;flex-wrap:wrap;align-items:baseline;gap:.4rem 1rem;
+    border-bottom:2px solid var(--line-strong);padding-bottom:.7rem;margin-bottom:1.2rem;
+  }
+  .panel-head h2{
+    font-family:var(--font-display);font-size:1.35rem;margin:0;letter-spacing:-.01em;
+  }
+  .panel-head .sub{font-family:var(--font-mono);font-size:.72rem;color:var(--ink-soft);letter-spacing:.05em}
+
+  .meth-grid{display:grid;grid-template-columns:1fr 1fr;gap:1.2rem 2.2rem}
+  .meth-block h3{
+    font-family:var(--font-mono);font-size:.7rem;letter-spacing:.15em;text-transform:uppercase;
+    color:var(--accent);margin:0 0 .45rem;
+  }
+  .meth-block p{margin:0;font-size:.92rem;line-height:1.62;color:var(--ink)}
+  .meth-block code{
+    font-family:var(--font-mono);font-size:.82em;background:var(--tint);
+    border-radius:4px;padding:.08em .35em;color:var(--accent-deep);white-space:nowrap;
+  }
+  .meth-lead{
+    font-size:1.02rem;line-height:1.6;margin:0 0 1.3rem;max-width:70ch;
+    padding-left:1rem;border-left:3px solid var(--accent);
+  }
+
+  /* results */
+  .findings{list-style:none;margin:0 0 1.5rem;padding:0;display:grid;gap:.65rem}
+  .findings li{
+    position:relative;padding-left:1.3rem;font-size:.93rem;line-height:1.6;max-width:100ch;
+  }
+  .findings li::before{content:"▪";position:absolute;left:0;top:0;color:var(--accent);font-size:.8rem}
+  .findings .num{font-family:var(--font-mono);font-weight:600;color:var(--accent-deep);font-size:.9em}
+  .tbl-duo{display:grid;grid-template-columns:1fr 1fr;gap:1.4rem}
+  .tbl-box h3{
+    font-family:var(--font-mono);font-size:.7rem;letter-spacing:.14em;text-transform:uppercase;
+    margin:0 0 .6rem;color:var(--ink);
+  }
+  .tbl-box .cap{font-size:.78rem;color:var(--ink-soft);margin:.55rem 0 0;line-height:1.5}
+  table{width:100%;border-collapse:collapse;font-size:.85rem}
+  th{
+    font-family:var(--font-mono);font-size:.66rem;letter-spacing:.1em;text-transform:uppercase;
+    color:var(--ink-soft);text-align:right;font-weight:600;
+    border-bottom:2px solid var(--line-strong);padding:.4rem .5rem;
+  }
+  th:first-child{text-align:left}
+  td{
+    padding:.45rem .5rem;border-bottom:1px solid var(--line);text-align:right;
+    font-family:var(--font-mono);font-variant-numeric:tabular-nums;font-size:.84rem;
+  }
+  td:first-child{text-align:left;font-family:var(--font-body);font-weight:600}
+  tr:hover td{background:var(--tint)}
+  td.r{color:var(--accent-deep);font-weight:600}
+
+  /* strengths / limitations duo */
+  .duo{
+    display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:clamp(1.2rem,3vh,1.8rem);
+  }
+  .duo .half{
+    background:var(--panel);border:1px solid var(--line);border-radius:10px;
+    padding:clamp(1.1rem,2.5vw,1.6rem);
+  }
+  .half-lim{border-top:3px solid var(--ink)}
+  .half-str{border-top:3px solid var(--accent)}
+  .duo h2{
+    font-family:var(--font-mono);font-size:.72rem;letter-spacing:.16em;text-transform:uppercase;
+    margin:0 0 1rem;
+  }
+  .half-str h2{color:var(--accent-deep)}
+  .half-lim h2{color:var(--ink)}
+  .duo ul{margin:0;padding:0;list-style:none;display:grid;gap:.7rem}
+  .duo li{
+    font-size:.9rem;line-height:1.58;padding-left:1.15rem;position:relative;
+  }
+  .half-str li::before{content:"+";position:absolute;left:0;font-family:var(--font-mono);color:var(--accent);font-weight:700}
+  .half-lim li::before{content:"–";position:absolute;left:0;font-family:var(--font-mono);color:var(--ink-soft);font-weight:700}
+
+  /* questions */
+  .questions ol{margin:0;padding:0;list-style:none;display:grid;gap:.7rem;max-width:88ch}
+  .questions li{
+    font-size:.92rem;line-height:1.6;padding-left:3rem;position:relative;
+  }
+  .questions li .q{
+    position:absolute;left:0;top:.05rem;
+    font-family:var(--font-mono);font-size:.72rem;color:var(--accent-deep);
+    border:1px solid rgba(180,83,10,.4);border-radius:4px;padding:.1rem .4rem;
+  }
+
+  /* footer */
+  footer{
+    border-top:2px solid var(--line-strong);margin-top:.5rem;
+    padding:1.4rem 0 2.6rem;
+  }
+  .foot-row{display:flex;flex-wrap:wrap;gap:.8rem 2rem;align-items:baseline}
+  .foot-row a{
+    font-family:var(--font-mono);font-size:.8rem;text-decoration:none;
+    border-bottom:1px solid var(--accent);
+  }
+  .foot-row a:hover{color:var(--accent)}
+  .foot-row .gen{font-family:var(--font-mono);font-size:.7rem;color:var(--ink-soft);margin-left:auto}
+
+  /* reveal on scroll (progressive enhancement only) */
+  .js [data-reveal]{opacity:0;transform:translateY(14px);transition:opacity .55s ease,transform .55s ease}
+  .js [data-reveal].in{opacity:1;transform:none}
+
+  @media (max-width:960px){
+    .assets{grid-template-columns:1fr}
+    .meth-grid{grid-template-columns:1fr}
+    .tbl-duo{grid-template-columns:1fr}
+  }
+  @media (max-width:720px){
+    .duo{grid-template-columns:1fr}
+    .hero{padding-top:5.6rem}
+    .finding{max-width:none}
+    .tbl-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
+    .foot-row .gen{margin-left:0}
+  }
+</style>
+</head>
+<body>
+  <a class="digest-nav" href="./index.html">↩ Today's digest</a>
+
+  <!-- ================= HERO — the key finding IS the hero ================= -->
+  <header class="hero">
+    <div class="wrap">
+      <p class="kicker anim d1"><span>Paper dashboard</span><span>arXiv 2610.34440</span><span>Systems · Inference</span></p>
+
+      <h1 class="finding anim d2">Expert reuse <em>does not guarantee speedup</em> — the deduplicating MoE kernel is slower than per-slot at n&nbsp;=&nbsp;2 on every engine and model measured.</h1>
+
+      <p class="zh-line zh anim d3"><b>一句话总结：</b>把 MoE 投机解码一步的时间建模为“请求字节数 ÷ 各内核的有效带宽 + 固定时间”，用 Lean 4 形式化证明何时投机更快、最优草稿长度（阶梯函数）与去重内核的胜负条件 ū(n) &lt; r(n)；实测发现逐槽内核有效带宽反而更高，去重仅在每步 5–8 个 token 时才更快甚至从不更快——推翻“复用专家必然省时”的单一带宽成本模型。</p>
+
+      <div class="meta anim d4">
+        <a class="title-link" href="https://arxiv.org/abs/2610.34440">Speculative Decoding for Mixture-of-Experts Models: Expert Bytes, Kernel Bandwidth and the Best Draft Length</a>
+        <p class="byline">
+          <span>Yuzheng Lan · ReClan AI Studio</span>
+          <span>2026-10-19</span>
+          <span>single-author</span>
+        </p>
+        <div class="chips">
+          <span>MoE</span><span>Speculative decoding</span><span>Inference kernels</span><span>LLM inference</span><span>Cost modeling</span><span>Lean formalization</span>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <main class="wrap">
+
+    <!-- ================= ASSET ROW ================= -->
+    <section class="assets" aria-label="Key assets">
+      <div class="card card-metric">
+        <span class="label">Key metric · dedup bandwidth penalty</span>
+        <p class="big-num">1.3–3.1×</p>
+        <p class="ctx">lower effective bandwidth for the deduplicating kernel vs per-slot, across <b>all 8 engine×model pairs</b> (r = 0.37–0.75; best anywhere 0.75). <a class="jump" href="#results">see tables ↓</a></p>
+      </div>
+
+      <div class="card card-why">
+        <span class="label">Why this matters</span>
+        <p>Gives engine developers an actionable test — when to switch MoE dedup kernels and how to pick draft length — proving byte-count-only cost models get the sign wrong.</p>
+        <p class="zh-sub zh">「仅凭字节数判断加速会给出错误符号，内核层面的缓存效应才是决定性因素。」</p>
+      </div>
+
+      <div class="card card-edge">
+        <span class="label">⚠ Critical edge</span>
+        <p>Evaluated with an <strong>oracle draft</strong> and enforced geometric acceptance — the lone real-draft check found plain decoding fastest on <strong>33 of 37</strong> MT-Bench prompts, so the regime may rarely matter in practice.</p>
+        <p class="note">Only DeepSeek-V2-Lite was pre-registered; 3-of-4 model predictions were post-hoc. No public artifact. <a class="jump" href="#limitations">limitations ↓</a></p>
+      </div>
+    </section>
+
+    <!-- credibility strip -->
+    <div class="cred">
+      <span><b>Evidence ledger</b></span>
+      <span>Lean 4 / Mathlib proofs</span>
+      <span>bytes vs Nsight Compute DRAM counters (0.2–2.5%)</span>
+      <span>pre-registered DeepSeek-V2-Lite run</span>
+      <span>AI-agent assistance disclosed</span>
+      <span>code &amp; Lean artifact “on request” only</span>
+    </div>
+
+    <!-- ================= METHODOLOGY ================= -->
+    <section class="panel" id="methodology" data-reveal>
+      <div class="panel-head">
+        <h2>Methodology</h2>
+        <span class="sub">bytes (routing) × bandwidth (kernel) — each measured by the tool suited to it</span>
+      </div>
+      <p class="meth-lead">Splits each speculative step's time into two independently measurable inputs, proves when speculation pays, then validates the prediction end-to-end on real engines.</p>
+      <div class="meth-grid">
+        <div class="meth-block">
+          <h3>Cost model</h3>
+          <p><code>τ_p(n) = t₀ + D(n)/β_D + E_p(n)/β_p(n) + φ_p(n)</code> — fixed overhead, dense attention/KV reads, expert bytes at each kernel's <em>own</em> effective bandwidth, plus launch overhead. Prior work charged every expert read the same bandwidth; this is what breaks.</p>
+        </div>
+        <div class="meth-block">
+          <h3>Calibration (&lt; 1 h per model)</h3>
+          <p>Expert bytes follow from routing alone, computed offline from WikiText-103 traces (60 test articles). Bandwidths come from a one-layer benchmark running each engine's own kernels — 22 min (CUDA) / 48 min (Metal) vs 3.8–8 h whole-model speculative sweeps.</p>
+        </div>
+        <div class="meth-block">
+          <h3>Theory — proved in Lean 4 (Mathlib)</h3>
+          <p>Speedup condition for arbitrary positive step times; best draft length k*(a) is a monotone non-decreasing “staircase” in acceptance rate; dedup wins iff <code>ū(n) &lt; r(n)</code>; five error bounds — 10% bandwidth error moves predicted speedup ≤ 25%, savings near crossovers amplified 3.2–340×.</p>
+        </div>
+        <div class="meth-block">
+          <h3>Experiment matrix</h3>
+          <p>12 engine×model×depth configs (llama.cpp Metal/CUDA, MLX-LM × OLMoE-1B-7B, Qwen3-30B-A3B, gpt-oss-20b, DeepSeek-V2-Lite; depths 512/4096). Verify at n = 1–9; speculation at k = 0–8 × 11 acceptance rates (oracle draft); 70 Nsight Compute profiles verify byte counts without timing.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= RESULTS ================= -->
+    <section class="panel" id="results" data-reveal>
+      <div class="panel-head">
+        <h2>Results — beyond the headline</h2>
+        <span class="sub">12 configurations · 3 engines · 4 MoE models</span>
+      </div>
+
+      <ul class="findings">
+        <li><span class="num">8/8</span> engine×model pairs: dedup is slower at n = 2 — byte share ū(2) = <span class="num">0.72–0.83</span> exceeds bandwidth ratio r(2) = <span class="num">0.37–0.75</span>; dedup only wins from 5–8 tokens per pass, or never.</li>
+        <li>Hardware counters (70 CUDA profiles): dedup kernel reads its union bytes within <span class="num">0.2–2.5%</span>; per-slot reads <span class="num">1–2.35×</span> union — L2 cache serves the repeats, and its median bandwidth (933–1018 GB/s at n = 8) exceeds the RTX 4070 Ti SUPER's 672 GB/s DRAM peak from n = 4.</li>
+        <li>Crossover predicted within one pass size in <span class="num">10/12</span> configs (11/12 with recorded routing; the measured-time version matches all 4 CUDA crossovers exactly).</li>
+        <li>Pre-registered DeepSeek-V2-Lite on CUDA: best draft length within one at <span class="num">22/22</span> acceptance values, verify time within 10.1% — while a post-hoc fit invents a crossover at n = 7 where none is measured.</li>
+        <li>Real-draft reality check: plain decoding fastest on <span class="num">33/37</span> held-out MT-Bench prompts; the oracle draft emits 2–5% fewer tokens/step than the geometric expectation, putting measured speedups 1–21% below prediction.</li>
+      </ul>
+
+      <div class="tbl-duo">
+        <div class="tbl-box">
+          <h3>Table 1 · Next-token expert reuse ρ (WikiText-103)</h3>
+          <div class="tbl-scroll">
+          <table>
+            <thead><tr><th>Model</th><th>ρ(2) measured</th><th>uniform baseline</th><th>ρ(9)</th></tr></thead>
+            <tbody>
+              <tr><td>OLMoE-1B-7B</td><td>0.363</td><td>0.125</td><td>0.762</td></tr>
+              <tr><td>Qwen3-30B-A3B</td><td>0.480</td><td>0.0625</td><td>0.780</td></tr>
+              <tr><td>gpt-oss-20b</td><td>0.492</td><td>0.125</td><td>0.856</td></tr>
+            </tbody>
+          </table>
+          </div>
+          <p class="cap">Reuse is high — uniform-routing assumptions (used by MoESD) underestimate it by up to <span class="num">7.7×</span>.</p>
+        </div>
+        <div class="tbl-box">
+          <h3>Table 2 · Effective bandwidth, per-slot vs dedup (GB/s)</h3>
+          <div class="tbl-scroll">
+          <table>
+            <thead><tr><th>Engine</th><th>Model</th><th>n</th><th>per-slot</th><th>dedup</th><th>r</th></tr></thead>
+            <tbody>
+              <tr><td>llama.cpp CUDA</td><td>OLMoE-1B-7B</td><td>2</td><td>618</td><td>464</td><td class="r">0.75</td></tr>
+              <tr><td>llama.cpp Metal</td><td>Qwen3-30B-A3B</td><td>8</td><td>280</td><td>98</td><td class="r">0.35</td></tr>
+            </tbody>
+          </table>
+          </div>
+          <p class="cap">Dedup moves fewer bytes but moves them slower — the best ratio anywhere is r = 0.75.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= STRENGTHS / LIMITATIONS ================= -->
+    <section class="duo" data-reveal>
+      <div class="half half-str" id="strengths">
+        <h2>Strengths</h2>
+        <ul>
+          <li>Clean conceptual split — bytes (routing-determined) vs bandwidth (kernel-determined) — each measured by the right tool: traces, a sub-hour single-layer benchmark, hardware counters as an independent check.</li>
+          <li>Lean 4/Mathlib formalization of the full theory (speedup condition, staircase, dedup threshold, five error bounds) — rare rigor for an inference-systems paper.</li>
+          <li>Unusually honest evidence handling: pre-registered vs post-hoc predictions kept distinct; failed scoring rules and the one post-hoc correction named openly.</li>
+          <li>Actionable output: crossover point and best draft length follow from a &lt; 1-hour calibration instead of multi-hour sweeps or hand-tuned switches.</li>
+        </ul>
+      </div>
+      <div class="half half-lim" id="limitations">
+        <h2>Limitations</h2>
+        <ul>
+          <li>Oracle draft with enforced geometric acceptance; no real draft model beyond one small MT-Bench check — and acceptance is neither geometric nor stationary in deployment.</li>
+          <li>Predictions for 3 of 4 models were computed after the measurements, with one post-hoc correction — “10 of 12 crossovers” is post-hoc accuracy, not forecasting skill.</li>
+          <li>Batch size one, one machine per platform, models spanning only 7B–30B; DRAM-byte validation exists only on CUDA.</li>
+          <li>Bandwidths don't transfer across models — fitted on one, misses a held-out model by 9–206%, so calibration must be redone per model; the theory never derives r(n) from kernel structure.</li>
+          <li>No public code/data/Lean artifact (“available on request”); single author with disclosed AI-agent assistance.</li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- ================= QUESTIONS ================= -->
+    <section class="panel questions" data-reveal>
+      <div class="panel-head">
+        <h2>Questions for further exploration</h2>
+        <span class="sub">open threads from the summary</span>
+      </div>
+      <ol>
+        <li><span class="q">Q1</span>Can r(n) be predicted from kernel structure — tile shapes, gather patterns, quantization format — instead of measured per model, given the 9–206% cross-model transfer failure?</li>
+        <li><span class="q">Q2</span>Does the staircase prediction survive a real draft model with non-geometric acceptance and a nonzero, n-dependent draft cost h(k)?</li>
+        <li><span class="q">Q3</span>How do the ū(n) vs r(n) trade-offs shift at batch sizes &gt; 1, where the routing union grows and both kernels amortize launches differently?</li>
+        <li><span class="q">Q4</span>Would hardware with lower DRAM bandwidth or weaker compute (edge NPUs, mobile SoCs) push r(n) toward 1 and let deduplication win at all pass sizes?</li>
+        <li><span class="q">Q5</span>Can the gpt-oss d=4096 failure — self-repeating greedy continuations violating stationary routing — be modeled explicitly, e.g. conditioning the byte estimate on the draft's n-gram repetition statistics?</li>
+      </ol>
+    </section>
+  </main>
+
+  <footer>
+    <div class="wrap foot-row">
+      <a href="./2610.34440.md">↗ Markdown source</a>
+      <a href="https://arxiv.org/abs/2610.34440">↗ arXiv 2610.34440</a>
+      <span class="gen">distilled from the bilingual summary · 2026-10-19 issue</span>
+    </div>
+  </footer>
+
+  <script>
+    // progressive enhancement: staggered scroll-reveal only; page fully readable without JS
+    document.documentElement.classList.add('js');
+    var els = document.querySelectorAll('[data-reveal]');
+    if ('IntersectionObserver' in window) {
+      var io = new IntersectionObserver(function (entries) {
+        entries.forEach(function (e) {
+          if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); }
+        });
+      }, { threshold: 0.1 });
+      els.forEach(function (el) { io.observe(el); });
+    } else {
+      els.forEach(function (el) { el.classList.add('in'); });
+    }
+  </script>
+</body>
+</html>
