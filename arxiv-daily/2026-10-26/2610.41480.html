@@ -1,0 +1,414 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>KV-Cache Patching — Paper Dashboard · 2610.41480</title>
+<style>
+  :root{
+    --paper:#f6f2e8;
+    --card:#fffdf6;
+    --ink:#211f1a;
+    --muted:#6d675a;
+    --line:#d8d0bb;
+    --line-soft:#e7e1d0;
+    --accent:#176b51;        /* single semantic accent: empirical interpretability */
+    --accent-deep:#0e4a38;
+    --accent-tint:#e7efe9;
+    --edge:#a4432a;          /* cautionary contrast, critical-edge card only */
+    --edge-tint:#f8ece5;
+    --serif:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,"Times New Roman","Songti SC","Noto Serif CJK SC",serif;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI","Helvetica Neue","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+    --mono:"SF Mono",SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
+  }
+  *,*::before,*::after{ box-sizing:border-box; }
+  html{ scroll-behavior:smooth; }
+  body{
+    margin:0;
+    background:var(--paper);
+    color:var(--ink);
+    font-family:var(--sans);
+    font-size:15px;
+    line-height:1.55;
+    -webkit-font-smoothing:antialiased;
+    border-top:5px solid var(--accent);
+  }
+  .wrap{ width:min(95vw,1100px); margin:0 auto; padding:0 0 56px; }
+
+  /* ---------- fixed digest nav ---------- */
+  .digest-nav{
+    position:fixed; top:14px; left:14px; z-index:50;
+    display:inline-flex; align-items:center; gap:6px;
+    background:var(--card); border:1px solid var(--line);
+    border-radius:999px; padding:6px 14px;
+    font-size:12.5px; font-weight:600; color:var(--accent-deep);
+    text-decoration:none; box-shadow:0 1px 3px rgba(33,31,26,.10);
+    transition:transform .15s ease, box-shadow .15s ease;
+  }
+  .digest-nav:hover{ transform:translateY(-1px); box-shadow:0 3px 8px rgba(33,31,26,.16); }
+
+  /* ---------- hero band ---------- */
+  header.hero{ padding:64px 0 26px; border-bottom:2px solid var(--ink); }
+  .hero .label{
+    display:flex; align-items:center; gap:10px;
+    font-size:11px; font-weight:700; letter-spacing:.18em; text-transform:uppercase;
+    color:var(--accent-deep); margin-bottom:16px;
+  }
+  .hero .label::after{ content:""; flex:1; height:1px; background:var(--line); }
+  h1.finding{
+    margin:0;
+    font-family:var(--serif);
+    font-size:clamp(1.85rem,4vw,3.15rem);
+    line-height:1.16;
+    font-weight:700;
+    letter-spacing:-0.012em;
+    max-width:24ch;
+  }
+  h1.finding .hl{ border-bottom:4px solid var(--accent); }
+  .zh-line{
+    margin:18px 0 0; padding-left:14px; border-left:3px solid var(--accent);
+    font-family:var(--serif); font-size:14.5px; line-height:1.8; color:#3d3a32;
+    max-width:62ch;
+  }
+  .paper-meta{ margin-top:22px; display:flex; flex-wrap:wrap; align-items:baseline; gap:8px 14px; }
+  .paper-title{
+    font-family:var(--serif); font-style:italic; font-size:17.5px; font-weight:600;
+    color:var(--ink); text-decoration:none; border-bottom:1px solid var(--accent);
+  }
+  .paper-title:hover{ color:var(--accent-deep); }
+  .byline{ font-size:13px; color:var(--muted); }
+  .byline b{ color:var(--ink); font-weight:600; }
+  .chips{ display:flex; flex-wrap:wrap; gap:6px; margin-top:12px; }
+  .chip{
+    font-family:var(--mono); font-size:10.5px; letter-spacing:.02em;
+    color:var(--accent-deep); background:var(--accent-tint);
+    border:1px solid #c5d8cc; border-radius:999px; padding:3px 10px;
+  }
+
+  /* ---------- asset row ---------- */
+  .assets{
+    display:grid; grid-template-columns:1.25fr 1fr 1.12fr; gap:14px;
+    margin:22px 0 0;
+  }
+  .card{
+    background:var(--card); border:1px solid var(--line); border-radius:9px;
+    padding:18px 20px;
+  }
+  .card .tag{
+    font-size:10.5px; font-weight:700; letter-spacing:.16em; text-transform:uppercase;
+    color:var(--accent-deep); margin:0 0 10px; display:flex; align-items:center; gap:8px;
+  }
+  .card .tag::before{ content:""; width:8px; height:8px; background:var(--accent); border-radius:2px; }
+  /* metric card */
+  .metric-card{ display:flex; flex-direction:column; }
+  .metric-num{
+    font-family:var(--serif); font-weight:700; color:var(--accent-deep);
+    font-size:clamp(3rem,5.5vw,4.4rem); line-height:.95; letter-spacing:-0.02em;
+  }
+  .metric-num small{ font-size:.42em; font-weight:600; }
+  .metric-ctx{ font-size:13px; color:#3d3a32; margin-top:10px; line-height:1.5; }
+  .bars{ margin-top:auto; padding-top:14px; display:grid; gap:6px; }
+  .bar-row{ display:grid; grid-template-columns:92px 1fr 44px; align-items:center; gap:8px; font-size:11px; }
+  .bar-row .bl{ color:var(--muted); }
+  .bar-row .bv{ font-family:var(--mono); text-align:right; color:var(--ink); }
+  .track{ height:9px; background:#ece7d8; border-radius:99px; overflow:hidden; position:relative; }
+  .fill{ display:block; height:100%; background:var(--accent); border-radius:99px; width:0; }
+  .fill.dim{ background:#9db8ab; }
+  /* why card */
+  .why-card p{ margin:0; font-size:14.5px; line-height:1.6; color:#33302a; }
+  /* edge card */
+  .edge-card{ background:var(--edge-tint); border-color:#ddb4a5; }
+  .edge-card .tag{ color:var(--edge); }
+  .edge-card .tag::before{ background:var(--edge); }
+  .edge-card p{ margin:0; font-size:14px; line-height:1.6; color:#4a2c20; }
+  .edge-card p em{ font-style:italic; }
+
+  /* ---------- body grid ---------- */
+  .body-grid{
+    display:grid; grid-template-columns:5fr 7fr; gap:14px;
+    margin-top:14px; align-items:start;
+  }
+  .card h2{
+    margin:0 0 12px; font-family:var(--serif); font-size:19px; font-weight:700;
+    display:flex; align-items:baseline; gap:10px;
+  }
+  .card h2 .idx{ font-family:var(--mono); font-size:11px; color:var(--accent); font-weight:700; }
+  .card ul{ margin:0; padding-left:0; list-style:none; display:grid; gap:8px; }
+  .card ul li{ position:relative; padding-left:16px; font-size:13.5px; line-height:1.55; color:#33302a; }
+  .card ul li::before{ content:"—"; position:absolute; left:0; color:var(--accent); font-weight:700; }
+  .card ul li b{ color:var(--ink); }
+  .flow-fig{ margin:14px 0 4px; border:1px solid var(--line-soft); border-radius:8px; background:#fbf9f1; padding:10px 8px 4px; }
+  .flow-fig svg{ width:100%; height:auto; display:block; }
+  .fig-cap{ font-size:10.5px; color:var(--muted); text-align:center; padding:4px 6px 6px; font-family:var(--mono); }
+  /* taxonomy 2x2 */
+  .tax{ margin-top:16px; }
+  .tax .tax-head{ font-size:11px; font-weight:700; letter-spacing:.12em; text-transform:uppercase; color:var(--muted); margin-bottom:8px; }
+  .tax-grid{ display:grid; grid-template-columns:20px 1fr 1fr; gap:4px; }
+  .tax-cell{ border:1px solid var(--line-soft); border-radius:6px; padding:8px 10px; min-height:64px; background:#fbf9f1; }
+  .tax-cell.hot{ background:var(--accent-tint); border-color:#b9d2c4; }
+  .tax-cell.cold{ background:#efede4; border-color:var(--line); }
+  .tax-cell .t{ font-size:12px; font-weight:700; line-height:1.3; }
+  .tax-cell.hot .t{ color:var(--accent-deep); }
+  .tax-cell.cold .t{ color:#4c483d; }
+  .tax-cell .d{ font-size:11px; color:var(--muted); margin-top:3px; line-height:1.45; }
+  .tax-axis{ font-family:var(--mono); font-size:9.5px; color:var(--muted); display:flex; align-items:center; justify-content:center; }
+  .tax-col{ font-family:var(--mono); font-size:9.5px; color:var(--muted); text-align:center; padding-bottom:2px; }
+  /* results tables */
+  table{ width:100%; border-collapse:collapse; font-size:12.5px; margin-top:4px; }
+  th{
+    text-align:left; font-size:10.5px; letter-spacing:.1em; text-transform:uppercase;
+    color:var(--muted); border-bottom:2px solid var(--ink); padding:0 8px 6px 0; font-weight:700;
+  }
+  td{ padding:9px 8px 9px 0; border-bottom:1px solid var(--line-soft); vertical-align:top; line-height:1.5; color:#33302a; }
+  td.cls{ font-weight:700; color:var(--ink); }
+  td .sub{ display:block; font-size:11px; color:var(--muted); font-weight:400; margin-top:2px; }
+  td .n{ font-family:var(--mono); font-weight:700; color:var(--accent-deep); }
+  tr:last-child td{ border-bottom:none; }
+  .stat-tiles{ display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin-top:14px; }
+  .tile{ background:#fbf9f1; border:1px solid var(--line-soft); border-radius:7px; padding:10px 11px; }
+  .tile .tv{ font-family:var(--mono); font-size:14.5px; font-weight:700; color:var(--accent-deep); line-height:1.25; }
+  .tile .td{ font-size:10.8px; color:var(--muted); margin-top:4px; line-height:1.45; }
+  .results-note{ font-size:11.5px; color:var(--muted); margin:12px 0 0; line-height:1.5; }
+
+  /* ---------- strengths / limitations ---------- */
+  .duo{ display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-top:14px; }
+  .duo .card h2 .idx{ color:var(--accent); }
+  .lim-card h2 .idx{ color:var(--edge) !important; }
+  .lim-card ul li::before{ content:"×"; color:var(--edge); font-weight:700; }
+
+  /* ---------- questions ---------- */
+  .q-card{ margin-top:14px; }
+  .q-grid{ display:grid; grid-template-columns:1fr 1fr; gap:8px 26px; }
+  .q-item{ display:flex; gap:10px; font-size:13px; line-height:1.55; color:#33302a; }
+  .q-item .qn{ font-family:var(--mono); font-size:11px; font-weight:700; color:var(--accent); flex:0 0 auto; padding-top:2px; }
+
+  /* ---------- credibility strip + footer ---------- */
+  .cred{
+    margin-top:14px; border:1px dashed var(--line); border-radius:9px;
+    padding:14px 18px; font-size:12.5px; color:#4c483d; line-height:1.6;
+    display:grid; grid-template-columns:auto 1fr; gap:4px 14px;
+  }
+  .cred .k{ font-weight:700; color:var(--ink); font-size:10.5px; letter-spacing:.12em; text-transform:uppercase; padding-top:2px; }
+  footer{
+    margin-top:26px; padding-top:16px; border-top:2px solid var(--ink);
+    display:flex; flex-wrap:wrap; gap:8px 22px; align-items:center;
+    font-size:12.5px;
+  }
+  footer a{ color:var(--accent-deep); font-weight:600; text-decoration:none; border-bottom:1px solid var(--accent); }
+  footer a:hover{ color:var(--accent); }
+  footer .fine{ color:var(--muted); margin-left:auto; font-family:var(--mono); font-size:10.5px; }
+
+  /* ---------- load choreography ---------- */
+  @keyframes rise{ from{ opacity:0; transform:translateY(12px); } to{ opacity:1; transform:none; } }
+  .rise{ animation:rise .55s cubic-bezier(.2,.7,.3,1) both; }
+  .d1{ animation-delay:.05s } .d2{ animation-delay:.15s } .d3{ animation-delay:.25s }
+  .d4{ animation-delay:.35s } .d5{ animation-delay:.45s } .d6{ animation-delay:.55s } .d7{ animation-delay:.65s }
+  @media (prefers-reduced-motion:reduce){ .rise{ animation:none; } .fill{ transition:none !important; } }
+  @keyframes grow{ to{ width:var(--w); } }
+  .fill{ animation:grow 1s .5s cubic-bezier(.2,.7,.3,1) both; }
+
+  /* ---------- responsive ---------- */
+  @media (max-width:960px){
+    .body-grid{ grid-template-columns:1fr 1fr; }
+  }
+  @media (max-width:720px){
+    .assets{ grid-template-columns:1fr; }
+    .body-grid{ grid-template-columns:1fr; }
+    .duo{ grid-template-columns:1fr; }
+    .q-grid{ grid-template-columns:1fr; }
+    .stat-tiles{ grid-template-columns:1fr 1fr; }
+    header.hero{ padding-top:76px; }
+    .cred{ grid-template-columns:1fr; }
+  }
+  @media (max-width:460px){
+    .stat-tiles{ grid-template-columns:1fr; }
+    .bar-row{ grid-template-columns:80px 1fr 40px; }
+  }
+</style>
+</head>
+<body>
+
+<a class="digest-nav" href="./index.html">↩ Today's digest</a>
+
+<div class="wrap">
+
+  <!-- ================= HERO ================= -->
+  <header class="hero rise d1">
+    <div class="label">Key finding · traced by causal KV-cache interventions</div>
+    <h1 class="finding">Fine-tuning writes behaviors into the <span class="hl">KV cache</span> — misalignment and conventions transfer to the clean base model; capabilities stay in the weights.</h1>
+    <p class="zh-line" lang="zh">微调后的「回复惯例」与「行为倾向」（含涌现性失准）主要由前文 token 的 KV cache 表征承载——把微调 cache 移入 0.0% 失准的基座后出现 4.8% 失准；而任务能力几乎不随 cache 转移。</p>
+    <div class="paper-meta">
+      <a class="paper-title" href="https://arxiv.org/abs/2610.41480">KV-Cache Patching: Tracing How and Where Fine-Tuned Behaviors Arise</a>
+      <span class="byline"><b>Jonas Loos</b> &amp; <b>Oliver Eberle</b> · TU Berlin ML Group · BIFOLD · 2026-10-26 · arXiv 2610.41480</span>
+    </div>
+    <div class="chips">
+      <span class="chip">mechanistic-interpretability</span>
+      <span class="chip">kv-cache</span>
+      <span class="chip">activation-patching</span>
+      <span class="chip">lora-fine-tuning</span>
+      <span class="chip">emergent-misalignment</span>
+    </div>
+  </header>
+
+  <!-- ================= ASSET ROW ================= -->
+  <section class="assets">
+    <div class="card metric-card rise d2">
+      <p class="tag">Key metric · misalignment after full-cache transplant</p>
+      <div class="metric-num">4.8<small>%</small></div>
+      <p class="metric-ctx">Emergent-misalignment rate elicited in the <b>clean base</b> (0.0% unpatched) by patching in the fine-tune's full KV cache — two-thirds of the fine-tune's own 7.2%. <i>Bad-medical-advice benchmark, Qwen2.5-7B.</i></p>
+      <div class="bars">
+        <div class="bar-row"><span class="bl">base</span><span class="track"><span class="fill dim" style="--w:2%"></span></span><span class="bv">0.0%</span></div>
+        <div class="bar-row"><span class="bl">base+ft cache</span><span class="track"><span class="fill" style="--w:67%"></span></span><span class="bv">4.8%</span></div>
+        <div class="bar-row"><span class="bl">fine-tune</span><span class="track"><span class="fill" style="--w:100%"></span></span><span class="bv">7.2%</span></div>
+      </div>
+    </div>
+    <div class="card why-card rise d3">
+      <p class="tag">Why this matters</p>
+      <p>Causally locates <b>where fine-tuning writes behavior</b> — guiding misalignment mitigation, safe KV-cache sharing in LoRA serving, and targeted behavior editing.</p>
+    </div>
+    <div class="card edge-card rise d4">
+      <p class="tag">Critical edge</p>
+      <p>The split may be baked into task design: conventions are behaviors the base can <em>already express</em>, while every capability task requires knowledge found only in the fine-tuning data — "cache vs weights" may reduce to "expressible vs not".</p>
+    </div>
+  </section>
+
+  <!-- ================= BODY GRID ================= -->
+  <main class="body-grid">
+
+    <!-- Methodology -->
+    <section class="card rise d5">
+      <h2><span class="idx">01</span>Methodology — a cache swap between identical checkpoints</h2>
+      <ul>
+        <li><b>Intervention:</b> swap only the keys &amp; values of previous tokens between base and base+LoRA — same weights otherwise, so self-patching is a null intervention.</li>
+        <li><b>Three coverage levels:</b> prompt⁻¹ / prompt / all (including generated tokens) — behavioral effect grows monotonically with cache coverage.</li>
+        <li><b>Scale:</b> 3 models × 12 tasks × 3 levels; 860–3,000 completions per cell, prompt-clustered bootstrap CIs. Qwen3.5-4B's linear-attention "cache" is a fixed-size recurrent state — patching still works.</li>
+        <li><b>Scoring:</b> exact-match detectors + LLM judge; coherence controlled by a fluency judge and a repetition-loop detector. Gradual patching sweeps the cache prefix token-by-token, scored by a normalized KL ratio (0 = base, 1 = fine-tune).</li>
+      </ul>
+      <figure class="flow-fig" style="margin-inline:0">
+        <svg viewBox="0 0 460 168" role="img" aria-label="Bidirectional KV-cache patching: fine-tune cache into base (sufficiency), base cache into fine-tune (reliance)">
+          <defs>
+            <marker id="ag" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto"><path d="M0,0 L8,4.5 L0,9 z" fill="#176b51"/></marker>
+            <marker id="an" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto"><path d="M0,0 L8,4.5 L0,9 z" fill="#8b8574"/></marker>
+          </defs>
+          <rect x="12" y="52" width="128" height="58" rx="8" fill="#e7efe9" stroke="#176b51" stroke-width="1.4"/>
+          <text x="76" y="76" text-anchor="middle" font-family="-apple-system,Segoe UI,sans-serif" font-size="12.5" font-weight="700" fill="#0e4a38">BASE MODEL</text>
+          <text x="76" y="93" text-anchor="middle" font-family="Menlo,monospace" font-size="9.5" fill="#4c483d">0.0% misaligned</text>
+          <rect x="320" y="52" width="128" height="58" rx="8" fill="#fffdf6" stroke="#211f1a" stroke-width="1.2"/>
+          <text x="384" y="76" text-anchor="middle" font-family="-apple-system,Segoe UI,sans-serif" font-size="12.5" font-weight="700" fill="#211f1a">BASE + LoRA</text>
+          <text x="384" y="93" text-anchor="middle" font-family="Menlo,monospace" font-size="9.5" fill="#4c483d">7.2% misaligned</text>
+          <path d="M312 62 C 250 30, 210 30, 148 62" fill="none" stroke="#176b51" stroke-width="1.6" marker-end="url(#ag)"/>
+          <text x="230" y="36" text-anchor="middle" font-family="-apple-system,Segoe UI,sans-serif" font-size="10.5" font-weight="600" fill="#0e4a38">ft → base · does the cache ALONE elicit it?</text>
+          <path d="M148 104 C 210 138, 250 138, 312 104" fill="none" stroke="#8b8574" stroke-width="1.6" stroke-dasharray="4 3" marker-end="url(#an)"/>
+          <text x="230" y="140" text-anchor="middle" font-family="-apple-system,Segoe UI,sans-serif" font-size="10.5" font-weight="600" fill="#6d675a">base → ft · does the fine-tune RELY on it?</text>
+          <text x="230" y="160" text-anchor="middle" font-family="Menlo,monospace" font-size="8.5" fill="#8b8574">patch = transplant KV entries of previous tokens</text>
+        </svg>
+        <figcaption class="fig-cap">Bidirectional patching: sufficiency (denoising) × reliance (noising)</figcaption>
+      </figure>
+      <div class="tax">
+        <p class="tax-head">The 2×2 taxonomy — where does a behavior live?</p>
+        <div class="tax-grid">
+          <span class="tax-axis">↺ relied</span>
+          <span class="tax-col">cache sufficient: yes</span>
+          <span class="tax-col">cache sufficient: no</span>
+          <span class="tax-axis">yes</span>
+          <div class="tax-cell hot"><div class="t">Behavior in the cache</div><div class="d">Conventions &amp; dispositions land here — German, refusal, CoT, misalignment.</div></div>
+          <div class="tax-cell"><div class="t">Both needed</div><div class="d">Weights and cache are individually insufficient.</div></div>
+          <span class="tax-axis">no</span>
+          <div class="tax-cell"><div class="t">Each sufficient alone</div><div class="d">Cache and weights can each elicit the behavior.</div></div>
+          <div class="tax-cell cold"><div class="t">Behavior in the weights</div><div class="d">Capabilities land here — JSON, MTOP parsing, G2P: 0% cache transfer.</div></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Results -->
+    <section class="card rise d6">
+      <h2><span class="idx">02</span>Results — what transferred, what didn't</h2>
+      <table>
+        <thead>
+          <tr><th>Task class</th><th>ft → base (cache into base)</th><th>base → ft (base cache into ft)</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="cls">Conventions<span class="sub">German · refusal · lowercase · CoT</span></td>
+            <td>Near-full transfer across all 3 models; lowercase on Qwen2.5 plateaus at <span class="n">~48%</span>.</td>
+            <td>Mostly wipes the behavior out.</td>
+          </tr>
+          <tr>
+            <td class="cls">Dispositions<span class="sub">emergent misalignment · sycophancy</span></td>
+            <td><span class="n">4.8%</span> vs <span class="n">0.0%</span> base / <span class="n">7.2%</span> ft — two-thirds of misalignment reproduced in the clean base.</td>
+            <td>Removes most behavior.</td>
+          </tr>
+          <tr>
+            <td class="cls">Capabilities<span class="sub">JSON extraction · MTOP parsing · G2P</span></td>
+            <td><span class="n">0%</span> — JSON and MTOP stay at zero even at LR 1e-4; the split isn't a weak-recipe artifact.</td>
+            <td>Collapses into repetition loops: <span class="n">41%</span> Qwen3.5-4B · <span class="n">34%</span> Llama-3.1 · <span class="n">17%</span> Qwen2.5.</td>
+          </tr>
+        </tbody>
+      </table>
+      <div class="stat-tiles">
+        <div class="tile"><div class="tv">78–97%</div><div class="td">German ft→base at every LR 1e-6 → 2e-4 — sufficiency is recipe-robust.</div></div>
+        <div class="tile"><div class="tv">0 → 64 → 86%</div><div class="td">base→ft reliance flips with LR: ~0 at ≤1e-5, 64% at 1e-4, 86% at 2e-4.</div></div>
+        <div class="tile"><div class="tv">7.7×</div><div class="td">full fine-tuning matches LoRA's cache-reliance curve at 7.7× the learning rate.</div></div>
+        <div class="tile"><div class="tv">68–70% → 94–99%</div><div class="td">LoRA rank sweep (German): transfers even at r=1; near-full for r≥16.</div></div>
+        <div class="tile"><div class="tv">97–99 / 100</div><div class="td">judged coherence everywhere — transfer is not generic degradation.</div></div>
+        <div class="tile"><div class="tv">9 tokens</div><div class="td">on Qwen3.5-4B nearly the whole shift sits in the final 9 template tokens (assistant header + empty thinking block).</div></div>
+      </div>
+      <p class="results-note">Pivotal positions across models: system-prompt tokens, chat-template tokens, and the last prompt token — exactly the tokens identical across all fine-tuning samples.</p>
+    </section>
+  </main>
+
+  <!-- ================= STRENGTHS / LIMITATIONS ================= -->
+  <section class="duo">
+    <div class="card rise d6">
+      <h2><span class="idx">03</span>Strengths</h2>
+      <ul>
+        <li><b>Clean causal separation</b> — altered processing of past tokens vs altered generation-time computation; exactly the right tool for the question.</li>
+        <li><b>Graded dose-response</b> — bidirectional design × three coverage levels beats a single binary answer.</li>
+        <li><b>Exceptional statistical hygiene</b> — 860–3,000 completions per cell, clustered CIs, two independent coherence controls.</li>
+        <li><b>Convergent localization</b> — pivotal positions line up with attention sinks and template-anchored refusal: fine-tunes "write" steering into consistently-seen positions.</li>
+        <li><b>Practical payoff</b> — which LoRA variants can share a base prompt cache in serving; base-cache serving can suppress emergent misalignment.</li>
+      </ul>
+    </div>
+    <div class="card lim-card rise d6">
+      <h2><span class="idx">04</span>Limitations</h2>
+      <ul>
+        <li><b>Scale &amp; validity</b> — 4–8B models, 12 narrow partly-synthetic tasks, 1-epoch LoRA; RLHF / reasoning-RL post-training untested.</li>
+        <li><b>Constructed split</b> — capability tasks guarantee the "weights" outcome (knowledge only in FT data; trained KV prefixes can carry capabilities).</li>
+        <li><b>One recipe</b> — the reliance axis is learning-rate-sensitive; full FT at high LR elicits only 21% German though the model itself answers German 97–100%.</li>
+        <li><b>Proxy measure</b> — the KL ratio is teacher-forced and top-p-restricted; it may diverge from free-running behavior.</li>
+        <li><b>"Where" is positional only</b> — all-layers patching says nothing about which layers or heads carry the behavior.</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- ================= QUESTIONS ================= -->
+  <section class="card q-card rise d7">
+    <h2><span class="idx">05</span>Questions for further exploration</h2>
+    <div class="q-grid">
+      <div class="q-item"><span class="qn">Q1</span><span>Does the conventions/dispositions-vs-capabilities split survive real post-training pipelines (instruction tuning, RLHF, reasoning RL)?</span></div>
+      <div class="q-item"><span class="qn">Q2</span><span>Which layers and heads carry the transferred behavior — can layer/head-selective patching upgrade the positional answer to a circuit-level one?</span></div>
+      <div class="q-item"><span class="qn">Q3</span><span>Could editing only the ~10–30 pivotal cache positions install or remove a behavior at inference time — a cheap behavior-editing primitive?</span></div>
+      <div class="q-item"><span class="qn">Q4</span><span>Can base→ft patching work as a runtime safety guard — suppressing misalignment while leaving weight-stored capabilities intact?</span></div>
+      <div class="q-item"><span class="qn">Q5</span><span>Does the learning-rate dependence predict that RL-tuned models store persona behaviors in weights — changing how misalignment should be mitigated?</span></div>
+      <div class="q-item"><span class="qn">Q6</span><span>Does this replicate at 70B+ scale, and in non-transformer hybrids where the "cache" is a fixed-size recurrent state?</span></div>
+    </div>
+  </section>
+
+  <!-- ================= CREDIBILITY ================= -->
+  <section class="cred rise d7">
+    <span class="k">Credibility</span>
+    <span>Eberle's group has a solid interpretability track record (LRP-based XAI, AlgoTrace); engages the emergent-misalignment model-organism line carefully. Statistical practice above the norm for the genre; no serious red flags.</span>
+    <span class="k">Venue &amp; artifacts</span>
+    <span>Accepted at the NeurIPS 2026 workshop "Interpretability as a Science". Code, data, and fine-tunes released at jonasloos.github.io/kv-patching. Mild reproducibility risk: disposition scoring depends on an external LLM judge (deepseek-v4-flash).</span>
+  </section>
+
+  <footer>
+    <a href="./2610.41480.md">↗ Markdown source</a>
+    <a href="https://arxiv.org/abs/2610.41480">↗ arXiv 2610.41480</a>
+    <span class="fine">weekly issue 2026-10-26 · paper dashboard from source summary</span>
+  </footer>
+
+</div>
+
+</body>
+</html>

@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>2611.00624 — XLA from the Trenches: Correctness on TPU Workloads at Scale</title>
+<style>
+  :root{
+    --paper:#f6f5f0;
+    --card:#ffffff;
+    --ink:#131a19;
+    --muted:#5b6764;
+    --line:#dcd9cf;
+    --line-strong:#c3bfae;
+    --accent:#0c6e62;          /* TPU teal — the one topic-derived accent */
+    --accent-soft:#e3efec;
+    --warn:#a25a04;            /* cautionary amber, critical-edge card only */
+    --warn-bg:#faf1e4;
+    --warn-line:#e4c79a;
+    --mono:ui-monospace,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI","Helvetica Neue","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{scroll-behavior:smooth}
+  body{
+    font-family:var(--sans);
+    background:
+      repeating-linear-gradient(0deg, rgba(19,26,25,.028) 0 1px, transparent 1px 28px),
+      repeating-linear-gradient(90deg, rgba(19,26,25,.028) 0 1px, transparent 1px 28px),
+      var(--paper);
+    color:var(--ink);
+    font-size:16px;
+    line-height:1.55;
+  }
+  .wrap{width:min(95vw,1100px);margin:0 auto}
+
+  /* ---------- scroll progress ---------- */
+  #progress{position:fixed;top:0;left:0;height:3px;width:0;background:var(--accent);z-index:60}
+
+  /* ---------- fixed digest nav ---------- */
+  .digest-nav{
+    position:fixed;top:14px;left:14px;z-index:50;
+    font-family:var(--mono);font-size:12px;letter-spacing:.04em;
+    background:var(--card);border:1px solid var(--line-strong);border-radius:999px;
+    padding:7px 14px;box-shadow:0 2px 10px rgba(19,26,25,.08);
+    text-decoration:none;color:var(--ink);white-space:nowrap;
+    transition:border-color .15s ease, color .15s ease;
+  }
+  .digest-nav:hover{border-color:var(--accent);color:var(--accent)}
+
+  /* ---------- hero ---------- */
+  header.hero{padding:96px 0 26px}
+  .kicker{
+    font-family:var(--mono);font-size:11.5px;letter-spacing:.14em;text-transform:uppercase;
+    color:var(--muted);display:flex;flex-wrap:wrap;gap:6px 14px;align-items:center;margin-bottom:18px;
+  }
+  .kicker .dot{color:var(--accent)}
+  h1.finding{
+    font-size:clamp(1.75rem,4.4vw,3.25rem);
+    line-height:1.12;letter-spacing:-.022em;font-weight:800;
+    max-width:44ch;
+  }
+  h1.finding .hl{color:var(--accent)}
+  .finding-zh{
+    margin-top:16px;max-width:62ch;color:#2c3735;
+    font-size:15px;line-height:1.75; /* CJK-friendly */
+    padding-left:14px;border-left:3px solid var(--accent);
+  }
+  .paper-line{margin-top:22px}
+  .paper-line a.paper-title{
+    font-size:17.5px;font-weight:650;color:var(--ink);text-decoration:none;
+    border-bottom:2px solid var(--accent-soft);
+  }
+  .paper-line a.paper-title:hover{border-bottom-color:var(--accent)}
+  .meta{
+    margin-top:12px;display:flex;flex-wrap:wrap;gap:8px 18px;align-items:baseline;
+    font-size:13.5px;color:var(--muted);
+  }
+  .meta .authors{max-width:58ch}
+  .chips{display:flex;flex-wrap:wrap;gap:7px;margin-top:14px}
+  .chip{
+    font-family:var(--mono);font-size:11px;letter-spacing:.05em;
+    background:var(--accent-soft);color:#0a5049;border:1px solid #bfd9d3;
+    padding:3px 10px;border-radius:999px;
+  }
+
+  /* ---------- asset row ---------- */
+  .assets{
+    display:grid;grid-template-columns:1.05fr 1fr 1.15fr;gap:16px;
+    margin:26px 0 40px;
+  }
+  .asset{
+    background:var(--card);border:1px solid var(--line);border-radius:10px;
+    padding:22px 22px 20px;position:relative;
+    box-shadow:0 1px 3px rgba(19,26,25,.05);
+  }
+  .asset .tag{
+    font-family:var(--mono);font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;
+    color:var(--muted);display:block;margin-bottom:14px;
+  }
+  /* metric */
+  .metric-num{
+    font-family:var(--mono);font-weight:700;color:var(--accent);
+    font-size:clamp(3.6rem,7.5vw,5.4rem);line-height:.95;letter-spacing:-.03em;
+  }
+  .metric-unit{font-family:var(--mono);font-size:14px;color:var(--accent);font-weight:600}
+  .metric-ctx{margin-top:12px;font-size:14px;color:#2c3735;max-width:34ch}
+  .metric-sub{
+    margin-top:16px;padding-top:14px;border-top:1px dashed var(--line-strong);
+    display:flex;gap:22px;flex-wrap:wrap;
+  }
+  .metric-sub div{font-family:var(--mono);font-size:12px;color:var(--muted);line-height:1.5}
+  .metric-sub b{display:block;font-size:17px;color:var(--ink);font-weight:700}
+  /* why */
+  .why-text{font-size:15.5px;line-height:1.6;color:#222c2a}
+  .why-zh{margin-top:14px;font-size:13px;line-height:1.75;color:var(--muted)}
+  /* critical edge */
+  .asset.crit{background:var(--warn-bg);border-color:var(--warn-line)}
+  .asset.crit .tag{color:var(--warn)}
+  .crit-text{font-size:15.5px;line-height:1.62;color:#3d2a10;font-weight:550}
+  .crit-text em{font-style:italic;font-weight:650}
+  .crit-src{margin-top:12px;font-family:var(--mono);font-size:11px;color:#8a6a35;letter-spacing:.04em}
+
+  /* ---------- body grid ---------- */
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px}
+  .card{
+    background:var(--card);border:1px solid var(--line);border-radius:10px;
+    padding:24px 24px 22px;box-shadow:0 1px 3px rgba(19,26,25,.05);
+  }
+  .card.full{grid-column:1 / -1}
+  .card h2{
+    font-family:var(--mono);font-size:11.5px;letter-spacing:.16em;text-transform:uppercase;
+    color:var(--muted);font-weight:600;display:flex;align-items:baseline;gap:10px;
+    padding-bottom:12px;border-bottom:1px solid var(--line);margin-bottom:16px;
+  }
+  .card h2 .idx{color:var(--accent);font-weight:700}
+  .card h3.sub{font-size:13px;font-weight:700;margin:16px 0 8px;color:var(--ink);
+    font-family:var(--mono);letter-spacing:.02em}
+  .card p{font-size:14.5px;color:#26302e;margin-bottom:10px}
+  .card ul{list-style:none}
+  .card ul li{
+    font-size:14.5px;color:#26302e;padding:7px 0 7px 18px;position:relative;line-height:1.55;
+    border-bottom:1px solid #efece3;
+  }
+  .card ul li:last-child{border-bottom:none}
+  .card ul li::before{content:"▸";position:absolute;left:0;top:7px;color:var(--accent);font-size:12px}
+  .card ul li b{font-weight:650}
+  .tier{color:var(--accent);font-family:var(--mono);font-size:12px;font-weight:700}
+
+  /* pipeline flow strip */
+  .flow{
+    margin:14px 0 4px;padding:12px 14px;background:#f2f4f1;border:1px dashed var(--line-strong);
+    border-radius:8px;font-family:var(--mono);font-size:12px;line-height:2;color:#333d3b;
+    overflow-wrap:anywhere;
+  }
+  .flow .step{white-space:nowrap}
+  .flow .arr{color:var(--accent);font-weight:700;padding:0 4px}
+  .flow .lbl{display:block;font-size:10px;letter-spacing:.14em;color:var(--muted);margin-bottom:2px}
+
+  /* taxonomy table */
+  table{width:100%;border-collapse:collapse;margin:6px 0 14px}
+  th{
+    font-family:var(--mono);font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;
+    color:var(--muted);text-align:left;font-weight:600;padding:6px 8px;border-bottom:2px solid var(--line-strong);
+  }
+  td{padding:8px;border-bottom:1px solid #efece3;font-size:13.5px;vertical-align:middle}
+  td.num{font-family:var(--mono);font-weight:700;text-align:right;white-space:nowrap}
+  td:first-child{font-weight:550}
+  .bar{height:9px;background:var(--accent);border-radius:2px;min-width:4px}
+  .bar-wrap{width:100%;min-width:90px}
+  .tfoot-note{font-family:var(--mono);font-size:11px;color:var(--muted);margin-top:-8px;margin-bottom:12px}
+
+  .fact-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:6px}
+  .fact{
+    background:#f4f6f2;border:1px solid var(--line);border-radius:8px;padding:12px 14px;
+  }
+  .fact .f-num{font-family:var(--mono);font-weight:700;font-size:19px;color:var(--accent);letter-spacing:-.01em}
+  .fact .f-lbl{font-size:12.5px;color:#3a4542;line-height:1.45;margin-top:3px}
+
+  /* strengths vs limitations */
+  .card.pros ul li::before{content:"+";color:var(--accent);font-weight:700;font-size:14px}
+  .card.cons ul li::before{content:"–";color:var(--warn);font-weight:700;font-size:14px}
+
+  /* questions */
+  .qs{counter-reset:q}
+  .qs li{counter-increment:q;padding-left:34px}
+  .qs li::before{content:counter(q,decimal-leading-zero);position:absolute;left:0;top:8px;
+    color:var(--accent);font-family:var(--mono);font-size:11px;font-weight:700}
+  .qs li{font-size:14px}
+
+  /* footer */
+  footer{
+    margin:34px 0 46px;padding-top:18px;border-top:1px solid var(--line-strong);
+    display:flex;flex-wrap:wrap;gap:10px 26px;align-items:center;
+    font-family:var(--mono);font-size:12.5px;
+  }
+  footer a{color:var(--accent);text-decoration:none;border-bottom:1px solid var(--accent-soft);padding-bottom:1px}
+  footer a:hover{border-bottom-color:var(--accent)}
+  footer .sep{color:var(--line-strong)}
+
+  /* ---------- motion ---------- */
+  @keyframes rise{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
+  header.hero,.assets>.asset,.grid>.card,footer{animation:rise .55s cubic-bezier(.2,.7,.3,1) both}
+  .assets>.asset:nth-child(1){animation-delay:.08s}
+  .assets>.asset:nth-child(2){animation-delay:.16s}
+  .assets>.asset:nth-child(3){animation-delay:.24s}
+  .grid>.card:nth-child(1){animation-delay:.30s}
+  .grid>.card:nth-child(2){animation-delay:.34s}
+  .grid>.card:nth-child(3){animation-delay:.38s}
+  .grid>.card:nth-child(4){animation-delay:.42s}
+  .grid>.card.full{animation-delay:.46s}
+  @media (prefers-reduced-motion:reduce){
+    *{animation:none!important;transition:none!important}
+    html{scroll-behavior:auto}
+  }
+
+  /* ---------- responsive ---------- */
+  @media (max-width:900px){
+    .assets{grid-template-columns:1fr 1fr}
+    .asset.crit{grid-column:1 / -1}
+  }
+  @media (max-width:720px){
+    .assets,.grid,.panel-pair,.fact-grid{grid-template-columns:1fr}
+    .asset.crit{grid-column:auto}
+    header.hero{padding-top:84px}
+    h1.finding{max-width:100%}
+    .digest-nav{top:10px;left:10px;font-size:11px;padding:6px 11px}
+  }
+</style>
+</head>
+<body>
+<div id="progress" aria-hidden="true"></div>
+<a class="digest-nav" href="./index.html">↩ Today's digest</a>
+
+<div class="wrap">
+
+  <!-- ================= HERO ================= -->
+  <header class="hero">
+    <div class="kicker">
+      <span>arXiv 2611.00624</span><span class="dot">●</span>
+      <span>Industrial experience report</span><span class="dot">●</span>
+      <span>XLA:TPU · Google</span>
+    </div>
+    <h1 class="finding">Google turned production autotuning into a <span class="hl">near-free differential fuzzer</span> — resolving 142+ silent TPU miscompilations that escaped ~200k CI tests.</h1>
+    <p class="finding-zh" lang="zh">把生产自动调优流水线改造成「免费」的差分模糊测试器，配合 AI 代理集群与「宏图二分 → 融合内核 VREG 单步检查」分层隔离管线，在真实生产负载上定位并修复 142+ 个静默数值编译器缺陷。</p>
+    <div class="paper-line">
+      <a class="paper-title" href="https://arxiv.org/abs/2611.00624">XLA from the Trenches: Correctness on TPU Workloads at Scale</a>
+    </div>
+    <div class="meta">
+      <span class="authors">Ignacio Cano, Amir Saadat, Rishipal Singh Bhatia, Samuel Ginzburg, <i>et al.</i> — 22 authors, all Google</span>
+      <span>2026-10-26</span>
+    </div>
+    <div class="chips">
+      <span class="chip">compiler-correctness</span>
+      <span class="chip">silent-data-corruption</span>
+      <span class="chip">fuzzing</span>
+      <span class="chip">TPU</span>
+      <span class="chip">LLM-agents</span>
+    </div>
+  </header>
+
+  <!-- ================= ASSET ROW ================= -->
+  <section class="assets">
+
+    <div class="asset">
+      <span class="tag">Key metric</span>
+      <div><span class="metric-num">142+</span> <span class="metric-unit">bugs fixed</span></div>
+      <p class="metric-ctx">Silent numerical miscompilations resolved — defects that escaped XLA's CI suite of ~200k test cases (&gt;1M executions per full pass).</p>
+      <div class="metric-sub">
+        <div><b>+103</b>fixes under review</div>
+        <div><b>43%</b>in TensorCore LLO / emitters</div>
+        <div><b>~200k</b>prod graphs sampled</div>
+      </div>
+    </div>
+
+    <div class="asset">
+      <span class="tag">Why this matters</span>
+      <p class="why-text">Silent miscompilation corrupts model outputs with no error signal — metrics just quietly degrade. This differential-testing + hierarchical-isolation playbook transfers to any ML-infrastructure reliability effort.</p>
+      <p class="why-zh" lang="zh">编译器误编译正是模型软件栈造成「静默输出损坏」的典型来源；该方法论可直接迁移到推理可靠性、异常检测与归因。</p>
+    </div>
+
+    <div class="asset crit">
+      <span class="tag">⚠ Critical edge</span>
+      <p class="crit-text">No head-to-head baselines, no ablation attributing the 142 bugs to each fuzzing tier — and the pipeline's own false-positive rate, <em>“the single most important number,”</em> is never reported.</p>
+      <p class="crit-src">source: Critical Assessment · Limitations</p>
+    </div>
+
+  </section>
+
+  <!-- ================= BODY GRID ================= -->
+  <main class="grid">
+
+    <!-- Methodology -->
+    <section class="card">
+      <h2><span class="idx">01</span> Methodology — fuzz proactively, isolate reactively</h2>
+
+      <h3 class="sub">Prong A · Hybrid fuzzing, 3 tiers</h3>
+      <ul>
+        <li><span class="tier">T1</span> <b>Synthetic generation</b> — type-directed generator over typed Jaxpr IR; inverse type rules sample valid operand shapes (dims in multiples of 128); outputs checked on hardware against a hardened reference evaluator.</li>
+        <li><span class="tier">T2</span> <b>Autotuner piggyback</b> — strict-tolerance differential checks embedded in the daily production autotuning sweeps (CATWILD). “Performance autotuners are natural fuzzers” — near-zero marginal infrastructure cost.</li>
+        <li><span class="tier">T3</span> <b>AI agent swarms</b> — agents read pass source code, synthesize targeted fuzzer plugins, minimize reproducers, and draft atomic fixes; adversarial review swarms audit numeric corner cases; mostly run on hardware-accurate simulators to conserve TPU quota; humans approve every patch.</li>
+      </ul>
+
+      <h3 class="sub">Prong B · Hierarchical isolation</h3>
+      <ul>
+        <li><b>Macro — graph bisection</b> decomposes failing 10k+-node HLO graphs into single-chip legal subgraphs (layouts preserved; upstreamed to OpenXLA). Safe inputs synthesized by reverse constraint propagation — linear-time interval arithmetic, deliberately not SMT.</li>
+        <li><b>Micro — intra-fusion VREG inspection</b> freezes the compiled kernel unchanged, halts the TensorCore at the fusion entry, and single-steps the intact kernel while reading 8×128 vector-register intermediates directly from hardware — defeating Heisenbugs that vanish when barriers split the fusion.</li>
+      </ul>
+
+      <div class="flow">
+        <span class="lbl">PIPELINE</span>
+        <span class="step">generate</span><span class="arr">→</span><span class="step">differential check</span><span class="arr">→</span><span class="step">macro bisect</span><span class="arr">→</span><span class="step">isolate fusion</span><span class="arr">→</span><span class="step">VREG single-step</span><span class="arr">→</span><span class="step">agent patch</span><span class="arr">→</span><span class="step">peer review</span>
+      </div>
+    </section>
+
+    <!-- Results -->
+    <section class="card">
+      <h2><span class="idx">02</span> Results — beyond the headline</h2>
+
+      <p>Where the 245 found bugs live (peer-reviewed fixes, automated campaigns) — miscompilations concentrate in the lowest backend layers:</p>
+      <table>
+        <thead><tr><th>Subsystem</th><th class="bar-wrap">Share</th><th style="text-align:right">%</th></tr></thead>
+        <tbody>
+          <tr><td>TensorCore LLO &amp; Emitters</td><td><div class="bar" style="width:43%"></div></td><td class="num">43%</td></tr>
+          <tr><td>HLO Simplifiers &amp; Rewrites</td><td><div class="bar" style="width:25%"></div></td><td class="num">25%</td></tr>
+          <tr><td>Precision &amp; Emulation Rewriters</td><td><div class="bar" style="width:14%"></div></td><td class="num">14%</td></tr>
+          <tr><td>SparseCore Lowering</td><td><div class="bar" style="width:10%"></div></td><td class="num">10%</td></tr>
+          <tr><td>Custom Kernel Lowering</td><td><div class="bar" style="width:8%"></div></td><td class="num">8%</td></tr>
+        </tbody>
+      </table>
+      <p class="tfoot-note">Table 1 · bar scale 1% : 1%</p>
+
+      <div class="fact-grid">
+        <div class="fact"><div class="f-num">100×</div><div class="f-lbl">Customer eval-metric drop after a compiler update — fuzzer had flagged the conv-reduce divergence days before the P0, but the fix hadn't landed.</div></div>
+        <div class="fact"><div class="f-num">~70% → &gt;99%</div><div class="f-lbl">Nearest-neighbor pipeline top-1000 recall: a packed-window bug silently dropped ~30% of top results; the in-flight fix restored them.</div></div>
+        <div class="fact"><div class="f-num">131,072 → 0</div><div class="f-lbl">QAT case: skipped f32→f16→f32 casts self-cancelled in 32-bit VREGs (0.0% nonzero vs 93.7–100% reference); enforcing 16-bit rounding restored bit-exact output.</div></div>
+        <div class="fact"><div class="f-num">&gt;40% / 10k+</div><div class="f-lbl">Share of ~200k fleet graphs exceeding 10k nodes (fusions counted as one node); fusions reach ~700–5,900 internal instructions — manual triage intractable.</div></div>
+      </div>
+
+      <h3 class="sub">Agent-discovered &amp; agent-patched (Listing 1)</h3>
+      <ul>
+        <li>Complex <b>tan</b> → NaN for |y| &gt; 44.36 (sinh overflow); <b>tanh</b> → 0+0i on a |a| interval boundary.</li>
+        <li>Int8 scatter: one-hot iota wrapped <b>modulo 256</b> — writing index 5 also overwrote index 261.</li>
+        <li>Cumsum constant fold dropped the int32 truncation — [1., 2., …] became [1.75, 3.5, …].</li>
+      </ul>
+    </section>
+
+    <!-- Strengths -->
+    <section class="card pros">
+      <h2><span class="idx">03</span> Strengths</h2>
+      <ul>
+        <li><b>Autotuner-as-fuzzer</b> is an elegant, cost-aware insight other compiler teams can adopt immediately.</li>
+        <li><b>Macro→micro isolation</b> attacks the two hardest TPU observability problems — 10k-node graphs and opaque fusions — with barrier-free VREG stepping and 16-byte on-device tensor summaries.</li>
+        <li><b>Systems taste</b>: reverse constraint propagation (linear-time) over SMT; hardened evaluator modeling tiling layouts, EUP transcendentals, subnormal flushing, masking-aware comparison.</li>
+        <li><b>Unusually honest reporting</b> — admits the P0 landed before the fix; quantifies its own failure modes.</li>
+        <li>Listing 1's four minimal reproducers are concrete, verifiable, and pedagogically excellent.</li>
+      </ul>
+    </section>
+
+    <!-- Limitations -->
+    <section class="card cons">
+      <h2><span class="idx">04</span> Limitations</h2>
+      <ul>
+        <li><b>No controlled evaluation</b> — no baselines vs. prior fuzzers, no per-stage bug attribution, no reported false-positive rate; effectiveness rests on aggregate counts and anecdotes.</li>
+        <li><b>Proprietary stack</b> (fleet telemetry, internal agent harness, TPU simulators); only the isolator and HLO evaluator are public — headline numbers can't be independently verified.</li>
+        <li><b>Non-determinism bugs</b> (DMA races, uninitialized VMEM/VREG padding reads) declared out of primary focus — among the nastiest correctness threats.</li>
+        <li><b>Agent swarm unquantified</b>: no maintainer acceptance rate, no token/compute cost, no human-turnaround comparison.</li>
+        <li><b>Single-vendor scope</b>: XLA:TPU's HLO → LLO → VLIW stack; GPU-compiler transfer asserted, not shown.</li>
+      </ul>
+    </section>
+
+    <!-- Questions -->
+    <section class="card full">
+      <h2><span class="idx">05</span> Questions for further exploration</h2>
+      <ul class="qs">
+        <li>What was the deployed pipeline's actual false-positive rate — and how do the 142 resolved bugs split across the three fuzzing tiers?</li>
+        <li>Can intra-fusion VREG stepping port to GPU compilers (Triton / TVM / MLIR on NVVM/PTX), where register-level opacity is analogous?</li>
+        <li>How would agent swarms handle the excluded non-determinism bugs (multi-buffered DMA races, uninitialized-padding reads)?</li>
+        <li>What is the reference evaluator's maintenance-cost model as new hardware numerics (fp8 variants, new transcendental units) appear?</li>
+        <li>Could severity proofs (assertion injection + compiling representative model tiers) become a standard lightweight CI gate for fusion/tiling changes?</li>
+        <li>Does “autotuners are natural fuzzers” generalize to other search-based systems — autotuned comms libraries, quantization recipe search?</li>
+      </ul>
+    </section>
+
+  </main>
+
+  <footer>
+    <a href="./2611.00624.md">↗ Markdown source</a>
+    <span class="sep">|</span>
+    <a href="https://arxiv.org/abs/2611.00624">↗ arXiv abstract</a>
+    <span class="sep">|</span>
+    <a href="./index.html">↩ Today's digest</a>
+  </footer>
+
+</div>
+
+<script>
+  (function(){
+    var bar=document.getElementById('progress');
+    function upd(){
+      var h=document.documentElement;
+      var max=h.scrollHeight-h.clientHeight;
+      bar.style.width=(max>0?(h.scrollTop||document.body.scrollTop)/max*100:0)+'%';
+    }
+    window.addEventListener('scroll',upd,{passive:true});
+    window.addEventListener('resize',upd);
+    upd();
+  })();
+</script>
+</body>
+</html>

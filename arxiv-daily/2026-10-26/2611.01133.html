@@ -1,0 +1,441 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
+<title>2611.01133 · Rethinking LLM Pruning via Test-Time Scaling</title>
+<style>
+  :root{
+    --paper:#F6F3EC;
+    --band:#F0EBDF;
+    --card:#FFFFFF;
+    --ink:#1A1E25;
+    --ink-soft:#4B5260;
+    --ink-faint:#7B8191;
+    --line:#DBD5C5;
+    --line-soft:#E9E4D6;
+    --accent:#1A5D9A;
+    --accent-deep:#0E3E68;
+    --accent-wash:#EDF3F9;
+    --caution:#B8431F;
+    --caution-bright:#E9683F;
+    --dark:#221D16;
+    --serif:Georgia,'Iowan Old Style','Times New Roman','Songti SC','Noto Serif CJK SC',serif;
+    --sans:-apple-system,BlinkMacSystemFont,'Segoe UI','Helvetica Neue','PingFang SC','Hiragino Sans GB','Microsoft YaHei',Arial,sans-serif;
+    --mono:ui-monospace,'SF Mono',SFMono-Regular,Menlo,Consolas,'Liberation Mono',monospace;
+  }
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+  html{-webkit-text-size-adjust:100%}
+  body{
+    font-family:var(--sans);
+    background:var(--paper);
+    color:var(--ink);
+    font-size:16px;
+    line-height:1.55;
+  }
+  .wrap{width:min(95vw,1100px);margin-inline:auto}
+
+  /* ---------- fixed digest nav ---------- */
+  .digest-nav{
+    position:fixed;top:14px;left:14px;z-index:60;
+    font-family:var(--mono);font-size:.72rem;letter-spacing:.05em;
+    padding:8px 13px;background:var(--ink);color:#F4EFE4;
+    text-decoration:none;border-radius:3px;
+    box-shadow:0 2px 12px rgba(22,24,30,.28);
+    transition:background .18s ease;
+  }
+  .digest-nav:hover{background:var(--accent-deep)}
+
+  /* ---------- hero band ---------- */
+  .hero{
+    background:var(--band);
+    border-top:4px solid var(--ink);
+    border-bottom:1px solid var(--line);
+    padding:78px 0 34px;
+  }
+  .eyebrow{
+    font-family:var(--mono);font-size:.7rem;letter-spacing:.14em;
+    text-transform:uppercase;color:var(--ink-soft);
+    display:flex;flex-wrap:wrap;gap:.6em 1.4em;margin-bottom:18px;
+  }
+  .eyebrow .id{color:var(--accent-deep);font-weight:700}
+  .eyebrow .wip{color:var(--caution)}
+  .finding{
+    font-family:var(--serif);
+    font-size:clamp(1.85rem,4.4vw,3.3rem);
+    line-height:1.13;letter-spacing:-.015em;
+    font-weight:700;max-width:22ch;text-wrap:balance;
+  }
+  .finding .good{color:var(--accent-deep);white-space:nowrap}
+  .finding .bad{color:var(--caution);white-space:nowrap}
+  .ptitle{
+    font-family:var(--serif);font-style:italic;
+    font-size:1.08rem;margin-top:18px;
+  }
+  .ptitle a{color:var(--accent);text-decoration:none;border-bottom:1px solid var(--accent)}
+  .ptitle a:hover{color:var(--accent-deep);border-bottom-color:var(--accent-deep)}
+  .meta{
+    font-family:var(--mono);font-size:.74rem;color:var(--ink-soft);
+    margin-top:12px;display:flex;flex-wrap:wrap;gap:.45em 1.1em;align-items:center;
+  }
+  .meta b{color:var(--ink);font-weight:600}
+  .chips{display:flex;flex-wrap:wrap;gap:7px;margin-top:14px}
+  .chip{
+    font-family:var(--mono);font-size:.66rem;letter-spacing:.08em;text-transform:uppercase;
+    color:var(--accent-deep);border:1px solid var(--accent);border-radius:2px;
+    padding:3px 8px;background:var(--accent-wash);
+  }
+  .zh{
+    font-size:.86rem;color:var(--ink-soft);line-height:1.78;
+    margin-top:16px;max-width:72ch;
+    padding-left:12px;border-left:3px solid var(--line);
+  }
+  .zh b{color:var(--ink)}
+
+  /* ---------- asset row ---------- */
+  .assets{
+    display:grid;grid-template-columns:1.12fr 1fr 1.06fr;gap:14px;
+    margin:26px auto 34px;
+  }
+  .asset{
+    background:var(--card);border:1px solid var(--line);border-radius:4px;
+    padding:20px 20px 18px;position:relative;
+  }
+  .asset .tag{
+    font-family:var(--mono);font-size:.64rem;letter-spacing:.16em;text-transform:uppercase;
+    color:var(--ink-faint);display:block;margin-bottom:12px;
+  }
+  .metric{border-top:4px solid var(--accent)}
+  .metric .num{
+    font-family:var(--serif);font-weight:700;color:var(--accent-deep);
+    font-size:clamp(2.5rem,4.8vw,3.9rem);line-height:1;letter-spacing:-.02em;
+  }
+  .metric .ctx{font-size:.85rem;color:var(--ink-soft);margin-top:12px;line-height:1.5}
+  .metric .sub{
+    font-family:var(--mono);font-size:.7rem;color:var(--ink-faint);
+    margin-top:14px;padding-top:12px;border-top:1px dashed var(--line);
+  }
+  .why .body{font-size:.95rem;line-height:1.62;color:var(--ink)}
+  .why .body b{color:var(--accent-deep)}
+  .edge{background:var(--dark);border:1px solid var(--dark);border-top:4px solid var(--caution-bright)}
+  .edge .tag{color:#B9A896}
+  .edge .body{font-family:var(--serif);font-size:1.02rem;line-height:1.55;color:#F3EDE2}
+  .edge .body b{color:var(--caution-bright)}
+  .edge .src{font-family:var(--mono);font-size:.66rem;color:#8B7E6E;margin-top:14px;display:block}
+
+  /* ---------- body grid ---------- */
+  .body-grid{
+    display:grid;grid-template-columns:5fr 7fr;gap:14px;
+    grid-template-areas:"method results" "strengths limits" "questions questions";
+    align-items:start;margin-bottom:14px;
+  }
+  .card{
+    background:var(--card);border:1px solid var(--line);border-radius:4px;
+    padding:22px 22px 20px;
+  }
+  .card h2{
+    font-family:var(--mono);font-size:.7rem;font-weight:700;letter-spacing:.16em;
+    text-transform:uppercase;color:var(--ink);padding-bottom:10px;
+    border-bottom:2px solid var(--ink);margin-bottom:16px;
+  }
+  .card h2 .idx{color:var(--accent);margin-right:.6em}
+  .a-method{grid-area:method}.a-results{grid-area:results}
+  .a-strengths{grid-area:strengths}.a-limits{grid-area:limits}
+  .a-questions{grid-area:questions}
+
+  .steps{list-style:none;counter-reset:step}
+  .steps li{
+    counter-increment:step;position:relative;
+    padding-left:40px;margin-bottom:14px;font-size:.88rem;line-height:1.58;color:var(--ink);
+  }
+  .steps li:last-child{margin-bottom:0}
+  .steps li::before{
+    content:"0" counter(step);position:absolute;left:0;top:2px;
+    font-family:var(--mono);font-size:.72rem;font-weight:700;color:var(--accent);
+  }
+  .steps li b{color:var(--ink)}
+  .steps code, .res-note code{
+    font-family:var(--mono);font-size:.82em;background:var(--paper);
+    border:1px solid var(--line-soft);border-radius:2px;padding:0 4px;
+  }
+  .mini{margin-top:18px}
+  .mini .cap{
+    font-family:var(--mono);font-size:.64rem;letter-spacing:.12em;text-transform:uppercase;
+    color:var(--ink-faint);margin-bottom:8px;
+  }
+  .tblwrap{overflow-x:auto}
+  .tbl{width:100%;border-collapse:collapse;font-size:.84rem}
+  .tbl th{
+    font-family:var(--mono);font-size:.62rem;letter-spacing:.1em;text-transform:uppercase;
+    color:var(--ink-faint);text-align:left;padding:6px 8px;border-bottom:2px solid var(--ink);
+    white-space:nowrap;
+  }
+  .tbl td{padding:7px 8px;border-bottom:1px solid var(--line-soft);vertical-align:top}
+  .tbl td.num{font-family:var(--mono);text-align:right;white-space:nowrap}
+  .tbl th.num{text-align:right}
+  .tbl tr.hl td{background:var(--accent-wash)}
+  .tbl tr.hl td:first-child{border-left:3px solid var(--accent)}
+  .bar{height:5px;background:var(--line-soft);border-radius:2px;margin-top:5px;min-width:90px;overflow:hidden}
+  .bar i{display:block;height:100%;background:var(--accent);border-radius:2px}
+  .res-note{
+    font-size:.8rem;color:var(--ink-soft);margin-top:10px;line-height:1.55;
+  }
+
+  .obs{list-style:none;margin-top:2px}
+  .obs li{
+    padding:10px 0 10px 64px;position:relative;
+    border-bottom:1px dashed var(--line-soft);font-size:.87rem;line-height:1.55;
+  }
+  .obs li:last-child{border-bottom:none;padding-bottom:0}
+  .obs li::before{
+    content:attr(data-o);position:absolute;left:0;top:11px;
+    font-family:var(--mono);font-size:.62rem;letter-spacing:.06em;
+    color:var(--accent-deep);background:var(--accent-wash);
+    border:1px solid var(--accent);border-radius:2px;padding:2px 5px;
+  }
+  .obs b{color:var(--ink)}
+  .obs .n{font-family:var(--mono);font-size:.85em}
+
+  .panel-h{
+    font-family:var(--sans);font-size:.98rem;font-weight:700;letter-spacing:.01em;
+    margin-bottom:12px;display:flex;align-items:center;gap:8px;
+  }
+  .panel-h .pm{
+    font-family:var(--mono);font-size:.78rem;width:20px;height:20px;line-height:19px;
+    text-align:center;border-radius:2px;flex:none;
+  }
+  .a-strengths .pm{color:var(--accent-deep);border:1px solid var(--accent)}
+  .a-limits .pm{color:var(--caution);border:1px solid var(--caution)}
+  .plist{list-style:none}
+  .plist li{
+    font-size:.86rem;line-height:1.55;color:var(--ink-soft);
+    padding:8px 0;border-bottom:1px dashed var(--line-soft);
+  }
+  .plist li:last-child{border-bottom:none;padding-bottom:0}
+  .plist li b{color:var(--ink)}
+
+  .qlist{list-style:none;counter-reset:q;columns:2;column-gap:36px}
+  .qlist li{
+    counter-increment:q;position:relative;padding:0 0 12px 34px;
+    font-size:.86rem;line-height:1.55;color:var(--ink-soft);break-inside:avoid;
+  }
+  .qlist li::before{
+    content:"Q" counter(q);position:absolute;left:0;top:2px;
+    font-family:var(--mono);font-size:.68rem;font-weight:700;color:var(--accent);
+  }
+  .qlist li b{color:var(--ink)}
+
+  /* ---------- footer ---------- */
+  .foot{
+    border-top:2px solid var(--ink);margin-top:26px;padding:16px 0 44px;
+    display:flex;flex-wrap:wrap;gap:10px 26px;align-items:baseline;
+  }
+  .foot a{
+    font-family:var(--mono);font-size:.76rem;letter-spacing:.04em;
+    color:var(--accent-deep);text-decoration:none;border-bottom:1px solid var(--accent);
+    padding-bottom:1px;
+  }
+  .foot a:hover{color:var(--caution);border-bottom-color:var(--caution)}
+  .foot .note{font-family:var(--mono);font-size:.68rem;color:var(--ink-faint);margin-left:auto}
+
+  /* ---------- motion ---------- */
+  .rv{opacity:0;transform:translateY(12px);animation:rise .55s cubic-bezier(.2,.7,.3,1) forwards}
+  @keyframes rise{to{opacity:1;transform:none}}
+  .d1{animation-delay:.05s}.d2{animation-delay:.14s}.d3{animation-delay:.23s}
+  .d4{animation-delay:.32s}.d5{animation-delay:.41s}.d6{animation-delay:.5s}
+  .d7{animation-delay:.59s}.d8{animation-delay:.68s}.d9{animation-delay:.77s}
+  @media (prefers-reduced-motion:reduce){
+    .rv{animation:none;opacity:1;transform:none}
+  }
+
+  /* ---------- responsive ---------- */
+  @media (max-width:980px){
+    .assets{grid-template-columns:1fr 1fr}
+    .metric{grid-column:1 / -1}
+    .body-grid{grid-template-columns:1fr;grid-template-areas:"method" "results" "strengths" "limits" "questions"}
+  }
+  @media (max-width:720px){
+    .hero{padding-top:70px}
+    .assets{grid-template-columns:1fr}
+    .qlist{columns:1}
+    .finding{max-width:none}
+    .foot .note{margin-left:0;flex-basis:100%}
+  }
+</style>
+</head>
+<body>
+
+<a class="digest-nav" href="./index.html">↩ Today's digest</a>
+
+<!-- ================= HERO ================= -->
+<header class="hero">
+  <div class="wrap">
+    <p class="eyebrow rv d1">
+      <span class="id">arXiv 2611.01133</span>
+      <span>Tencent · Foundation Model Dept</span>
+      <span class="wip">Work in Progress — not peer-reviewed</span>
+    </p>
+    <h1 class="finding rv d2">
+      At matched size, expert pruning keeps <span class="good">~100%</span> of solvable
+      problems where FFN pruning keeps <span class="bad">48.4%</span> — and recovered
+      coverage gets <span class="good">expensive</span>.
+    </h1>
+    <p class="ptitle rv d3"><a href="https://arxiv.org/abs/2611.01133">Rethinking LLM Pruning via Test-Time Scaling</a></p>
+    <p class="meta rv d3">
+      <span><b>Mingyang Song, Mao Zheng</b></span>
+      <span>2026-10-26</span>
+      <span>no recovery training</span>
+    </p>
+    <div class="chips rv d4">
+      <span class="chip">structured pruning</span>
+      <span class="chip">test-time scaling</span>
+      <span class="chip">pass@k</span>
+      <span class="chip">mixture-of-experts</span>
+      <span class="chip">model compression</span>
+    </div>
+    <p class="zh rv d4" lang="zh-CN">
+      50% 专家剪枝后 Qwen3.6-35B-A3B / GLM-4.7-Flash 平均覆盖率仍保留 <b>100.6% / 100.4%</b>（准确率只剩 92.8% / 75.8%）；同总参数量下 FFN 剪枝覆盖率仅剩 <b>48.4% / 18.8%</b>；80% 专家剪枝追回 90% 原覆盖需 <b>1,319 个候选、59.63× 生成 token</b>——剪枝必须按「还能解哪些题」和「追回正确解的采样成本」分别评估。
+    </p>
+  </div>
+</header>
+
+<!-- ================= ASSET ROW ================= -->
+<section class="assets wrap">
+  <div class="asset metric rv d5">
+    <span class="tag">Key Metric</span>
+    <div class="num">59.63&times;</div>
+    <p class="ctx">the generation tokens needed at <b>80% expert pruning</b> to reach 90% of the original model's AIME coverage — 1,319 candidates vs the original's 20 (Qwen3.6-35B-A3B).</p>
+    <p class="sub">at 50% expert pruning: 22 candidates · 1.12&times; tokens</p>
+  </div>
+
+  <div class="asset why rv d6">
+    <span class="tag">Why This Matters</span>
+    <p class="body">Deploying pruned models with repeated sampling? <b>Total-parameter size is the wrong yardstick</b> — judge pruning by retained coverage and the tokens needed to recover it.</p>
+  </div>
+
+  <div class="asset edge rv d7">
+    <span class="tag">Critical Edge</span>
+    <p class="body"><b>No recovery training anywhere</b> — real pipelines distill after pruning, so headline claims like “FFN pruning destroys coverage” may not survive deployment.</p>
+    <span class="src">from Critical Assessment / Limitations</span>
+  </div>
+</section>
+
+<!-- ================= BODY GRID ================= -->
+<main class="body-grid wrap">
+
+  <section class="card a-method rv d8">
+    <h2><span class="idx">01</span>Methodology — distilled</h2>
+    <ol class="steps">
+      <li><b>Backbones.</b> Three MoE models — Qwen3.6-35B-A3B (34.66B total / 2.95B active), GLM-4.7-Flash (29.94B / 3.58B), Gemma-4-26B-A4B-it — plus dense Qwen3.5-9B/4B/2B and Llama-3.1-8B-Instruct.</li>
+      <li><b>Prune, no recovery.</b> Experts via RAZOR (the authors' own method), EAN, FREQ; FFN channels via first-order Taylor saliency; layers via a perplexity-greedy SLEB-style selector; plus mixed-axis configs. <b>No recovery training is applied anywhere.</b></li>
+      <li><b>Sample at matched budgets.</b> Temperature 0.7, top-p 0.95, top-k 20, 8,192-token cap. 2,048 samples/problem on AIME-2026 (30) &amp; Minerva (272); 512 on HumanEval+ (164) &amp; LiveCodeBench-v6 (175).</li>
+      <li><b>Measure coverage vs cost.</b> Unbiased pass@k estimator; accuracy retention E<sub>m</sub> and coverage retention R<sub>m,K</sub>; problem-identity sets (retained / lost / newly solved); fixed-target cost k*<sub>m</sub>(α = 0.9), right-censored; paired bootstrap over 4,000 resamples; a uniform-loss reference; repetition + 4-gram diversity.</li>
+    </ol>
+    <div class="mini">
+      <p class="cap">MoE backbones at a glance</p>
+      <div class="tblwrap">
+        <table class="tbl">
+          <thead><tr><th>Backbone</th><th class="num">Total</th><th class="num">Active</th></tr></thead>
+          <tbody>
+            <tr><td>Qwen3.6-35B-A3B</td><td class="num">34.66B</td><td class="num">2.95B</td></tr>
+            <tr><td>GLM-4.7-Flash</td><td class="num">29.94B</td><td class="num">3.58B</td></tr>
+            <tr><td>Gemma-4-26B-A4B-it</td><td class="num">25.23B</td><td class="num">3.82B</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section class="card a-results rv d9">
+    <h2><span class="idx">02</span>Results — beyond the headline</h2>
+
+    <p class="mini-cap" style="font-family:var(--mono);font-size:.64rem;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-faint);margin-bottom:8px">Mean coverage retention at 50% structural pruning (matched total size)</p>
+    <div class="tblwrap">
+      <table class="tbl">
+        <thead><tr><th>Pruning axis</th><th class="num">Qwen3.6-35B-A3B</th><th class="num">GLM-4.7-Flash</th></tr></thead>
+        <tbody>
+          <tr class="hl">
+            <td>Expert <span style="color:var(--ink-faint)">(18.54B / 16.05B total)</span></td>
+            <td class="num">100.6%<div class="bar"><i style="width:100%"></i></div></td>
+            <td class="num">100.4%<div class="bar"><i style="width:100%"></i></div></td>
+          </tr>
+          <tr>
+            <td>FFN <span style="color:var(--ink-faint)">(18.49B / 15.80B total)</span></td>
+            <td class="num">48.4%<div class="bar"><i style="width:48.4%"></i></div></td>
+            <td class="num">18.8%<div class="bar"><i style="width:18.8%"></i></div></td>
+          </tr>
+          <tr>
+            <td>Layer <span style="color:var(--ink-faint)">(nominal 50%)</span></td>
+            <td class="num">9.4%<div class="bar"><i style="width:9.4%"></i></div></td>
+            <td class="num">5.4%<div class="bar"><i style="width:5.4%"></i></div></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="res-note">Accuracy retention at expert-50%: only <b>92.8% / 75.8%</b> — coverage outlives accuracy. Expert pruning wins because active parameters stay ~2.94B vs FFN's 2.38B (≈24% more per-token compute — see Critical Edge).</p>
+
+    <p style="font-family:var(--mono);font-size:.64rem;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-faint);margin:18px 0 8px">Cost to hit 90% of original AIME coverage (Qwen, expert pruning)</p>
+    <div class="tblwrap">
+      <table class="tbl">
+        <thead><tr><th>Model</th><th class="num">Candidates</th><th class="num">Token cost</th><th class="num">Mean resp. len</th></tr></thead>
+        <tbody>
+          <tr><td>Original</td><td class="num">20</td><td class="num">1.00&times;</td><td class="num">4,923.5</td></tr>
+          <tr><td>Expert 50%</td><td class="num">22</td><td class="num">1.12&times;</td><td class="num">—</td></tr>
+          <tr class="hl"><td>Expert 80%</td><td class="num">1,319</td><td class="num"><b>59.63&times;</b></td><td class="num">4,451.4</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <ul class="obs" style="margin-top:16px">
+      <li data-o="OBS 11"><b>Selection-method gains are sampling efficiency.</b> RAZOR hits pass@1 <span class="n">63.53%</span> vs EAN's <span class="n">59.38%</span>, yet RAZOR / EAN / FREQ solve the <b>identical 29-problem AIME set</b> at k = 2048 — no capacity difference.</li>
+      <li data-o="OBS 2"><b>Coverage can grow under severe pruning.</b> At 80% expert pruning, Minerva coverage rises <span class="n">226 → 235 / 272</span> (23 newly solved vs 14 lost) despite much lower pass@1.</li>
+      <li data-o="OBS 7"><b>Shorter outputs can mask failure.</b> Layer 30% → 60%: responses shrink <span class="n">7,806 → 1,564</span> tokens while pass@512 falls <span class="n">5.6% → 0</span>; at 30% FFN pruning, <span class="n">29.94%</span> pass@1 with only <span class="n">2.08%</span> truncation — wrong answers terminate normally.</li>
+      <li data-o="OBS 13"><b>Mixed-axis loses at similar size.</b> Mixed-B (12.45B total) covers <span class="n">25</span> AIME problems vs <span class="n">29</span> for expert-only 70% (12.12B); pass@1 <span class="n">16.68% vs 51.23%</span>.</li>
+      <li data-o="OBS 10"><b>Original response length predicts vulnerability.</b> After 30% FFN pruning, always-solved LiveCodeBench problems drop to <span class="n">65.0%</span> (short half) vs <span class="n">29.9%</span> (long half) pass@1 — same original accuracy, different fragility.</li>
+      <li data-o="OBS 5"><b>Bigger source ≠ better pruned model.</b> Qwen3.5-122B-A10B at 75% expert pruning keeps 28/30 AIME but only matches the smaller 35B original — and trails it on both code suites.</li>
+    </ul>
+  </section>
+
+  <section class="card a-strengths rv d9">
+    <h2><span class="idx">03</span>Strengths</h2>
+    <ul class="plist">
+      <li><b>Decomposes accuracy</b> into coverage (what stays solvable) + sampling cost (tokens to recover it), with problem-identity tracking — not aggregates alone.</li>
+      <li><b>Total-vs-active parameter accounting</b> on every comparison, exposing why "similar size" claims in the pruning literature mislead.</li>
+      <li><b>Publishes deflationary results:</b> mixed-axis loses to expert-only; a larger source model gives no consistent advantage; higher pass@1 ≠ broader capacity.</li>
+      <li><b>Statistical care:</b> unbiased estimator, paired bootstrap CIs, right-censored targets, α-sensitivity, and honest scope statements throughout.</li>
+    </ul>
+  </section>
+
+  <section class="card a-limits rv d9">
+    <h2><span class="idx">04</span>Limitations</h2>
+    <ul class="plist">
+      <li><b>No recovery training</b> — conclusions characterize the pre-recovery state; prune-then-distill pipelines dominate practice and may change the story.</li>
+      <li><b>Inconsistent graders across sub-experiments</b> (Minerva normalization variants, 7,200 s timeout → zero) — conceded by the authors to break some cross-condition comparisons.</li>
+      <li><b>Small benchmarks:</b> AIME-2026 has 30 problems; several identity-level claims rest on 14–30 items, and Minerva coverage gaps persist where AIME agrees.</li>
+      <li><b>Single decoding config, math + code only;</b> no latency / throughput / energy — token and parameter counts are proxies for real cost.</li>
+    </ul>
+  </section>
+
+  <section class="card a-questions rv d9">
+    <h2><span class="idx">05</span>Questions for Further Exploration</h2>
+    <ol class="qlist">
+      <li>Does FFN pruning's coverage collapse <b>partially recover after distillation</b> (ReCal-style reweighting or on-policy distillation)?</li>
+      <li>Would a <b>compute-matched</b> comparison (equal active parameters or FLOPs/token, not equal total size) reverse the expert-vs-FFN ordering?</li>
+      <li>Do the RAZOR / EAN / FREQ <b>solved-set identities survive 500+ problem sets</b>, or is the AIME agreement a 30-problem granularity artifact?</li>
+      <li>Can "original response length predicts vulnerability" be made <b>actionable at pruning time</b> — e.g., calibrating saliency on long-CoT samples?</li>
+      <li>Is there any regime where a severely pruned model + heavy sampling <b>beats just running the original</b> at larger k — economically?</li>
+      <li>How do pass@k curves under pruning behave at other temperatures, or with <b>verifiers / majority voting</b> selecting among candidates?</li>
+    </ol>
+  </section>
+
+</main>
+
+<footer class="foot wrap">
+  <a href="./2611.01133.md">↗ Markdown source</a>
+  <a href="https://arxiv.org/abs/2611.01133">↗ arXiv abs</a>
+  <span class="note">“Work in Progress”, arXiv'd 31 Oct 2026 · dashboard extracted from the paper's markdown digest</span>
+</footer>
+
+</body>
+</html>
