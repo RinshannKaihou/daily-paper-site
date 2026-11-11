@@ -1,0 +1,865 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
+<title>One expert, half the activation — SAE Interprets MoE</title>
+<style>
+  :root{
+    --paper:#F4F0E6;
+    --paper-2:#EAE4D4;
+    --card:#FBF8F0;
+    --ink:#14130E;
+    --ink-2:#57513F;
+    --muted:#7A7362;
+    --line:#D5CCB8;
+    --line-soft:#E3DBC9;
+    --accent:#0E5A52;
+    --accent-lift:#5CC4B2;
+    --accent-soft:#D3E4DF;
+    --sans:ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI","Helvetica Neue","PingFang SC","Hiragino Sans GB","Noto Sans CJK SC","Microsoft YaHei",sans-serif;
+    --serif:"Iowan Old Style","Palatino Linotype",Palatino,"Songti SC","Source Han Serif SC",Georgia,serif;
+    --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
+    --wrap:min(95vw,1100px);
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{
+    margin:0;background:var(--paper);color:var(--ink);
+    font-family:var(--sans);font-size:16px;line-height:1.7;
+    -webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;
+  }
+  a{color:inherit;text-decoration:none}
+  ::selection{background:var(--accent);color:var(--paper)}
+  .wrap{width:var(--wrap);margin-inline:auto}
+  .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+
+  /* ---------- top bar ---------- */
+  .topbar{
+    position:fixed;inset:0 0 auto 0;height:46px;z-index:40;
+    background:var(--paper);border-bottom:1px solid var(--line);
+  }
+  .topbar .wrap{height:100%;display:flex;align-items:center;justify-content:space-between;gap:16px}
+  .back{
+    display:inline-flex;align-items:center;gap:8px;
+    font-family:var(--mono);font-size:11.5px;letter-spacing:.06em;text-transform:uppercase;
+    padding:6px 10px 6px 0;color:var(--ink);border-bottom:1px solid transparent;
+  }
+  .back:hover,.back:focus-visible{border-bottom-color:var(--accent);color:var(--accent)}
+  .topmeta{
+    display:flex;align-items:center;gap:10px;
+    font-family:var(--mono);font-size:11px;letter-spacing:.06em;color:var(--muted);
+  }
+  .topmeta .sep{color:var(--line)}
+  .topmeta .id{color:var(--ink)}
+
+  main{padding-top:46px}
+
+  /* ---------- hero ---------- */
+  .hero{
+    min-height:calc(100svh - 46px);
+    padding-block:clamp(24px,3.6vh,38px) clamp(18px,2.6vh,26px);
+    display:flex;flex-direction:column;gap:clamp(22px,3.6vh,38px);
+    position:relative;
+  }
+  .hero::before{
+    content:"";position:absolute;inset:0 0 auto 0;height:100%;pointer-events:none;
+    background-image:repeating-linear-gradient(90deg,transparent 0 109px,rgba(20,19,14,.045) 109px 110px);
+    -webkit-mask-image:linear-gradient(180deg,rgba(0,0,0,.9),transparent 82%);
+    mask-image:linear-gradient(180deg,rgba(0,0,0,.9),transparent 82%);
+  }
+  .hero-grid{
+    display:grid;grid-template-columns:minmax(0,1fr) 232px;
+    gap:clamp(24px,3.6vw,52px);align-items:start;position:relative;
+  }
+  .kicker{
+    margin:0 0 16px;font-family:var(--mono);font-size:10.5px;letter-spacing:.14em;
+    text-transform:uppercase;color:var(--ink-2);display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+  }
+  .kicker .tag{color:var(--accent)}
+  .kicker .rule{flex:0 0 34px;height:1px;background:var(--ink);opacity:.5}
+  h1{
+    margin:0;font-family:var(--serif);font-weight:600;
+    font-size:clamp(2.05rem,4.15vw,3.5rem);line-height:1.06;letter-spacing:-.021em;
+    max-width:21ch;text-wrap:balance;
+  }
+  h1 em{
+    font-style:normal;color:var(--accent);
+    box-shadow:inset 0 -.14em 0 var(--accent-soft);
+  }
+  .hero-sub{
+    margin:16px 0 0;font-family:var(--serif);font-style:italic;
+    font-size:clamp(1.02rem,1.5vw,1.22rem);color:var(--ink-2);letter-spacing:.005em;
+  }
+  .paperline{margin-top:clamp(16px,2.4vh,26px);padding-top:16px;border-top:1px solid var(--line);max-width:62ch}
+  .ptitle{
+    display:inline-block;font-size:.855rem;line-height:1.5;color:var(--ink-2);
+    border-bottom:1px solid var(--line);padding-bottom:2px;
+  }
+  .ptitle:hover,.ptitle:focus-visible{color:var(--accent);border-bottom-color:var(--accent)}
+  .byline{margin:9px 0 0;font-size:.78rem;color:var(--muted);letter-spacing:.01em}
+  .byline b{font-weight:600;color:var(--ink-2)}
+  .chips{display:flex;flex-wrap:wrap;gap:6px;list-style:none;margin:13px 0 0;padding:0}
+  .chips li{
+    font-family:var(--mono);font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;
+    color:var(--ink-2);border:1px solid var(--line);padding:3px 8px;background:rgba(255,255,255,.35);
+  }
+  .chips li:first-child{color:var(--accent);border-color:var(--accent-soft);background:rgba(14,90,82,.05)}
+
+  .spec{border-top:2px solid var(--ink);padding-top:12px;position:relative}
+  .spec h2{
+    margin:0 0 10px;font-family:var(--mono);font-size:9.5px;letter-spacing:.14em;
+    text-transform:uppercase;color:var(--muted);font-weight:400;
+  }
+  .spec dl{margin:0;display:grid;gap:0}
+  .spec .row{display:grid;grid-template-columns:1fr;gap:1px;padding:7px 0;border-bottom:1px solid var(--line-soft)}
+  .spec dt{font-family:var(--mono);font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+  .spec dd{margin:0;font-family:var(--mono);font-size:11.5px;color:var(--ink);letter-spacing:.01em;font-variant-numeric:tabular-nums}
+  .spec .note{margin:10px 0 0;font-size:.7rem;line-height:1.55;color:var(--muted)}
+
+  /* ---------- asset row ---------- */
+  .assets{display:grid;grid-template-columns:1.18fr 1fr 1.06fr;gap:14px;position:relative}
+  .card{
+    background:var(--card);border:1px solid var(--line);
+    padding:18px 19px 19px;display:flex;flex-direction:column;
+  }
+  .card-label{
+    margin:0 0 12px;font-family:var(--mono);font-size:9.5px;letter-spacing:.13em;
+    text-transform:uppercase;color:var(--muted);display:flex;align-items:center;gap:8px;
+  }
+  .card-label .mk{width:6px;height:6px;background:var(--accent);display:inline-block;flex:none}
+
+  .card--metric{background:var(--ink);border-color:var(--ink);color:var(--paper);justify-content:space-between}
+  .card--metric .card-label{color:#A9A18D}
+  .card--metric .card-label .mk{background:var(--accent-lift)}
+  .bignum{
+    margin:0;font-family:var(--serif);font-weight:600;line-height:.84;
+    font-size:clamp(3.2rem,5.4vw,3.85rem);letter-spacing:-.035em;
+    font-variant-numeric:tabular-nums;color:var(--paper);
+  }
+  .bignum .pct{font-size:.38em;color:var(--accent-lift);letter-spacing:0;margin-left:.03em;vertical-align:.62em}
+  .metric-cap{margin:14px 0 0;font-size:.775rem;line-height:1.55;color:#CFC7B4;max-width:30ch}
+  .metric-cap b{color:var(--paper);font-weight:600;font-variant-numeric:tabular-nums}
+  .metric-src{
+    margin:12px 0 0;padding-top:10px;border-top:1px solid #35322A;
+    font-family:var(--mono);font-size:9px;letter-spacing:.08em;text-transform:uppercase;color:#8E8674;
+  }
+
+  .card--why{border-left:3px solid var(--accent)}
+  .why-text{margin:0;font-family:var(--serif);font-size:1.06rem;line-height:1.42;letter-spacing:-.006em;max-width:26ch}
+  .why-foot{
+    margin:auto 0 0;padding-top:14px;font-family:var(--mono);font-size:9.5px;
+    letter-spacing:.07em;text-transform:uppercase;color:var(--muted);
+  }
+
+  .card--critical{background:var(--paper-2);border:2px solid var(--ink);position:relative;overflow:hidden}
+  .card--critical .card-label{color:var(--ink)}
+  .card--critical .card-label .mk{background:var(--ink);transform:rotate(45deg)}
+  .crit-text{margin:0;font-size:.83rem;line-height:1.6;color:var(--ink);max-width:34ch}
+  .crit-text b{font-weight:600}
+  .crit-link{
+    margin-top:auto;padding-top:12px;font-family:var(--mono);font-size:9.5px;letter-spacing:.07em;
+    text-transform:uppercase;color:var(--ink);border-bottom:1px solid transparent;align-self:flex-start;
+  }
+  .crit-link:hover,.crit-link:focus-visible{color:var(--accent);border-bottom-color:var(--accent)}
+  .hatch{
+    position:absolute;right:0;top:0;width:14px;height:100%;
+    background-image:repeating-linear-gradient(45deg,var(--ink) 0 1px,transparent 1px 7px);
+    opacity:.28;pointer-events:none;
+  }
+
+  /* ---------- sections ---------- */
+  .section{margin-top:clamp(52px,8vh,92px);scroll-margin-top:64px}
+  .sec-head{
+    display:grid;grid-template-columns:auto 1fr auto;gap:14px;align-items:baseline;
+    border-top:2px solid var(--ink);padding-top:10px;margin-bottom:24px;
+  }
+  .sec-num{font-family:var(--mono);font-size:10px;letter-spacing:.1em;color:var(--accent);padding-top:5px}
+  .sec-title{margin:0;font-family:var(--serif);font-size:clamp(1.42rem,2.5vw,1.86rem);font-weight:600;letter-spacing:-.012em;line-height:1.1}
+  .sec-sub{margin:0;font-size:.74rem;color:var(--muted);max-width:34ch;text-align:right;line-height:1.5}
+
+  .panel{background:var(--card);border:1px solid var(--line);padding:18px 19px 20px}
+  .panel--flat{background:transparent;border:0;padding:0}
+  .panel-head{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;margin-bottom:14px}
+  .panel-head h3{margin:0;font-family:var(--mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink);font-weight:600}
+  .panel-head .hint{font-family:var(--mono);font-size:9px;letter-spacing:.06em;color:var(--muted);text-transform:uppercase;padding-top:2px}
+
+  /* ---------- methodology ---------- */
+  .method-grid{display:grid;grid-template-columns:minmax(0,1.55fr) minmax(0,1fr);gap:clamp(22px,3.4vw,40px)}
+  .method-grid--evidence{grid-template-columns:minmax(0,1.15fr) minmax(0,1fr)}
+  .method-grid--split{grid-template-columns:minmax(0,1fr) minmax(0,1.12fr);margin-top:14px;gap:14px}
+  .flow{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:1fr 1fr;gap:26px 26px;position:relative}
+  .flow li{position:relative;padding-top:30px;border-top:1px solid var(--line)}
+  .flow .fn{
+    position:absolute;top:-11px;left:0;width:22px;height:22px;display:grid;place-items:center;
+    background:var(--paper);border:1px solid var(--accent);color:var(--accent);
+    font-family:var(--mono);font-size:9.5px;letter-spacing:0;
+  }
+  .flow h4{margin:0 0 5px;font-family:var(--sans);font-size:.82rem;font-weight:650;letter-spacing:.005em}
+  .flow p{margin:0;font-size:.795rem;line-height:1.6;color:var(--ink-2)}
+  .flow code{font-family:var(--mono);font-size:.92em;background:rgba(14,90,82,.07);padding:0 3px;color:var(--accent)}
+
+  .formula-box{border:1px solid var(--line);background:var(--card);padding:18px 18px 16px;align-self:start}
+  .formula-box .flabel{font-family:var(--mono);font-size:9px;letter-spacing:.13em;text-transform:uppercase;color:var(--muted);margin:0 0 14px}
+  .formula{
+    margin:0;font-family:var(--mono);font-size:.79rem;line-height:1.95;color:var(--ink);
+    word-break:break-word;
+  }
+  .formula .op{color:var(--accent)}
+  .formula sub{font-size:.72em}
+  .formula .term{border-bottom:1px solid var(--accent-soft);padding-bottom:1px}
+  .formula-box p.fnote{margin:14px 0 0;font-size:.755rem;line-height:1.55;color:var(--ink-2)}
+  .formula-box p.fnote b{color:var(--ink)}
+
+  /* ---------- tables ---------- */
+  table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
+  caption{text-align:left;font-size:.7rem;color:var(--muted);padding:0 0 10px;line-height:1.5}
+  th,td{padding:8px 8px;border-bottom:1px solid var(--line-soft);text-align:right;vertical-align:baseline}
+  th:first-child,td:first-child{text-align:left;padding-left:0}
+  th:last-child,td:last-child{padding-right:0}
+  thead th{
+    font-family:var(--mono);font-size:9px;letter-spacing:.09em;text-transform:uppercase;
+    color:var(--muted);font-weight:500;border-bottom:1px solid var(--ink);padding-bottom:7px;
+  }
+  tbody td{font-family:var(--mono);font-size:.775rem;color:var(--ink)}
+  tbody th{
+    font-family:var(--sans);font-size:.775rem;font-weight:400;color:var(--ink-2);
+    text-align:left;padding-left:0;line-height:1.4;
+  }
+  tbody tr:last-child th,tbody tr:last-child td{border-bottom:0}
+  .dtable th.is-sel,tbody td.is-sel{background:rgba(14,90,82,.075)}
+  thead th.is-sel{color:var(--accent);background:rgba(14,90,82,.075)}
+  .dtable td .unit{color:var(--muted);font-size:.9em}
+  .row-note{transition:opacity .18s ease}
+
+  .seg{display:inline-flex;border:1px solid var(--line);background:var(--paper)}
+  .segbtn{
+    appearance:none;border:0;background:transparent;cursor:pointer;
+    font-family:var(--mono);font-size:9.5px;letter-spacing:.07em;color:var(--ink-2);
+    padding:5px 10px;border-right:1px solid var(--line);
+  }
+  .segbtn:last-child{border-right:0}
+  .segbtn:hover{background:var(--paper-2);color:var(--ink)}
+  .segbtn[aria-pressed="true"]{background:var(--ink);color:var(--paper)}
+  .segbtn:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+  .layer-note{
+    margin:12px 0 0;padding-top:10px;border-top:1px solid var(--line-soft);
+    font-size:.715rem;line-height:1.55;color:var(--muted);min-height:3.1em;
+  }
+
+  /* ---------- rank chart ---------- */
+  .legend{display:flex;gap:16px;flex-wrap:wrap;margin:0 0 16px;padding:0;list-style:none}
+  .legend li{display:flex;align-items:center;gap:7px;font-family:var(--mono);font-size:9px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-2)}
+  .swatch{width:22px;height:9px;display:inline-block;border:1px solid var(--ink)}
+  .swatch--c{background:var(--accent);border-color:var(--accent)}
+  .swatch--g{background-image:repeating-linear-gradient(45deg,var(--ink) 0 1px,transparent 1px 4px)}
+  .rankrow{display:grid;grid-template-columns:26px 1fr;gap:10px;align-items:center;padding:7px 0;border-bottom:1px solid var(--line-soft)}
+  .rankrow:last-of-type{border-bottom:0}
+  .rk{font-family:var(--mono);font-size:9.5px;color:var(--muted);letter-spacing:.04em}
+  .barline{display:grid;grid-template-columns:1fr 46px;gap:8px;align-items:center;margin:2px 0}
+  .track{height:11px;background:var(--paper-2);position:relative}
+  .bar{display:block;height:100%;transition:width .5s cubic-bezier(.2,.7,.2,1)}
+  .bar--c{background:var(--accent)}
+  .bar--g{background-image:repeating-linear-gradient(45deg,var(--ink) 0 1px,transparent 1px 4px);opacity:.55}
+  .val{font-family:var(--mono);font-size:9px;color:var(--ink-2);text-align:right;font-variant-numeric:tabular-nums}
+  .chart-note{margin:14px 0 0;font-size:.7rem;line-height:1.55;color:var(--muted);border-top:1px solid var(--line-soft);padding-top:10px}
+
+  /* ---------- specialists ---------- */
+  .spec-table tbody th{width:52%}
+  .mini{height:7px;background:var(--paper-2);margin-top:5px;max-width:170px}
+  .mini i{display:block;height:100%;background:var(--accent)}
+  .spec-name{display:block;font-weight:600;font-size:.79rem;color:var(--ink)}
+  .spec-sub{display:block;font-family:var(--mono);font-size:9px;letter-spacing:.03em;color:var(--muted);margin-top:2px}
+  .lift{font-family:var(--mono);font-size:.72rem;color:var(--accent);white-space:nowrap}
+
+  /* ---------- domains ---------- */
+  .domains{display:grid;gap:1px}
+  .dom{display:grid;grid-template-columns:minmax(0,1.45fr) minmax(64px,1fr) 26px;gap:9px;align-items:center;padding:6px 0;border-bottom:1px solid var(--line-soft)}
+  .dom:last-child{border-bottom:0}
+  .dom-name{font-size:.755rem;color:var(--ink-2);line-height:1.3}
+  .dom-name .ns{
+    font-family:var(--mono);font-size:8px;letter-spacing:.06em;text-transform:uppercase;
+    color:var(--muted);border:1px solid var(--line);padding:0 4px;margin-left:5px;white-space:nowrap;
+  }
+  .dom-track{height:8px;background:var(--paper-2)}
+  .dom-track i{display:block;height:100%;background:var(--ink);opacity:.75}
+  .dom.is-key .dom-track i{background:var(--accent);opacity:1}
+  .dom-n{font-family:var(--mono);font-size:10.5px;text-align:right;color:var(--ink)}
+  .dom.is-key .dom-name{color:var(--ink);font-weight:600}
+  .domain-foot{margin:12px 0 0;padding-top:10px;border-top:1px solid var(--line-soft);font-size:.7rem;line-height:1.6;color:var(--muted)}
+  .domain-foot b{color:var(--ink);font-weight:600}
+
+  /* ---------- verdict ---------- */
+  .verdict{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  .vpanel{border:1px solid var(--line);background:var(--card);padding:18px 19px}
+  .vpanel--lim{background:var(--paper-2);border-color:#C9BEA6}
+  .vhead{
+    display:flex;align-items:baseline;justify-content:space-between;gap:10px;
+    padding-bottom:10px;border-bottom:1px solid var(--ink);margin-bottom:12px;
+  }
+  .vhead h3{margin:0;font-family:var(--mono);font-size:10px;letter-spacing:.13em;text-transform:uppercase}
+  .vhead span{font-family:var(--mono);font-size:9px;color:var(--muted);letter-spacing:.06em}
+  .vlist{list-style:none;margin:0;padding:0;display:grid;gap:11px}
+  .vlist li{position:relative;padding-left:18px;font-size:.795rem;line-height:1.55;color:var(--ink-2)}
+  .vlist li b{color:var(--ink);font-weight:600}
+  .vlist li::before{
+    position:absolute;left:0;top:.1em;font-family:var(--mono);font-size:11px;line-height:1.3;
+    color:var(--accent);
+  }
+  .vlist--pro li::before{content:"+"}
+  .vlist--con li::before{content:"!";color:var(--ink)}
+
+  /* ---------- questions ---------- */
+  .questions{display:grid;grid-template-columns:1fr 1fr;gap:0 30px;border-top:1px solid var(--line)}
+  .q{display:grid;grid-template-columns:26px 1fr;gap:8px;padding:15px 0;border-bottom:1px solid var(--line-soft)}
+  .q-n{font-family:var(--mono);font-size:9.5px;color:var(--accent);padding-top:2px}
+  .q h4{margin:0 0 4px;font-size:.79rem;font-weight:600;line-height:1.4}
+  .q p{margin:0;font-size:.755rem;line-height:1.55;color:var(--ink-2)}
+
+  /* ---------- footer ---------- */
+  footer{margin-top:clamp(46px,7vh,74px);border-top:2px solid var(--ink);padding:16px 0 40px}
+  .foot{display:flex;align-items:center;justify-content:space-between;gap:18px;flex-wrap:wrap}
+  .foot-link{
+    display:inline-flex;align-items:center;gap:8px;font-family:var(--mono);font-size:10.5px;
+    letter-spacing:.08em;text-transform:uppercase;padding-bottom:2px;border-bottom:1px solid var(--line);
+  }
+  .foot-link:hover,.foot-link:focus-visible{color:var(--accent);border-bottom-color:var(--accent)}
+  .foot-meta{font-family:var(--mono);font-size:9.5px;letter-spacing:.07em;color:var(--muted);text-transform:uppercase}
+
+  /* ---------- motion ---------- */
+  @keyframes rise{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+  .reveal{animation:rise .62s cubic-bezier(.2,.7,.2,1) both;animation-delay:var(--d,0s)}
+  @media (prefers-reduced-motion:reduce){
+    .reveal{animation:none}
+    html{scroll-behavior:auto}
+    .bar{transition:none}
+  }
+
+  /* ---------- responsive ---------- */
+  @media (max-width:940px){
+    .hero-grid{grid-template-columns:1fr}
+    .spec{display:grid;grid-template-columns:1fr 1fr;gap:0 22px;border-top-width:1px;padding-top:10px}
+    .spec h2{grid-column:1/-1;margin-bottom:2px}
+    .spec dl{grid-column:1/-1;grid-template-columns:1fr 1fr;gap:0 22px}
+    .spec .note{grid-column:1/-1}
+    .assets{grid-template-columns:1fr 1fr}
+    .card--metric{grid-column:1/-1}
+    .method-grid,
+    .method-grid--evidence,
+    .method-grid--split{grid-template-columns:1fr}
+    .sec-head{grid-template-columns:auto 1fr}
+    .sec-sub{grid-column:2;text-align:left;max-width:46ch}
+    h1{max-width:22ch}
+  }
+  @media (max-width:720px){
+    body{font-size:15.5px}
+    .topmeta .meta-date{display:none}
+    .hero{min-height:0;gap:26px}
+    .assets{grid-template-columns:1fr}
+    .card--metric{grid-column:auto}
+    .bignum{font-size:clamp(3rem,14vw,3.7rem)}
+    .flow{grid-template-columns:1fr}
+    .verdict{grid-template-columns:1fr}
+    .questions{grid-template-columns:1fr}
+    .spec dl{grid-template-columns:1fr}
+    .sec-head{grid-template-columns:auto 1fr}
+    .ptitle{font-size:.82rem}
+    .why-text{max-width:none}
+    .crit-text{max-width:none}
+    .dom{grid-template-columns:1fr 62px 24px;gap:7px}
+    .mini{max-width:none}
+    tbody td{font-size:.73rem;padding:7px 5px}
+    tbody th{font-size:.73rem}
+    thead th{font-size:8px;letter-spacing:.05em}
+    .foot{flex-direction:column;align-items:flex-start;gap:12px}
+  }
+  @media (max-width:400px){
+    .bignum{font-size:3.4rem}
+    tbody td{font-size:.69rem}
+  }
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="wrap">
+    <a class="back" href="./index.html"><span aria-hidden="true">↩</span> Today's digest</a>
+    <div class="topmeta">
+      <span class="id">arXiv 2611.08089</span>
+      <span class="sep">/</span>
+      <span class="meta-date">02 Nov 2026</span>
+    </div>
+  </div>
+</header>
+
+<main>
+  <section class="hero wrap" aria-labelledby="finding">
+    <div class="hero-grid">
+      <div class="hero-main">
+        <p class="kicker reveal" style="--d:.02s">
+          <span class="tag">Mechanistic interpretability</span>
+          <span class="rule" aria-hidden="true"></span>
+          <span>Mixture-of-Experts</span>
+        </p>
+        <h1 id="finding" class="reveal" style="--d:.07s">
+          More than half of each latent's activation traces to <em>one expert</em>.
+        </h1>
+        <p class="hero-sub reveal" style="--d:.12s">MoE specialization sits below the domain level.</p>
+
+        <div class="paperline reveal" style="--d:.16s">
+          <a class="ptitle" href="https://arxiv.org/abs/2611.08089">
+            SAE Interprets MoE: Sparse AutoEncoders Reveal That MoE Experts Exhibit Human-Interpretable Fine-Grained Specialization
+          </a>
+          <p class="byline">
+            <b>Anyuan Zhuo</b> · Shaohua Zhang · Yuan Lin · Pinyan Lu &nbsp;—&nbsp; ByteDance Seed / SUFE &nbsp;·&nbsp; 02 Nov 2026
+          </p>
+          <ul class="chips">
+            <li>MoE routing</li>
+            <li>Sparse autoencoders</li>
+            <li>Qwen3-30B-A3B</li>
+            <li>Expert specialization</li>
+          </ul>
+        </div>
+      </div>
+
+      <aside class="spec reveal" style="--d:.2s" aria-label="Experimental setup">
+        <h2>Setup at a glance</h2>
+        <dl>
+          <div class="row"><dt>Model</dt><dd>Qwen3-30B-A3B</dd></div>
+          <div class="row"><dt>Layers probed</dt><dd>4 · 30 · 46 <span style="color:var(--muted)">of 48</span></dd></div>
+          <div class="row"><dt>Experts / layer</dt><dd>128 &nbsp;·&nbsp; k = 8</dd></div>
+          <div class="row"><dt>SAE latents</dt><dd>2<sup>20</sup> per layer</dd></div>
+          <div class="row"><dt>SAE training</dt><dd>3.2B tokens each</dd></div>
+          <div class="row"><dt>FVU</dt><dd>12.6 · 25.1 · 7.6 %</dd></div>
+        </dl>
+        <p class="note">Three independent TopK-ReLU SAEs, ≈512× overcomplete, trained on an Olmo 3 mixture — not Qwen3's own data.</p>
+      </aside>
+    </div>
+
+    <div class="assets">
+      <article class="card card--metric reveal" style="--d:.24s" aria-labelledby="metric-label">
+        <p class="card-label" id="metric-label"><span class="mk" aria-hidden="true"></span> Key metric · layer 30</p>
+        <p class="bignum">51.2<span class="pct">%</span></p>
+        <p class="metric-cap">
+          of a latent's activation, on average, comes from its <b>top-ranked expert</b> — versus <b>23.1%</b> for the top-ranked gating weight, rank-aligned.
+        </p>
+        <p class="metric-src">1.5B held-out tokens · 2<sup>20</sup> latents · rank 8: 0.5% vs 7.4%</p>
+      </article>
+
+      <article class="card card--why reveal" style="--d:.29s" aria-labelledby="why-label">
+        <p class="card-label" id="why-label"><span class="mk" aria-hidden="true"></span> Why this matters</p>
+        <p class="why-text">A free, exact probe of what each MoE expert actually does — reusable on any weighted-sum MoE, with SAEs, code and every prompt released.</p>
+        <p class="why-foot">An instrument, not just a taxonomy</p>
+      </article>
+
+      <article class="card card--critical reveal" style="--d:.34s" aria-labelledby="crit-label">
+        <span class="hatch" aria-hidden="true"></span>
+        <p class="card-label" id="crit-label"><span class="mk" aria-hidden="true"></span> Critical edge</p>
+        <p class="crit-text">The <b>86.7% Java</b> result is judged by the same GPT-5.5 that wrote the explanations, so it is closer to an upper bound on self-consistency than an estimate of specialization.</p>
+        <a class="crit-link" href="#verdict">Full limitation →</a>
+      </article>
+    </div>
+  </section>
+
+  <div class="wrap">
+
+    <!-- 01 — INSTRUMENT -->
+    <section class="section" id="instrument" aria-labelledby="s1">
+      <div class="sec-head">
+        <span class="sec-num">01</span>
+        <h2 class="sec-title" id="s1">The instrument</h2>
+        <p class="sec-sub">No training, no gradients, no interventions. One encoder row dotted with each expert's output.</p>
+      </div>
+
+      <div class="method-grid">
+        <ol class="flow">
+          <li>
+            <span class="fn">1</span>
+            <h4>Start from the layer sum</h4>
+            <p>The MoE output is a router-weighted sum over the 8 active experts: <code>y(t) = Σ g_j(t)·u_j(t)</code>.</p>
+          </li>
+          <li>
+            <span class="fn">2</span>
+            <h4>Exploit affine encoders</h4>
+            <p>Each latent's pre-activation <code>W_enc,i · y + b</code> is linear in <code>y</code>, so substituting the sum splits it into one term per expert — algebraically exact.</p>
+          </li>
+          <li>
+            <span class="fn">3</span>
+            <h4>Keep only positive drive</h4>
+            <p><code>c = ReLU(g_j · W_enc,i · u_j)</code>, averaged over 1.5B held-out tokens and renormalised into a contribution fraction <code>s(j,i)</code>.</p>
+          </li>
+          <li>
+            <span class="fn">4</span>
+            <h4>Threshold into a graph</h4>
+            <p>Expert <em>j</em> dominates latent <em>i</em> when <code>s(j,i) ≥ 0.2</code> (uniform would be 1/128 ≈ 0.008), giving a 128 × 2<sup>20</sup> bipartite dominance graph.</p>
+          </li>
+          <li>
+            <span class="fn">5</span>
+            <h4>Ask a model what it found</h4>
+            <p>GPT-5.5 explains 2,000 sampled latents per expert from 10 contexts plus logit-lens effects, names each expert from its word cloud, then partitions all 128 labels into domains.</p>
+          </li>
+          <li>
+            <span class="fn">6</span>
+            <h4>Read the division of labour</h4>
+            <p>Degree on both sides, pairwise Jaccard overlap, and a bottom-up taxonomy — all statistics over the same graph, not over human-labelled corpora.</p>
+          </li>
+        </ol>
+
+        <div class="formula-box">
+          <p class="flabel">The identity, in one line</p>
+          <p class="formula">
+            f<sub>i</sub>(t) <span class="op">=</span> <span class="term">Σ<sub>j∈A(t)</sub> g<sub>j</sub>(t)·(W<sub>enc,i</sub>·u<sub>j</sub>(t))</span> <span class="op">+</span> b<sub>enc,i</sub>
+          </p>
+          <p class="fnote">
+            The decomposition carries <b>no approximation error</b> of its own: the only error is the SAE's reconstruction of the layer output — <b>FVU 25.1%</b> at layer 30, the layer every semantic claim rests on.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <!-- 02 — EVIDENCE -->
+    <section class="section" id="evidence" aria-labelledby="s2">
+      <div class="sec-head">
+        <span class="sec-num">02</span>
+        <h2 class="sec-title" id="s2">The evidence</h2>
+        <p class="sec-sub">Both profiles sum to 1 across the 8 active experts, so concentration is compared like for like.</p>
+      </div>
+
+      <div class="method-grid method-grid--evidence">
+        <div class="panel">
+          <div class="panel-head">
+            <h3>Dominance graph, by layer</h3>
+            <div class="seg" role="group" aria-label="Highlight a layer">
+              <button class="segbtn" type="button" data-layer="4" aria-pressed="false">L4</button>
+              <button class="segbtn" type="button" data-layer="30" aria-pressed="true">L30</button>
+              <button class="segbtn" type="button" data-layer="46" aria-pressed="false">L46</button>
+            </div>
+          </div>
+          <table class="dtable" id="layerTable">
+            <caption>Structure at τ = 0.2. Selected layer is highlighted; the other columns stay for comparison.</caption>
+            <thead>
+              <tr>
+                <th scope="col">Statistic</th>
+                <th scope="col" data-col="4">Layer 4</th>
+                <th scope="col" data-col="30" class="is-sel">Layer 30</th>
+                <th scope="col" data-col="46">Layer 46</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <th scope="row">Latents with one dominator</th>
+                <td data-col="4">57.4<span class="unit">%</span></td>
+                <td data-col="30" class="is-sel">62.1<span class="unit">%</span></td>
+                <td data-col="46">56.7<span class="unit">%</span></td>
+              </tr>
+              <tr>
+                <th scope="row">≤ 2 dominators</th>
+                <td data-col="4">89.9<span class="unit">%</span></td>
+                <td data-col="30" class="is-sel">85.1<span class="unit">%</span></td>
+                <td data-col="46">92.7<span class="unit">%</span></td>
+              </tr>
+              <tr>
+                <th scope="row">No dominator at all</th>
+                <td data-col="4">7.0<span class="unit">%</span></td>
+                <td data-col="30" class="is-sel">13.6<span class="unit">%</span></td>
+                <td data-col="46">3.7<span class="unit">%</span></td>
+              </tr>
+              <tr>
+                <th scope="row">Mean expert degree</th>
+                <td data-col="4">10,786</td>
+                <td data-col="30" class="is-sel">9,170</td>
+                <td data-col="46">11,439</td>
+              </tr>
+              <tr>
+                <th scope="row">Median expert degree</th>
+                <td data-col="4">8,020</td>
+                <td data-col="30" class="is-sel">7,395</td>
+                <td data-col="46">7,835</td>
+              </tr>
+              <tr>
+                <th scope="row">Smallest expert degree</th>
+                <td data-col="4">362</td>
+                <td data-col="30" class="is-sel">224</td>
+                <td data-col="46">83</td>
+              </tr>
+              <tr>
+                <th scope="row">Top-10 experts' share of edges <span style="color:var(--muted)">(uniform 7.8%)</span></th>
+                <td data-col="4">24.6<span class="unit">%</span></td>
+                <td data-col="30" class="is-sel">20.1<span class="unit">%</span></td>
+                <td data-col="46">30.1<span class="unit">%</span></td>
+              </tr>
+              <tr>
+                <th scope="row">Expert pairs above J = 0.05</th>
+                <td data-col="4">0.31<span class="unit">%</span></td>
+                <td data-col="30" class="is-sel">0.25<span class="unit">%</span></td>
+                <td data-col="46">0.57<span class="unit">%</span></td>
+              </tr>
+              <tr>
+                <th scope="row">SAE reconstruction error (FVU)</th>
+                <td data-col="4">12.6<span class="unit">%</span></td>
+                <td data-col="30" class="is-sel">25.1<span class="unit">%</span></td>
+                <td data-col="46">7.6<span class="unit">%</span></td>
+              </tr>
+            </tbody>
+          </table>
+          <p class="layer-note row-note" id="layerNote">Mid-depth — also the worst-reconstructed layer (FVU 25.1%) and the only one given a semantic taxonomy.</p>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head">
+            <h3>Contribution vs gating, layer 30</h3>
+            <span class="hint">Rank-aligned</span>
+          </div>
+          <ul class="legend">
+            <li><span class="swatch swatch--c" aria-hidden="true"></span> Contribution C̄</li>
+            <li><span class="swatch swatch--g" aria-hidden="true"></span> Gating ḡ</li>
+          </ul>
+
+          <div class="rankrow">
+            <span class="rk">R1</span>
+            <div>
+              <div class="barline"><div class="track"><span class="bar bar--g" style="width:42.0%"></span></div><span class="val">0.231</span></div>
+              <div class="barline"><div class="track"><span class="bar bar--c" style="width:93.1%"></span></div><span class="val">0.512</span></div>
+            </div>
+          </div>
+          <div class="rankrow">
+            <span class="rk">R2</span>
+            <div>
+              <div class="barline"><div class="track"><span class="bar bar--g" style="width:30.7%"></span></div><span class="val">0.169</span></div>
+              <div class="barline"><div class="track"><span class="bar bar--c" style="width:33.6%"></span></div><span class="val">0.185</span></div>
+            </div>
+          </div>
+          <div class="rankrow">
+            <span class="rk">R3</span>
+            <div>
+              <div class="barline"><div class="track"><span class="bar bar--g" style="width:24.9%"></span></div><span class="val">0.137</span></div>
+              <div class="barline"><div class="track"><span class="bar bar--c" style="width:20.9%"></span></div><span class="val">0.115</span></div>
+            </div>
+          </div>
+          <div class="rankrow">
+            <span class="rk">R8</span>
+            <div>
+              <div class="barline"><div class="track"><span class="bar bar--g" style="width:13.5%"></span></div><span class="val">0.074</span></div>
+              <div class="barline"><div class="track"><span class="bar bar--c" style="width:0.9%"></span></div><span class="val">0.005</span></div>
+            </div>
+          </div>
+
+          <p class="chart-note">
+            Bar length is share of a latent's activation, axis 0–0.55. The curves cross between rank 1 and 2: one expert owns the top of the profile, the tail goes quiet.
+            Ranks 4–7 are not reported numerically in the source and are not plotted.
+            A ReLU-truncation artefact is pre-empted — only 1.29 of 8 experts are truncated per pair at layer 30.
+          </p>
+        </div>
+      </div>
+
+      <div class="method-grid method-grid--split">
+        <div class="panel">
+          <div class="panel-head">
+            <h3>Sub-domain specialists, layer 30</h3>
+            <span class="hint">GPT-5.5 theme judge</span>
+          </div>
+          <table class="spec-table">
+            <caption>Share of an expert's sampled latents judged to belong to its own theme, against a random 2,000-latent draw from the other 127 experts.</caption>
+            <thead>
+              <tr>
+                <th scope="col">Expert &amp; induced theme</th>
+                <th scope="col">Own</th>
+                <th scope="col">Random</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <th scope="row">
+                  <span class="spec-name">E50 · Java development</span>
+                  <span class="spec-sub">lift 45.6×</span>
+                  <div class="mini"><i style="width:100%"></i></div>
+                </th>
+                <td>86.7<span class="unit">%</span></td>
+                <td style="color:var(--muted)">1.9%</td>
+              </tr>
+              <tr>
+                <th scope="row">
+                  <span class="spec-name">E57 · Front-end web</span>
+                  <span class="spec-sub">lift 22.5×</span>
+                  <div class="mini"><i style="width:90.7%"></i></div>
+                </th>
+                <td>78.6<span class="unit">%</span></td>
+                <td style="color:var(--muted)">3.5%</td>
+              </tr>
+              <tr>
+                <th scope="row">
+                  <span class="spec-name">E1 · Geometry</span>
+                  <span class="spec-sub">lift 39.1×</span>
+                  <div class="mini"><i style="width:90.1%"></i></div>
+                </th>
+                <td>78.1<span class="unit">%</span></td>
+                <td style="color:var(--muted)">2.0%</td>
+              </tr>
+              <tr>
+                <th scope="row">
+                  <span class="spec-name">E76 · Arithmetic &amp; polynomial</span>
+                  <span class="spec-sub">lift 8.8×</span>
+                  <div class="mini"><i style="width:68.2%"></i></div>
+                </th>
+                <td>59.1<span class="unit">%</span></td>
+                <td style="color:var(--muted)">6.7%</td>
+              </tr>
+            </tbody>
+          </table>
+          <p class="chart-note" style="margin-top:12px">
+            Same layer, same domain: “code” splits into Java/Android and HTML/CSS/JS; “math” splits into geometry and arithmetic.
+          </p>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head">
+            <h3>11 domains, bottom-up</h3>
+            <span class="hint">128 labels → 1 call</span>
+          </div>
+          <div class="domains">
+            <div class="dom is-key"><span class="dom-name">Computing</span><span class="dom-track"><i style="width:100%"></i></span><span class="dom-n">28</span></div>
+            <div class="dom"><span class="dom-name">Text form <span class="ns">non-subject</span></span><span class="dom-track"><i style="width:75%"></i></span><span class="dom-n">21</span></div>
+            <div class="dom is-key"><span class="dom-name">Mathematics &amp; reasoning</span><span class="dom-track"><i style="width:71.4%"></i></span><span class="dom-n">20</span></div>
+            <div class="dom"><span class="dom-name">Applied science</span><span class="dom-track"><i style="width:64.3%"></i></span><span class="dom-n">18</span></div>
+            <div class="dom"><span class="dom-name">Language <span class="ns">non-subject</span></span><span class="dom-track"><i style="width:28.6%"></i></span><span class="dom-n">8</span></div>
+            <div class="dom"><span class="dom-name">Culture &amp; recreation</span><span class="dom-track"><i style="width:25%"></i></span><span class="dom-n">7</span></div>
+            <div class="dom"><span class="dom-name">Entities &amp; identifiers <span class="ns">non-subject</span></span><span class="dom-track"><i style="width:25%"></i></span><span class="dom-n">7</span></div>
+            <div class="dom"><span class="dom-name">Safety &amp; advice</span><span class="dom-track"><i style="width:17.9%"></i></span><span class="dom-n">5</span></div>
+            <div class="dom"><span class="dom-name">Commerce</span><span class="dom-track"><i style="width:17.9%"></i></span><span class="dom-n">5</span></div>
+            <div class="dom"><span class="dom-name">Society &amp; law</span><span class="dom-track"><i style="width:17.9%"></i></span><span class="dom-n">5</span></div>
+            <div class="dom"><span class="dom-name">Time &amp; place</span><span class="dom-track"><i style="width:14.3%"></i></span><span class="dom-n">4</span></div>
+          </div>
+          <p class="domain-foot">
+            Computing + math take <b>37.5%</b> of the layer; “art” appears in exactly one label. The three non-subject domains hold <b>36 experts (28.1%)</b> — a unit no subject-matter taxonomy could recover.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <!-- 03 — VERDICT -->
+    <section class="section" id="verdict" aria-labelledby="s3">
+      <div class="sec-head">
+        <span class="sec-num">03</span>
+        <h2 class="sec-title" id="s3">The verdict</h2>
+        <p class="sec-sub">A well-executed descriptive study. The instrument is the contribution; the taxonomy is the demonstration.</p>
+      </div>
+
+      <div class="verdict">
+        <div class="vpanel">
+          <div class="vhead">
+            <h3>Strengths</h3>
+            <span>n = 3 layers</span>
+          </div>
+          <ul class="vlist vlist--pro">
+            <li><b>Exact and free.</b> Two lines of algebra, no training and no intervention; it transfers to any MoE whose layer output is a weighted sum, shared experts included.</li>
+            <li><b>Pre-empts the obvious objection.</b> The rank-aligned control defuses “this is just top-k gating”, and the truncation count closes the ReLU artefact.</li>
+            <li><b>Care in the interpretation loop.</b> Top-5 plus random-5 contexts to counter near-duplicate bias, <em>Uninterpretable</em> allowed, logit lens for diffuse features.</li>
+            <li><b>Auditable.</b> All 128 word clouds, an expert→label→domain table, all four prompts, and released SAEs and code.</li>
+            <li><b>A real negative result.</b> Three non-subject domains are 28.1% of the layer and would be scattered by any human subject taxonomy.</li>
+          </ul>
+        </div>
+
+        <div class="vpanel vpanel--lim">
+          <div class="vhead">
+            <h3>Limitations</h3>
+            <span>n = 1 model</span>
+          </div>
+          <ul class="vlist vlist--con">
+            <li><b>No causal validation.</b> Pruning, merging and steering are framed as “a testable hypothesis” and then deferred; dominance is co-activation, not functional responsibility.</li>
+            <li><b>SAE fidelity bounds everything.</b> FVU 25.1% at layer 30, the only layer with a taxonomy — a quarter of that layer's variance sits outside the latents being interpreted.</li>
+            <li><b>τ = 0.2 is fixed, unswept.</b> Every degree and overlap number is conditional on it, and there is no null model for how much concentration the arithmetic forces.</li>
+            <li><b>One judge, no human check.</b> Explanations, theme judgments, labels and the partition all come from GPT-5.5, with no agreement statistic.</li>
+            <li><b>Single model, single seed.</b> No comparison against Herbst et al. on the same footing; the domain count is partly a prompt budget artifact.</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- 04 — QUESTIONS -->
+    <section class="section" id="questions" aria-labelledby="s4">
+      <div class="sec-head">
+        <span class="sec-num">04</span>
+        <h2 class="sec-title" id="s4">Open questions</h2>
+        <p class="sec-sub">The cheap experiments the paper names but does not run.</p>
+      </div>
+
+      <div class="questions">
+        <div class="q">
+          <span class="q-n">Q1</span>
+          <div>
+            <h4>Does the dominant set survive ablation?</h4>
+            <p>Remove E50 at layer 30 and compare the activation drop on its dominant latents against a matched set it merely fires on. One ablation would make the construct causal.</p>
+          </div>
+        </div>
+        <div class="q">
+          <span class="q-n">Q2</span>
+          <div>
+            <h4>How much is arithmetic, not learning?</h4>
+            <p>Rebuild the graph with contributions reassigned to a random activated expert ∝ g<sub>j</sub>. If the null already yields ~50% single dominators, 62.1% is a weak finding.</p>
+          </div>
+        </div>
+        <div class="q">
+          <span class="q-n">Q3</span>
+          <div>
+            <h4>What is the within-expert baseline?</h4>
+            <p>For E50, what share of the latents it <em>activates on</em> are Java-related? The gap to 86.7% is the value the contribution construction actually adds.</p>
+          </div>
+        </div>
+        <div class="q">
+          <span class="q-n">Q4</span>
+          <div>
+            <h4>How sensitive to τ and SAE width?</h4>
+            <p>Sweep τ ∈ {0.1, 0.2, 0.3, 0.5} and retrain layer 30 at another seed: do E50, E57, E1 and E76 re-emerge with the same dominant sets?</p>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <footer>
+    <div class="wrap foot">
+      <a class="foot-link" href="./2611.08089.md"><span aria-hidden="true">↗</span> Markdown source</a>
+      <span class="foot-meta">arXiv 2611.08089 · 02 Nov 2026 · ByteDance Seed / SUFE</span>
+    </div>
+  </footer>
+</main>
+
+<script>
+(function () {
+  var notes = {
+    "4": "Shallow layer — 2.09 of 8 experts truncated per (prefix, latent) pair, the largest blind spot for positive-only contributions.",
+    "30": "Mid-depth — also the worst-reconstructed layer (FVU 25.1%) and the only one given a semantic taxonomy.",
+    "46": "Deep layer — 92.7% of latents have ≤ 2 dominators, yet the top-10 experts hold 30.1% of edges, the most skew of the three."
+  };
+
+  var buttons = Array.prototype.slice.call(document.querySelectorAll(".segbtn"));
+  var cells = Array.prototype.slice.call(document.querySelectorAll("#layerTable [data-col]"));
+  var note = document.getElementById("layerNote");
+  if (!buttons.length || !cells.length) return;
+
+  function select(layer) {
+    buttons.forEach(function (b) {
+      b.setAttribute("aria-pressed", b.getAttribute("data-layer") === layer ? "true" : "false");
+    });
+    cells.forEach(function (c) {
+      c.classList.toggle("is-sel", c.getAttribute("data-col") === layer);
+    });
+    if (note) {
+      note.style.opacity = "0";
+      window.setTimeout(function () {
+        note.textContent = notes[layer] || "";
+        note.style.opacity = "1";
+      }, 90);
+    }
+  }
+
+  buttons.forEach(function (b) {
+    b.addEventListener("click", function () {
+      select(b.getAttribute("data-layer"));
+    });
+  });
+})();
+</script>
+</body>
+</html>

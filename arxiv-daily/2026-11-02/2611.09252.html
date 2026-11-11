@@ -1,0 +1,599 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MoE load balancing is feedback control · 2611.09252</title>
+<style>
+  :root{
+    --paper:#F1EFE9;
+    --panel:#FBFAF6;
+    --ink:#15171B;
+    --ink-2:#565A62;
+    --rule:#D8D3C7;
+    --accent:#0E6A5E;
+    --accent-soft:#DDE8E3;
+    --accent-lift:#7FC0B2;
+    --dark:#191B20;
+    --mono:ui-monospace,"SF Mono",SFMono-Regular,Menlo,Consolas,monospace;
+    --maxw:1100px;
+  }
+
+  *,*::before,*::after{box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%}
+  body{
+    margin:0;
+    color:var(--ink);
+    background-color:var(--paper);
+    background-image:
+      linear-gradient(to right, rgba(21,23,27,.026) 1px, transparent 1px),
+      linear-gradient(to bottom, rgba(21,23,27,.026) 1px, transparent 1px);
+    background-size:32px 32px;
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Helvetica Neue","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+    font-size:16px;
+    line-height:1.65;
+    -webkit-font-smoothing:antialiased;
+  }
+  ::selection{background:var(--accent);color:#fff}
+  a{color:inherit}
+  a:focus-visible,button:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+
+  .backnav{
+    position:fixed;top:0;left:0;z-index:20;
+    display:inline-flex;align-items:center;gap:6px;
+    padding:13px 18px 12px;
+    background:var(--paper);
+    border-right:1px solid var(--rule);
+    border-bottom:1px solid var(--rule);
+    font:500 11px/1 var(--mono);
+    letter-spacing:.07em;
+    text-decoration:none;
+    color:var(--ink-2);
+  }
+  .backnav:hover{color:var(--accent);background:var(--panel)}
+
+  .page{width:min(95vw,var(--maxw));margin:0 auto;padding:74px 0 34px}
+
+  /* ---------- hero ---------- */
+  .hero{border-bottom:1px solid var(--ink);padding-bottom:22px}
+  .rail{
+    display:flex;justify-content:space-between;align-items:baseline;gap:14px;
+    font:500 10px/1.4 var(--mono);letter-spacing:.16em;text-transform:uppercase;
+    color:var(--ink-2);margin-bottom:16px;
+  }
+  .kicker{color:var(--accent)}
+  .rail .id{white-space:nowrap}
+  h1{
+    margin:0;
+    font-size:clamp(1.95rem,4.5vw,3.3rem);
+    line-height:1.07;
+    letter-spacing:-.028em;
+    font-weight:700;
+  }
+  h1 em{
+    font-style:normal;
+    color:var(--accent);
+    text-decoration:underline;
+    text-decoration-color:var(--accent-soft);
+    text-decoration-thickness:2px;
+    text-underline-offset:6px;
+  }
+  .zh{margin:12px 0 0;font-size:13.5px;line-height:1.75;color:var(--ink-2);letter-spacing:.01em}
+
+  .meta{display:flex;flex-wrap:wrap;align-items:baseline;gap:8px 12px;margin-top:18px}
+  .ptitle{
+    font-size:15.5px;font-weight:650;letter-spacing:-.01em;
+    text-decoration:none;border-bottom:1px solid var(--rule);padding-bottom:1px;
+  }
+  .ptitle:hover{color:var(--accent);border-color:var(--accent)}
+  .byline{font-size:12.5px;color:var(--ink-2);line-height:1.5}
+  .chips{display:flex;flex-wrap:wrap;gap:6px;list-style:none;margin:0 0 0 auto;padding:0}
+  .chips li{
+    font:500 9.5px/1.5 var(--mono);letter-spacing:.09em;text-transform:uppercase;
+    color:var(--ink-2);border:1px solid var(--rule);padding:3px 7px;white-space:nowrap;
+  }
+
+  /* ---------- asset row ---------- */
+  .assets{display:grid;grid-template-columns:1.2fr 1fr 1.12fr;gap:12px;margin-top:24px}
+  .card{
+    position:relative;
+    background:var(--panel);
+    border:1px solid var(--rule);
+    border-radius:3px;
+    padding:16px 18px 18px;
+  }
+  .lab{
+    display:flex;justify-content:space-between;gap:8px;
+    font:500 9.5px/1.3 var(--mono);letter-spacing:.16em;text-transform:uppercase;
+    color:var(--ink-2);margin-bottom:11px;
+  }
+  .lab span:last-child{letter-spacing:.06em;color:#8A8E95}
+
+  .metric .num{
+    font:600 clamp(3.2rem,6.2vw,4.4rem)/.88 var(--mono);
+    letter-spacing:-.055em;color:var(--accent);
+    display:flex;align-items:flex-start;gap:5px;
+  }
+  .metric .pm{font:500 11px/1 var(--mono);letter-spacing:0;margin-top:7px}
+  .metric p{margin:9px 0 0;font-size:12px;line-height:1.55;color:var(--ink-2)}
+  .metric p b{color:var(--ink);font-weight:600}
+
+  .why p{margin:0;font-size:14.5px;line-height:1.55;letter-spacing:-.005em}
+  .why .tag{display:block;margin-top:11px;font:9.5px var(--mono);letter-spacing:.1em;text-transform:uppercase;color:#8A8E95}
+
+  .edge{background:var(--dark);border-color:var(--dark);color:#EDEAE2;overflow:hidden}
+  .edge::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--accent)}
+  .edge .lab{color:var(--accent-lift)}
+  .edge .lab span:last-child{color:#7C818A}
+  .edge p{margin:0;font-size:13px;line-height:1.6}
+  .edge .tag{display:block;margin-top:11px;font:9.5px var(--mono);letter-spacing:.1em;text-transform:uppercase;color:#7C818A}
+
+  /* ---------- sections ---------- */
+  .sec{margin-top:34px}
+  .sec-h{
+    display:flex;align-items:baseline;gap:11px;
+    border-top:1px solid var(--ink);padding-top:9px;margin-bottom:13px;
+  }
+  .sec-h .n{font:500 9.5px var(--mono);letter-spacing:.12em;color:var(--accent)}
+  .sec-h h2{margin:0;font-size:11.5px;letter-spacing:.15em;text-transform:uppercase;font-weight:650}
+  .sec-h .note{margin-left:auto;font-size:11px;color:var(--ink-2);text-align:right}
+
+  /* ---------- method ---------- */
+  .method{display:grid;grid-template-columns:335px 1fr;background:var(--panel);border:1px solid var(--rule)}
+  .loopwrap{border-right:1px solid var(--rule)}
+  .loop{margin:0;padding:17px 18px 13px;list-style:none}
+  .loop li{position:relative;padding:0 0 13px 24px}
+  .loop li:last-child{padding-bottom:0}
+  .loop li::before{
+    content:"";position:absolute;left:2px;top:5px;width:9px;height:9px;border-radius:50%;
+    border:1.5px solid var(--accent);background:var(--panel);
+  }
+  .loop li::after{
+    content:"";position:absolute;left:8px;top:16px;bottom:-1px;width:1px;background:var(--rule);
+  }
+  .loop li:last-child::after{display:none}
+  .loop .s{font:500 9px var(--mono);letter-spacing:.08em;color:var(--accent);margin-right:5px;vertical-align:1px}
+  .loop b{font-size:12.5px;letter-spacing:.01em}
+  .loop p{margin:2px 0 0;font-size:11.5px;line-height:1.5;color:var(--ink-2)}
+  .loop-ret{margin:0;padding:0 18px 16px 42px;font:9.5px/1.4 var(--mono);letter-spacing:.07em;color:var(--accent);text-transform:uppercase}
+
+  .method-body{padding:17px 20px 18px}
+  .mpoints{list-style:none;margin:0;padding:0;display:grid;gap:10px}
+  .mpoints li{position:relative;padding-left:15px;font-size:12.8px;line-height:1.6;color:#2C2F35}
+  .mpoints li::before{content:"";position:absolute;left:0;top:8px;width:5px;height:5px;background:var(--accent)}
+  .mpoints b{font-weight:650;color:var(--ink)}
+
+  /* ---------- results ---------- */
+  .results{background:var(--panel);border:1px solid var(--rule);padding:16px 18px 0}
+  .res-top{display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap}
+  .res-top h3{margin:0;font-size:13px;letter-spacing:.01em}
+  .res-top p{margin:2px 0 0;font-size:11px;color:var(--ink-2)}
+  .seg{display:inline-flex;border:1px solid var(--rule);background:var(--paper)}
+  .seg button{
+    appearance:none;border:0;background:transparent;cursor:pointer;
+    padding:6px 10px;font:500 10px/1.3 var(--mono);letter-spacing:.03em;color:var(--ink-2);
+  }
+  .seg button+button{border-left:1px solid var(--rule)}
+  .seg button[aria-pressed="true"]{background:var(--ink);color:var(--paper)}
+  .seg button:hover{color:var(--accent)}
+  .seg button[aria-pressed="true"]:hover{color:var(--paper)}
+
+  .chart{margin-top:16px;display:grid;gap:7px}
+  .row{display:grid;grid-template-columns:112px 1fr 52px;align-items:center;gap:11px}
+  .row .name{font:10.5px/1.3 var(--mono);color:var(--ink-2);letter-spacing:.01em}
+  .track{
+    position:relative;height:22px;background:var(--paper);
+    box-shadow:inset 0 0 0 1px rgba(21,23,27,.07);
+  }
+  .track::before{
+    content:"";position:absolute;inset:0;z-index:2;pointer-events:none;
+    background:repeating-linear-gradient(to right, rgba(21,23,27,.13) 0 1px, transparent 1px 14.2857%);
+  }
+  .fill{
+    position:relative;z-index:1;display:block;height:100%;width:0;
+    background:rgba(21,23,27,.26);
+    transition:width .7s cubic-bezier(.2,.7,.25,1);
+  }
+  .row.pid .fill{background:var(--accent)}
+  .row .val{font:500 12px var(--mono);text-align:right;font-variant-numeric:tabular-nums}
+  .row.pid .name,.row.pid .val{color:var(--accent);font-weight:600}
+
+  .axis{display:grid;grid-template-columns:112px 1fr 52px;gap:11px;margin-top:2px}
+  .axis .ticks{
+    grid-column:2;display:flex;justify-content:space-between;
+    font:9px var(--mono);color:#8A8E95;font-variant-numeric:tabular-nums;
+  }
+  .axis .cap{grid-column:3;font:9px var(--mono);color:#8A8E95;text-align:right}
+  .chart-note{margin:9px 0 0;font-size:10.8px;line-height:1.55;color:var(--ink-2);max-width:78ch}
+
+  .tbl-wrap{overflow-x:auto;margin-top:16px}
+  .tbl{width:100%;border-collapse:collapse;min-width:520px}
+  .tbl caption{
+    caption-side:top;text-align:left;padding-bottom:7px;
+    font:10px var(--mono);letter-spacing:.05em;color:var(--ink-2);
+  }
+  .tbl th{
+    font:500 9.5px/1.4 var(--mono);letter-spacing:.09em;text-transform:uppercase;
+    color:var(--ink-2);text-align:right;padding:6px 9px;border-bottom:1px solid var(--ink);
+  }
+  .tbl th:first-child{text-align:left}
+  .tbl td{
+    padding:7px 9px;text-align:right;border-bottom:1px solid var(--rule);
+    font:12.5px var(--mono);font-variant-numeric:tabular-nums;
+  }
+  .tbl td:first-child{text-align:left;color:var(--ink-2);font-size:11.5px}
+  .tbl tbody tr:hover{background:var(--accent-soft)}
+  .tbl .delta{font-size:10px;color:var(--accent);margin-left:5px;letter-spacing:.02em}
+
+  .stats{display:grid;grid-template-columns:repeat(3,1fr);margin-top:16px;border-top:1px solid var(--rule)}
+  .stat{padding:13px 15px 15px;border-right:1px solid var(--rule)}
+  .stat:first-child{padding-left:0}
+  .stat:last-child{border-right:0;padding-right:0}
+  .stat .v{display:block;font:600 17px/1.2 var(--mono);letter-spacing:-.02em;color:var(--accent)}
+  .stat .l{display:block;margin-top:3px;font-size:10.8px;line-height:1.5;color:var(--ink-2)}
+
+  /* ---------- strengths / limitations ---------- */
+  .sides{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  .panel{background:var(--panel);border:1px solid var(--rule);padding:15px 17px 17px}
+  .panel h3{
+    margin:0 0 11px;padding-bottom:8px;border-bottom:1px solid var(--rule);
+    font:650 11px/1.4 var(--mono);letter-spacing:.14em;text-transform:uppercase;
+  }
+  .panel.up h3{border-bottom-color:var(--accent);color:var(--accent)}
+  .panel.down h3{border-bottom-style:dashed}
+  .panel ol{list-style:none;counter-reset:it;margin:0;padding:0;display:grid;gap:8px}
+  .panel li{position:relative;counter-increment:it;padding-left:25px;font-size:12.4px;line-height:1.55;color:#2C2F35}
+  .panel li::before{
+    content:counter(it,decimal-leading-zero);position:absolute;left:0;top:2px;
+    font:9.5px var(--mono);letter-spacing:.04em;color:var(--accent);
+  }
+  .panel.down li::before{color:#8A8E95}
+
+  /* ---------- questions ---------- */
+  .qs{
+    display:grid;grid-template-columns:1fr 1fr;gap:12px 26px;
+    background:var(--panel);border:1px solid var(--rule);padding:15px 18px 17px;
+  }
+  .q{position:relative;padding-left:27px;font-size:12.4px;line-height:1.55;color:#2C2F35}
+  .q::before{
+    content:attr(data-q);position:absolute;left:0;top:2px;
+    font:9.5px var(--mono);color:var(--accent);letter-spacing:.04em;
+  }
+
+  /* ---------- footer ---------- */
+  .foot{
+    display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap;
+    margin-top:32px;padding-top:11px;border-top:1px solid var(--ink);
+    font-size:11.5px;color:var(--ink-2);
+  }
+  .foot a{color:var(--accent);text-decoration:none;border-bottom:1px solid var(--accent-soft);padding-bottom:1px}
+  .foot a:hover{border-color:var(--accent)}
+  .foot .fine{font:9.5px var(--mono);letter-spacing:.06em;text-transform:uppercase;color:#8A8E95}
+
+  /* ---------- motion ---------- */
+  @media (prefers-reduced-motion: no-preference){
+    .rise{animation:rise .55s cubic-bezier(.2,.7,.3,1) both;animation-delay:var(--d,0s)}
+    @keyframes rise{from{opacity:0;transform:translateY(9px)}to{opacity:1;transform:none}}
+  }
+  @media (prefers-reduced-motion: reduce){
+    .fill{transition:none}
+  }
+
+  /* ---------- responsive ---------- */
+  @media (max-width:900px){
+    .assets{grid-template-columns:1fr 1fr}
+    .edge{grid-column:1/-1}
+    .method{grid-template-columns:1fr}
+    .loopwrap{border-right:0;border-bottom:1px solid var(--rule)}
+  }
+  @media (max-width:720px){
+    .page{padding-top:66px;width:min(92vw,var(--maxw))}
+    .rail{flex-wrap:wrap;gap:4px}
+    h1{font-size:clamp(1.75rem,7.4vw,2.5rem);line-height:1.12}
+    .assets{grid-template-columns:1fr}
+    .chips{margin-left:0}
+    .sides,.qs{grid-template-columns:1fr}
+    .stats{grid-template-columns:1fr}
+    .stat{border-right:0;border-bottom:1px solid var(--rule);padding:11px 0 12px}
+    .stat:last-child{border-bottom:0}
+    .row{grid-template-columns:84px 1fr 44px;gap:8px}
+    .axis{grid-template-columns:84px 1fr 44px;gap:8px}
+    .row .name{font-size:9.5px}
+    .chart-note{font-size:10.2px}
+    .sec-h .note{display:none}
+    .foot .fine{display:none}
+  }
+</style>
+</head>
+<body>
+
+<a class="backnav" href="./index.html">↩ Today's digest</a>
+
+<main class="page">
+
+  <header class="hero">
+    <div class="rail">
+      <span class="kicker">MoE · load balancing · feedback control</span>
+      <span class="id">arXiv 2611.09252 · v1</span>
+    </div>
+
+    <h1>MoE load balancing is feedback control — and <em>only an integral term</em> removes persistent expert imbalance.</h1>
+    <p class="zh" lang="zh-Hans">把负载均衡看成反馈回路：只有积分项能消除持续的专家失衡，比例项留下残差，微分项只会放大噪声。</p>
+
+    <div class="meta">
+      <a class="ptitle" href="https://arxiv.org/abs/2611.09252">Rethinking MoE Load Balancing as Feedback Control</a>
+      <span class="byline">Yikun Hou, Alp Yurtsever · Umeå University · 2 Nov 2026</span>
+      <ul class="chips">
+        <li>Mixture-of-Experts</li>
+        <li>Continual pretraining</li>
+        <li>Training stability</li>
+        <li>Control theory</li>
+      </ul>
+    </div>
+  </header>
+
+  <section class="assets" aria-label="Extracted assets">
+
+    <article class="card metric rise" style="--d:.05s">
+      <div class="lab"><span>Key metric</span><span>post-shift MaxVio</span></div>
+      <div class="num">0.47<span class="pm">±0.01</span></div>
+      <p><b>E=64, Top-8, 6 seeds</b> — vs 1.20 for ALF-LB and 6.10 with no balancing after an instant Books→GitHub switch; PPL unchanged at 3.21.</p>
+    </article>
+
+    <article class="card why rise" style="--d:.1s">
+      <div class="lab"><span>Why this matters</span><span>relevance</span></div>
+      <p>This work measures how fast routing recovers after a mixture switch — and whether that recovery is paid for in forgetting.</p>
+      <span class="tag">CPT &amp; curriculum mixture switches</span>
+    </article>
+
+    <article class="card edge rise" style="--d:.15s">
+      <div class="lab"><span>Critical edge</span><span>caveat</span></div>
+      <p>The balance is bought with forgetting: PPL-Annealing 7.39 vs 7.23 and MMLU 0.46 vs 0.50 — and deleting the bias at inference <b>lowers</b> perplexity by 0.9–2.6%.</p>
+      <span class="tag">Critical assessment · §4.2</span>
+    </article>
+
+  </section>
+
+  <section class="sec" aria-labelledby="m-h">
+    <div class="sec-h">
+      <span class="n">01</span><h2 id="m-h">Methodology — the loop</h2>
+      <span class="note">error → bias → router → load → error</span>
+    </div>
+
+    <div class="method">
+      <div class="loopwrap">
+        <ol class="loop">
+          <li><span class="s">01</span><b>Error</b>
+            <p>e<sub>i</sub> = (r − L<sub>i</sub>)/r against fair share r = TK/E. Bounded, batch-size independent.</p></li>
+          <li><span class="s">02</span><b>Controller</b>
+            <p>u<sub>i</sub> ← u<sub>i</sub> + K<sub>I</sub>·e<sub>i</sub>. One gain per expert per layer; no gradient.</p></li>
+          <li><span class="s">03</span><b>Bias</b>
+            <p>Added to router scores at selection only. Gate weights stay unbiased.</p></li>
+          <li><span class="s">04</span><b>Router</b>
+            <p>Top-K, memoryless, monotone — and one step late.</p></li>
+          <li><span class="s">05</span><b>Load</b>
+            <p>L<sub>i</sub>(t) becomes the next error.</p></li>
+        </ol>
+        <p class="loop-ret">↺ closed loop · correction lands at t+1</p>
+      </div>
+
+      <div class="method-body">
+        <ul class="mpoints">
+          <li><b>Reframe.</b> Error is the normalized deviation from the fair share; the control input is a per-expert bias on router scores at selection time, so the model's weights and training objective are untouched.</li>
+          <li><b>Unify.</b> The Switch auxiliary loss differentiates to a token-dependent gain on the current error — proportional control, with steady-state error ∝ 1/α that never vanishes. ALF-LB integrates the <i>sign</i> of the error, discarding magnitude.</li>
+          <li><b>Argue.</b> A dead expert needs a ramp (I), not a fixed offset (P); an alternating error cancels inside the sum but is copied or amplified by P and D. Hence PID (I), a single gain.</li>
+          <li><b>Test.</b> OLMoE from scratch at E=16/32/64 (33k steps, hard Books→GitHub switch at 16,500), plus continual pretraining of OLMoE-1B-7B onto codeparrot.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section class="sec" aria-labelledby="r-h">
+    <div class="sec-h">
+      <span class="n">02</span><h2 id="r-h">Results — what the loop buys</h2>
+      <span class="note">post-shift MaxVio · lower is better</span>
+    </div>
+
+    <div class="results">
+      <div class="res-top">
+        <div>
+          <h3>Busiest expert, measured against the fair share</h3>
+          <p id="chart-meta" aria-live="polite">Post-shift window · 2,000 steps · 6 seeds</p>
+        </div>
+        <div class="seg" role="group" aria-label="Choose experiment">
+          <button type="button" data-set="pretrain" aria-pressed="true">Pretrain · E=64 · 7→1</button>
+          <button type="button" data-set="cpt" aria-pressed="false">CPT · cold start</button>
+        </div>
+      </div>
+
+      <div class="chart" id="chart" role="group" aria-label="Bar chart of post-shift MaxVio by method"></div>
+      <div class="axis">
+        <div class="ticks"><span>0</span><span>1</span><span>2</span><span>3</span><span>4</span><span>5</span><span>6</span><span>7</span></div>
+        <div class="cap">ceiling</div>
+      </div>
+      <p class="chart-note">MaxVio = (busiest-expert load ÷ fair share) − 1, so 0.47 means the busiest expert carries 1.47× its share. Ceiling is E/K − 1 = 7.0. Aux-loss runs at the OLMoE default α=0.01; the appendix shows α=0.8 reaches 0.60 in CPT at a steeper quality cost.</p>
+
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <caption>Post-shift MaxVio by expert count · PID (I) vs ALF-LB · 6 seeds, 2,000-step window</caption>
+          <thead>
+            <tr>
+              <th scope="col" rowspan="2">Experts</th>
+              <th scope="colgroup" colspan="2">1→1 · Books</th>
+              <th scope="colgroup" colspan="2">6→1 · all-but-GitHub</th>
+            </tr>
+            <tr>
+              <th scope="col">PID (I)</th>
+              <th scope="col">ALF-LB</th>
+              <th scope="col">PID (I)</th>
+              <th scope="col">ALF-LB</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>E = 16</td>
+              <td>0.30 <span class="delta">−9%</span></td><td>0.33</td>
+              <td>0.30</td><td>0.38</td>
+            </tr>
+            <tr>
+              <td>E = 32</td>
+              <td>0.35 <span class="delta">−27%</span></td><td>0.48</td>
+              <td>0.36</td><td>0.65</td>
+            </tr>
+            <tr>
+              <td>E = 64</td>
+              <td>0.40 <span class="delta">−50%</span></td><td>0.80</td>
+              <td>0.47</td><td>0.92</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="stats">
+        <div class="stat">
+          <span class="v">0.00%</span>
+          <span class="l">dead / under-trained experts for both bias methods — Vanilla leaves 23.54% / 56.05% in the same cell</span>
+        </div>
+        <div class="stat">
+          <span class="v">25.9 → 13.0%</span>
+          <span class="l">error variance in slow (≤100-step) components; white-noise floor 1.9%</span>
+        </div>
+        <div class="stat">
+          <span class="v">3.21</span>
+          <span class="l">validation perplexity — indistinguishable across all four methods at E=64 (3.21–3.23)</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="sec" aria-labelledby="s-h">
+    <div class="sec-h">
+      <span class="n">03</span><h2 id="s-h">Balance sheet</h2>
+      <span class="note">read together — the gain and its price</span>
+    </div>
+
+    <div class="sides">
+      <article class="panel up">
+        <h3>Strengths</h3>
+        <ol>
+          <li>Two deployed methods collapse into one family, with the mapping derived rather than asserted — and it predicts steady-state error ∝ 1/α, confirmed by the sweep (DER 15.14% → 0.00%).</li>
+          <li>The integral-only argument is simple, checkable, and matches the ablation: P-only 2.86, D-only 5.47, PID (I) 0.40.</li>
+          <li>Metrics beyond MaxVio — DER, UTR, active fraction, rotating-vs-persistent ratio — each rule out a specific failure mode.</li>
+          <li>Unusually honest probes: forgetting is reported, and the bias-removed counterfactual shows perplexity <i>improving</i> 0.9–2.6% when the balancer is discarded.</li>
+          <li>Reproducibility is strong for an academic paper: open backbone, 6 seeds, full architecture and training tables, pseudocode, a stated gain-transfer rule.</li>
+        </ol>
+      </article>
+
+      <article class="panel down">
+        <h3>Limitations</h3>
+        <ol>
+          <li>Novelty is in the framing: PID (I) is ALF-LB's linear rule on a normalized error — a three-line update, not a new mechanism.</li>
+          <li>The control analysis is local and qualitative: no transfer function, no stability proof; scores are held fixed within a step and top-K coupling is outside the loop.</li>
+          <li>The headline gap is partly a hyperparameter artifact: at α=0.8 Aux-loss reaches postMV 0.60 (better than PID's 0.90) with worse PPL.</li>
+          <li>Narrow scope: one backbone, one routing design, ~1.08B tokens, a single instantaneous switch, no throughput or wall-clock measurement.</li>
+          <li>Statistics are uneven — CPT uses one seed with no error bars — and large K<sub>I</sub> drives a limit cycle, a real robustness cost of the linear rule.</li>
+        </ol>
+      </article>
+    </div>
+  </section>
+
+  <section class="sec" aria-labelledby="q-h">
+    <div class="sec-h">
+      <span class="n">04</span><h2 id="q-h">Open questions</h2>
+      <span class="note">what the paper leaves for the next run</span>
+    </div>
+
+    <div class="qs">
+      <p class="q" data-q="Q1">Can a saturating or clipped integrator keep the sign rule's robustness while retaining magnitude at large K<sub>I</sub>?</p>
+      <p class="q" data-q="Q2">How must K<sub>I</sub> scale with batch size, sequence length, and LR schedule — not just expert count?</p>
+      <p class="q" data-q="Q3">Does the widening margin over ALF-LB survive at 128–256 experts and trillion-token budgets?</p>
+      <p class="q" data-q="Q4">Can decaying K<sub>I</sub>, or gating the bias to already-saturated experts, buy balance without the forgetting?</p>
+    </div>
+  </section>
+
+  <footer class="foot">
+    <a href="./2611.09252.md">↗ Markdown source</a>
+    <span class="fine">2611.09252 · dashboard from vault summary</span>
+  </footer>
+
+</main>
+
+<script>
+(function () {
+  var sets = {
+    pretrain: {
+      meta: 'Post-shift window · 2,000 steps · 6 seeds',
+      rows: [
+        { name: 'Vanilla', v: 6.10 },
+        { name: 'Aux-loss', v: 1.50 },
+        { name: 'ALF-LB', v: 1.20 },
+        { name: 'PID (I)', v: 0.47, pid: true }
+      ]
+    },
+    cpt: {
+      meta: 'OLMoE-1B-7B → codeparrot · cold start · 1 seed',
+      rows: [
+        { name: 'Vanilla', v: 5.83 },
+        { name: 'Aux-loss', v: 4.43 },
+        { name: 'ALF-LB', v: 1.01 },
+        { name: 'PID (I)', v: 0.90, pid: true }
+      ]
+    }
+  };
+
+  var chart = document.getElementById('chart');
+  var meta = document.getElementById('chart-meta');
+  var buttons = Array.prototype.slice.call(document.querySelectorAll('.seg button'));
+
+  function render(key) {
+    var set = sets[key];
+    if (!set) return;
+    meta.textContent = set.meta;
+    chart.textContent = '';
+
+    set.rows.forEach(function (r) {
+      var row = document.createElement('div');
+      row.className = 'row' + (r.pid ? ' pid' : '');
+
+      var name = document.createElement('span');
+      name.className = 'name';
+      name.textContent = r.name;
+
+      var track = document.createElement('span');
+      track.className = 'track';
+      var fill = document.createElement('span');
+      fill.className = 'fill';
+      track.appendChild(fill);
+
+      var val = document.createElement('span');
+      val.className = 'val';
+      val.textContent = r.v.toFixed(2);
+
+      row.appendChild(name);
+      row.appendChild(track);
+      row.appendChild(val);
+      chart.appendChild(row);
+
+      var target = (r.v / 7) * 100;
+      requestAnimationFrame(function () {
+        requestAnimationFrame(function () {
+          fill.style.width = target + '%';
+        });
+      });
+    });
+  }
+
+  buttons.forEach(function (b) {
+    b.addEventListener('click', function () {
+      buttons.forEach(function (x) {
+        x.setAttribute('aria-pressed', x === b ? 'true' : 'false');
+      });
+      render(b.getAttribute('data-set'));
+    });
+  });
+
+  render('pretrain');
+})();
+</script>
+</body>
+</html>

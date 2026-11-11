@@ -1,0 +1,695 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
+<title>Layer × Module — Probing Transformer Representations</title>
+<style>
+  :root{
+    --paper:#F4F1E9;
+    --paper-2:#EAE5D9;
+    --card:#FAF8F2;
+    --ink:#15171A;
+    --ink-2:#3B3F45;
+    --muted:#6C7077;
+    --rule:#D5CFC1;
+    --accent:#B23A0F;
+    --accent-tint:#F0DED2;
+    --serif: ui-serif, "Iowan Old Style", "Palatino Linotype", Palatino, "Songti SC", "Noto Serif CJK SC", Georgia, serif;
+    --sans: system-ui, -apple-system, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  }
+
+  *,*::before,*::after{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{
+    margin:0;
+    background:var(--paper);
+    color:var(--ink);
+    font-family:var(--sans);
+    font-size:15px;
+    line-height:1.55;
+    -webkit-font-smoothing:antialiased;
+    text-rendering:optimizeLegibility;
+  }
+  ::selection{background:var(--accent);color:#fff}
+  a{color:inherit}
+  .wrap{width:min(95vw,1100px);margin-inline:auto}
+
+  .skip{
+    position:absolute;left:-9999px;top:0;z-index:99;
+    background:var(--ink);color:var(--paper);padding:10px 14px;
+    font:600 11px var(--mono);text-decoration:none;
+  }
+  .skip:focus{left:12px;top:12px}
+
+  /* ---------- fixed nav ---------- */
+  .topnav{position:fixed;top:14px;left:14px;z-index:50}
+  .topnav a{
+    display:inline-flex;align-items:center;gap:.5em;
+    background:var(--paper);border:1px solid var(--rule);border-radius:2px;
+    padding:8px 11px;
+    font:600 10px/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;
+    color:var(--ink-2);text-decoration:none;
+    transition:border-color .18s ease,color .18s ease;
+  }
+  .topnav a:hover,.topnav a:focus-visible{border-color:var(--ink);color:var(--ink);outline:none}
+  .topnav a:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+  /* ---------- above the fold ---------- */
+  .fold{
+    min-height:100vh;
+    min-height:100svh;
+    display:grid;align-content:center;
+    padding:82px 0 34px;
+  }
+  .hero{max-width:1000px}
+  .kicker{
+    display:flex;align-items:center;gap:9px;margin:0;
+    font:600 9.5px/1 var(--mono);letter-spacing:.18em;text-transform:uppercase;
+    color:var(--accent);
+  }
+  .kicker::before{content:"";width:7px;height:7px;background:var(--accent);flex:0 0 auto}
+
+  h1{
+    margin:14px 0 0;
+    font-family:var(--serif);font-weight:500;
+    font-size:clamp(2.6rem,5.1vw,3.9rem);
+    line-height:1.04;letter-spacing:-.024em;
+    text-wrap:balance;
+  }
+  h1 em{font-style:normal;color:var(--accent)}
+
+  .papertitle{
+    margin-top:22px;
+    font-size:.82rem;line-height:1.4;color:var(--ink-2);
+    display:flex;flex-wrap:wrap;gap:4px 8px;align-items:baseline;
+  }
+  .papertitle .pt-label{
+    font:600 8.5px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--muted);
+  }
+  .papertitle a{
+    text-decoration:none;border-bottom:1px solid var(--rule);padding-bottom:1px;
+    transition:color .18s ease,border-color .18s ease;
+  }
+  .papertitle a:hover,.papertitle a:focus-visible{color:var(--accent);border-color:var(--accent);outline:none}
+
+  .meta{
+    margin-top:11px;display:flex;flex-wrap:wrap;align-items:baseline;gap:3px 9px;
+    font-size:11.5px;color:var(--muted);
+  }
+  .meta .authors{color:var(--ink-2)}
+  .meta .sep{color:var(--rule)}
+  .meta time,.meta .id{font-family:var(--mono);font-size:10.5px;letter-spacing:.02em}
+
+  .chips{list-style:none;display:flex;flex-wrap:wrap;gap:6px;margin:14px 0 0;padding:0}
+  .chips li{
+    font:500 9px/1 var(--mono);letter-spacing:.07em;text-transform:uppercase;
+    color:var(--ink-2);border:1px solid var(--rule);border-radius:1px;
+    padding:5px 8px;
+  }
+
+  /* ---------- asset row ---------- */
+  .assets{
+    display:grid;grid-template-columns:1.12fr 1fr 1fr;gap:12px;
+    margin-top:clamp(24px,4.2vh,40px);
+  }
+  .asset{
+    display:flex;flex-direction:column;gap:9px;
+    padding:15px 16px 12px;
+    background:var(--card);border:1px solid var(--rule);border-top:3px solid var(--ink);
+    border-radius:2px;min-height:208px;min-width:0;
+  }
+  .asset .label{
+    margin:0;display:flex;justify-content:space-between;align-items:baseline;gap:8px;
+    font:600 8.8px/1.3 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--muted);
+  }
+  .asset .label .idx{color:#B9B2A3;font-size:8.5px}
+
+  .metric{border-top-color:var(--accent)}
+  .bignum{
+    margin:0;font-family:var(--serif);font-weight:500;
+    font-size:clamp(2.5rem,4.2vw,3.2rem);line-height:.86;letter-spacing:-.045em;
+    font-variant-numeric:tabular-nums;
+  }
+  .bignum .pct{font-size:.4em;letter-spacing:0;margin-left:.06em;color:var(--accent)}
+  .ctx{margin:0;font-size:12.3px;line-height:1.48;color:var(--ink-2)}
+  .ctx b{color:var(--ink);font-weight:600}
+  .asset .foot{
+    margin-top:auto;padding-top:8px;border-top:1px solid var(--rule);
+    font:500 8.8px/1.4 var(--mono);letter-spacing:.03em;color:var(--muted);
+  }
+
+  .why-statement{
+    margin:0;font-family:var(--serif);font-size:1.15rem;line-height:1.33;
+    letter-spacing:-.005em;color:var(--ink);
+  }
+
+  .edge{background:var(--ink);border-color:var(--ink);border-top-color:var(--accent);color:var(--paper)}
+  .edge .label{color:#B7B1A5}
+  .edge .label .idx{color:#5C6066}
+  .edge-statement{margin:0;font-size:13.4px;line-height:1.5;color:#F1EDE3}
+  .edge-statement .rho{font-family:var(--mono);font-size:.92em;color:#fff;white-space:nowrap}
+  .edge .foot{border-top-color:#33373D;color:#A9A398}
+
+  /* ---------- body grid ---------- */
+  .body{
+    display:grid;grid-template-columns:repeat(12,1fr);gap:14px;
+    padding:4px 0 44px;align-items:start;
+  }
+  .panel{
+    background:var(--card);border:1px solid var(--rule);border-radius:2px;
+    padding:20px 20px 18px;min-width:0;
+  }
+  .results{grid-column:span 7}
+  .method{grid-column:span 5}
+  .strengths,.limits{grid-column:span 6;align-self:stretch}
+  .questions{grid-column:span 12}
+
+  .phead{
+    display:flex;align-items:baseline;justify-content:space-between;gap:12px;
+    border-bottom:1px solid var(--ink);padding-bottom:9px;margin-bottom:14px;
+  }
+  .phead h2{
+    margin:0;font-family:var(--serif);font-weight:600;font-size:1.2rem;
+    letter-spacing:-.012em;line-height:1.2;
+  }
+  .phead h2 span{
+    font-family:var(--sans);font-weight:500;font-size:.62em;color:var(--muted);
+    letter-spacing:.02em;margin-left:.25em;
+  }
+  .phead .plabel{
+    font:600 8.6px/1.3 var(--mono);letter-spacing:.14em;text-transform:uppercase;
+    color:var(--muted);white-space:nowrap;
+  }
+  .panel.strengths .phead{border-bottom-color:var(--accent)}
+
+  .lede{margin:-2px 0 0;font-size:12.4px;line-height:1.5;color:var(--muted)}
+  .lede code{
+    font-family:var(--mono);font-size:.9em;color:var(--ink-2);
+    background:var(--paper-2);padding:1px 3px;border-radius:1px;
+  }
+
+  /* ---------- tabs + tables ---------- */
+  .tabs{
+    display:flex;gap:0;border-bottom:1px solid var(--rule);
+    margin:14px 0 2px;
+  }
+  .tab{
+    appearance:none;background:none;border:0;border-bottom:2px solid transparent;
+    padding:8px 13px 9px;margin-bottom:-1px;
+    font:600 9.6px/1 var(--mono);letter-spacing:.07em;text-transform:uppercase;
+    color:var(--muted);cursor:pointer;
+    transition:color .16s ease,border-color .16s ease;
+  }
+  .tab:first-child{padding-left:0}
+  .tab:hover{color:var(--ink-2)}
+  .tab[aria-selected="true"]{color:var(--ink);border-bottom-color:var(--accent)}
+  .tab:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+  .tablewrap{overflow-x:auto;margin-top:8px}
+  table{width:100%;border-collapse:collapse;font-size:13px;min-width:360px}
+  caption{
+    caption-side:top;text-align:left;padding:0 0 7px;
+    font:600 8.8px/1.3 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted);
+  }
+  th{
+    font:600 8.8px/1.3 var(--mono);letter-spacing:.09em;text-transform:uppercase;
+    color:var(--muted);text-align:right;padding:0 0 7px;border-bottom:1px solid var(--ink);
+  }
+  th:first-child{text-align:left}
+  td{
+    padding:7px 0;border-bottom:1px solid var(--rule);text-align:right;
+    font-variant-numeric:tabular-nums;color:var(--ink-2);
+  }
+  td:first-child{text-align:left;font-weight:600;color:var(--ink)}
+  tr.warn td{background:var(--accent-tint)}
+  tr.warn td:first-child{color:var(--accent)}
+  .delta{display:inline-block;min-width:54px;font-family:var(--mono);font-size:10.5px;padding:2px 4px}
+  .delta.pos{color:var(--ink-2)}
+  .delta.neg{background:var(--ink);color:var(--paper);border-radius:1px}
+
+  .tnote{
+    margin:10px 0 0;padding-top:8px;border-top:1px solid var(--rule);
+    font:500 9.4px/1.55 var(--mono);color:var(--muted);
+  }
+  .tnote b{color:var(--ink-2);font-weight:600}
+
+  .control{
+    margin-top:18px;padding:12px 14px 13px;
+    background:var(--paper);border:1px solid var(--rule);border-radius:2px;
+  }
+  .control h3{
+    margin:0 0 10px;font:600 8.8px/1.4 var(--mono);letter-spacing:.12em;
+    text-transform:uppercase;color:var(--muted);
+  }
+  .control .cells{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+  .ccell .k{font:500 8.8px/1.3 var(--mono);letter-spacing:.04em;color:var(--muted)}
+  .ccell .v{font-family:var(--serif);font-size:1.5rem;line-height:1.15;letter-spacing:-.02em;margin-top:2px}
+  .ccell.act .v{color:var(--accent)}
+  .ccell .d{font-size:10.5px;line-height:1.35;color:var(--muted);margin-top:1px}
+
+  .freq{margin-top:20px}
+  .freq table{min-width:0}
+  .freq th{padding-bottom:6px}
+  .freq td{padding:5px 0;font-size:12px}
+  .freq td.module{font-family:var(--mono);font-size:11.5px;font-weight:600}
+  .freq td.bar-cell{width:54%;padding:5px 12px}
+  .freq th.bar-cell{text-align:left;font-weight:600}
+  .bar{display:block;height:7px;background:var(--paper-2);border-radius:1px;overflow:hidden}
+  .bar i{display:block;height:100%;width:var(--w);background:#9C968A}
+  .freq tr.act .bar i{background:var(--accent)}
+  .freq tr.act td.module{color:var(--accent)}
+  .freq td.pctv{font-family:var(--mono);font-size:10.5px;width:52px}
+
+  .fieldnote{
+    margin:18px 0 0;padding:10px 0 0 12px;border-left:2px solid var(--accent);
+    font-size:12.2px;line-height:1.5;color:var(--ink-2);
+  }
+  .fieldnote b{color:var(--ink);font-weight:600}
+
+  /* ---------- methodology ---------- */
+  .flow{
+    display:grid;grid-template-columns:repeat(8,1fr);gap:3px;
+    margin:2px 0 7px;
+  }
+  .mod{
+    padding:7px 0 6px;text-align:center;
+    font:600 9.3px/1 var(--mono);letter-spacing:.02em;
+    border:1px solid var(--rule);background:var(--paper);color:var(--ink-2);
+  }
+  .mod.act{background:var(--accent);border-color:var(--accent);color:#fff}
+  .mod.ln2{border-color:var(--accent);color:var(--accent);border-width:1.5px}
+  .flowcap{
+    display:flex;justify-content:space-between;gap:8px;
+    font:500 8.2px/1.3 var(--mono);letter-spacing:.06em;text-transform:uppercase;
+    color:var(--muted);margin-bottom:16px;
+  }
+  .flowcap .hl{color:var(--accent)}
+
+  .mlist{list-style:none;margin:0;padding:0;display:grid;gap:9px}
+  .mlist li{
+    position:relative;padding-left:14px;
+    font-size:12.5px;line-height:1.5;color:var(--ink-2);
+  }
+  .mlist li::before{content:"";position:absolute;left:0;top:.52em;width:5px;height:5px;background:var(--accent)}
+  .mlist b{color:var(--ink);font-weight:600}
+  .mlist code{
+    font-family:var(--mono);font-size:.92em;background:var(--paper-2);
+    padding:1px 3px;border-radius:1px;
+  }
+
+  /* ---------- strengths / limitations ---------- */
+  .slist{list-style:none;margin:0;padding:0;display:grid;gap:10px}
+  .slist li{
+    position:relative;padding-left:17px;
+    font-size:12.4px;line-height:1.48;color:var(--ink-2);
+  }
+  .slist li::before{
+    position:absolute;left:0;top:0;
+    font-family:var(--mono);font-size:12px;font-weight:700;line-height:1.5;
+  }
+  .strengths .slist li::before{content:"+";color:var(--accent)}
+  .limits .slist li::before{content:"−";color:var(--ink)}
+  .slist b{color:var(--ink);font-weight:600}
+
+  /* ---------- questions ---------- */
+  .questions .phead{border-bottom-color:var(--rule)}
+  .qgrid{display:grid;grid-template-columns:1fr 1fr;gap:0 26px}
+  .q{
+    display:grid;grid-template-columns:24px 1fr;gap:8px;
+    padding:10px 0;border-top:1px solid var(--rule);
+    font-size:12.2px;line-height:1.45;color:var(--ink-2);
+  }
+  .q:nth-child(1),.q:nth-child(2){border-top:0;padding-top:0}
+  .q .n{font-family:var(--mono);font-size:9.5px;color:var(--accent);padding-top:3px}
+
+  /* ---------- footer ---------- */
+  .foot{
+    border-top:1px solid var(--ink);
+    padding:16px 0 34px;
+    display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;
+  }
+  .foot a{
+    font:600 10.5px/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;
+    text-decoration:none;color:var(--ink);
+    border-bottom:2px solid var(--accent);padding-bottom:5px;
+    transition:color .18s ease;
+  }
+  .foot a:hover,.foot a:focus-visible{color:var(--accent);outline:none}
+  .foot a:focus-visible{outline:2px solid var(--accent);outline-offset:4px}
+  .foot .fine{
+    font:500 8.8px/1.5 var(--mono);letter-spacing:.04em;color:var(--muted);text-align:right;
+  }
+
+  [hidden]{display:none !important}
+
+  @media (prefers-reduced-motion: reduce){
+    html{scroll-behavior:auto}
+  }
+
+  /* ---------- motion ---------- */
+  @keyframes rise{
+    from{opacity:0;transform:translateY(12px)}
+    to{opacity:1;transform:none}
+  }
+  @media (prefers-reduced-motion:no-preference){
+    .hero > *{animation:rise .55s cubic-bezier(.2,.7,.2,1) both}
+    .hero > :nth-child(1){animation-delay:.02s}
+    .hero > :nth-child(2){animation-delay:.08s}
+    .hero > :nth-child(3){animation-delay:.14s}
+    .hero > :nth-child(4){animation-delay:.18s}
+    .hero > :nth-child(5){animation-delay:.22s}
+    .asset{animation:rise .55s cubic-bezier(.2,.7,.2,1) both}
+    .asset:nth-child(1){animation-delay:.28s}
+    .asset:nth-child(2){animation-delay:.34s}
+    .asset:nth-child(3){animation-delay:.4s}
+
+    .reveal{opacity:0;transform:translateY(12px);transition:opacity .5s ease,transform .5s ease}
+    .reveal.in{opacity:1;transform:none}
+  }
+
+  /* ---------- responsive ---------- */
+  @media (min-width:981px){
+    .method{position:sticky;top:78px}
+  }
+  @media (max-width:980px){
+    .results,.method{grid-column:span 12}
+  }
+  @media (max-width:719px){
+    .fold{padding:74px 0 26px;min-height:0;display:block}
+    h1{font-size:clamp(2.35rem,9.3vw,2.9rem);line-height:1.07}
+    .papertitle{margin-top:18px}
+    .assets{grid-template-columns:1fr;gap:10px;margin-top:24px}
+    .asset{min-height:0}
+    .bignum{font-size:2.15rem}
+    .body{grid-template-columns:1fr}
+    .results,.method,.strengths,.limits,.questions{grid-column:auto}
+    .panel{padding:17px 16px 16px}
+    .phead{flex-wrap:wrap;row-gap:4px}
+    .phead .plabel{white-space:normal}
+    table{min-width:0}
+    .delta{min-width:44px}
+    .flow{grid-template-columns:repeat(4,1fr)}
+    .flowcap{flex-direction:column;gap:3px}
+    .qgrid{grid-template-columns:1fr}
+    .q:nth-child(2){border-top:1px solid var(--rule);padding-top:10px}
+    .foot{align-items:flex-start}
+    .foot .fine{text-align:left}
+    .topnav a{font-size:9.2px;padding:7px 9px}
+  }
+  @media (max-width:380px){
+    .bignum{font-size:2rem}
+    .control .cells{grid-template-columns:1fr 1fr 1fr;gap:6px}
+    .ccell .v{font-size:1.28rem}
+    .ccell .d{display:none}
+  }
+  @media (min-width:720px) and (max-height:790px){
+    .fold{padding:72px 0 24px}
+    h1{font-size:clamp(2.4rem,4.1vw,3.05rem)}
+    .assets{margin-top:20px}
+    .asset{min-height:178px;padding:12px 14px 10px}
+    .bignum{font-size:2.2rem}
+    .why-statement{font-size:1.04rem}
+  }
+</style>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<nav class="topnav" aria-label="Digest navigation">
+  <a href="./index.html">↩ Today's digest</a>
+</nav>
+
+<header class="fold">
+  <div class="wrap">
+    <div class="hero">
+      <p class="kicker">Key finding · 核心发现</p>
+      <h1>Module choice inside a transformer block <em>matters as much as depth</em> — the residual stream is rarely the best probe.</h1>
+
+      <div class="papertitle">
+        <span class="pt-label">Paper</span>
+        <a href="https://arxiv.org/abs/2611.11531">Probing Transformer Representations Layer by Layer, Module by Module</a>
+      </div>
+
+      <div class="meta">
+        <span class="authors">Ambroise Odonnat, Théo Gnassounou, Laetitia Chapel, Romain Tavenard, et al.</span>
+        <span class="sep">·</span>
+        <time datetime="2026-11-08">2026-11-08</time>
+        <span class="sep">·</span>
+        <span class="id">arXiv:2611.11531</span>
+      </div>
+
+      <ul class="chips" aria-label="Topics">
+        <li>linear probing</li>
+        <li>representation analysis</li>
+        <li>vision foundation models</li>
+        <li>text embeddings</li>
+        <li>layerwise interpretability</li>
+      </ul>
+    </div>
+
+    <section class="assets" aria-label="Extracted highlights">
+      <article class="asset metric">
+        <p class="label"><span>Key metric · 关键指标</span><span class="idx">01</span></p>
+        <p class="bignum">64.8<span class="pct">%</span></p>
+        <p class="ctx">of 270 vision model–dataset pairs, the FFN activation <b>Act</b> occupies the best (layer, module) slot. Runner-up LN2: 9.3%. Baseline module RC2: 5.9%.</p>
+        <p class="foot">≈144k probes · 24 models · 42 datasets</p>
+      </article>
+
+      <article class="asset why">
+        <p class="label"><span>Why this matters · 为何重要</span><span class="idx">02</span></p>
+        <p class="why-statement">A one-line change to frozen-model feature extraction lifts linear-probe text baselines ~2.4 points — no fine-tuning, no extra forward pass.</p>
+        <p class="foot">Gemma3-4B + LN2@60 = 63.1, level with GritLM-7B</p>
+      </article>
+
+      <article class="asset edge">
+        <p class="label"><span>Critical edge · 关键质疑</span><span class="idx">03</span></p>
+        <p class="edge-statement">The <span class="rho">ρ = 0.87</span> transfer-difficulty correlation is partly circular — gain and difficulty share the same <span class="rho">−acc(baseline)</span> term.</p>
+        <p class="foot">Cleaner evidence: the CIFAR-10-C severity sweep</p>
+      </article>
+    </section>
+  </div>
+</header>
+
+<main id="main" class="wrap body">
+  <section class="panel results" aria-labelledby="results-title">
+    <div class="phead">
+      <h2 id="results-title">Results <span>结果</span></h2>
+      <span class="plabel">Linear-probe accuracy · top-1 %</span>
+    </div>
+    <p class="lede">Baseline everywhere is the final-block residual stream, <code>RC2@100</code>. Two fixed, search-free recipes are tested against it.</p>
+
+    <div class="tabs" role="tablist" aria-label="Results tables">
+      <button class="tab" role="tab" id="tab-vision" aria-controls="panel-vision" aria-selected="true" type="button">Vision · Act@100</button>
+      <button class="tab" role="tab" id="tab-lang" aria-controls="panel-lang" aria-selected="false" tabindex="-1" type="button">Language · LN2@60</button>
+    </div>
+
+    <div id="panel-vision" role="tabpanel" aria-labelledby="tab-vision" tabindex="0">
+      <div class="tablewrap">
+        <table>
+          <caption>Vision backbones · 18-dataset average</caption>
+          <thead>
+            <tr><th scope="col">Model</th><th scope="col">RC2@100</th><th scope="col">Act@100</th><th scope="col">Δ</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>ViT-L</td><td>66.0</td><td>68.2</td><td><span class="delta pos">+2.3</span></td></tr>
+            <tr><td>DINOv2-L</td><td>78.0</td><td>79.3</td><td><span class="delta pos">+1.3</span></td></tr>
+            <tr><td>AIMv2-L</td><td>79.4</td><td>80.2</td><td><span class="delta pos">+0.7</span></td></tr>
+            <tr><td>DINOv3-L</td><td>79.8</td><td>80.2</td><td><span class="delta pos">+0.4</span></td></tr>
+            <tr class="warn"><td>ViT-B</td><td>61.8</td><td>55.2</td><td><span class="delta neg">−6.6</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="tnote">Improves <b>63.7%</b> of 270 pairs · recovers <b>41.9%</b> of the joint oracle gain, versus 31.9% for the best residual-stream layer.</p>
+    </div>
+
+    <div id="panel-lang" role="tabpanel" aria-labelledby="tab-lang" tabindex="0" hidden>
+      <div class="tablewrap">
+        <table>
+          <caption>24 MTEB-Multilingual classification tasks · 8–16 shots</caption>
+          <thead>
+            <tr><th scope="col">Model</th><th scope="col">RC2@100</th><th scope="col">LN2@60</th><th scope="col">Δ</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Qwen3-8B</td><td>57.6</td><td>61.1</td><td><span class="delta pos">+3.5</span></td></tr>
+            <tr><td>Qwen3-4B</td><td>56.6</td><td>59.4</td><td><span class="delta pos">+2.9</span></td></tr>
+            <tr><td>Gemma3-12B</td><td>61.5</td><td>64.2</td><td><span class="delta pos">+2.6</span></td></tr>
+            <tr><td>Llama3-8B</td><td>59.9</td><td>62.3</td><td><span class="delta pos">+2.4</span></td></tr>
+            <tr><td>Llama3-1B</td><td>56.6</td><td>58.6</td><td><span class="delta pos">+2.0</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="tnote">Mean <b>+2.44 pp</b> across 9 models · <b>21/24</b> tasks improved · recovers <b>86.0%</b> of the joint oracle gain, versus 39.3% for the best residual layer.</p>
+    </div>
+
+    <div class="control">
+      <h3>Control · width is not the mechanism · ViT-L top-1</h3>
+      <div class="cells">
+        <div class="ccell">
+          <div class="k">FC1@100</div>
+          <div class="v">64.3</div>
+          <div class="d">same h = 4d as Act</div>
+        </div>
+        <div class="ccell">
+          <div class="k">RC2@100</div>
+          <div class="v">66.0</div>
+          <div class="d">baseline readout</div>
+        </div>
+        <div class="ccell act">
+          <div class="k">Act@100</div>
+          <div class="v">68.2</div>
+          <div class="d">nonlinearity wins</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="freq">
+      <div class="tablewrap">
+        <table>
+          <caption>Where the best (layer, module) pair lives</caption>
+          <thead>
+            <tr><th scope="col">Module</th><th scope="col" class="bar-cell">Share of 270 pairs</th><th scope="col">%</th></tr>
+          </thead>
+          <tbody>
+            <tr class="act"><td class="module">Act</td><td class="bar-cell"><span class="bar"><i style="--w:64.8%"></i></span></td><td class="pctv">64.8</td></tr>
+            <tr><td class="module">LN2</td><td class="bar-cell"><span class="bar"><i style="--w:9.3%"></i></span></td><td class="pctv">9.3</td></tr>
+            <tr><td class="module">MHA</td><td class="bar-cell"><span class="bar"><i style="--w:7.4%"></i></span></td><td class="pctv">7.4</td></tr>
+            <tr><td class="module">LN1</td><td class="bar-cell"><span class="bar"><i style="--w:6.3%"></i></span></td><td class="pctv">6.3</td></tr>
+            <tr><td class="module">RC2</td><td class="bar-cell"><span class="bar"><i style="--w:5.9%"></i></span></td><td class="pctv">5.9</td></tr>
+            <tr><td class="module">RC1</td><td class="bar-cell"><span class="bar"><i style="--w:3.7%"></i></span></td><td class="pctv">3.7</td></tr>
+            <tr><td class="module">FC2</td><td class="bar-cell"><span class="bar"><i style="--w:2.2%"></i></span></td><td class="pctv">2.2</td></tr>
+            <tr><td class="module">FC1</td><td class="bar-cell"><span class="bar"><i style="--w:0.4%"></i></span></td><td class="pctv">0.4</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <p class="fieldnote"><b>Zero-shot check.</b> Gemma3-4B with LN2@60 reaches 63.1 average accuracy, tying GritLM-7B (63.1) and beating its own final-layer readout (61.5) — no fine-tuning at all.</p>
+  </section>
+
+  <section class="panel method" aria-labelledby="method-title">
+    <div class="phead">
+      <h2 id="method-title">Method <span>方法</span></h2>
+      <span class="plabel">One pass · eight hook points</span>
+    </div>
+
+    <div class="flow" aria-label="Transformer block modules">
+      <div class="mod">LN1</div>
+      <div class="mod">MHA</div>
+      <div class="mod">RC1</div>
+      <div class="mod ln2">LN2</div>
+      <div class="mod">FC1</div>
+      <div class="mod act">Act</div>
+      <div class="mod">FC2</div>
+      <div class="mod">RC2</div>
+    </div>
+    <div class="flowcap">
+      <span>block input → block output</span>
+      <span><span class="hl">Act</span> = vision pick · <span class="hl">LN2</span> = language pick</span>
+    </div>
+
+    <ul class="mlist">
+      <li><b>A 2-D grid, not a depth scan.</b> 15 vision models × 18 datasets = 270 pairs; 9 LLMs × 24 MTEB classification tasks = 216 pairs. About 144k logistic-regression probes.</li>
+      <li><b>Extract once.</b> Hooks capture eight tensors per pre-norm block in a single forward pass; a model-agnostic adapter normalizes gated FFNs (SwiGLU) so <code>Act</code> means the same thing everywhere.</li>
+      <li><b>Probe.</b> Mean-pool content tokens only (CLS, registers, BOS/EOS and PAD masked), standardize, fit ℓ2 logistic regression (L-BFGS, C = 1.0, CuML). No augmentation.</li>
+      <li><b>Measure.</b> <code>g(ℓ,m) = acc(ℓ,m) − acc(100, RC2)</code>. The three oracle gains — layer, module, joint — are test-set upper bounds, not deployable recipes.</li>
+      <li><b>Controls.</b> RC2@60 for depth, FC1@100 at matched width h = 4d, a ViT-B fine-tuning study, and CIFAR-10-C at severities 1–5.</li>
+    </ul>
+  </section>
+
+  <section class="panel strengths" aria-labelledby="strengths-title">
+    <div class="phead">
+      <h2 id="strengths-title">Strengths <span>优势</span></h2>
+      <span class="plabel">What earns trust</span>
+    </div>
+    <ul class="slist">
+      <li><b>144k probes, one protocol.</b> 24 models, 42 datasets and four pretraining paradigms; per-model, per-dataset appendix tables make every claim auditable.</li>
+      <li><b>A falsifiable decomposition.</b> Layer / module / joint gains turn “look inside blocks” into three separately estimable numbers and a checkable inequality.</li>
+      <li><b>Regressions are not buried.</b> ViT-B’s −6.6 pp, DINOv3-S’s −1.0 pp and three failing LLM tasks all appear in the main or appendix tables.</li>
+      <li><b>The right control.</b> FC1@100 has Act’s width but underperforms even the baseline, killing the “wider features are easier” explanation.</li>
+      <li><b>Cheap, usable payoff.</b> LN2@60 is a one-line change to a HuggingFace extraction script and brings Gemma3-4B to GritLM-7B parity.</li>
+    </ul>
+  </section>
+
+  <section class="panel limits" aria-labelledby="limits-title">
+    <div class="phead">
+      <h2 id="limits-title">Limitations <span>局限</span></h2>
+      <span class="plabel">Where the evidence stops</span>
+    </div>
+    <ul class="slist">
+      <li><b>Classification only.</b> No retrieval, STS, reranking, clustering or attentive probes — exactly where embedding quality is usually judged.</li>
+      <li><b>Ceilings, not recipes.</b> Oracle gains need test-set access; absolute effects are ~1 pp on strong vision models and ~2.4 pp on a weak 8–16-shot probe.</li>
+      <li><b>Selected on the test data.</b> Act@100 and LN2@60 are both chosen from the same grid they are evaluated on, with no held-out model or dataset.</li>
+      <li><b>Partly circular correlation.</b> Gain and “transfer difficulty” share the −acc(baseline) term; near-chance Infograph and RxRx1 are equally weighted in the 18-dataset average.</li>
+      <li><b>No mechanism, narrow depth rule.</b> Why the nonlinearity helps is unexplained, and 60% is architecture-dependent (Qwen3 ~70%, Llama3/Gemma3 ~50%) with no MoE evidence.</li>
+      <li><b>Cheap readout, costly cache.</b> Act lives in the h ≈ 4d FFN space, so caching it costs ~4× the residual-stream storage; the saving is a forward pass, not memory.</li>
+    </ul>
+  </section>
+
+  <section class="panel questions" aria-labelledby="questions-title">
+    <div class="phead">
+      <h2 id="questions-title">Open questions <span>待解问题</span></h2>
+      <span class="plabel">Next experiments</span>
+    </div>
+    <div class="qgrid">
+      <div class="q"><span class="n">Q1</span><span>Does LN2@60 survive a stronger probe — kNN, a small MLP, or attentive probing?</span></div>
+      <div class="q"><span class="n">Q2</span><span>How much of the gain is just the final layer norm? LN2@100 is the missing baseline.</span></div>
+      <div class="q"><span class="n">Q3</span><span>Can module choice be predicted from effective rank, sparsity or kurtosis instead of searched?</span></div>
+      <div class="q"><span class="n">Q4</span><span>Does the layer × module map hold for retrieval/STS tasks and for MoE models?</span></div>
+    </div>
+  </section>
+</main>
+
+<footer class="wrap foot">
+  <a href="./2611.11531.md">↗ Markdown source</a>
+  <span class="fine">Dashboard · arXiv 2611.11531 · data from the paper</span>
+</footer>
+
+<script>
+(function () {
+  var tabs = Array.prototype.slice.call(document.querySelectorAll('[role="tab"]'));
+
+  function select(tab) {
+    tabs.forEach(function (t) {
+      var on = t === tab;
+      t.setAttribute('aria-selected', on ? 'true' : 'false');
+      t.tabIndex = on ? 0 : -1;
+      var panel = document.getElementById(t.getAttribute('aria-controls'));
+      if (panel) panel.hidden = !on;
+    });
+  }
+
+  tabs.forEach(function (tab, i) {
+    tab.addEventListener('click', function () { select(tab); });
+    tab.addEventListener('keydown', function (e) {
+      if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
+      e.preventDefault();
+      var next = tabs[(i + (e.key === 'ArrowRight' ? 1 : tabs.length - 1)) % tabs.length];
+      next.focus();
+      select(next);
+    });
+  });
+
+  var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (!reduce && 'IntersectionObserver' in window) {
+    var panels = document.querySelectorAll('.panel');
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (entry) {
+        if (entry.isIntersecting) {
+          entry.target.classList.add('in');
+          io.unobserve(entry.target);
+        }
+      });
+    }, { threshold: 0.08, rootMargin: '0px 0px -40px 0px' });
+
+    Array.prototype.forEach.call(panels, function (p) {
+      p.classList.add('reveal');
+      io.observe(p);
+    });
+  }
+})();
+</script>
+</body>
+</html>

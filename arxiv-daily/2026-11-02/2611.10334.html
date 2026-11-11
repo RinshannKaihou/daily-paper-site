@@ -1,0 +1,560 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Deterministic Split-K for LoRA · 2611.10334</title>
+<style>
+  :root{
+    --paper:#F6F4EE;
+    --card:#FCFAF4;
+    --ink:#15140F;
+    --ink-soft:#3A382F;
+    --muted:#6C6859;
+    --rule:#DCD6C6;
+    --accent:#B23A1B;
+    --accent-ink:#7C2712;
+    --accent-wash:rgba(178,58,27,.075);
+    --sans:ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+    --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
+  }
+  *{box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%}
+  body{
+    margin:0;background:var(--paper);color:var(--ink);
+    font-family:var(--sans);font-size:15.5px;line-height:1.62;
+    -webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;
+  }
+  a{color:inherit}
+  :focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+
+  .back{
+    position:fixed;top:14px;left:14px;z-index:50;
+    display:inline-flex;align-items:center;gap:7px;
+    font:500 12px/1 var(--mono);letter-spacing:.02em;
+    color:var(--ink);text-decoration:none;background:var(--paper);
+    border:1px solid var(--rule);border-radius:999px;padding:8px 12px;
+    transition:border-color .18s,color .18s;
+  }
+  .back:hover{border-color:var(--accent);color:var(--accent-ink)}
+
+  .page{width:min(95vw,1100px);margin:0 auto;padding:0 0 56px}
+
+  /* ---------- hero ---------- */
+  .hero{padding:72px 0 20px;border-bottom:1px solid var(--rule)}
+  .eyebrow{
+    margin:0;font:600 10.5px/1.3 var(--mono);letter-spacing:.16em;
+    text-transform:uppercase;color:var(--muted);
+  }
+  .eyebrow span{color:var(--accent)}
+  h1{
+    margin:14px 0 20px;
+    font-size:clamp(2rem,4.25vw,3.15rem);
+    line-height:1.06;letter-spacing:-.023em;font-weight:650;
+    text-wrap:balance;
+  }
+  h1 .hl{
+    text-decoration:underline;
+    text-decoration-color:var(--accent);
+    text-decoration-thickness:3px;
+    text-underline-offset:7px;
+  }
+  .meta{display:grid;grid-template-columns:1fr auto;gap:14px 24px;align-items:end}
+  .paper-title{
+    display:inline-block;font-size:14.5px;font-weight:600;line-height:1.4;
+    letter-spacing:-.005em;text-decoration:none;
+    border-bottom:1px solid var(--rule);padding-bottom:2px;
+    transition:border-color .18s,color .18s;
+  }
+  .paper-title:hover{color:var(--accent-ink);border-bottom-color:var(--accent)}
+  .byline{margin:7px 0 0;font:400 12.5px/1.5 var(--mono);color:var(--muted);letter-spacing:.01em}
+  .chips{display:flex;flex-wrap:wrap;gap:6px;list-style:none;margin:0;padding:0;justify-content:flex-end}
+  .chips li{
+    font:500 10px/1 var(--mono);letter-spacing:.07em;text-transform:uppercase;
+    color:var(--muted);background:var(--card);
+    border:1px solid var(--rule);border-radius:2px;padding:5px 7px;white-space:nowrap;
+  }
+
+  /* ---------- asset row ---------- */
+  .assets{
+    display:grid;grid-template-columns:1.06fr .94fr 1.04fr;gap:13px;
+    padding:20px 0 0;
+  }
+  .card{
+    background:var(--card);border:1px solid var(--rule);border-radius:3px;
+    padding:16px 17px 17px;
+  }
+  .label{
+    margin:0 0 12px;padding-bottom:9px;border-bottom:1px solid var(--rule);
+    font:600 10px/1.2 var(--mono);letter-spacing:.15em;text-transform:uppercase;color:var(--muted);
+  }
+  .bignum{
+    display:flex;align-items:baseline;flex-wrap:wrap;gap:.16em;
+    margin:0 0 10px;
+    font-family:var(--mono);font-weight:600;
+    font-size:clamp(1.7rem,3vw,2.45rem);
+    line-height:1;letter-spacing:-.045em;font-variant-numeric:tabular-nums;
+  }
+  .bignum .to{color:var(--accent);font-size:.6em;font-weight:500;letter-spacing:0}
+  .bignum .zero{color:var(--accent)}
+  .ctx{margin:0;font-size:13px;line-height:1.55;color:var(--ink-soft)}
+  .ctx b{font-weight:650}
+  .why p{margin:0;font-size:14.5px;line-height:1.58;letter-spacing:-.003em}
+  .edge{
+    background:var(--accent-wash);
+    border-color:rgba(178,58,27,.26);
+    border-left:3px solid var(--accent);
+  }
+  .edge .label{color:var(--accent-ink);border-bottom-color:rgba(178,58,27,.22)}
+  .edge p{margin:0;font-size:14px;line-height:1.56;color:#2A1A13}
+  .edge .src{
+    display:block;margin:10px 0 0;font:500 9.5px/1.4 var(--mono);
+    letter-spacing:.1em;text-transform:uppercase;color:var(--accent-ink);opacity:.72;
+  }
+
+  /* ---------- causal chain ---------- */
+  .chain{margin-top:26px;border-top:1px solid var(--rule);border-bottom:1px solid var(--rule);padding:22px 0 24px}
+  .chain-head{display:grid;grid-template-columns:1fr auto;gap:14px 26px;align-items:end;margin-bottom:16px}
+  .kicker{margin:0 0 6px;font:600 10px/1 var(--mono);letter-spacing:.15em;text-transform:uppercase;color:var(--accent-ink)}
+  h2{margin:0;font-size:1.32rem;line-height:1.25;letter-spacing:-.014em;font-weight:650}
+  .lede{margin:7px 0 0;font-size:13.5px;line-height:1.55;color:var(--ink-soft);max-width:70ch}
+  .replay{
+    align-self:end;cursor:pointer;
+    font:600 10.5px/1 var(--mono);letter-spacing:.09em;text-transform:uppercase;
+    color:var(--accent-ink);background:var(--card);
+    border:1px solid rgba(178,58,27,.38);border-radius:2px;padding:10px 12px;
+    transition:background .18s,border-color .18s;
+  }
+  .replay:hover:not(:disabled){background:var(--accent-wash);border-color:var(--accent)}
+  .replay:disabled{opacity:.55;cursor:progress}
+  .track{
+    display:grid;grid-template-columns:repeat(5,1fr);gap:9px;
+    list-style:none;margin:0;padding:0;
+  }
+  .track li{
+    border-top:2px solid var(--rule);background:var(--card);
+    padding:10px 11px 12px;
+    transition:border-color .3s ease,background .3s ease,transform .3s ease;
+  }
+  .track li.lit{border-top-color:var(--accent);background:var(--accent-wash);transform:translateY(-2px)}
+  .idx{display:block;font:600 9.5px/1 var(--mono);letter-spacing:.12em;color:var(--muted);margin-bottom:7px}
+  .track li.lit .idx{color:var(--accent)}
+  .node{display:block;font-family:var(--mono);font-size:12.6px;font-weight:600;line-height:1.35;letter-spacing:-.01em;word-break:break-all}
+  .track li:last-child .node{color:var(--accent-ink);font-size:15px}
+  .track p{margin:6px 0 0;font-size:11.6px;line-height:1.45;color:var(--muted)}
+
+  /* ---------- body split ---------- */
+  .split{display:grid;grid-template-columns:.82fr 1.18fr;gap:13px;margin-top:26px;align-items:start}
+  .method h2,.results h2{margin-bottom:14px}
+  .steps{list-style:none;margin:0;padding:0}
+  .steps li{display:grid;grid-template-columns:24px 1fr;gap:9px;padding:10px 0;border-top:1px solid var(--rule)}
+  .steps li:first-child{border-top:0;padding-top:0}
+  .steps li:last-child{padding-bottom:0}
+  .n{font:600 10px/1.9 var(--mono);letter-spacing:.06em;color:var(--accent)}
+  .steps b{font-weight:650;font-size:13.6px}
+  .steps p{margin:2px 0 0;font-size:13.2px;line-height:1.52;color:var(--ink-soft)}
+  .pull{
+    margin:13px 0 0;padding-top:10px;border-top:1px solid var(--rule);
+    font:600 12.4px/1.5 var(--mono);color:var(--accent-ink);letter-spacing:-.005em;
+  }
+
+  /* ---------- tables ---------- */
+  .table-wrap{overflow-x:auto;margin:0 0 18px}
+  .table-wrap:last-of-type{margin-bottom:0}
+  table{width:100%;border-collapse:collapse;font-size:12.8px;min-width:400px}
+  caption{
+    caption-side:top;text-align:left;padding:0 0 7px;
+    font:500 10px/1.4 var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--muted);
+  }
+  th{
+    font:600 9.5px/1.3 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);
+    text-align:right;padding:7px 8px;border-bottom:1px solid var(--ink);white-space:nowrap;
+  }
+  th:first-child,td:first-child{text-align:left}
+  td{
+    padding:8px;border-bottom:1px solid var(--rule);text-align:right;
+    font-family:var(--mono);font-size:12px;font-variant-numeric:tabular-nums;white-space:nowrap;
+  }
+  td:first-child{font-family:var(--sans);font-size:12.8px;white-space:normal;line-height:1.4}
+  .drift td:nth-child(2){font-family:var(--sans);font-size:12.8px;text-align:left;white-space:normal;line-height:1.4}
+  tbody tr:last-child td{border-bottom:1px solid var(--rule)}
+  tbody tr.hi td{background:var(--accent-wash)}
+  .zero{color:var(--accent-ink);font-weight:700}
+  .mean td{font-weight:700;border-top:1px solid var(--ink);border-bottom:0}
+  .sub{display:block;font:400 10px/1.4 var(--mono);color:var(--muted);letter-spacing:.01em}
+
+  .col-left{display:grid;gap:13px;align-content:start}
+  .bounds .row{display:grid;grid-template-columns:80px 1fr;gap:10px;align-items:baseline;padding:9px 0;border-top:1px solid var(--rule)}
+  .bounds .row:first-child{border-top:0;padding-top:0}
+  .bounds .v{font:600 1.02rem/1 var(--mono);letter-spacing:-.03em;color:var(--accent-ink);white-space:nowrap}
+  .bounds p{margin:0;font-size:11.7px;line-height:1.45;color:var(--muted)}
+
+  /* ---------- compare ---------- */
+  .compare{display:grid;grid-template-columns:1fr 1fr;gap:13px;margin-top:26px}
+  .panel h3{
+    margin:0 0 12px;padding-bottom:9px;border-bottom:1px solid var(--rule);
+    font:600 10px/1.2 var(--mono);letter-spacing:.15em;text-transform:uppercase;color:var(--muted);
+  }
+  .panel.limits h3{color:var(--accent-ink);border-bottom-color:rgba(178,58,27,.25)}
+  .panel ul{list-style:none;margin:0;padding:0;display:grid;gap:9px}
+  .panel li{position:relative;padding-left:15px;font-size:13.1px;line-height:1.52;color:var(--ink-soft)}
+  .panel li::before{content:"";position:absolute;left:0;top:.66em;width:7px;height:1px;background:var(--muted)}
+  .panel.limits li::before{height:2px;background:var(--accent)}
+  .panel li b{color:var(--ink);font-weight:650}
+
+  /* ---------- questions ---------- */
+  .questions{margin-top:26px;padding-top:20px;border-top:1px solid var(--rule)}
+  .questions h2{font-size:1.05rem;margin-bottom:12px}
+  .questions ol{
+    list-style:none;counter-reset:q;margin:0;padding:0;
+    display:grid;grid-template-columns:1fr 1fr;gap:9px 26px;
+  }
+  .questions li{
+    counter-increment:q;display:grid;grid-template-columns:20px 1fr;gap:8px;
+    font-size:12.8px;line-height:1.48;color:var(--ink-soft);
+  }
+  .questions li::before{
+    content:"Q" counter(q);
+    font:600 9.5px/2 var(--mono);letter-spacing:.04em;color:var(--accent);
+  }
+
+  footer{
+    margin-top:28px;padding-top:15px;border-top:1px solid var(--rule);
+    display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;
+    font:500 11px/1.4 var(--mono);letter-spacing:.03em;color:var(--muted);
+  }
+  footer a{color:var(--accent-ink);text-decoration:none;border-bottom:1px solid transparent}
+  footer a:hover{border-bottom-color:var(--accent)}
+
+  @media (prefers-reduced-motion:no-preference){
+    .rise{animation:rise .55s cubic-bezier(.2,.7,.3,1) both}
+    .d1{animation-delay:.04s}
+    .d2{animation-delay:.1s}
+    .d3{animation-delay:.16s}
+    @keyframes rise{from{opacity:0;transform:translateY(9px)}to{opacity:1;transform:none}}
+  }
+
+  @media (max-width:900px){
+    .assets{grid-template-columns:1fr 1fr}
+    .metric{grid-column:1/-1}
+    .track{grid-template-columns:repeat(3,1fr)}
+    .split{grid-template-columns:1fr}
+    .col-left{display:contents}
+    .method{order:1}
+    .results{order:2}
+    .bounds{order:3}
+  }
+  @media (max-width:720px){
+    .page{width:calc(100% - 34px)}
+    .hero{padding-top:64px}
+    .meta{grid-template-columns:1fr}
+    .chips{justify-content:flex-start}
+    .assets,.compare{grid-template-columns:1fr}
+    .metric{grid-column:auto}
+    .track{grid-template-columns:1fr}
+    .chain-head{grid-template-columns:1fr}
+    .replay{justify-self:start}
+    .questions ol{grid-template-columns:1fr}
+    .bounds .row{grid-template-columns:74px 1fr;gap:8px}
+    h1{letter-spacing:-.018em}
+  }
+</style>
+</head>
+<body>
+
+<a class="back" href="./index.html">↩ Today's digest</a>
+
+<main class="page">
+
+  <header class="hero">
+    <p class="eyebrow">Kernel · Numerical determinism · <span>LoRA serving</span></p>
+    <h1>Fixed-order Split-K makes LoRA inference <span class="hl">bit-reproducible</span>, costing 1.69% latency and still beating unsplit reduction by 19.2%.</h1>
+
+    <div class="meta">
+      <div>
+        <a class="paper-title" href="https://arxiv.org/abs/2611.10334">Reproducible LoRA Inference Through Deterministic Split-K Reduction</a>
+        <p class="byline">Dhayaneshwar Balusamy, Ankur Mohan · JPMorgan Chase &amp; Co. · 2026-11-07</p>
+      </div>
+      <ul class="chips">
+        <li>LoRA serving</li>
+        <li>Split-K</li>
+        <li>vLLM v0.29.0</li>
+        <li>Triton</li>
+        <li>FP32 atomics</li>
+      </ul>
+    </div>
+  </header>
+
+  <section class="assets" aria-label="Extracted assets">
+
+    <article class="card metric rise d1">
+      <h2 class="label">Key metric</h2>
+      <p class="bignum">97.61%<span class="to">→</span><span class="zero">0</span></p>
+      <p class="ctx">Identical-input replays returning <b>different FP32 outputs</b>: atomic Split-K=8 versus the fixed-order kernel, across 109,760 comparisons.</p>
+    </article>
+
+    <article class="card why rise d2">
+      <h2 class="label">Why this matters</h2>
+      <p>Last-bit kernel noise silently flips greedy-decoding answers. A cheap fixed-order reduction buys reproducible LoRA serving without surrendering Split-K's 19% speedup.</p>
+    </article>
+
+    <article class="card edge rise d3">
+      <h2 class="label">Critical edge</h2>
+      <p>No code or kernel is released, and the deterministic baseline the paper claims to beat never appears in any table.</p>
+      <span class="src">Critical assessment · Limitations</span>
+    </article>
+
+  </section>
+
+  <section class="chain" aria-labelledby="chain-title">
+    <div class="chain-head">
+      <div>
+        <p class="kicker">Causal trace</p>
+        <h2 id="chain-title">One coordinate, one wrong answer</h2>
+        <p class="lede">GSM8K prompt 813, Llama-3.2-3B rank-16. The divergence starts in a single FP32 value and ends in the final answer.</p>
+      </div>
+      <button class="replay" id="replay" type="button">▶ Replay the trace</button>
+    </div>
+
+    <ol class="track" id="track">
+      <li>
+        <span class="idx">01</span>
+        <span class="node">−0.3857421278953552</span>
+        <p>Layer-8 QKV shrink output; a second run gives −0.3857422471046448, a gap of 1.19e-7.</p>
+      </li>
+      <li>
+        <span class="idx">02</span>
+        <span class="node">−0.3857421875</span>
+        <p>The BF16 rounding midpoint the two values straddle.</p>
+      </li>
+      <li>
+        <span class="idx">03</span>
+        <span class="node">32 elements</span>
+        <p>BF16 entries of the value projection change in the KV cache.</p>
+      </li>
+      <li>
+        <span class="idx">04</span>
+        <span class="node">"There" → "Each"</span>
+        <p>Token 36 diverges after 35 identical tokens.</p>
+      </li>
+      <li>
+        <span class="idx">05</span>
+        <span class="node">7 → 8</span>
+        <p>Correct answer becomes incorrect; Split-K=1 repeats stay identical.</p>
+      </li>
+    </ol>
+  </section>
+
+  <div class="split">
+
+    <div class="col-left">
+
+    <article class="card method">
+      <p class="kicker">Methodology</p>
+      <h2>Four moves</h2>
+      <ol class="steps">
+        <li>
+          <span class="n">01</span>
+          <div><b>Isolate.</b>
+            <p>Capture 27,440 shrink ops (<span style="font-family:var(--mono)">X·Aᵀ</span>, rank 16 or 32 against H=3,072) and replay each five times under three kernels.</p>
+          </div>
+        </li>
+        <li>
+          <span class="n">02</span>
+          <div><b>Diagnose.</b>
+            <p>Each tile's reduction is split eight ways, and the partials merge through FP32 <span style="font-family:var(--mono)">atomicAdd</span>; order follows GPU scheduling, and float addition is not associative.</p>
+          </div>
+        </li>
+        <li>
+          <span class="n">03</span>
+          <div><b>Fix.</b>
+            <p>Partials land in a scratch buffer. A per-tile integer counter elects the last-finishing CTA, which sums partitions 0..7 in fixed order, scales, and writes. No second kernel launch.</p>
+          </div>
+        </li>
+        <li>
+          <span class="n">04</span>
+          <div><b>Measure.</b>
+            <p>Three architectures × two ranks on GSM8K and MBPP, plus Civil Comments and 12 timing configs on one RTX PRO 6000.</p>
+          </div>
+        </li>
+      </ol>
+      <p class="pull">Integer atomics coordinate the order. They never touch the sum.</p>
+    </article>
+
+    <article class="card bounds">
+      <h2 class="label">Boundaries of the fix</h2>
+      <div class="row">
+        <span class="v">39.06%</span>
+        <p>Cross-batch outputs still differ after the fix (0/4,608 within a fixed batch).</p>
+      </div>
+      <div class="row">
+        <span class="v">81.47%</span>
+        <p>Civil Comments probabilities move, but only 7 decisions flip, all at p = 0.5 exactly.</p>
+      </div>
+      <div class="row">
+        <span class="v">3.47×</span>
+        <p>Faster shrink in the one-token decode microbenchmark: 14.16 → 4.08 µs.</p>
+      </div>
+    </article>
+
+    </div>
+
+    <article class="card results">
+      <p class="kicker">Results</p>
+      <h2>Zero drift, small bill</h2>
+
+      <div class="table-wrap">
+        <table class="drift">
+          <caption>Greedy decoding · 2,700 comparisons per kernel · six model–rank configs</caption>
+          <thead>
+            <tr>
+              <th scope="col">Dataset</th>
+              <th scope="col">Measure</th>
+              <th scope="col">Atomic SK=8</th>
+              <th scope="col">SK=1</th>
+              <th scope="col">Fixed-order</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>GSM8K</td>
+              <td>Changed token sequences</td>
+              <td>467 · 17.30%</td>
+              <td class="zero">0</td>
+              <td class="zero">0</td>
+            </tr>
+            <tr class="hi">
+              <td>GSM8K</td>
+              <td>Correctness flips <span class="sub">45 right→wrong, 39 wrong→right</span></td>
+              <td>84</td>
+              <td class="zero">0</td>
+              <td class="zero">0</td>
+            </tr>
+            <tr>
+              <td>MBPP</td>
+              <td>Changed token sequences</td>
+              <td>404 · 14.96%</td>
+              <td class="zero">0</td>
+              <td class="zero">0</td>
+            </tr>
+            <tr>
+              <td>MBPP</td>
+              <td>Test-pass flips</td>
+              <td>53</td>
+              <td class="zero">0</td>
+              <td class="zero">0</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="table-wrap">
+        <table>
+          <caption>Latency · 50 requests × 150 tokens · five engine trials</caption>
+          <thead>
+            <tr>
+              <th scope="col">Model (rank)</th>
+              <th scope="col">Speedup vs SK=1</th>
+              <th scope="col">Overhead vs atomic</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td>Llama-3.2-3B (16)</td><td>21.0%</td><td>1.62%</td></tr>
+            <tr><td>Llama-3.2-3B (32)</td><td>19.5%</td><td>1.50%</td></tr>
+            <tr><td>Gemma-4-E4B (16)</td><td>20.6%</td><td>2.49%</td></tr>
+            <tr><td>Gemma-4-E4B (32)</td><td>18.9%</td><td>2.17%</td></tr>
+            <tr><td>Nemotron-3-Nano (16)</td><td>18.3%</td><td>1.13%</td></tr>
+            <tr><td>Nemotron-3-Nano (32)</td><td>16.8%</td><td>1.20%</td></tr>
+            <tr class="mean"><td>Mean</td><td>19.2%</td><td>1.69%</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </article>
+
+  </div>
+
+  <section class="compare" aria-label="Strengths and limitations">
+
+    <article class="panel card">
+      <h3>Strengths</h3>
+      <ul>
+        <li><b>Clean isolation.</b> Identical captured operands replayed across three kernels, with the 1.08e-8 mean element difference quantified.</li>
+        <li><b>Complete causal chain,</b> backed by a cache-substitution control and an honest 2/10 injection success rate.</li>
+        <li><b>Transferable kernel trick.</b> Eight-way parallelism, no extra launch, 1.69% mean overhead.</li>
+        <li><b>Reasonable breadth.</b> Dense, local/global attention and Mamba-2 hybrid models; H100 and B200 spot checks.</li>
+        <li><b>Negative results reported.</b> No accuracy gain, and 39.06% cross-batch drift survives.</li>
+      </ul>
+    </article>
+
+    <article class="panel card limits">
+      <h3>Limitations</h3>
+      <ul>
+        <li><b>No batch invariance.</b> 39.06% of cross-batch comparisons still differ; bucketed batching is suggested, not tested.</li>
+        <li><b>No artifact, no baseline.</b> No code link, and the claimed deterministic competitor is absent from every table.</li>
+        <li><b>Thin statistics.</b> Five timing trials, no intervals, so the 1.69% overhead may sit inside noise.</li>
+        <li><b>Narrow envelope.</b> Models ≤4B, ranks 16/32, TP=1, one request at a time, no continuous batching or multi-LoRA.</li>
+        <li><b>Small slices.</b> 50 prompts per dataset; 18–21 flips per config cannot support cross-model claims.</li>
+      </ul>
+    </article>
+
+  </section>
+
+  <section class="questions">
+    <h2>Questions for further exploration</h2>
+    <ol>
+      <li>Does the fixed-order sum agree bit-exactly with Split-K=1, and which sits closer to an FP64 reference?</li>
+      <li>Would Kahan/Neumaier summation or FP64 accumulation beat fixed ordering on both cost and accuracy?</li>
+      <li>How does the kernel behave under continuous batching with ragged M and per-request adapter switches?</li>
+      <li>At rank 64/128 or prefill-dominated M, does Split-K's advantage vanish or invert?</li>
+    </ol>
+  </section>
+
+  <footer>
+    <span>arXiv 2611.10334 · 2026-11-07</span>
+    <a href="./2611.10334.md">↗ Markdown source</a>
+  </footer>
+
+</main>
+
+<script>
+(function () {
+  var btn = document.getElementById('replay');
+  var nodes = Array.prototype.slice.call(document.querySelectorAll('#track li'));
+  if (!btn || !nodes.length) return;
+
+  var timers = [];
+  var reduce = window.matchMedia('(prefers-reduced-motion: reduce)');
+
+  function clear() {
+    timers.forEach(clearTimeout);
+    timers = [];
+  }
+
+  btn.addEventListener('click', function () {
+    clear();
+    nodes.forEach(function (n) { n.classList.remove('lit'); });
+
+    if (reduce.matches) {
+      nodes.forEach(function (n) { n.classList.add('lit'); });
+      return;
+    }
+
+    btn.disabled = true;
+    btn.textContent = '▶ Replaying…';
+
+    nodes.forEach(function (node, i) {
+      timers.push(setTimeout(function () {
+        node.classList.add('lit');
+        if (i === nodes.length - 1) {
+          timers.push(setTimeout(function () {
+            btn.disabled = false;
+            btn.textContent = '▶ Replay the trace';
+          }, 700));
+        }
+      }, 160 + i * 380));
+    });
+  });
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,785 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
+<title>AutoEMatic — runtime-adaptive mixed precision · 2611.10165</title>
+<meta name="description" content="Dashboard for AutoEMatic: per-layer, per-step precision selection from two runtime signals.">
+<style>
+/* ---------------------------------------------------------------- tokens */
+:root{
+  --paper:#f5f3ee;
+  --surface:#fbfaf6;
+  --ink:#16181b;
+  --ink-2:#3d424a;
+  --ink-3:#666d76;
+  --rule:#dcd7cc;
+  --rule-strong:#b9b3a5;
+  --accent:#0c6b4f;
+  --accent-soft:#e2ece6;
+  --sans:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei","Noto Sans CJK SC",sans-serif;
+  --serif:"Iowan Old Style","Palatino Linotype",Palatino,"Songti SC","Noto Serif CJK SC",Georgia,serif;
+  --mono:ui-monospace,"SF Mono",SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
+}
+*,*::before,*::after{box-sizing:border-box}
+html{color-scheme:light}
+body{
+  margin:0;padding-top:49px;
+  background:var(--paper);color:var(--ink);
+  font-family:var(--sans);font-size:15px;line-height:1.62;
+  -webkit-font-smoothing:antialiased;
+}
+::selection{background:var(--accent);color:var(--paper)}
+a{color:inherit}
+:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+.wrap{width:min(95vw,1100px);margin:0 auto}
+.sr{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
+
+/* ------------------------------------------------------------------ nav */
+.nav{
+  position:fixed;inset:0 0 auto 0;height:48px;z-index:60;
+  display:flex;align-items:center;justify-content:space-between;gap:16px;
+  padding:0 max(2.5vw,16px);
+  background:var(--paper);border-bottom:1px solid var(--rule);
+  font-family:var(--mono);font-size:11px;letter-spacing:.04em;
+}
+.nav-back{text-decoration:none;color:var(--ink);padding:2px 0;border-bottom:1px solid transparent}
+.nav-back:hover{color:var(--accent);border-bottom-color:var(--accent)}
+.nav-id{color:var(--ink-3);white-space:nowrap}
+
+/* ----------------------------------------------------------------- hero */
+.hero{
+  display:grid;grid-template-columns:minmax(0,1fr) 272px;
+  gap:36px;align-items:start;padding:38px 0 26px;
+}
+.eyebrow{
+  margin:0;display:flex;align-items:center;gap:7px;flex-wrap:wrap;
+  font-family:var(--mono);font-size:10px;line-height:1.4;
+  letter-spacing:.13em;text-transform:uppercase;color:var(--ink-3);
+}
+.eyebrow .sq{width:5px;height:5px;background:var(--accent);flex:none}
+.eyebrow .cn{letter-spacing:.06em;color:var(--ink-3)}
+.eyebrow .slash{color:var(--rule-strong)}
+.eyebrow.lead{font-size:10.5px;color:var(--accent)}
+
+.hero h1{
+  margin:15px 0 0;max-width:16em;
+  font-family:var(--serif);font-weight:600;
+  font-size:clamp(2.3rem,4.6vw,3.45rem);line-height:1.06;
+  letter-spacing:-.021em;text-wrap:balance;
+}
+.hero h1 em{font-style:italic;color:var(--accent)}
+.hero-cn{margin:16px 0 0;max-width:34em;font-size:13.5px;line-height:1.8;color:var(--ink-3);letter-spacing:.01em}
+
+.paper{margin-top:30px;padding-top:15px;border-top:1px solid var(--rule);max-width:660px}
+.paper-title{
+  display:inline-block;font-size:15px;line-height:1.45;font-weight:500;
+  text-decoration:none;color:var(--ink);
+  border-bottom:1px solid var(--rule-strong);padding-bottom:1px;
+  transition:color .15s,border-color .15s;
+}
+.paper-title:hover{color:var(--accent);border-bottom-color:var(--accent)}
+.paper-meta{margin:9px 0 12px;font-family:var(--mono);font-size:11px;letter-spacing:.02em;color:var(--ink-3)}
+.paper-meta .dot{margin:0 7px;color:var(--rule-strong)}
+.chips{display:flex;flex-wrap:wrap;gap:6px;list-style:none;margin:0;padding:0}
+.chips li{
+  font-family:var(--mono);font-size:9.5px;letter-spacing:.09em;text-transform:uppercase;
+  color:var(--ink-2);background:var(--surface);
+  border:1px solid var(--rule);padding:3px 8px;
+}
+
+/* ----------------------------------------------------------------- rail */
+.rail{border-left:1px solid var(--rule);padding:2px 0 0 22px}
+.rail-label{margin:0;font-family:var(--mono);font-size:9.5px;letter-spacing:.13em;text-transform:uppercase;color:var(--accent)}
+.rail-sub{margin:7px 0 0;font-size:11.5px;line-height:1.5;color:var(--ink-3)}
+.bars{list-style:none;margin:16px 0 0;padding:0}
+.bars li{display:grid;grid-template-columns:78px 1fr 38px;gap:8px;align-items:center;margin-bottom:9px}
+.bar-name{font-family:var(--mono);font-size:9.5px;letter-spacing:.02em;color:var(--ink-2)}
+.bar{display:block;height:6px;background:#e8e3d8;position:relative;overflow:hidden}
+.bar i{display:block;height:100%;background:var(--rule-strong)}
+.bar-val{font-family:var(--mono);font-size:10.5px;text-align:right;color:var(--ink-2);font-variant-numeric:tabular-nums}
+.bars li.is-key .bar i{background:var(--accent)}
+.bars li.is-key .bar-name,.bars li.is-key .bar-val{color:var(--accent);font-weight:600}
+.rail-note{margin:14px 0 0;padding-top:10px;border-top:1px solid var(--rule);font-size:10.5px;line-height:1.5;color:var(--ink-3)}
+
+/* ---------------------------------------------------------------- cards */
+.assets{display:grid;grid-template-columns:1.18fr 1fr 1fr;gap:12px;padding-bottom:14px}
+.card{
+  display:flex;flex-direction:column;min-width:0;
+  background:var(--surface);border:1px solid var(--rule);
+  padding:16px 18px;
+}
+.card-head{margin:0;display:flex;align-items:center;gap:7px;font-family:var(--mono);font-size:9.5px;letter-spacing:.13em;text-transform:uppercase;color:var(--ink-3)}
+.card-head .sq{width:5px;height:5px;background:var(--accent);flex:none}
+.card-head .cn{letter-spacing:.06em}
+
+.metric-big{
+  margin:16px 0 0;font-family:var(--mono);font-weight:500;
+  font-size:clamp(2.2rem,4vw,2.95rem);line-height:.9;letter-spacing:-.04em;
+  color:var(--accent);font-variant-numeric:tabular-nums;
+}
+.metric-unit{font-size:13px;letter-spacing:.1em;margin-left:7px;color:var(--ink-3);vertical-align:baseline}
+.metric-where{margin:9px 0 0;font-family:var(--mono);font-size:10.5px;letter-spacing:.02em;color:var(--ink-3)}
+.mini{margin-top:15px;padding-top:12px;border-top:1px solid var(--rule)}
+.mini-row{display:grid;grid-template-columns:76px 1fr 34px;gap:8px;align-items:center;margin-bottom:6px}
+.mini-row span:first-child{font-family:var(--mono);font-size:9.5px;color:var(--ink-3);letter-spacing:.01em}
+.mini-bar{display:block;height:5px;background:#e8e3d8}
+.mini-bar i{display:block;height:100%;background:var(--rule-strong)}
+.mini-row b{font-family:var(--mono);font-size:10.5px;font-weight:500;text-align:right;color:var(--ink-2);font-variant-numeric:tabular-nums}
+.mini-row.is-key span:first-child,.mini-row.is-key b{color:var(--accent)}
+.mini-row.is-key .mini-bar i{background:var(--accent)}
+
+.foot{margin:auto 0 0;padding-top:14px;font-size:11.5px;line-height:1.5;color:var(--ink-3)}
+
+.why-text{margin:14px 0 0;font-size:16px;line-height:1.6;letter-spacing:-.005em}
+.why-text strong{color:var(--accent);font-weight:600;font-variant-numeric:tabular-nums}
+
+.card.edge{
+  background:var(--ink);border-color:var(--ink);color:#f2efe7;
+  position:relative;
+}
+.card.edge::after{content:"";position:absolute;inset:7px;border:1px solid rgba(245,243,238,.16);pointer-events:none}
+.card.edge .card-head{color:rgba(245,243,238,.62)}
+.card.edge .card-head .sq{background:#f2efe7}
+.edge-text{margin:14px 0 0;font-size:15px;line-height:1.55;letter-spacing:-.005em}
+.card.edge .foot{color:rgba(245,243,238,.58);font-family:var(--mono);font-size:10px;letter-spacing:.06em;text-transform:uppercase}
+
+/* ----------------------------------------------------------------- body */
+.body-grid{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:12px;padding-bottom:8px}
+.section{
+  grid-column:1/-1;min-width:0;
+  background:var(--surface);border:1px solid var(--rule);
+  padding:22px 24px 24px;
+}
+.section h2{
+  margin:7px 0 0;font-family:var(--serif);font-weight:600;
+  font-size:clamp(1.28rem,2.1vw,1.6rem);line-height:1.2;letter-spacing:-.012em;
+}
+.sec-head{display:flex;align-items:flex-end;justify-content:space-between;gap:18px;flex-wrap:wrap}
+
+/* results */
+.res-grid{display:grid;grid-template-columns:1fr 1fr;gap:26px 24px;margin-top:20px}
+.res-main{grid-column:1/-1;min-width:0}
+.sub{margin:0 0 9px;font-family:var(--mono);font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3);font-weight:500}
+.tablewrap{overflow-x:auto;overscroll-behavior-x:contain}
+
+.tbl{width:100%;border-collapse:separate;border-spacing:0;font-variant-numeric:tabular-nums}
+.tbl th,.tbl td{padding:7px 8px;border-bottom:1px solid var(--rule);white-space:nowrap}
+.tbl thead th{
+  font-family:var(--mono);font-size:9px;font-weight:500;letter-spacing:.08em;text-transform:uppercase;
+  color:var(--ink-3);text-align:right;vertical-align:bottom;
+  border-bottom:1px solid var(--rule-strong);padding-bottom:8px;
+}
+.tbl thead th.hl{color:var(--accent);background:var(--accent-soft)}
+.tbl thead th.stick{text-align:left}
+.tbl tbody th{
+  text-align:left;font-weight:500;font-size:12.5px;line-height:1.35;
+  color:var(--ink);white-space:normal;min-width:158px;
+}
+.tbl tbody th span{display:block;font-family:var(--mono);font-size:9.5px;font-weight:400;color:var(--ink-3);margin-top:2px;letter-spacing:.02em}
+.tbl td{font-family:var(--mono);font-size:12px;text-align:right;color:var(--ink-2)}
+.tbl td.hl{background:var(--accent-soft);color:var(--accent);font-weight:600}
+.tbl .stick{position:sticky;left:0;background:var(--surface);z-index:1}
+.tbl tbody tr:hover td,.tbl tbody tr:hover th{background:#f1eee6}
+.tbl tbody tr:hover td.hl{background:#d7e6dd}
+.tbl tbody tr.is-best td,.tbl tbody tr.is-best th{background:var(--accent-soft)}
+.tbl tbody tr.is-best th{color:var(--accent)}
+.tbl tbody tr.is-best td.hl{font-weight:600}
+.tbl-b{min-width:330px}
+.tbl-c{min-width:430px}
+.tbl.tbl-c th,.tbl.tbl-c td{text-align:left;white-space:normal}
+.tbl-c tbody td{font-size:11.5px;line-height:1.4}
+.tbl-c tbody th{min-width:132px;font-size:12px}
+.tbl-note{margin:9px 0 0;font-size:10.5px;line-height:1.55;color:var(--ink-3)}
+
+.seg{display:inline-flex;border:1px solid var(--rule);background:var(--paper)}
+.seg-btn{
+  appearance:none;border:0;background:transparent;cursor:pointer;
+  font-family:var(--mono);font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;
+  padding:6px 10px;color:var(--ink-3);
+}
+.seg-btn:hover{color:var(--ink)}
+.seg-btn.is-on{background:var(--ink);color:var(--paper)}
+.seg-btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+/* method */
+.method{grid-column:span 7}
+.steps{list-style:none;margin:18px 0 0;padding:0}
+.steps li{display:grid;grid-template-columns:28px 1fr;gap:10px;padding:11px 0;border-top:1px solid var(--rule)}
+.steps li:first-child{border-top:0;padding-top:0}
+.step-n{font-family:var(--mono);font-size:10px;letter-spacing:.06em;color:var(--accent);padding-top:3px}
+.steps h3{margin:0 0 2px;font-size:12.5px;font-weight:600;letter-spacing:.01em}
+.steps p{margin:0;font-size:13px;line-height:1.58;color:var(--ink-2)}
+.steps code,.formula-note code{font-family:var(--mono);font-size:.9em;background:var(--accent-soft);color:var(--accent);padding:1px 4px}
+.method-foot{margin:16px 0 0;padding-top:12px;border-top:1px solid var(--rule);font-size:11px;line-height:1.55;color:var(--ink-3)}
+
+/* mechanism */
+.mech{grid-column:span 5}
+.bitspec{margin:16px 0 0;display:grid;gap:9px}
+.bitrow{display:grid;grid-template-columns:84px 1fr;gap:10px;align-items:center}
+.bitrow .lbl{font-family:var(--mono);font-size:8.5px;letter-spacing:.07em;text-transform:uppercase;line-height:1.35;color:var(--ink-3)}
+.cellwrap,.cells{display:flex;flex-wrap:wrap;align-items:center;gap:3px}
+.cell{
+  font-family:var(--mono);font-size:9.5px;line-height:1;color:var(--ink-2);
+  border:1px solid var(--rule);background:var(--paper);padding:4px 5px;min-width:24px;text-align:center;
+}
+.cell.acc{border-color:var(--accent);background:var(--accent-soft);color:var(--accent)}
+.cell-note{flex-basis:100%;margin-top:2px;font-family:var(--mono);font-size:8.5px;letter-spacing:.02em;color:var(--ink-3)}
+.cells.mask{display:grid;grid-template-columns:repeat(16,1fr);gap:2px;max-width:198px}
+.bit{display:block;height:13px;border:1px solid var(--rule);background:var(--paper)}
+.bit.on{background:var(--accent);border-color:var(--accent)}
+.formula{
+  margin:18px 0 0;padding:11px 12px;border-left:3px solid var(--accent);background:var(--paper);
+  font-family:var(--mono);font-size:11.5px;line-height:1.4;color:var(--ink);
+  white-space:nowrap;overflow-x:auto;
+}
+.formula-note{margin:6px 0 0;font-size:10.5px;color:var(--ink-3)}
+.mech-notes{list-style:none;margin:16px 0 0;padding:0}
+.mech-notes li{position:relative;padding-left:12px;margin-bottom:6px;font-size:11.5px;line-height:1.5;color:var(--ink-2)}
+.mech-notes li::before{content:"";position:absolute;left:0;top:.6em;width:4px;height:4px;background:var(--rule-strong)}
+.storage{margin:14px 0 0;padding-top:11px;border-top:1px solid var(--rule);font-size:11px;line-height:1.5;color:var(--ink-3)}
+.storage b{color:var(--accent);font-weight:600}
+
+/* panels */
+.panels{grid-column:1/-1;display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.panel{background:var(--surface);border:1px solid var(--rule);padding:20px 22px 22px;min-width:0}
+.panel-good{border-top:3px solid var(--accent)}
+.panel-bad{border-top:3px solid var(--ink)}
+.panel h2{margin:6px 0 0;font-family:var(--serif);font-size:1.22rem;font-weight:600;letter-spacing:-.01em;line-height:1.25}
+.blist{list-style:none;margin:14px 0 0;padding:0}
+.blist li{position:relative;padding-left:14px;margin-bottom:9px;font-size:12.5px;line-height:1.55;color:var(--ink-2)}
+.blist li:last-child{margin-bottom:0}
+.blist li::before{content:"";position:absolute;left:0;top:.6em;width:5px;height:5px;background:var(--accent)}
+.panel-bad .blist li::before{background:var(--ink-3)}
+.blist b{color:var(--ink);font-weight:600}
+
+/* questions */
+.questions{grid-column:1/-1;display:grid;grid-template-columns:210px 1fr;gap:26px;align-items:start}
+.qlist{list-style:none;counter-reset:q;margin:0;padding:0;display:grid;grid-template-columns:1fr 1fr;gap:11px 24px}
+.qlist li{
+  counter-increment:q;position:relative;padding-left:24px;
+  font-size:12.5px;line-height:1.5;color:var(--ink-2);
+}
+.qlist li::before{
+  content:counter(q,decimal-leading-zero);position:absolute;left:0;top:1px;
+  font-family:var(--mono);font-size:9.5px;letter-spacing:.04em;color:var(--accent);
+}
+.qlist li b{color:var(--ink);font-weight:600}
+
+/* footer */
+.foot-bar{border-top:1px solid var(--rule);margin-top:26px}
+.foot-in{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;padding:16px 0 40px;font-family:var(--mono);font-size:10px;letter-spacing:.04em;color:var(--ink-3)}
+.foot-links{display:flex;gap:18px;flex-wrap:wrap}
+.foot-links a{text-decoration:none;border-bottom:1px solid var(--rule-strong);padding-bottom:1px}
+.foot-links a:hover{color:var(--accent);border-bottom-color:var(--accent)}
+
+/* --------------------------------------------------------------- motion */
+@media (prefers-reduced-motion: no-preference){
+  .hero-copy,.rail{animation:rise .5s cubic-bezier(.2,.7,.2,1) both}
+  .rail{animation-delay:.07s}
+  .assets .card{animation:rise .5s cubic-bezier(.2,.7,.2,1) both}
+  .assets .card:nth-child(1){animation-delay:.12s}
+  .assets .card:nth-child(2){animation-delay:.17s}
+  .assets .card:nth-child(3){animation-delay:.22s}
+}
+@keyframes rise{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+
+/* ------------------------------------------------------------- responsive */
+@media (max-width:1000px){
+  .hero{grid-template-columns:1fr;gap:24px}
+  .hero h1{max-width:16em}
+  .rail{border-left:0;border-top:1px solid var(--rule);padding:16px 0 0}
+  .bars{max-width:440px}
+  .method,.mech{grid-column:1/-1}
+  .res-grid{grid-template-columns:1fr}
+  .questions{grid-template-columns:1fr;gap:16px}
+}
+@media (max-width:720px){
+  body{font-size:14.5px}
+  .assets{grid-template-columns:1fr}
+  .panels{grid-template-columns:1fr}
+  .hero h1{max-width:20em}
+  .paper-meta{font-size:10.5px}
+  .nav-id{display:none}
+  .section,.panel{padding:18px 16px 20px}
+  .card{padding:15px 16px}
+  .qlist{grid-template-columns:1fr}
+  .metric-big{font-size:2.35rem}
+  .tbl tbody th{min-width:138px}
+  .bitrow{grid-template-columns:72px 1fr}
+}
+</style>
+</head>
+<body>
+
+<nav class="nav" aria-label="Context">
+  <a class="nav-back" href="./index.html">↩ Today's digest</a>
+  <span class="nav-id">arXiv 2611.10165 · 2026-11-02 · under review</span>
+</nav>
+
+<main class="wrap">
+
+  <!-- ============================================================ hero -->
+  <header class="hero">
+    <div class="hero-copy">
+      <p class="eyebrow lead"><span class="sq"></span>Key finding <span class="slash">/</span> <span class="cn">核心发现</span></p>
+      <h1>Every layer, every step: precision is re-decided from <em>logit entropy and residual-update size</em>, not an offline calibration.</h1>
+      <p class="hero-cn" lang="zh-CN">每一层、每一步都重新决定精度：靠 logit 熵与残差更新的幅度，而非一次性的离线校准。</p>
+
+      <div class="paper">
+        <a class="paper-title" href="https://arxiv.org/abs/2611.10165" target="_blank" rel="noopener">AutoEMatic: Runtime-Adaptive Mixed-Precision LLM Inference via Automatic Exponent–Mantissa Refinement</a>
+        <p class="paper-meta">Akshat Ramachandran, Reena Elangovan, Rangharajan Venkatesan, Charbel Sakr, et al.<span class="dot">·</span>2026-11-02</p>
+        <ul class="chips">
+          <li>mixed precision</li>
+          <li>LLM inference</li>
+          <li>NVFP4</li>
+          <li>accelerator co-design</li>
+        </ul>
+      </div>
+    </div>
+
+    <aside class="rail" aria-label="Under-provisioning rate">
+      <p class="rail-label">Precision demand, measured</p>
+      <p class="rail-sub">Share of decode steps given less precision than an oracle demands</p>
+      <ul class="bars">
+        <li class="is-key">
+          <span class="bar-name">AutoEMatic</span>
+          <span class="bar"><i style="width:19.3%"></i></span>
+          <span class="bar-val">7.7%</span>
+        </li>
+        <li>
+          <span class="bar-name">AutoQuantize</span>
+          <span class="bar"><i style="width:67.3%"></i></span>
+          <span class="bar-val">26.9%</span>
+        </li>
+        <li>
+          <span class="bar-name">FlexQuant</span>
+          <span class="bar"><i style="width:94%"></i></span>
+          <span class="bar-val">37.6%</span>
+        </li>
+      </ul>
+      <p class="rail-note">Oracle = lowest per-layer precision keeping KL divergence under 1e-3 nats. Static calibration fails on data from its own distribution.</p>
+    </aside>
+  </header>
+
+  <!-- ========================================================== assets -->
+  <section class="assets" aria-label="Key assets">
+
+    <article class="card">
+      <p class="card-head"><span class="sq"></span>Key metric <span class="slash">/</span> <span class="cn">关键数字</span></p>
+      <p class="metric-big">+9.7<span class="metric-unit">pts</span></p>
+      <p class="metric-where">Qwen3-8B · τ²-bench · 4→6-bit recovery</p>
+      <div class="mini" aria-hidden="true">
+        <div class="mini-row">
+          <span>NVFP4</span><span class="mini-bar"><i style="width:50%"></i></span><b>17.5</b>
+        </div>
+        <div class="mini-row is-key">
+          <span>AutoEMatic</span><span class="mini-bar"><i style="width:77.7%"></i></span><b>27.2</b>
+        </div>
+        <div class="mini-row">
+          <span>FP6g</span><span class="mini-bar"><i style="width:87.7%"></i></span><b>30.7</b>
+        </div>
+      </div>
+      <p class="foot">At 4.9 bits/weight stored versus 6.5 for FP6g — 73% of the gap closed on this cell, not all of it.</p>
+    </article>
+
+    <article class="card">
+      <p class="card-head"><span class="sq"></span>Why this matters <span class="slash">/</span> <span class="cn">为何重要</span></p>
+      <p class="why-text">Static calibration under-provisions <strong>26.9–37.6%</strong> of decode steps even on in-distribution data — a measurable reliability risk for anyone shipping quantized serving.</p>
+      <p class="foot" lang="zh-CN">精度是运行时决策，而非一次性配置。</p>
+    </article>
+
+    <article class="card edge">
+      <p class="card-head"><span class="sq"></span>Critical edge <span class="slash">/</span> <span class="cn">关键质疑</span></p>
+      <p class="edge-text">The headline outruns the evidence: “up to 21.7%” traces to no named benchmark cell, and the DP-LLM† baseline it leans on is a self-built strawman.</p>
+      <p class="foot">Untraceable number · strawman baseline</p>
+    </article>
+
+  </section>
+
+  <!-- ============================================================ body -->
+  <div class="body-grid">
+
+    <!-- results first: evidence before method -->
+    <section class="section" aria-labelledby="res-h">
+      <div class="sec-head">
+        <div>
+          <p class="eyebrow"><span class="sq"></span>01 · Evidence <span class="slash">/</span> <span class="cn">结果</span></p>
+          <h2 id="res-h">Where the bits actually buy accuracy</h2>
+        </div>
+        <div class="seg" role="group" aria-label="Table display mode">
+          <button class="seg-btn is-on" type="button" data-mode="abs" aria-pressed="true">Absolute</button>
+          <button class="seg-btn" type="button" data-mode="delta" aria-pressed="false">Δ vs NVFP4</button>
+        </div>
+      </div>
+
+      <div class="res-grid">
+
+        <div class="res-main">
+          <h3 class="sub">Agentic + reasoning accuracy (%)</h3>
+          <div class="tablewrap">
+            <table class="tbl" id="acc">
+              <caption class="sr">Accuracy in percent on agentic and reasoning benchmarks, comparing NVFP4, AutoQuantize, AutoEMatic, FP6g and BF16.</caption>
+              <thead>
+                <tr>
+                  <th scope="col" class="stick">Model · benchmark</th>
+                  <th scope="col">bits</th>
+                  <th scope="col">NVFP4</th>
+                  <th scope="col">AutoQuantize</th>
+                  <th scope="col" class="hl">AutoEMatic</th>
+                  <th scope="col">FP6g</th>
+                  <th scope="col">BF16†</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr data-base="17.5">
+                  <th scope="row" class="stick">Qwen3-8B<span>τ²-bench</span></th>
+                  <td>—</td>
+                  <td class="is-base" data-v="17.5">17.5</td>
+                  <td>—</td>
+                  <td class="hl" data-v="27.2">27.2</td>
+                  <td data-v="30.7">30.7</td>
+                  <td data-v="30.7">30.7</td>
+                </tr>
+                <tr data-base="49.2">
+                  <th scope="row" class="stick">Qwen3-8B<span>LiveCodeBench</span></th>
+                  <td>4.8</td>
+                  <td class="is-base" data-v="49.2">49.2</td>
+                  <td data-v="60.0">60.0</td>
+                  <td class="hl" data-v="60.5">60.5</td>
+                  <td data-v="61.4">61.4</td>
+                  <td data-v="66.5">66.5</td>
+                </tr>
+                <tr data-base="50.0">
+                  <th scope="row" class="stick">Qwen3.8-27B<span>τ²-bench</span></th>
+                  <td>5.1</td>
+                  <td class="is-base" data-v="50.0">50.0</td>
+                  <td>—</td>
+                  <td class="hl" data-v="71.7">71.7</td>
+                  <td data-v="71.7">71.7</td>
+                  <td>—</td>
+                </tr>
+                <tr data-base="70.6">
+                  <th scope="row" class="stick">Qwen3.8-27B<span>LongMemEval</span></th>
+                  <td>4.8</td>
+                  <td class="is-base" data-v="70.6">70.6</td>
+                  <td data-v="81.2">81.2</td>
+                  <td class="hl" data-v="82.8">82.8</td>
+                  <td data-v="82.8">82.8</td>
+                  <td data-v="82.8">82.8</td>
+                </tr>
+                <tr data-base="46.5">
+                  <th scope="row" class="stick">Gemma-4-26B<span>τ²-bench</span></th>
+                  <td>5.0</td>
+                  <td class="is-base" data-v="46.5">46.5</td>
+                  <td data-v="58.6">58.6</td>
+                  <td class="hl" data-v="60.5">60.5</td>
+                  <td data-v="60.5">60.5</td>
+                  <td>—</td>
+                </tr>
+                <tr data-base="75.3">
+                  <th scope="row" class="stick">Gemma-4-26B<span>LiveCodeBench</span></th>
+                  <td>—</td>
+                  <td class="is-base" data-v="75.3">75.3</td>
+                  <td>—</td>
+                  <td class="hl" data-v="83.1">83.1</td>
+                  <td data-v="83.1">83.1</td>
+                  <td data-v="85.7">85.7</td>
+                </tr>
+                <tr data-base="67.8">
+                  <th scope="row" class="stick">MiniMax-M2.7 · 230B<span>SWE-bench Verified</span></th>
+                  <td>4.2/4.5</td>
+                  <td class="is-base" data-v="67.8">67.8</td>
+                  <td>—</td>
+                  <td class="hl" data-v="70.5">70.5</td>
+                  <td data-v="70.5">70.5</td>
+                  <td data-v="71.0">71.0</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p class="tbl-note" id="accNote">Absolute accuracy. <b>bits</b> = AutoEMatic’s average execution bits (prefill/decode where split); storage is 4.9 b/w versus 4.5 for NVFP4 and 6.5 for FP6g. † MiniMax row reports FP8. — = not reported.</p>
+        </div>
+
+        <div>
+          <h3 class="sub">The decisive ablation · DS-Llama-70B · LCB</h3>
+          <div class="tablewrap">
+            <table class="tbl tbl-b">
+              <caption class="sr">Ablation isolating policy from format on DeepSeek-R1-Llama-70B LiveCodeBench.</caption>
+              <thead>
+                <tr>
+                  <th scope="col" class="stick">Configuration</th>
+                  <th scope="col">bits</th>
+                  <th scope="col">LCB</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <th scope="row" class="stick">Uniform NVFP4</th>
+                  <td>4.5</td><td>51.7</td>
+                </tr>
+                <tr>
+                  <th scope="row" class="stick">AutoQuantize</th>
+                  <td>5.3</td><td>55.7</td>
+                </tr>
+                <tr>
+                  <th scope="row" class="stick">FlexQuant</th>
+                  <td>5.3</td><td>48.6</td>
+                </tr>
+                <tr>
+                  <th scope="row" class="stick">Policy on integer format</th>
+                  <td>6.0</td><td>43.8</td>
+                </tr>
+                <tr class="is-best">
+                  <th scope="row" class="stick">AutoEMatic</th>
+                  <td>4.9</td><td class="hl">65.6</td>
+                </tr>
+                <tr>
+                  <th scope="row" class="stick">3-copy upper bound</th>
+                  <td>13.5</td><td>66.2</td>
+                </tr>
+                <tr>
+                  <th scope="row" class="stick">BF16</th>
+                  <td>16.0</td><td>68.4</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p class="tbl-note">Same policy on an integer multi-scale format collapses to 43.8% — the format is the second necessary ingredient, not a passenger.</p>
+        </div>
+
+        <div>
+          <h3 class="sub">What it costs · systems</h3>
+          <div class="tablewrap">
+            <table class="tbl tbl-c">
+              <caption class="sr">Measured throughput, latency, energy and area costs.</caption>
+              <thead>
+                <tr>
+                  <th scope="col" class="stick">Cost</th>
+                  <th scope="col">Measured</th>
+                  <th scope="col">Reference</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <th scope="row" class="stick">Decode · 70B, batch 1</th>
+                  <td>120 tok/s</td><td>131 · NVFP4</td>
+                </tr>
+                <tr>
+                  <th scope="row" class="stick">TTFT</th>
+                  <td>≤ 1.10× NVFP4</td><td>1.4× faster · FP6g</td>
+                </tr>
+                <tr>
+                  <th scope="row" class="stick">Signal overhead</th>
+                  <td>2.3–2.8% TPOT</td><td>GE &lt; 1.3%</td>
+                </tr>
+                <tr>
+                  <th scope="row" class="stick">Accelerator latency</th>
+                  <td>1.6–2.3× lower</td><td>iso-accuracy</td>
+                </tr>
+                <tr>
+                  <th scope="row" class="stick">Accelerator energy</th>
+                  <td>0.77–0.93×</td><td>1.13× at iso-NVFP4 acc.</td>
+                </tr>
+                <tr>
+                  <th scope="row" class="stick">Area</th>
+                  <td>+1.1%</td><td>5.46 TOPS/mm²</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p class="tbl-note">The energy sign flips with the anchor: a saving at iso-AutoEMatic accuracy, a 13% penalty at iso-NVFP4 accuracy.</p>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- method -->
+    <section class="section method" aria-labelledby="method-h">
+      <p class="eyebrow"><span class="sq"></span>02 · Method <span class="slash">/</span> <span class="cn">方法</span></p>
+      <h2 id="method-h">Two signals, a running mean, and a rule that refuses to act on noise</h2>
+
+      <ol class="steps">
+        <li>
+          <span class="step-n">01</span>
+          <div>
+            <h3>Measure</h3>
+            <p><code>GE</code> is the normalized Shannon entropy of the top-10 logits. <code>LA</code> is the relative L2 change a layer makes to the residual stream.</p>
+          </div>
+        </li>
+        <li>
+          <span class="step-n">02</span>
+          <div>
+            <h3>Combine</h3>
+            <p><code>M = λ·LA + (1−λ)·GE</code>, with λ = 1 in prefill (no tokens yet) and 0.7 in decode, where entropy lags one step.</p>
+          </div>
+        </li>
+        <li>
+          <span class="step-n">03</span>
+          <div>
+            <h3>Decide</h3>
+            <p>Track M’s running µ and σ. Move one level only on sustained trends over two layers: four quiet layers to drop, two active ones to raise. Prefill pins every layer up to the µ + 3σ spike at 6 bits.</p>
+          </div>
+        </li>
+        <li>
+          <span class="step-n">04</span>
+          <div>
+            <h3>Serve</h3>
+            <p>One extended-K GEMM per layer; a mixed batch ORs its activation masks, so the whole batch runs a single MMA.</p>
+          </div>
+        </li>
+      </ol>
+      <p class="method-foot">Levels are {2, 4, 6}. 2-bit is weights-only, so realized tuples are W2A4-KV4, W4A4-KV4, W6A6-KV6.</p>
+    </section>
+
+    <!-- mechanism -->
+    <section class="section mech" aria-labelledby="mech-h">
+      <p class="eyebrow"><span class="sq"></span>03 · Mechanism <span class="slash">/</span> <span class="cn">机制</span></p>
+      <h2 id="mech-h">Refine by offset, then hide it inside one GEMM</h2>
+
+      <div class="bitspec" aria-label="AutoFP format layout">
+        <div class="bitrow">
+          <span class="lbl">NVFP4 base</span>
+          <span class="cells">
+            <span class="cell">S</span><span class="cell">E₁E₀</span><span class="cell">M</span>
+            <span class="cell-note">4 b / element · E4M3 scale per 16</span>
+          </span>
+        </div>
+        <div class="bitrow">
+          <span class="lbl">Refine mask</span>
+          <span class="cellwrap">
+            <span class="cells mask" aria-hidden="true">
+              <span class="bit"></span><span class="bit"></span><span class="bit"></span><span class="bit"></span>
+              <span class="bit on"></span><span class="bit on"></span><span class="bit on"></span><span class="bit on"></span>
+              <span class="bit"></span><span class="bit"></span><span class="bit"></span><span class="bit"></span>
+              <span class="bit"></span><span class="bit"></span><span class="bit"></span><span class="bit"></span>
+            </span>
+            <span class="cell-note">4 b / 16 elements · one bit per 4-element subgroup</span>
+          </span>
+        </div>
+        <div class="bitrow">
+          <span class="lbl">Offset d</span>
+          <span class="cells">
+            <span class="cell acc">−2</span><span class="cell acc">−1</span><span class="cell acc">0</span><span class="cell acc">+1</span>
+            <span class="cell-note">2 b signed · fixed step 2⁻³ on masked subgroups</span>
+          </span>
+        </div>
+        <div class="bitrow">
+          <span class="lbl">AutoFP2</span>
+          <span class="cells">
+            <span class="cell">−2</span><span class="cell">−1</span><span class="cell">0</span><span class="cell">+1</span><span class="cell">+2</span>
+            <span class="cell-note">e₁e₀ remapped to a quinary alphabet</span>
+          </span>
+        </div>
+      </div>
+
+      <p class="formula">[W<sub>q</sub> | W<sub>qr</sub>] · [A<sub>q</sub> | A<sub>qr</sub>]</p>
+      <p class="formula-note">One <code>tcgen05.mma</code>, reduction length ≤ 2K.</p>
+
+      <ul class="mech-notes">
+        <li>Disjoint N:4 masks (N<sub>W</sub> + N<sub>A</sub> = 4) make the second-order cross term vanish.</li>
+        <li>4δ lands exactly on the E2M1 grid; the factor 4 folds into s<sub>W</sub>/4.</li>
+      </ul>
+      <p class="storage">4 + 0.5 + 2ρ ≈ <b>4.9 bits/weight</b> at ρ = 0.2 — versus 13.5 for three separately stored copies.</p>
+    </section>
+
+    <!-- strengths / limitations -->
+    <div class="panels">
+      <section class="panel panel-good" aria-labelledby="str-h">
+        <p class="eyebrow"><span class="sq"></span>Strengths <span class="slash">/</span> <span class="cn">优势</span></p>
+        <h2 id="str-h">What earns the claim</h2>
+        <ul class="blist">
+          <li>The extended-K GEMM turns a format that should be a memory-layout nightmare into <b>one standard MMA</b> on existing Tensor Cores.</li>
+          <li>It explains <b>why appended mantissa bits fail</b> — round-to-nearest can only refine upward — which is what earns the additive-offset design.</li>
+          <li>Table 4 separates policy, format and calibration, includes a 13.5-bit upper bound, and collapses the policy on an integer format.</li>
+          <li>Real systems work, not simulation only: vLLM 0.15 plugin, FlashInfer attention, two page types on one allocator, 4× GB300.</li>
+          <li>The under-provisioning metric indicts static calibration <b>without depending on any benchmark</b>.</li>
+        </ul>
+      </section>
+
+      <section class="panel panel-bad" aria-labelledby="lim-h">
+        <p class="eyebrow"><span class="sq"></span>Limitations <span class="slash">/</span> <span class="cn">局限</span></p>
+        <h2 id="lim-h">What the evidence will not carry</h2>
+        <ul class="blist">
+          <li><b>AutoFP2 saves no memory.</b> It is derived on demand, never stored; on GPUs it is emulated as NVFP4.</li>
+          <li><b>No bandwidth win at all:</b> 4.9 bits versus 4.5 for NVFP4. The real claim is accuracy per bit against FP6g.</li>
+          <li>Accelerator numbers are <b>modeled, not silicon</b> — DRAM assumed at 1 TB/s, with no sensitivity analysis.</li>
+          <li>One run per cell, no seeds; 0.5–1 pt gaps are routine noise at temperature 0.5.</li>
+          <li>No ablation isolates KV-cache adaptation, though the “joint” claim leans on it.</li>
+        </ul>
+      </section>
+    </div>
+
+    <!-- questions -->
+    <section class="section questions" aria-labelledby="q-h">
+      <div>
+        <p class="eyebrow"><span class="sq"></span>04 · Open questions <span class="slash">/</span> <span class="cn">待解</span></p>
+        <h2 id="q-h">Left on the table</h2>
+      </div>
+      <ol class="qlist">
+        <li>What is accuracy at <b>ρ = 0</b> — pure AutoFP6 at 4.5 bits, exactly NVFP4’s footprint?</li>
+        <li>Does the policy still pay off with the <b>KV cache pinned at 8 bits</b>?</li>
+        <li>How sensitive are the 1.6–2.3× and 7–23% numbers to the assumed <b>1 TB/s DRAM</b>?</li>
+        <li>Could GE and LA double as <b>bit-flip or bad-kernel detectors</b>?</li>
+        <li>At batch 128+ with maximally heterogeneous requests, does <b>∪M<sub>A</sub></b> refine everything?</li>
+      </ol>
+    </section>
+
+  </div>
+</main>
+
+<footer class="foot-bar">
+  <div class="wrap foot-in">
+    <span>AutoEMatic · arXiv 2611.10165 · 2026-11-02</span>
+    <span class="foot-links">
+      <a href="./2611.10165.md">↗ Markdown source</a>
+      <a href="./index.html">↩ Today's digest</a>
+    </span>
+  </div>
+</footer>
+
+<script>
+(function () {
+  var table = document.getElementById('acc');
+  var note = document.getElementById('accNote');
+  var seg = document.querySelector('.seg');
+  if (!table || !seg) return;
+
+  var notes = {
+    abs: 'Absolute accuracy. <b>bits</b> = AutoEMatic’s average execution bits (prefill/decode where split); storage is 4.9 b/w versus 4.5 for NVFP4 and 6.5 for FP6g. † MiniMax row reports FP8. — = not reported.',
+    delta: 'Change in points versus uniform NVFP4 on the same model and benchmark. Positive = better than 4.5-bit storage. — = not reported.'
+  };
+
+  function setMode(mode) {
+    table.querySelectorAll('tbody tr').forEach(function (tr) {
+      var base = parseFloat(tr.getAttribute('data-base'));
+      tr.querySelectorAll('td[data-v]').forEach(function (td) {
+        var v = parseFloat(td.getAttribute('data-v'));
+        if (mode === 'abs') {
+          td.textContent = v.toFixed(1);
+        } else if (td.classList.contains('is-base')) {
+          td.textContent = '—';
+        } else {
+          var d = v - base;
+          td.textContent = (d > 0 ? '+' : d < 0 ? '−' : '') + Math.abs(d).toFixed(1);
+        }
+      });
+    });
+    note.innerHTML = notes[mode];
+  }
+
+  seg.addEventListener('click', function (e) {
+    var btn = e.target.closest('button[data-mode]');
+    if (!btn) return;
+    seg.querySelectorAll('button[data-mode]').forEach(function (b) {
+      var on = b === btn;
+      b.classList.toggle('is-on', on);
+      b.setAttribute('aria-pressed', on ? 'true' : 'false');
+    });
+    setMode(btn.getAttribute('data-mode'));
+  });
+})();
+</script>
+</body>
+</html>

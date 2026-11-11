@@ -1,0 +1,1076 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
+<title>GPU Kernel Libraries: Where They Actually Break — arXiv 2611.09280</title>
+<meta name="description" content="Dashboard for An Empirical Study of Issues in GPU Kernel Libraries for LLM Systems: 300 issues, 7 libraries, and why 60.33% of root causes sit outside kernel code.">
+<style>
+  :root{
+    --w: min(95vw, 1100px);
+    --gutter: max(14px, calc((100vw - var(--w)) / 2));
+    --paper:#f4f2ec;
+    --panel:#fbfaf6;
+    --ink:#14160f;
+    --ink-2:#353b2d;
+    --muted:#6c7163;
+    --line:#d8d5c8;
+    --line-strong:#b9b7a8;
+    --accent:#0e7a4f;
+    --accent-deep:#0a5b3b;
+    --accent-soft:#dfeee5;
+    --accent-on-dark:#72e0a6;
+    --dark:#12150f;
+    --on-dark:#eceae0;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  }
+  *{box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%}
+  body{
+    margin:0;
+    padding:70px 0 0;
+    background:var(--paper);
+    color:var(--ink);
+    font-family:var(--sans);
+    font-size:16px;
+    line-height:1.7;
+    -webkit-font-smoothing:antialiased;
+  }
+  a{color:var(--accent-deep)}
+  a:focus-visible,button:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+  .wrap{width:var(--w);margin:0 auto}
+  .mono{font-family:var(--mono)}
+  .label{
+    font:600 10px/1.2 var(--mono);
+    letter-spacing:.16em;
+    text-transform:uppercase;
+    color:var(--muted);
+  }
+
+  /* fixed utility nav */
+  .topnav{
+    position:fixed;
+    top:14px;
+    left:var(--gutter);
+    z-index:100;
+    display:inline-block;
+    padding:8px 11px;
+    background:var(--paper);
+    border:1px solid var(--line-strong);
+    color:var(--ink);
+    font:600 10.5px/1 var(--mono);
+    letter-spacing:.08em;
+    text-decoration:none;
+    text-transform:uppercase;
+  }
+  .topnav:hover{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+
+  /* hero */
+  .hero{
+    border-top:3px solid var(--ink);
+    padding:24px 0 26px;
+    background-image:
+      linear-gradient(to right, rgba(20,22,15,.05) 1px, transparent 1px),
+      linear-gradient(to bottom, rgba(20,22,15,.05) 1px, transparent 1px);
+    background-size:30px 30px;
+    background-position:-1px -1px;
+  }
+  .hero-top{
+    display:flex;
+    justify-content:space-between;
+    align-items:baseline;
+    gap:16px;
+    flex-wrap:wrap;
+  }
+  .hero-top .label{color:var(--ink-2)}
+  .hero-top .k{font:600 10.5px/1 var(--mono);color:var(--muted);letter-spacing:.04em}
+  .claim{
+    margin:14px 0 0;
+    font-size:clamp(2.05rem, 5.05vw, 4.15rem);
+    line-height:1.04;
+    letter-spacing:-.038em;
+    font-weight:800;
+    text-wrap:balance;
+    max-width:1060px;
+  }
+  .claim em{font-style:normal;color:var(--accent)}
+  .gloss{
+    margin:16px 0 0;
+    padding-left:11px;
+    border-left:2px solid var(--line-strong);
+    font-size:12.5px;
+    line-height:1.75;
+    color:var(--muted);
+    max-width:74ch;
+  }
+  .paperline{
+    margin-top:20px;
+    padding-top:13px;
+    border-top:1px solid var(--line);
+    display:flex;
+    flex-wrap:wrap;
+    align-items:baseline;
+    gap:5px 12px;
+  }
+  .ptitle{
+    font-size:.97rem;
+    font-weight:600;
+    color:var(--ink);
+    text-decoration:none;
+    border-bottom:1px solid var(--line-strong);
+  }
+  .ptitle:hover{color:var(--accent-deep);border-color:var(--accent)}
+  .byline{font-size:12px;color:var(--muted)}
+  .byline.mono{font-size:11px}
+  .sep{color:var(--line-strong);font-size:11px}
+  .chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:11px;padding:0;list-style:none}
+  .chips li{
+    border:1px solid var(--line);
+    background:var(--panel);
+    color:var(--ink-2);
+    padding:3px 7px;
+    font:600 9.5px/1.3 var(--mono);
+    letter-spacing:.07em;
+    text-transform:uppercase;
+  }
+
+  /* asset row */
+  .assets{
+    display:grid;
+    grid-template-columns:1.05fr 1fr 1.08fr;
+    gap:14px;
+    margin-top:18px;
+  }
+  .asset{
+    display:flex;
+    flex-direction:column;
+    min-height:194px;
+    padding:14px 15px 13px;
+    background:var(--panel);
+    border:1px solid var(--line);
+    position:relative;
+  }
+  .asset .label{
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    gap:10px;
+    margin-bottom:10px;
+  }
+  .asset .label .idx{color:var(--muted);letter-spacing:.06em}
+  .metric{border-top:3px solid var(--accent)}
+  .metric .big{
+    font-size:clamp(2rem, 4vw, 3.2rem);
+    line-height:.92;
+    letter-spacing:-.05em;
+    font-weight:800;
+    color:var(--accent-deep);
+    font-variant-numeric:tabular-nums;
+  }
+  .metric p{
+    margin:11px 0 0;
+    font-size:12px;
+    line-height:1.58;
+    color:var(--ink-2);
+  }
+  .metric .foot{
+    margin-top:auto;
+    padding-top:9px;
+    border-top:1px dotted var(--line-strong);
+    font:10px/1.5 var(--mono);
+    color:var(--muted);
+    letter-spacing:.02em;
+  }
+  .why p{
+    margin:0;
+    font-size:1.01rem;
+    line-height:1.62;
+    color:var(--ink-2);
+  }
+  .why p strong{color:var(--ink);font-weight:600}
+  .why .foot{
+    margin-top:auto;
+    padding-top:9px;
+    border-top:1px dotted var(--line-strong);
+    font:10px/1.5 var(--mono);
+    color:var(--muted);
+    letter-spacing:.02em;
+  }
+  .edge{
+    background:var(--dark);
+    border-color:var(--dark);
+    color:var(--on-dark);
+    padding-top:17px;
+  }
+  .edge::before{
+    content:"";
+    position:absolute;
+    top:0;left:0;right:0;
+    height:6px;
+    background:repeating-linear-gradient(135deg, var(--accent-on-dark) 0 6px, transparent 6px 14px);
+  }
+  .edge .label{color:var(--accent-on-dark)}
+  .edge p{
+    margin:0;
+    font-size:.93rem;
+    line-height:1.58;
+    color:#dcdbce;
+  }
+  .edge .foot{
+    margin-top:auto;
+    padding-top:9px;
+    border-top:1px solid #30352a;
+    font:10px/1.5 var(--mono);
+    color:#9aa08e;
+    letter-spacing:.02em;
+  }
+
+  /* signal strip */
+  .signal{
+    margin-top:22px;
+    padding-top:12px;
+    border-top:1px solid var(--line);
+  }
+  .signal-head{
+    display:flex;
+    justify-content:space-between;
+    align-items:baseline;
+    gap:14px;
+    margin-bottom:8px;
+  }
+  .signal-head .note{
+    font:600 10.5px/1.3 var(--mono);
+    color:var(--accent-deep);
+    letter-spacing:.02em;
+  }
+  .bar{
+    display:flex;
+    width:100%;
+    height:36px;
+    border:1px solid var(--ink);
+    background:var(--panel);
+    overflow:hidden;
+  }
+  .seg{
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    gap:6px;
+    min-width:0;
+    overflow:hidden;
+    white-space:nowrap;
+    box-shadow:inset -1px 0 0 var(--paper);
+    font-family:var(--mono);
+    color:#fff;
+  }
+  .seg b{font-size:11.5px;font-weight:700;letter-spacing:.01em}
+  .seg i{font-style:normal;font-size:8.5px;letter-spacing:.1em;text-transform:uppercase;opacity:.82}
+  .s1{background:var(--accent)}
+  .s2{background:#3f9a72}
+  .s3{background:#1b1e16}
+  .s4{background:#5c6153}
+  .s5{background:#8e9384}
+  .s6{background:#c2c5b8;color:var(--ink)}
+  .legend{
+    display:flex;
+    flex-wrap:wrap;
+    gap:5px 18px;
+    margin:9px 0 0;
+    padding:0;
+    list-style:none;
+    font-size:10.5px;
+    color:var(--muted);
+  }
+  .legend li{display:flex;align-items:center;gap:5px}
+  .legend .dot{width:7px;height:7px;flex:none}
+  .legend b{color:var(--ink-2);font-weight:600;font-family:var(--mono);font-size:10px}
+
+  /* section chrome */
+  .section{margin-top:38px}
+  .sec-head{
+    display:flex;
+    justify-content:space-between;
+    align-items:flex-end;
+    gap:16px;
+    padding-bottom:7px;
+    border-bottom:2px solid var(--ink);
+    margin-bottom:16px;
+  }
+  .sec-head .kicker{
+    display:block;
+    font:600 9.5px/1 var(--mono);
+    letter-spacing:.16em;
+    text-transform:uppercase;
+    color:var(--accent-deep);
+    margin-bottom:7px;
+  }
+  .sec-head h2{
+    margin:0;
+    font-size:1.34rem;
+    line-height:1.15;
+    letter-spacing:-.022em;
+    font-weight:750;
+  }
+  .sec-head .aside{
+    font:10px/1.4 var(--mono);
+    color:var(--muted);
+    text-align:right;
+    letter-spacing:.02em;
+  }
+
+  /* results */
+  .results-grid{
+    display:grid;
+    grid-template-columns:minmax(0,1.12fr) minmax(0,.88fr);
+    gap:30px;
+    align-items:start;
+  }
+  .block-head{
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    gap:10px;
+    flex-wrap:wrap;
+    margin-bottom:10px;
+  }
+  .block-head h3{
+    margin:0;
+    font:700 11px/1.2 var(--mono);
+    letter-spacing:.13em;
+    text-transform:uppercase;
+    color:var(--ink-2);
+  }
+  .filters{
+    display:inline-flex;
+    border:1px solid var(--line-strong);
+    background:var(--panel);
+  }
+  .filters button{
+    appearance:none;
+    border:0;
+    border-right:1px solid var(--line);
+    background:transparent;
+    padding:6px 9px;
+    font:600 9.5px/1 var(--mono);
+    letter-spacing:.05em;
+    text-transform:uppercase;
+    color:var(--muted);
+    cursor:pointer;
+  }
+  .filters button:last-child{border-right:0}
+  .filters button:hover{color:var(--ink)}
+  .filters button[aria-pressed="true"]{background:var(--ink);color:var(--paper)}
+  .table-wrap{overflow-x:auto}
+  table.data{
+    width:100%;
+    min-width:430px;
+    border-collapse:collapse;
+    font-size:12.5px;
+  }
+  table.data th{
+    padding:0 8px 6px 0;
+    border-bottom:1px solid var(--line-strong);
+    text-align:left;
+    font:600 9px/1.2 var(--mono);
+    letter-spacing:.12em;
+    text-transform:uppercase;
+    color:var(--muted);
+  }
+  table.data th.n,table.data td.n{text-align:right}
+  table.data th.bar-cell{width:38%}
+  table.data td{
+    padding:7px 8px 7px 0;
+    border-bottom:1px solid var(--line);
+    vertical-align:middle;
+  }
+  table.data td.n{font-family:var(--mono);font-variant-numeric:tabular-nums;font-size:11.5px;white-space:nowrap}
+  table.data td.name{color:var(--ink-2)}
+  table.data tr:hover td{background:rgba(14,122,79,.045)}
+  table.data tr[data-group="pre"] td.name{font-weight:600;color:var(--ink)}
+  .mini{
+    display:block;
+    height:7px;
+    background:#e7e5da;
+    min-width:64px;
+    overflow:hidden;
+  }
+  .mini span{display:block;height:100%;background:var(--ink)}
+  tr[data-group="pre"] .mini span{background:var(--accent)}
+  .filter-note{
+    margin:9px 0 0;
+    font:10.5px/1.55 var(--mono);
+    color:var(--muted);
+    letter-spacing:.01em;
+  }
+  .readout{
+    display:flex;
+    align-items:baseline;
+    gap:10px;
+    margin-top:15px;
+    padding-top:11px;
+    border-top:1px solid var(--line);
+  }
+  .readout b{
+    font:800 1.4rem/1 var(--sans);
+    letter-spacing:-.03em;
+    color:var(--accent-deep);
+    font-variant-numeric:tabular-nums;
+  }
+  .readout span{font-size:10.5px;line-height:1.5;color:var(--muted)}
+
+  .causes h3{
+    margin:0 0 12px;
+    font:700 11px/1.2 var(--mono);
+    letter-spacing:.13em;
+    text-transform:uppercase;
+    color:var(--ink-2);
+  }
+  .dim{margin-bottom:12px}
+  .dim-top{display:flex;justify-content:space-between;align-items:baseline;gap:10px}
+  .dim-top b{font-size:12px;font-weight:600;color:var(--ink-2)}
+  .dim-top span{font:10.5px/1 var(--mono);color:var(--muted);white-space:nowrap}
+  .dim-track{height:10px;background:#e7e5da;margin-top:5px;overflow:hidden}
+  .dim-fill{display:block;height:100%;background:var(--ink)}
+  .dim.noncode .dim-fill{background:var(--accent)}
+  .callout{
+    margin:14px 0 16px;
+    padding:10px 11px;
+    background:var(--accent-soft);
+    border-left:3px solid var(--accent);
+    font-size:11.5px;
+    line-height:1.6;
+    color:var(--accent-deep);
+  }
+  table.data.compact{min-width:0;font-size:11.5px}
+  table.data.compact th{padding:0 6px 5px 0;font-size:8.5px}
+  table.data.compact td{padding:6px 6px 6px 0}
+  table.data.compact td.n{font-size:10.5px}
+
+  /* cases */
+  .case-head{
+    display:flex;
+    flex-wrap:wrap;
+    justify-content:space-between;
+    align-items:baseline;
+    gap:6px 12px;
+    margin-top:26px;
+    padding-top:12px;
+    border-top:1px solid var(--line);
+  }
+  .cases{
+    display:grid;
+    grid-template-columns:repeat(4,minmax(0,1fr));
+    gap:12px;
+    margin-top:10px;
+  }
+  .case{
+    background:var(--panel);
+    border:1px solid var(--line);
+    border-top:2px solid var(--ink);
+    padding:12px 13px 13px;
+  }
+  .case .stat{
+    font:800 1.55rem/1 var(--sans);
+    letter-spacing:-.035em;
+    font-variant-numeric:tabular-nums;
+    color:var(--ink);
+  }
+  .case .tag{
+    margin-top:6px;
+    font:600 8.8px/1.4 var(--mono);
+    letter-spacing:.07em;
+    text-transform:uppercase;
+    color:var(--accent-deep);
+  }
+  .case p{
+    margin:8px 0 0;
+    font-size:11.5px;
+    line-height:1.56;
+    color:var(--ink-2);
+  }
+
+  /* method */
+  .method-grid{
+    display:grid;
+    grid-template-columns:minmax(0,.82fr) minmax(0,1.18fr);
+    gap:32px;
+    align-items:start;
+  }
+  .steps{
+    margin:2px 0 0;
+    padding:0 0 0 16px;
+    list-style:none;
+    border-left:2px solid var(--line-strong);
+  }
+  .step{position:relative;padding-bottom:17px}
+  .step:last-child{padding-bottom:0}
+  .step::before{
+    content:"";
+    position:absolute;
+    left:-22px;
+    top:5px;
+    width:8px;
+    height:8px;
+    background:var(--paper);
+    border:2px solid var(--ink);
+    border-radius:50%;
+  }
+  .step:last-child::before{background:var(--accent);border-color:var(--accent)}
+  .step b{
+    display:block;
+    font:800 1.5rem/1 var(--sans);
+    letter-spacing:-.03em;
+    font-variant-numeric:tabular-nums;
+  }
+  .step span{
+    display:block;
+    margin-top:4px;
+    font-size:11px;
+    line-height:1.5;
+    color:var(--muted);
+  }
+  .method-copy p{
+    margin:0 0 10px;
+    font-size:12.5px;
+    line-height:1.62;
+    color:var(--muted);
+    border-left:2px solid var(--accent-soft);
+    padding-left:10px;
+  }
+  .method-copy ul{margin:0;padding:0;list-style:none}
+  .method-copy li{
+    position:relative;
+    padding-left:13px;
+    margin-bottom:8px;
+    font-size:12.5px;
+    line-height:1.62;
+    color:var(--ink-2);
+  }
+  .method-copy li:last-child{margin-bottom:0}
+  .method-copy li::before{
+    content:"";
+    position:absolute;
+    left:0;
+    top:.62em;
+    width:5px;
+    height:5px;
+    background:var(--accent);
+  }
+  .method-copy li b{color:var(--ink);font-weight:600}
+
+  /* strengths / limitations */
+  .duo{
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:16px;
+  }
+  .panel{
+    background:var(--panel);
+    border:1px solid var(--line);
+    padding:16px 17px 15px;
+  }
+  .panel.good{border-top:3px solid var(--accent)}
+  .panel.bad{border-top:3px solid var(--ink)}
+  .panel h3{
+    display:flex;
+    align-items:center;
+    gap:8px;
+    margin:0 0 11px;
+    font:700 10.5px/1.2 var(--mono);
+    letter-spacing:.14em;
+    text-transform:uppercase;
+    color:var(--ink-2);
+  }
+  .panel h3 .mark{width:8px;height:8px;background:var(--accent);flex:none}
+  .panel.bad h3 .mark{background:var(--ink)}
+  .panel ul{margin:0;padding:0;list-style:none}
+  .panel li{
+    position:relative;
+    padding-left:13px;
+    margin-bottom:9px;
+    font-size:12.3px;
+    line-height:1.62;
+    color:var(--ink-2);
+  }
+  .panel li:last-child{margin-bottom:0}
+  .panel li::before{
+    content:"";
+    position:absolute;
+    left:0;
+    top:.62em;
+    width:5px;
+    height:5px;
+    background:var(--line-strong);
+  }
+  .panel.good li::before{background:var(--accent)}
+  .panel li b{color:var(--ink);font-weight:600}
+
+  /* questions */
+  .questions{
+    background:var(--panel);
+    border:1px solid var(--line);
+    border-left:3px solid var(--accent);
+    padding:15px 17px 14px;
+  }
+  .q-grid{
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:9px 26px;
+  }
+  .q{
+    display:grid;
+    grid-template-columns:20px 1fr;
+    gap:6px;
+    font-size:12.2px;
+    line-height:1.58;
+    color:var(--ink-2);
+  }
+  .q .n{
+    font:600 9.5px/1.7 var(--mono);
+    color:var(--accent-deep);
+  }
+  .q b{color:var(--ink);font-weight:600}
+
+  /* footer */
+  footer{
+    display:flex;
+    justify-content:space-between;
+    align-items:baseline;
+    gap:18px;
+    flex-wrap:wrap;
+    margin:38px 0 42px;
+    padding-top:14px;
+    border-top:2px solid var(--ink);
+  }
+  .src{
+    font:600 11px/1 var(--mono);
+    letter-spacing:.06em;
+    color:var(--accent-deep);
+    text-decoration:none;
+    border-bottom:1px solid var(--accent);
+    padding-bottom:2px;
+  }
+  .src:hover{background:var(--accent-soft)}
+  footer p{
+    margin:0;
+    max-width:62ch;
+    font-size:10.5px;
+    line-height:1.6;
+    color:var(--muted);
+  }
+
+  @media (prefers-reduced-motion: no-preference){
+    .hero-top,.claim,.gloss,.paperline,.chips,.asset,.signal{animation:rise .55s cubic-bezier(.2,.7,.3,1) both}
+    .claim{animation-delay:.04s}
+    .gloss{animation-delay:.09s}
+    .paperline{animation-delay:.13s}
+    .chips{animation-delay:.16s}
+    .asset:nth-child(1){animation-delay:.2s}
+    .asset:nth-child(2){animation-delay:.25s}
+    .asset:nth-child(3){animation-delay:.3s}
+    .signal{animation-delay:.36s}
+  }
+  @keyframes rise{
+    from{opacity:0;transform:translateY(10px)}
+    to{opacity:1;transform:none}
+  }
+
+  @media (max-width:960px){
+    .assets{grid-template-columns:1fr 1fr}
+    .asset.edge{grid-column:1 / -1;min-height:0}
+    .cases{grid-template-columns:1fr 1fr}
+    .results-grid{grid-template-columns:1fr;gap:24px}
+    .method-grid{grid-template-columns:1fr;gap:24px}
+  }
+  @media (max-width:720px){
+    body{padding-top:58px}
+    .topnav{top:10px;padding:7px 9px;font-size:9.5px}
+    .hero{padding:18px 0 20px}
+    .claim{font-size:clamp(2.1rem, 8.8vw, 2.6rem);line-height:1.06}
+    .hero-top .k{display:none}
+    .gloss{font-size:11.5px}
+    .assets{grid-template-columns:1fr}
+    .asset{min-height:0}
+    .asset.edge{grid-column:auto}
+    .bar{height:32px}
+    .seg i{display:none}
+    .seg b{font-size:10px}
+    .legend{font-size:9.8px;gap:4px 12px}
+    .signal-head{flex-direction:column;gap:4px;align-items:flex-start}
+    .sec-head{flex-direction:column;align-items:flex-start;gap:4px}
+    .sec-head .aside{text-align:left}
+    .cases{grid-template-columns:1fr}
+    .duo{grid-template-columns:1fr}
+    .q-grid{grid-template-columns:1fr}
+    .filters{width:100%}
+    .filters button{flex:1;padding:7px 4px;font-size:9px}
+    table.data th.bar-cell,table.data td.bar-cell{display:none}
+    table.data{min-width:0}
+    .byline{font-size:11.5px}
+  }
+</style>
+</head>
+<body>
+
+<a class="topnav" href="./index.html">↩ Today's digest</a>
+
+<main class="wrap">
+
+  <!-- HERO -->
+  <header class="hero">
+    <div class="hero-top">
+      <span class="label">Empirical study · 300 GitHub issues · 7 libraries</span>
+      <span class="k">double-labeled · κ = 0.87</span>
+    </div>
+
+    <h1 class="claim">Six in ten GPU kernel library failures <em>never touch kernel code</em> — builds and environments break first.</h1>
+
+    <p class="gloss" lang="zh-CN">一句话总结 · 六成问题不在 kernel 代码里，而在编译、构建与运行时环境。</p>
+
+    <div class="paperline">
+      <a class="ptitle" href="https://arxiv.org/abs/2611.09280" target="_blank" rel="noopener">An Empirical Study of Issues in GPU Kernel Libraries for LLM Systems</a>
+      <span class="sep">/</span>
+      <span class="byline">Yanjie Gao, Jiayi Bi, Haoxiang Lin, Ling Feng</span>
+      <span class="sep">·</span>
+      <span class="byline mono">arXiv:2611.09280 · 02 Nov 2026</span>
+    </div>
+
+    <ul class="chips" aria-label="Topics">
+      <li>GPU kernel libraries</li>
+      <li>Empirical SE</li>
+      <li>Silent corruption</li>
+      <li>Low-precision numerics</li>
+    </ul>
+  </header>
+
+  <!-- ASSET ROW -->
+  <section class="assets" aria-label="Key findings at a glance">
+
+    <article class="asset metric">
+      <div class="label"><span>Key metric</span><span class="idx">n = 300</span></div>
+      <div class="big">60.33%</div>
+      <p>181 of 300 root causes are runtime environment or compiler &amp; build — not kernel code.</p>
+      <div class="foot">Runtime 33.33% · Compiler/build 27.00% · 1.52× kernel code</div>
+    </article>
+
+    <article class="asset why">
+      <div class="label"><span>Why this matters</span><span class="idx">stakes</span></div>
+      <p>Kernel bugs can <strong>silently corrupt tokens</strong> with no exception — yet most reported failures are installs and compiles your correctness tests never exercise.</p>
+      <div class="foot">53/300 complete normally but violate semantics</div>
+    </article>
+
+    <article class="asset edge">
+      <div class="label"><span>Critical edge</span><span class="idx">caution</span></div>
+      <p>The title-keyword screen correlates with the symptom being measured, so the 51.67% pre-execution share is plausibly inflated — and the paper never flags it.</p>
+      <div class="foot">Sampling threat · not disclosed as a validity risk</div>
+    </article>
+
+  </section>
+
+  <!-- SIGNAL STRIP -->
+  <section class="signal" aria-label="Symptom distribution">
+    <div class="signal-head">
+      <span class="label">Symptom profile · all 300 issues</span>
+      <span class="note">51.67% never reach device execution</span>
+    </div>
+    <div class="bar" role="img" aria-label="Stacked bar of 300 issues: deployment failure 82, 27.33%; build failure 73, 24.33%; crash 63, 21.00%; incorrect functionality 53, 17.67%; performance degradation 23, 7.67%; hang 6, 2.00%.">
+      <span class="seg s1" style="width:27.33%"><b>27.3</b><i>deploy</i></span>
+      <span class="seg s2" style="width:24.33%"><b>24.3</b><i>build</i></span>
+      <span class="seg s3" style="width:21.00%"><b>21.0</b><i>crash</i></span>
+      <span class="seg s4" style="width:17.67%"></span>
+      <span class="seg s5" style="width:7.67%"></span>
+      <span class="seg s6" style="width:2.00%"></span>
+    </div>
+    <ul class="legend">
+      <li><span class="dot s1"></span>Deployment <b>82</b></li>
+      <li><span class="dot s2"></span>Build <b>73</b></li>
+      <li><span class="dot s3"></span>Crash <b>63</b></li>
+      <li><span class="dot s4"></span>Incorrect functionality <b>53</b></li>
+      <li><span class="dot s5"></span>Performance <b>23</b></li>
+      <li><span class="dot s6"></span>Hang <b>6</b></li>
+    </ul>
+  </section>
+
+  <!-- RESULTS -->
+  <section class="section" aria-labelledby="profile-title">
+    <div class="sec-head">
+      <div>
+        <span class="kicker">01 / Failure profile</span>
+        <h2 id="profile-title">Where these libraries actually break</h2>
+      </div>
+      <span class="aside">counts, not causal claims</span>
+    </div>
+
+    <div class="results-grid">
+
+      <div>
+        <div class="block-head">
+          <h3>Symptoms</h3>
+          <div class="filters" role="group" aria-label="Filter symptom table">
+            <button type="button" data-filter="all" aria-pressed="true">All 300</button>
+            <button type="button" data-filter="pre" aria-pressed="false">Pre-exec 155</button>
+            <button type="button" data-filter="post" aria-pressed="false">Post-launch 145</button>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table class="data" id="symptom-table">
+            <thead>
+              <tr>
+                <th scope="col">Symptom</th>
+                <th scope="col" class="n">n</th>
+                <th scope="col" class="n">Share</th>
+                <th scope="col" class="bar-cell">Distribution</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr data-group="pre" data-count="82">
+                <td class="name">Deployment failure</td>
+                <td class="n">82</td>
+                <td class="n">27.33%</td>
+                <td class="bar-cell"><span class="mini"><span style="width:100%"></span></span></td>
+              </tr>
+              <tr data-group="pre" data-count="73">
+                <td class="name">Build failure</td>
+                <td class="n">73</td>
+                <td class="n">24.33%</td>
+                <td class="bar-cell"><span class="mini"><span style="width:89%"></span></span></td>
+              </tr>
+              <tr data-group="post" data-count="63">
+                <td class="name">Crash</td>
+                <td class="n">63</td>
+                <td class="n">21.00%</td>
+                <td class="bar-cell"><span class="mini"><span style="width:77%"></span></span></td>
+              </tr>
+              <tr data-group="post" data-count="53">
+                <td class="name">Incorrect functionality</td>
+                <td class="n">53</td>
+                <td class="n">17.67%</td>
+                <td class="bar-cell"><span class="mini"><span style="width:65%"></span></span></td>
+              </tr>
+              <tr data-group="post" data-count="23">
+                <td class="name">Performance degradation</td>
+                <td class="n">23</td>
+                <td class="n">7.67%</td>
+                <td class="bar-cell"><span class="mini"><span style="width:28%"></span></span></td>
+              </tr>
+              <tr data-group="post" data-count="6">
+                <td class="name">Hang</td>
+                <td class="n">6</td>
+                <td class="n">2.00%</td>
+                <td class="bar-cell"><span class="mini"><span style="width:7%"></span></span></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="filter-note" id="filter-note" aria-live="polite">Showing all 300 issues.</p>
+        <div class="readout"><b>2.25×</b><span>more pre-execution than execution-time failures — 155 vs 69 across 300 issues.</span></div>
+      </div>
+
+      <div class="causes">
+        <h3>Root-cause dimensions</h3>
+
+        <div class="dim">
+          <div class="dim-top"><b>Kernel library</b><span>119 · 39.67%</span></div>
+          <div class="dim-track"><span class="dim-fill" style="width:100%"></span></div>
+        </div>
+        <div class="dim noncode">
+          <div class="dim-top"><b>Runtime environment</b><span>100 · 33.33%</span></div>
+          <div class="dim-track"><span class="dim-fill" style="width:84%"></span></div>
+        </div>
+        <div class="dim noncode">
+          <div class="dim-top"><b>Compiler &amp; build system</b><span>81 · 27.00%</span></div>
+          <div class="dim-track"><span class="dim-fill" style="width:68%"></span></div>
+        </div>
+
+        <p class="callout">The two non-code dimensions hold 181/300 — 1.52× the kernel-code dimension.</p>
+
+        <h3>Largest single causes</h3>
+        <table class="data compact">
+          <thead>
+            <tr>
+              <th scope="col">Root cause</th>
+              <th scope="col" class="n">n</th>
+              <th scope="col" class="n">Share</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td class="name">Software incompatibility</td><td class="n">76</td><td class="n">25.33%</td></tr>
+            <tr><td class="name">Incorrect compiler transformation</td><td class="n">46</td><td class="n">15.33%</td></tr>
+            <tr><td class="name">API misuse</td><td class="n">26</td><td class="n">8.67%</td></tr>
+            <tr><td class="name">Hardware incompatibility</td><td class="n">24</td><td class="n">8.00%</td></tr>
+            <tr><td class="name">Code logic error</td><td class="n">22</td><td class="n">7.33%</td></tr>
+            <tr><td class="name">Improper kernel dispatch</td><td class="n">10</td><td class="n">3.33%</td></tr>
+            <tr><td class="name">Incorrect numerical computation</td><td class="n">8</td><td class="n">2.67%</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+    </div>
+
+    <!-- CASE CATALOG -->
+    <div class="case-head">
+      <span class="label">Case catalog · four mechanisms worth memorizing</span>
+      <span class="label">issue-level evidence</span>
+    </div>
+    <div class="cases">
+      <article class="case">
+        <div class="stat">128 → 132</div>
+        <div class="tag">Head dim · FlashAttention #1141</div>
+        <p>A 3.1% shape change cost 40.8% of H100 training throughput (~370 → ~219 TFLOPS): tensor-core padding is real work, invisible in the API.</p>
+      </article>
+      <article class="case">
+        <div class="stat">≈58×</div>
+        <div class="tag">JIT recompile · Triton #6480</div>
+        <p>0.7 ms of compilation per call against ~12 µs of execution, because <span class="mono">constexpr</span> arguments changed on every invocation.</p>
+      </article>
+      <article class="case">
+        <div class="stat">32,767</div>
+        <div class="tag">int16 bound · xFormers #719</div>
+        <p>The valid-key count was narrowed to <span class="mono">int16_t</span>; past that span the mask corrupted and long-context attention returned NaN.</p>
+      </article>
+      <article class="case">
+        <div class="stat">2 / 300</div>
+        <div class="tag">Silent state · bitsandbytes #767</div>
+        <p><span class="mono">state.idx</span> leaked across batches; Llama2-13B scored worse after training than in inference, with no exception raised.</p>
+      </article>
+    </div>
+  </section>
+
+  <!-- METHOD -->
+  <section class="section" aria-labelledby="method-title">
+    <div class="sec-head">
+      <div>
+        <span class="kicker">02 / Method</span>
+        <h2 id="method-title">A corpus study, not a benchmark</h2>
+      </div>
+      <span class="aside">Dec 2015 – Jul 2026</span>
+    </div>
+
+    <div class="method-grid">
+      <ol class="steps">
+        <li class="step">
+          <b>9,099</b>
+          <span>raw GitHub issues · 7 repositories · open and closed</span>
+        </li>
+        <li class="step">
+          <b>3,181</b>
+          <span>closed, concrete failures after title-keyword and negative-label screening</span>
+        </li>
+        <li class="step">
+          <b>300</b>
+          <span>repo-stratified sample · two coders · κ = 0.87</span>
+        </li>
+      </ol>
+
+      <div class="method-copy">
+        <p>Seven libraries span the stack: attention (FlashAttention, FlashInfer, xFormers), GEMM and low precision (CUTLASS, DeepGEMM), codegen (Triton), and quantization plus packaging (bitsandbytes). Serving engines such as vLLM and SGLang are deliberately excluded.</p>
+        <ul>
+          <li><b>Sample.</b> Quota proportional to each repository's candidate pool; excluded reports replaced by the nearest same-repo issue until 300 remained.</li>
+          <li><b>Labels.</b> One primary symptom, one root cause, and the fix per issue; disagreements reconciled by discussion rather than by vote.</li>
+          <li><b>Framing.</b> Three RQs — symptoms, causes and fixes, testing practice — each closed with a Finding + Implication pair.</li>
+          <li><b>Evidence.</b> No model or benchmark suite: distributional counts plus measurements quoted from issue threads.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- STRENGTHS / LIMITATIONS -->
+  <section class="section" aria-labelledby="balance-title">
+    <div class="sec-head">
+      <div>
+        <span class="kicker">03 / Balance</span>
+        <h2 id="balance-title">What holds up, what does not</h2>
+      </div>
+      <span class="aside">read the percentages with care</span>
+    </div>
+
+    <div class="duo">
+      <article class="panel good">
+        <h3><span class="mark"></span>Strengths</h3>
+        <ul>
+          <li><b>Actionable by construction.</b> Every finding closes with an implication a maintainer can execute, not just a distribution.</li>
+          <li><b>Inspectable cases.</b> Six annotated diffs — block-sparse state loss, <span class="mono">int16</span> widening, peer-CTA liveness — make each mechanism checkable.</li>
+          <li><b>A sharper test oracle.</b> Names differential testing's reference-side failure: an FP16 oracle can itself be the wrong answer.</li>
+          <li><b>Honest negative result.</b> Only 8/300 numerical cases, framed as a reporting fact rather than a prevalence claim.</li>
+        </ul>
+      </article>
+
+      <article class="panel bad">
+        <h3><span class="mark"></span>Limitations</h3>
+        <ul>
+          <li><b>Sampling.</b> The title-keyword screen correlates with the outcome; nearest-timestamp replacement clusters regression bursts. Neither is flagged.</li>
+          <li><b>Composition.</b> 52% of the corpus is bitsandbytes + Triton; DeepGEMM contributes 4 issues yet receives two-decimal ratios.</li>
+          <li><b>Missing analyses.</b> No symptom × root-cause matrix, no decade-long trend, no fix size, time-to-fix, or regression data.</li>
+          <li><b>One label per issue.</b> Multi-cause failures are forced into a single bucket; release of the labeled dataset is unstated.</li>
+        </ul>
+      </article>
+    </div>
+  </section>
+
+  <!-- QUESTIONS -->
+  <section class="section" aria-labelledby="questions-title">
+    <div class="sec-head">
+      <div>
+        <span class="kicker">04 / Next</span>
+        <h2 id="questions-title">Open questions</h2>
+      </div>
+      <span class="aside">the useful follow-ups</span>
+    </div>
+
+    <div class="questions">
+      <div class="q-grid">
+        <div class="q"><span class="n">01</span><span><b>How much of 51.67% survives a symptom-neutral frame?</b> A neutral resample is the one experiment that would most change how this is cited.</span></div>
+        <div class="q"><span class="n">02</span><span><b>What would the missing 6 × 15 matrix show?</b> “I see NaN — where do I look?” is the question the dataset could answer but does not.</span></div>
+        <div class="q"><span class="n">03</span><span><b>Is 2.67% numerical a prevalence fact or a reporting fact?</b> The tooling gap that hides these bugs also suppresses the reports.</span></div>
+        <div class="q"><span class="n">04</span><span><b>Does the taxonomy transfer to a PyTorch / vLLM control corpus?</b> If yes, this is about the whole DL stack, not kernel libraries.</span></div>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <a class="src" href="./2611.09280.md">↗ Markdown source</a>
+    <p>Dashboard distilled from the vault's bilingual summary of arXiv:2611.09280. Counts, quotes, and percentages as reported in the paper; no re-analysis.</p>
+  </footer>
+
+</main>
+
+<noscript><style>.filters{display:none}</style></noscript>
+
+<script>
+(function () {
+  var buttons = document.querySelectorAll('.filters button');
+  var rows = document.querySelectorAll('#symptom-table tbody tr');
+  var note = document.getElementById('filter-note');
+
+  var copy = {
+    all: 'Showing all 300 issues.',
+    pre: 'Showing 155 of 300 — deployment and build failures that never reach device execution.',
+    post: 'Showing 145 of 300 — crashes, hangs, wrong results, and slowdowns after launch.'
+  };
+
+  function apply(filter) {
+    var shown = 0;
+    for (var i = 0; i < rows.length; i++) {
+      var row = rows[i];
+      var visible = filter === 'all' || row.getAttribute('data-group') === filter;
+      row.style.display = visible ? '' : 'none';
+      if (visible) shown += Number(row.getAttribute('data-count')) || 0;
+    }
+    for (var j = 0; j < buttons.length; j++) {
+      buttons[j].setAttribute('aria-pressed', String(buttons[j].getAttribute('data-filter') === filter));
+    }
+    note.textContent = filter === 'all' ? copy.all : (shown + ' of 300 shown — ' + copy[filter].replace(/^Showing \d+ of 300 — /, ''));
+  }
+
+  for (var k = 0; k < buttons.length; k++) {
+    buttons[k].addEventListener('click', function () {
+      apply(this.getAttribute('data-filter'));
+    });
+  }
+})();
+</script>
+
+</body>
+</html>

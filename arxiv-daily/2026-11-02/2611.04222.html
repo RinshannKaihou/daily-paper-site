@@ -1,0 +1,558 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GC-MoE — 20 SMs for dispatch, 128 for compute</title>
+<style>
+  :root{
+    --paper:#F7F4ED;
+    --paper-2:#FCFAF5;
+    --ink:#17140F;
+    --ink-2:#2B261F;
+    --muted:#6E6659;
+    --line:rgba(23,20,15,.14);
+    --line-strong:rgba(23,20,15,.32);
+    --accent:#B4432A;
+    --accent-soft:rgba(180,67,42,.10);
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei","Noto Sans CJK SC",Helvetica,Arial,sans-serif;
+    --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
+    --serif:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,"Songti SC","Noto Serif CJK SC",serif;
+  }
+  *{box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%}
+  body{
+    margin:0;
+    background:var(--paper);
+    color:var(--ink);
+    font-family:var(--sans);
+    font-size:16px;
+    line-height:1.6;
+    -webkit-font-smoothing:antialiased;
+    padding:54px 0 0;
+  }
+  a{color:inherit}
+  ::selection{background:var(--accent);color:var(--paper-2)}
+
+  .wrap{width:min(95vw,1100px);margin:0 auto}
+
+  /* ---------- fixed nav ---------- */
+  .nav{
+    position:fixed;top:12px;left:12px;z-index:50;
+    display:inline-flex;align-items:center;gap:6px;
+    padding:6px 11px 7px;
+    background:var(--paper);
+    border:1px solid var(--line-strong);
+    border-radius:3px;
+    font-family:var(--mono);
+    font-size:11px;letter-spacing:.04em;text-transform:uppercase;
+    text-decoration:none;color:var(--ink);
+    transition:background .15s ease,color .15s ease;
+  }
+  .nav:hover,.nav:focus-visible{background:var(--ink);color:var(--paper-2);border-color:var(--ink)}
+  .nav:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+  /* ---------- hero ---------- */
+  .hero{padding:6px 0 22px;border-bottom:1px solid var(--line-strong)}
+  .hero-top{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;margin-bottom:16px}
+  .chips{display:flex;flex-wrap:wrap;gap:6px;list-style:none;margin:0;padding:0}
+  .chips li{
+    font-family:var(--mono);font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;
+    color:var(--ink-2);border:1px solid var(--line);border-radius:2px;
+    padding:3px 7px 4px;background:var(--paper-2);
+  }
+  .stamp{font-family:var(--mono);font-size:11px;letter-spacing:.05em;color:var(--muted);white-space:nowrap}
+  .stamp b{color:var(--accent);font-weight:600}
+
+  .finding{
+    margin:0;
+    font-size:clamp(2rem,4.85vw,3.62rem);
+    line-height:1.055;
+    letter-spacing:-.032em;
+    font-weight:800;
+    max-width:31ch;
+    text-wrap:balance;
+  }
+  .finding em{font-style:normal;color:var(--accent)}
+  .gloss{
+    margin:14px 0 0;max-width:64ch;
+    font-size:14px;line-height:1.7;color:var(--muted);
+    padding-left:11px;border-left:2px solid var(--accent);
+  }
+  .paperline{margin-top:18px;display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 16px}
+  .ptitle{
+    font-family:var(--serif);font-size:15.5px;line-height:1.4;color:var(--ink-2);
+    text-decoration:none;border-bottom:1px solid var(--line-strong);padding-bottom:1px;max-width:70ch;
+  }
+  .ptitle:hover,.ptitle:focus-visible{color:var(--accent);border-bottom-color:var(--accent)}
+  .ptitle:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+  .byline{font-family:var(--mono);font-size:11.5px;letter-spacing:.02em;color:var(--muted)}
+
+  /* ---------- asset row ---------- */
+  .assets{
+    display:grid;
+    grid-template-columns:1.02fr 1fr 1.06fr;
+    gap:12px;
+    margin:16px 0 0;
+  }
+  .card{
+    background:var(--paper-2);
+    border:1px solid var(--line);
+    border-radius:3px;
+    padding:14px 15px 15px;
+    display:flex;flex-direction:column;
+    min-height:214px;
+  }
+  .card-label{
+    display:flex;align-items:center;justify-content:space-between;gap:8px;
+    font-family:var(--mono);font-size:10px;letter-spacing:.13em;text-transform:uppercase;
+    color:var(--muted);margin-bottom:10px;
+  }
+  .card-label .idx{color:var(--accent)}
+
+  /* metric */
+  .metric-value{
+    font-family:var(--sans);
+    font-size:clamp(2.5rem,4.6vw,3.05rem);
+    line-height:.95;font-weight:800;letter-spacing:-.045em;
+    color:var(--accent);
+    font-variant-numeric:tabular-nums;
+    margin:2px 0 0;
+  }
+  .metric-context{margin:10px 0 0;font-size:13px;line-height:1.5;color:var(--ink-2);min-height:58px}
+  .metric-foot{
+    margin:10px 0 0;padding-top:8px;border-top:1px dotted var(--line-strong);
+    font-family:var(--mono);font-size:10.5px;line-height:1.45;color:var(--muted);
+  }
+  .seg{display:flex;gap:4px;margin-top:auto;padding-top:10px}
+  .seg button{
+    flex:1;font-family:var(--mono);font-size:9.5px;letter-spacing:.06em;text-transform:uppercase;
+    background:transparent;color:var(--muted);border:1px solid var(--line);
+    border-radius:2px;padding:5px 4px 6px;cursor:pointer;transition:.15s ease;
+  }
+  .seg button:hover{color:var(--ink);border-color:var(--line-strong)}
+  .seg button[aria-pressed="true"]{background:var(--ink);color:var(--paper-2);border-color:var(--ink)}
+  .seg button:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+
+  /* so-what */
+  .sowhat{font-size:17px;line-height:1.5;letter-spacing:-.012em;margin:0;color:var(--ink)}
+  .sowhat strong{background:var(--accent-soft);box-shadow:inset 0 -.5em 0 var(--accent-soft);font-weight:600}
+  .sowhat-note{margin:auto 0 0;padding-top:12px;font-family:var(--mono);font-size:10.5px;color:var(--muted);line-height:1.45}
+
+  /* caution */
+  .card-caution{background:var(--ink);border-color:var(--ink);color:var(--paper-2);position:relative;overflow:hidden}
+  .card-caution::before{
+    content:"";position:absolute;inset:0 0 auto 0;height:5px;
+    background:repeating-linear-gradient(135deg,var(--accent) 0 6px,transparent 6px 12px);
+  }
+  .card-caution .card-label{color:rgba(247,244,237,.62);padding-top:4px}
+  .card-caution .card-label .idx{color:var(--accent)}
+  .edge-text{font-size:14px;line-height:1.55;margin:0;color:var(--paper-2)}
+  .edge-text b{color:#fff;font-weight:600;box-shadow:inset 0 -1px 0 var(--accent)}
+  .edge-tag{
+    margin:auto 0 0;padding-top:12px;font-family:var(--mono);font-size:10px;
+    letter-spacing:.08em;text-transform:uppercase;color:rgba(247,244,237,.55);
+  }
+
+  /* ---------- body ---------- */
+  main{padding-bottom:34px}
+  .section{padding:30px 0 4px;border-bottom:1px solid var(--line)}
+  .section:last-of-type{border-bottom:0}
+  .sec-head{display:flex;align-items:baseline;gap:12px;margin-bottom:16px;flex-wrap:wrap}
+  .sec-num{font-family:var(--mono);font-size:10.5px;letter-spacing:.1em;color:var(--accent);padding-top:2px}
+  .sec-head h2{margin:0;font-size:clamp(1.15rem,2.1vw,1.42rem);letter-spacing:-.02em;font-weight:750;line-height:1.2}
+  .sec-sub{font-family:var(--mono);font-size:10.5px;color:var(--muted);letter-spacing:.03em;margin-left:auto}
+
+  /* methodology */
+  .meth{display:grid;grid-template-columns:.92fr 1.28fr;gap:26px;align-items:start}
+  .flow{display:grid;gap:6px}
+  .flow-row{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+  .node{
+    border:1px solid var(--line-strong);background:var(--paper-2);
+    padding:9px 10px 10px;border-left:3px solid var(--accent);border-radius:2px;
+  }
+  .node b{display:block;font-family:var(--mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--accent)}
+  .node span{display:block;font-size:12.5px;line-height:1.35;margin-top:3px;color:var(--ink)}
+  .node i{display:block;font-style:normal;font-family:var(--mono);font-size:9.5px;color:var(--muted);margin-top:4px}
+  .conc{
+    font-family:var(--mono);font-size:9.5px;letter-spacing:.04em;color:var(--muted);
+    text-align:center;padding:4px 0;border-top:1px dashed var(--line-strong);border-bottom:1px dashed var(--line-strong);
+  }
+  .conc b{color:var(--accent);font-weight:600}
+  .flow-cap{margin:10px 0 0;font-size:12px;line-height:1.5;color:var(--muted)}
+
+  .meth-list{list-style:none;margin:0;padding:0;display:grid;gap:11px}
+  .meth-list li{font-size:14px;line-height:1.55;padding-left:14px;position:relative;color:var(--ink-2)}
+  .meth-list li::before{content:"";position:absolute;left:0;top:.52em;width:6px;height:6px;background:var(--accent);border-radius:1px}
+  .meth-list b{color:var(--ink);font-weight:650}
+  code{font-family:var(--mono);font-size:.88em;background:rgba(23,20,15,.055);padding:1px 4px;border-radius:2px}
+
+  /* results */
+  .table-block{margin:0 0 22px}
+  .table-title{display:flex;align-items:baseline;gap:10px;margin:0 0 8px;font-size:13.5px;font-weight:650;letter-spacing:-.005em}
+  .table-title span{font-family:var(--mono);font-size:10px;font-weight:400;color:var(--muted);letter-spacing:.03em}
+  table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums;font-size:13px}
+  caption{caption-side:bottom;text-align:left;font-family:var(--mono);font-size:10px;line-height:1.5;color:var(--muted);padding-top:7px}
+  th{
+    text-align:right;font-family:var(--mono);font-size:9.5px;font-weight:500;letter-spacing:.09em;text-transform:uppercase;
+    color:var(--muted);padding:6px 8px;border-bottom:1px solid var(--line-strong);white-space:nowrap;
+  }
+  th:first-child,td:first-child{text-align:left;padding-left:0}
+  td{padding:8px;text-align:right;border-bottom:1px solid var(--line);color:var(--ink-2);white-space:nowrap}
+  tbody tr:hover td{background:rgba(23,20,15,.028)}
+  tr.peak td{background:var(--accent-soft);color:var(--ink);font-weight:600}
+  tr.peak td:first-child{box-shadow:inset 3px 0 0 var(--accent);padding-left:9px}
+  .peak-tag{font-family:var(--mono);font-size:8.5px;letter-spacing:.1em;color:var(--accent);border:1px solid var(--accent);padding:1px 4px;margin-left:6px;border-radius:2px;vertical-align:1px}
+  .gain{color:var(--accent);font-weight:650}
+  .barcell{width:22%;padding-right:0}
+  .track{display:block;height:6px;background:rgba(23,20,15,.075);border-radius:1px;overflow:hidden;min-width:60px}
+  .bar{display:block;height:100%;background:var(--accent);border-radius:1px}
+  .flag{font-family:var(--mono);font-size:9.5px;color:var(--muted);letter-spacing:.03em}
+
+  .checks{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:4px 0 6px}
+  .check{border-top:2px solid var(--ink);padding:9px 2px 0}
+  .check b{display:block;font-size:20px;font-weight:750;letter-spacing:-.03em;line-height:1.15;font-variant-numeric:tabular-nums}
+  .check span{display:block;font-size:11.5px;line-height:1.45;color:var(--muted);margin-top:3px}
+
+  /* panels */
+  .panels{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  .panel{border:1px solid var(--line);border-radius:3px;background:var(--paper-2);padding:15px 16px 16px}
+  .panel h3{margin:0 0 10px;font-family:var(--mono);font-size:10.5px;letter-spacing:.13em;text-transform:uppercase;font-weight:600;display:flex;justify-content:space-between;gap:8px}
+  .panel h3 .count{color:var(--muted);font-weight:400}
+  .panel ul{margin:0;padding:0;list-style:none;display:grid;gap:9px}
+  .panel li{font-size:13px;line-height:1.5;padding-left:13px;position:relative;color:var(--ink-2)}
+  .panel li::before{content:"";position:absolute;left:0;top:.5em;width:5px;height:5px;background:var(--line-strong);border-radius:50%}
+  .panel li b{font-weight:650;color:var(--ink)}
+  .panel-limits{border-color:var(--line-strong);box-shadow:inset 3px 0 0 var(--accent)}
+  .panel-limits li::before{background:var(--accent);border-radius:1px}
+  .panel-limits h3{color:var(--accent)}
+
+  /* questions */
+  .qs{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:1fr 1fr;gap:2px 26px;counter-reset:q}
+  .qs li{counter-increment:q;padding:10px 0 11px;border-top:1px solid var(--line);font-size:13px;line-height:1.5;display:flex;gap:9px;color:var(--ink-2)}
+  .qs li::before{content:"Q" counter(q);font-family:var(--mono);font-size:9.5px;color:var(--accent);letter-spacing:.06em;padding-top:3px;flex:none}
+  .qs b{color:var(--ink);font-weight:650}
+
+  /* footer */
+  footer{border-top:1px solid var(--line-strong);padding:18px 0 30px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+  .src{font-family:var(--mono);font-size:11.5px;text-decoration:none;border-bottom:1px solid var(--line-strong);padding-bottom:2px}
+  .src:hover,.src:focus-visible{color:var(--accent);border-bottom-color:var(--accent)}
+  .src:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+  .prov{font-family:var(--mono);font-size:10px;color:var(--muted);line-height:1.5;max-width:62ch}
+  .prov a{color:var(--muted);text-decoration:none;border-bottom:1px dotted var(--line-strong)}
+  .prov a:hover{color:var(--accent)}
+
+  /* load motion */
+  @keyframes rise{from{opacity:0;transform:translateY(9px)}to{opacity:1;transform:none}}
+  .hero,.card,.section,footer{animation:rise .5s cubic-bezier(.2,.7,.3,1) both}
+  .hero{animation-delay:.02s}
+  .card:nth-child(1){animation-delay:.1s}
+  .card:nth-child(2){animation-delay:.16s}
+  .card:nth-child(3){animation-delay:.22s}
+  .section:nth-of-type(1){animation-delay:.26s}
+  .section:nth-of-type(2){animation-delay:.3s}
+  .section:nth-of-type(3){animation-delay:.34s}
+  .section:nth-of-type(4){animation-delay:.38s}
+  footer{animation-delay:.4s}
+  @media (prefers-reduced-motion:reduce){
+    .hero,.card,.section,footer{animation:none}
+    *{transition:none!important}
+  }
+
+  /* ---------- responsive ---------- */
+  @media (max-width:900px){
+    .assets{grid-template-columns:1fr 1fr}
+    .card-caution{grid-column:1 / -1;min-height:0}
+    .meth{grid-template-columns:1fr;gap:18px}
+    .checks{grid-template-columns:1fr 1fr 1fr}
+  }
+  @media (max-width:720px){
+    body{font-size:15px;padding-top:50px}
+    .wrap{width:min(92vw,640px)}
+    .hero-top{gap:8px}
+    .stamp{font-size:10px}
+    .finding{font-size:clamp(1.85rem,7.4vw,2.35rem);letter-spacing:-.026em;line-height:1.08;max-width:none}
+    .gloss{font-size:13px}
+    .paperline{gap:5px}
+    .assets{grid-template-columns:1fr;gap:10px}
+    .card{min-height:0}
+    .metric-context{min-height:0}
+    .metric-value{font-size:3rem}
+    .panels{grid-template-columns:1fr}
+    .qs{grid-template-columns:1fr;gap:0}
+    .checks{grid-template-columns:1fr;gap:0}
+    .check{padding:9px 0 10px;border-top-width:1px}
+    .check b{font-size:18px}
+    .barcell{display:none}
+    table{font-size:12px}
+    th,td{padding:7px 5px}
+    .sec-sub{margin-left:0;width:100%}
+    .section{padding-top:24px}
+    .flow-row{grid-template-columns:1fr 1fr}
+    .node{padding:8px}
+    .node span{font-size:11.5px}
+    footer{flex-direction:column;align-items:flex-start}
+  }
+</style>
+</head>
+<body>
+
+<a class="nav" href="./index.html">↩ Today's digest</a>
+
+<div class="wrap">
+
+  <header class="hero">
+    <div class="hero-top">
+      <ul class="chips" aria-label="Topics">
+        <li>MoE inference</li>
+        <li>CUDA green contexts</li>
+        <li>FP8×FP4 GEMM</li>
+        <li>Expert parallelism</li>
+      </ul>
+      <div class="stamp"><b>KERNEL SYSTEMS</b> · 2026-11-02</div>
+    </div>
+
+    <h1 class="finding">Carve <em>20 SMs</em> for dispatch and <em>128</em> for compute, and MoE dispatch overlaps grouped GEMM on every replay.</h1>
+
+    <p class="gloss">把 20 个 SM 划给通信、128 个 SM 留给计算，让 dispatch 与 grouped GEMM 在每次 replay 中真正并发，而不是塞进同一个 kernel 抢同一块 SM。</p>
+
+    <div class="paperline">
+      <a class="ptitle" href="https://arxiv.org/abs/2611.04222" target="_blank" rel="noopener">GC-MoE: Overlapping Expert-Parallel Token Dispatch with FP8/FP4 Grouped GEMM via CUDA Green Contexts ↗</a>
+      <span class="byline">Yong Li, Kan Liu, Tao Lan · Alibaba · arXiv 2611.04222</span>
+    </div>
+  </header>
+
+  <section class="assets" aria-label="Extracted findings">
+
+    <article class="card">
+      <div class="card-label"><span>Key metric</span><span class="idx">01</span></div>
+      <p class="metric-value" id="metricValue">1.296×</p>
+      <p class="metric-context" id="metricContext">Slowest-rank per-layer decode, 8×H20 · DeepSeek-V4.1-Flash · 16 tokens/rank · 442.7 → 341.7 µs</p>
+      <p class="metric-foot" id="metricFoot">9-point mean 1.188× · at 256 tokens/rank only 1.029×</p>
+      <div class="seg" role="group" aria-label="Choose measurement basis">
+        <button type="button" data-metric="h20" aria-pressed="true">H20 peak</button>
+        <button type="button" data-metric="b300" aria-pressed="false">B300 official</button>
+      </div>
+    </article>
+
+    <article class="card">
+      <div class="card-label"><span>Why this matters</span><span class="idx">02</span></div>
+      <p class="sowhat">Decode MoE layers leave silicon idle waiting on communication. This shows a <strong>driver-level split</strong> can reclaim it without new hardware.</p>
+      <p class="sowhat-note">No extra GPUs, no model change — just where the SMs are assigned.</p>
+    </article>
+
+    <article class="card card-caution">
+      <div class="card-label"><span>Critical edge</span><span class="idx">03</span></div>
+      <p class="edge-text">No partition-size sweep and no overlap-on/off ablation — the <b>20-SM choice</b> and the speedup's attribution to partitioning are argued, not measured.</p>
+      <p class="edge-tag">Disclosed by the authors</p>
+    </article>
+
+  </section>
+
+  <main>
+
+    <section class="section">
+      <div class="sec-head">
+        <span class="sec-num">A</span>
+        <h2>How one replay works</h2>
+        <span class="sec-sub">3 kernels · 1 CUDA Graph · 0 dependency edges between roots</span>
+      </div>
+
+      <div class="meth">
+        <div>
+          <div class="flow" aria-label="Kernel graph">
+            <div class="flow-row">
+              <div class="node">
+                <b>role1 · dispatch</b>
+                <span>Routing + all-to-all pull into a token ring</span>
+                <i>comm ctx · 20 SM</i>
+              </div>
+              <div class="node">
+                <b>role2 · grouped GEMM</b>
+                <span>Routed + shared W1/W2, SwiGLU fused</span>
+                <i>compute ctx · 128 SM</i>
+              </div>
+            </div>
+            <div class="conc"><b>∥</b> concurrent CUDA-Graph roots — no dependency edge</div>
+            <div class="node">
+              <b>role3 · finalize</b>
+              <span>Combines k (+1 shared) partials directly from peer buffers</span>
+              <i>compute ctx</i>
+            </div>
+          </div>
+          <p class="flow-cap">The driver schedules role1 and role2 simultaneously because they live on disjoint SM sets and share no edge. role3 absorbs global completion.</p>
+        </div>
+
+        <ul class="meth-list">
+          <li><b>The mismatch.</b> At decode a rank holds 1–256 tokens, so the grouped GEMM is HBM-bandwidth-bound while dispatch is latency-bound and needs few SMs. Mega MoE fuses both across all 148 SMs and pays a device-wide grid sync.</li>
+          <li><b>The split.</b> <code>cuDevSmResourceSplitByCount</code> + <code>cuGreenCtxCreate</code> carve a 20-SM comm context and a 128-SM compute context once per CUDA context, with balanced workqueues so the two never silently serialize.</li>
+          <li><b>The handshake.</b> A generation-tagged token ring lets compute start on the first filled block; each W2 K128 tile waits only on the two W1 tiles that feed it, so no L1→L2 barrier is needed.</li>
+          <li><b>The barrier removal.</b> Receive counters are parity-double-buffered, so the NVLink round trip leaves <em>every</em> replay's critical path — not just startup.</li>
+          <li><b>The GEMM.</b> Blackwell uses 2-CTA <code>tcgen05</code> FP8×FP4 block-scaled MMA via inline PTX; Hopper uses register-A WGMMA with in-register FP4→E4M3 decode and windowed scale repacking. FP4 weights are K128-tile prepacked for single-burst TMA.</li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="sec-head">
+        <span class="sec-num">B</span>
+        <h2>What the numbers actually show</h2>
+        <span class="sec-sub">slowest rank · µs per layer</span>
+      </div>
+
+      <div class="table-block">
+        <p class="table-title">H20 routed decode <span>DeepSeek-V4.1-Flash · 8×H20 · 9-point sweep</span></p>
+        <table>
+          <thead>
+            <tr>
+              <th scope="col">Tokens / rank</th>
+              <th scope="col">Mega MoE</th>
+              <th scope="col">GC-MoE</th>
+              <th scope="col">Speedup</th>
+              <th scope="col" class="barcell">Gain</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>1</td><td>120.061</td><td>115.161</td><td class="gain">1.043×</td>
+              <td class="barcell"><span class="track"><span class="bar" style="width:14%"></span></span></td>
+            </tr>
+            <tr>
+              <td>8</td><td>368.254</td><td>284.310</td><td class="gain">1.295×</td>
+              <td class="barcell"><span class="track"><span class="bar" style="width:97%"></span></span></td>
+            </tr>
+            <tr class="peak">
+              <td>16 <span class="peak-tag">PEAK</span></td><td>442.722</td><td>341.689</td><td class="gain">1.296×</td>
+              <td class="barcell"><span class="track"><span class="bar" style="width:99%"></span></span></td>
+            </tr>
+            <tr>
+              <td>256</td><td>695.010</td><td>675.370</td><td class="gain">1.029×</td>
+              <td class="barcell"><span class="track"><span class="bar" style="width:9%"></span></span></td>
+            </tr>
+          </tbody>
+          <caption>4–32 tokens/rank forms a 1.26–1.30× plateau; at 256 the weight stream dominates and only the fixed tail savings remain. Bar width scaled to 1.30×.</caption>
+        </table>
+      </div>
+
+      <div class="table-block">
+        <p class="table-title">Across platforms and settings <span>mean of per-point ratios</span></p>
+        <table>
+          <thead>
+            <tr>
+              <th scope="col">Platform · setting</th>
+              <th scope="col">Points</th>
+              <th scope="col">Mean</th>
+              <th scope="col">Peak</th>
+              <th scope="col">Baseline</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td>8×H20 · routed</td><td>9</td><td>1.188×</td><td class="gain">1.296×</td><td class="flag">own SM90 port</td></tr>
+            <tr><td>8×B300 · routed</td><td>18</td><td>1.106×</td><td class="gain">1.189×</td><td class="flag">official Mega MoE</td></tr>
+            <tr><td>8×B300 · fused shared expert</td><td>18</td><td>1.123×</td><td class="gain">1.209×</td><td class="flag">feature-matched</td></tr>
+            <tr><td>8×H20 · fused shared expert</td><td>9</td><td>1.188×</td><td class="gain">1.353×</td><td class="flag">unfused baseline †</td></tr>
+          </tbody>
+          <caption>† Not feature-matched: the H20 reference port has no fused shared-expert path. The within-operator fusion gain is 1.031×, so the partitioning-only effect there is ≈1.15×, not 1.19×.</caption>
+        </table>
+      </div>
+
+      <div class="checks" aria-label="Verification checks">
+        <div class="check"><b>54 / 54</b><span>measured points faster than DeepGEMM Mega MoE</span></div>
+        <div class="check"><b>0.99999976</b><span>min cosine vs. Mega MoE, 376 H20 rank-checks</span></div>
+        <div class="check"><b>+2.9%</b><span>NVLink payload bandwidth at the largest H20 batch — same bytes, less time</span></div>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="sec-head">
+        <span class="sec-num">C</span>
+        <h2>Where it holds up, where it doesn't</h2>
+        <span class="sec-sub">side by side</span>
+      </div>
+
+      <div class="panels">
+        <article class="panel">
+          <h3>Strengths <span class="count">4</span></h3>
+          <ul>
+            <li><b>The reframing is real.</b> A bandwidth-bound decode GEMM does not need every SM, while dispatch needs SMs but no tensor cores. Partitioning at the driver level follows naturally once stated.</li>
+            <li><b>The barrier removal is the best idea.</b> Parity-double-buffered receive counters turn a per-replay cross-rank round trip into a generation flip — useful even without green contexts.</li>
+            <li><b>Unusually honest attribution.</b> Inherited pieces (operand swap, valid-M N sizing, UTCCP path) are marked as inherited; the added pieces are named.</li>
+            <li><b>Conservative measurement.</b> Slowest-rank latency, mean-of-ratios, pinned toolchain and commits, idle-GPU gating, open source at v0.3.1 / 9bdb81f.</li>
+          </ul>
+        </article>
+
+        <article class="panel panel-limits">
+          <h3>Limitations <span class="count">4</span></h3>
+          <ul>
+            <li><b>The missing ablation is central.</b> Four changes are bundled — partitioning, barrier removal, K128 prepacking, shrunken sync domain — and only fusion-vs-unfusion is ablated.</li>
+            <li><b>The biggest numbers rest on the weakest baseline.</b> Every H20 result, including 1.296× and 1.353×, is measured against the authors' own SM90 port.</li>
+            <li><b>Decode-only, and the tail is thin.</b> At 256 tokens/rank the gain narrows to 1.01–1.13×, exactly where MoE serving spends most of its FLOPs.</li>
+            <li><b>Single node, rigid shapes.</b> All peers on NVLink; 72-rank support is never exercised, and I ≤ 4096, H mod 256 = 0, k+1 ≤ 32 constrain adoption.</li>
+          </ul>
+        </article>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="sec-head">
+        <span class="sec-num">D</span>
+        <h2>Open questions</h2>
+        <span class="sec-sub">what would change the verdict</span>
+      </div>
+      <ol class="qs">
+        <li><span><b>Where is the knee?</b> The 20-SM split is never varied. Would 8 or 12 SMs perform as well — and make adoption much cheaper?</span></li>
+        <li><span><b>How much is the partition, really?</b> A 2×2 of partition on/off × tag-2 barrier on/off at one batch size would separate the two credited mechanisms.</span></li>
+        <li><span><b>Is the SM90 port faithful?</b> The 1.296× and 1.353× headlines cannot be settled without an independent Hopper fused-MoE baseline.</span></li>
+        <li><span><b>Does it survive multi-node?</b> On InfiniBand, does the 20-SM partition still suffice, and does green-context splitting compose with MPS/MIG or another tenant?</span></li>
+      </ol>
+    </section>
+
+  </main>
+
+  <footer>
+    <a class="src" href="./2611.04222.md">↗ Markdown source</a>
+    <p class="prov">Distilled from the bilingual summary · code at <a href="https://github.com/Bruce-Lee-LY/gc-moe" target="_blank" rel="noopener">github.com/Bruce-Lee-LY/gc-moe</a> · GC-MoE 0.3.1, DeepGEMM 2.8.2+fcad603, CUDA 13.2</p>
+  </footer>
+
+</div>
+
+<script>
+  (function () {
+    var METRICS = {
+      h20: {
+        value: '1.296×',
+        context: 'Slowest-rank per-layer decode, 8×H20 · DeepSeek-V4.1-Flash · 16 tokens/rank · 442.7 → 341.7 µs',
+        foot: '9-point mean 1.188× · at 256 tokens/rank only 1.029×'
+      },
+      b300: {
+        value: '1.106×',
+        context: 'Routed decode mean against the official DeepGEMM kernel, 8×B300 · 18 points · best 1.189× at 1 token/rank',
+        foot: '1.123× with fused shared experts · peak 1.209×'
+      }
+    };
+
+    var buttons = document.querySelectorAll('.seg button');
+    var valueEl = document.getElementById('metricValue');
+    var contextEl = document.getElementById('metricContext');
+    var footEl = document.getElementById('metricFoot');
+
+    function select(key) {
+      var m = METRICS[key];
+      if (!m) return;
+      valueEl.textContent = m.value;
+      contextEl.textContent = m.context;
+      footEl.textContent = m.foot;
+      buttons.forEach(function (b) {
+        b.setAttribute('aria-pressed', String(b.getAttribute('data-metric') === key));
+      });
+    }
+
+    buttons.forEach(function (b) {
+      b.addEventListener('click', function () {
+        select(b.getAttribute('data-metric'));
+      });
+    });
+  })();
+</script>
+</body>
+</html>
