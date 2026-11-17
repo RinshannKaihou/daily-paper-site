@@ -1,0 +1,396 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>2611.18272 — Live GPU Hidden-State Forensics · Dashboard</title>
+<style>
+  :root{
+    --accent:#0e7490;          /* one topic-derived accent: VRAM/forensics teal-cyan */
+    --accent-ink:#0b5a70;
+    --accent-wash:#e8f2f4;
+    --ink:#171b1d;
+    --ink-soft:#4b5457;
+    --ink-faint:#7c8489;
+    --paper:#f7f6f2;
+    --card:#ffffff;
+    --line:#e2e0d8;
+    --caution:#b45309;         /* contrast accent, used ONLY in the critical-edge card */
+    --caution-bg:#1c1917;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{scroll-behavior:smooth}
+  body{
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Helvetica Neue","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+    background:var(--paper);
+    color:var(--ink);
+    line-height:1.65;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{width:min(95vw,1100px);margin:0 auto}
+
+  /* ---------- fixed nav ---------- */
+  .digest-nav{
+    position:fixed;top:14px;left:14px;z-index:50;
+    background:var(--ink);color:#f5f4ef;
+    font-size:.78rem;font-weight:600;letter-spacing:.02em;
+    padding:.45rem .8rem;border-radius:999px;
+    text-decoration:none;box-shadow:0 2px 10px rgba(0,0,0,.18);
+    transition:background .2s;
+  }
+  .digest-nav:hover{background:var(--accent)}
+
+  /* ---------- hero ---------- */
+  header.hero{padding:78px 0 30px;border-bottom:3px solid var(--ink)}
+  .kicker{
+    display:flex;flex-wrap:wrap;gap:.5rem;align-items:center;
+    font-size:.72rem;font-weight:700;letter-spacing:.14em;text-transform:uppercase;
+    color:var(--accent-ink);margin-bottom:1.1rem;
+  }
+  .kicker .id-chip{background:var(--accent);color:#fff;padding:.2rem .55rem;border-radius:4px;letter-spacing:.08em}
+  .hero h1{
+    font-size:clamp(1.75rem,4vw,3.05rem);
+    line-height:1.18;font-weight:800;letter-spacing:-.015em;
+    max-width:24ch;
+  }
+  .hero h1 em{font-style:normal;color:var(--accent)}
+  .hero .zh-line{
+    margin-top:.9rem;font-size:.98rem;color:var(--ink-soft);line-height:1.8;max-width:62ch;
+  }
+  .paper-meta{margin-top:1.4rem;display:flex;flex-direction:column;gap:.45rem}
+  .paper-title a{
+    font-size:1.02rem;font-weight:650;color:var(--ink);text-decoration:none;
+    border-bottom:2px solid var(--accent);
+  }
+  .paper-title a:hover{color:var(--accent)}
+  .byline{font-size:.85rem;color:var(--ink-soft)}
+  .byline .sep{color:var(--ink-faint);margin:0 .3rem}
+  .chips{display:flex;flex-wrap:wrap;gap:.4rem;margin-top:.35rem}
+  .chip{
+    font-size:.72rem;font-weight:600;color:var(--accent-ink);
+    border:1px solid var(--accent);border-radius:999px;padding:.14rem .6rem;
+    background:var(--accent-wash);
+  }
+  .chip.date{border-style:dashed;background:transparent;color:var(--ink-faint)}
+
+  /* ---------- asset row ---------- */
+  .assets{
+    display:grid;grid-template-columns:1.15fr 1fr 1fr;gap:14px;
+    margin:22px 0 34px;
+  }
+  .asset{
+    background:var(--card);border:1px solid var(--line);border-radius:10px;
+    padding:20px 20px 18px;position:relative;overflow:hidden;
+    box-shadow:0 1px 3px rgba(23,27,29,.05);
+  }
+  .asset .tag{
+    font-size:.68rem;font-weight:800;letter-spacing:.16em;text-transform:uppercase;
+    color:var(--ink-faint);margin-bottom:.7rem;display:block;
+  }
+  .asset.metric{border-top:4px solid var(--accent)}
+  .asset.matters{border-top:4px solid var(--ink)}
+  .metric .num{
+    font-size:clamp(3.2rem,6.5vw,4.6rem);font-weight:800;letter-spacing:-.03em;
+    color:var(--accent);line-height:1;font-variant-numeric:tabular-nums;
+  }
+  .metric .unit{font-size:.95rem;font-weight:700;color:var(--accent-ink);margin-left:.2rem}
+  .metric .ctx{font-size:.85rem;color:var(--ink-soft);margin-top:.65rem;line-height:1.55}
+  .metric .substats{
+    display:flex;gap:1.2rem;margin-top:.9rem;padding-top:.75rem;border-top:1px dashed var(--line);
+    font-size:.75rem;color:var(--ink-faint);
+  }
+  .metric .substats b{display:block;font-size:.95rem;color:var(--ink);font-variant-numeric:tabular-nums}
+  .matters p{font-size:.95rem;line-height:1.7}
+  .asset.edge{background:var(--caution-bg);border-color:var(--caution);border-top:4px solid var(--caution)}
+  .asset.edge .tag{color:#d6a15c}
+  .asset.edge p{color:#ece7df;font-size:.92rem;line-height:1.65}
+  .asset.edge p strong{color:#fbbf24;font-weight:700}
+  .asset.edge .num-inline{color:#fbbf24;font-weight:800;font-variant-numeric:tabular-nums}
+
+  /* ---------- body grid ---------- */
+  .body-grid{display:grid;grid-template-columns:repeat(12,1fr);gap:14px;padding-bottom:26px}
+  .card{
+    background:var(--card);border:1px solid var(--line);border-radius:10px;
+    padding:24px 26px;box-shadow:0 1px 3px rgba(23,27,29,.05);
+  }
+  .card h2{
+    font-size:.78rem;font-weight:800;letter-spacing:.16em;text-transform:uppercase;
+    color:var(--accent-ink);padding-bottom:.6rem;margin-bottom:1rem;
+    border-bottom:2px solid var(--ink);
+    display:flex;justify-content:space-between;align-items:baseline;
+  }
+  .card h2 .zh{font-size:.72rem;font-weight:600;color:var(--ink-faint);letter-spacing:.06em}
+  .card.method{grid-column:span 5}
+  .card.results{grid-column:span 7}
+  .card.strengths{grid-column:span 6}
+  .card.limits{grid-column:span 6}
+  .card.questions{grid-column:span 12}
+
+  .method ul,.results ul{list-style:none}
+  .method li,.results li{
+    padding-left:1.15rem;position:relative;margin-bottom:.7rem;
+    font-size:.9rem;line-height:1.7;color:#2a3134;
+  }
+  .method li::before,.results li::before{
+    content:"";position:absolute;left:0;top:.62em;width:.42rem;height:.42rem;
+    background:var(--accent);border-radius:1px;
+  }
+  .method b,.results b{color:var(--ink)}
+  .pipeline-steps{
+    display:flex;flex-wrap:wrap;gap:.3rem;margin-bottom:1rem;
+    font-size:.74rem;font-weight:700;
+  }
+  .pipeline-steps span{
+    background:var(--ink);color:#fff;padding:.18rem .5rem;border-radius:4px;
+  }
+  .pipeline-steps span.alt{background:var(--accent)}
+  .pipeline-steps i{align-self:center;color:var(--ink-faint);font-style:normal;font-weight:600}
+
+  table.val{
+    width:100%;border-collapse:collapse;font-size:.8rem;margin-top:.4rem;
+  }
+  table.val th{
+    text-align:left;font-size:.68rem;letter-spacing:.1em;text-transform:uppercase;
+    color:var(--ink-faint);border-bottom:2px solid var(--ink);padding:.4rem .5rem .35rem;
+  }
+  table.val td{
+    padding:.45rem .5rem;border-bottom:1px solid var(--line);vertical-align:top;line-height:1.5;
+  }
+  table.val td:first-child{font-weight:650;white-space:nowrap}
+  table.val .ok{color:var(--accent-ink);font-weight:700;font-variant-numeric:tabular-nums}
+  table.val .bad{color:#a1361f;font-weight:700}
+  .stat-strip{
+    display:flex;flex-wrap:wrap;gap:.4rem 1.4rem;margin:0 0 .9rem;
+    font-size:.72rem;color:var(--ink-faint);
+  }
+  .stat-strip b{display:block;font-size:1rem;color:var(--ink);font-variant-numeric:tabular-nums;font-weight:800}
+
+  .strengths li::before{background:#15803d}
+  .limits li::before{background:#a1361f}
+  .card.strengths h2{border-bottom-color:#15803d}
+  .card.limits h2{border-bottom-color:#a1361f;color:#7c2d12}
+
+  .questions ol{list-style:none;counter-reset:q;display:grid;grid-template-columns:repeat(2,1fr);gap:.55rem 1.6rem}
+  .questions li{
+    counter-increment:q;font-size:.86rem;line-height:1.65;color:#2a3134;
+    padding-left:1.9rem;position:relative;
+  }
+  .questions li::before{
+    content:counter(q,decimal-leading-zero);position:absolute;left:0;top:.1em;
+    font-size:.72rem;font-weight:800;color:var(--accent);
+    border-bottom:2px solid var(--accent);padding-bottom:.05rem;
+  }
+
+  /* ---------- footer ---------- */
+  footer{
+    border-top:3px solid var(--ink);padding:20px 0 34px;
+    display:flex;flex-wrap:wrap;gap:.6rem 1.6rem;align-items:center;
+    font-size:.8rem;color:var(--ink-soft);
+  }
+  footer a{color:var(--accent-ink);font-weight:700;text-decoration:none;border-bottom:2px solid var(--accent)}
+  footer a:hover{color:var(--accent)}
+  footer .note{margin-left:auto;color:var(--ink-faint);font-size:.72rem}
+
+  /* ---------- motion ---------- */
+  .reveal{opacity:0;transform:translateY(14px);transition:opacity .55s ease,transform .55s ease}
+  .reveal.in{opacity:1;transform:none}
+  @media (prefers-reduced-motion:reduce){
+    .reveal{opacity:1;transform:none;transition:none}
+    html{scroll-behavior:auto}
+  }
+
+  /* ---------- responsive ---------- */
+  @media (max-width:920px){
+    .assets{grid-template-columns:1fr 1fr}
+    .asset.metric{grid-column:span 2}
+    .card.method,.card.results,.card.strengths,.card.limits{grid-column:span 12}
+  }
+  @media (max-width:720px){
+    .assets{grid-template-columns:1fr}
+    .asset.metric{grid-column:span 1}
+    .questions ol{grid-template-columns:1fr}
+    .hero h1{max-width:none}
+    header.hero{padding-top:88px}
+  }
+</style>
+</head>
+<body>
+
+<a class="digest-nav" href="./index.html">↩ Today's digest</a>
+
+<div class="wrap">
+
+  <!-- ============ HERO ============ -->
+  <header class="hero">
+    <div class="kicker">
+      <span class="id-chip">arXiv 2611.18272</span>
+      <span>GPU Forensics · Paper Dashboard</span>
+    </div>
+    <h1>A read-only debugger attach recovers <em>per-layer residual-stream states</em> from a live, unmodified LLM — no weights, architecture, or hooks required.</h1>
+    <p class="zh-line">「只观察、不修改」的 GPU 取证：cuda-gdb 附加活体推理进程，盲选残差流分配链，逐字节恢复隐状态，并从显存中读出模型的拒绝决定。</p>
+    <div class="paper-meta">
+      <p class="paper-title"><a href="https://arxiv.org/abs/2611.18272" target="_blank" rel="noopener">From Bytes to Behavior: Request-Level Attribution from Live GPU Hidden States ↗</a></p>
+      <p class="byline">
+        Jonathan Pan <span class="sep">·</span> Yidi Yuan <span class="sep">·</span> Xin Wei Chia <span class="sep">·</span> Xinhui Su <span class="sep">·</span> et al.
+        <span class="sep">—</span> HTX, Singapore
+      </p>
+      <div class="chips">
+        <span class="chip date">2026-11-09</span>
+        <span class="chip">GPU forensics</span>
+        <span class="chip">Memory forensics</span>
+        <span class="chip">Residual stream</span>
+        <span class="chip">Refusal detection</span>
+        <span class="chip">Linear probes</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- ============ ASSET ROW ============ -->
+  <section class="assets">
+    <div class="asset metric reveal">
+      <span class="tag">Key Metric</span>
+      <div><span class="num" id="metricNum">0.000</span><span class="unit">AUROC</span></div>
+      <p class="ctx">A frozen refusal probe reading <b>VRAM-recovered states</b> detects whether Qwen2.5-0.5B will refuse a request — on 142 pre-registered, untouched HarmBench + XSTest prompts.</p>
+      <div class="substats">
+        <span>Prompt-text baseline<b>0.559</b></span>
+        <span>Hook-reference gap<b>0.0003</b></span>
+        <span>Byte-exact recovery<b>33 models · 9 archs</b></span>
+      </div>
+    </div>
+    <div class="asset matters reveal">
+      <span class="tag">Why This Matters</span>
+      <p>Enables request-level <b>auditing, compliance, and red-team forensics</b> on deployed LLMs without touching the process — and exposes real hidden-state leakage risk in multi-tenant GPU environments.</p>
+    </div>
+    <div class="asset edge reveal">
+      <span class="tag">⚠ Critical Edge</span>
+      <p>Observation is <strong>non-modifying but not non-intrusive</strong>: collection costs <span class="num-inline">157–163 s</span> per prompt (<span class="num-inline">~15,000×</span> native), making it useless for routine monitoring — and forensically non-neutral.</p>
+    </div>
+  </section>
+
+  <!-- ============ BODY GRID ============ -->
+  <section class="body-grid">
+
+    <div class="card method reveal">
+      <h2>Methodology <span class="zh">方法</span></h2>
+      <div class="pipeline-steps">
+        <span>attach</span><i>→</i><span class="alt">clock</span><i>→</i><span class="alt">identify</span><i>→</i><span>read</span><i>→</i><span>validate</span><i>→</i><span>use</span>
+      </div>
+      <ul>
+        <li><b>Allocator clock:</b> non-stopping cuda-gdb breakpoints on PyTorch's caching-allocator malloc/free log every tensor birth and death (size + device pointer) without touching target code.</li>
+        <li><b>Blind two-step selector</b> finds the residual stream in the log alone: the primary rule tracks the <b>hand-off chain</b> (a layer's output is freed right after the next layer's is allocated); the fallback accepts constant-stride chains (≥8 members, ≥90% regular gaps). The selector is never told the layer count.</li>
+        <li><b>Read timing is measured, not assumed:</b> bytes are read at the return of the <i>next</i> allocation after a tensor's birth — reading at the allocation point failed on every layer.</li>
+        <li><b>Kernel-launch clock adapter</b> covers stacks that bypass the allocator: vLLM default (compile + CUDA graphs), llama.cpp (incl. quantized), SGLang prefill.</li>
+        <li><b>Probes stay standard:</b> linear depth and refusal probes trained on normal framework activations; ground truth from a separate, synchronized hook pass.</li>
+        <li><b>Hygiene:</b> pre-registered tests with SHA-256-hashed scripts; strict dev/eval isolation (372 hook-exposed prompts excluded); all failures reported.</li>
+      </ul>
+    </div>
+
+    <div class="card results reveal">
+      <h2>Results <span class="zh">结果</span></h2>
+      <div class="stat-strip">
+        <span>Refusal AUROC<b>0.876</b></span>
+        <span>Balanced accuracy<b>0.777</b></span>
+        <span>False-positive rate<b>0.282</b></span>
+        <span>Cost / prompt<b>157–163 s</b></span>
+      </div>
+      <ul>
+        <li><b>Probe beats the dataset's own labels:</b> on JailbreakBench, 15.5% error vs the tag's 26.8%; on a second held-out source, 4.5% vs 8.3% — with recovered-vs-hook AUROC differing by ≤0.001.</li>
+        <li><b>Structure read from the process alone:</b> token count, hidden size, and layer count exact in pre-registered tests (vLLM 6/6; llama.cpp fp16 12/12; quantized 12/12; SGLang decode 4/6). Model identity is deliberately not derived.</li>
+        <li><b>Calibrated evidence tiers:</b> structural = exact, computational = lab-verified byte-exact, behavioural = preliminary with stated error rates.</li>
+      </ul>
+      <table class="val">
+        <thead>
+          <tr><th>Serving stack</th><th>Clock</th><th>Validation outcome</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>HuggingFace static KV · 33 models / 9 archs</td><td>allocator</td><td class="ok">byte-exact, every true layer, 3 passes (decode 6/7)</td></tr>
+          <tr><td>vLLM eager · 228 prompts</td><td>allocator</td><td class="ok">all prompts byte-identical to hooks</td></tr>
+          <tr><td>vLLM default · compile + CUDA graphs</td><td>kernel-launch</td><td class="ok">prefill 31/31 · 23/23 · 27/27 on 3 fresh models</td></tr>
+          <tr><td>llama.cpp · incl. Q8_0 / Q4_K_M</td><td>kernel-launch</td><td class="ok">prefill byte-exact · 12/12 runs</td></tr>
+          <tr><td>SGLang</td><td>kernel-launch</td><td>prefill <span class="ok">6/6</span> · decode <span class="bad">4/6</span></td></tr>
+          <tr><td>HuggingFace growing cache</td><td>allocator</td><td class="bad">0/8 — reported failure</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="card strengths reveal">
+      <h2>Strengths <span class="zh">优点</span></h2>
+      <ul>
+        <li>First demonstration that <b>live, per-request GPU hidden states</b> are acquirable from an unmodified process with byte-exact fidelity — turning ephemeral state into measurable forensic evidence.</li>
+        <li>Platform-invariant six-stage process cleanly separated from platform-specific adapters, with an adapter table that reports <b>failures as prominently as successes</b>.</li>
+        <li>Exemplary methodology: pre-registered hashed scripts, frozen probes, dev/eval isolation, full negative-results reporting.</li>
+        <li>The three-level evidence taxonomy resists every temptation to overclaim.</li>
+        <li>Practical byproduct: token count, hidden size, and layer count of an unknown target read exactly from the running process.</li>
+      </ul>
+    </div>
+
+    <div class="card limits reveal">
+      <h2>Limitations <span class="zh">局限</span></h2>
+      <ul>
+        <li><b>Narrow envelope:</b> batch 1, fixed-length prompts, models ≤3.4B (one 7B 4-bit), a single 8 GB Turing GPU; TensorRT-LLM / TGI / other GPUs untested.</li>
+        <li><b>Intrusive despite read-only:</b> debugger halts cost 46–192×; full collection ~15,000× native — minutes per prompt.</li>
+        <li><b>Platform-brittle:</b> build-specific offsets (parameter block 0x160 on sm_75), kernel-name substrings, allocator internals; the selector needed two revisions; no code released.</li>
+        <li><b>Behavioural evidence is preliminary:</b> one 0.5B model, keyword-matched refusal labels, FPR 0.282, ECE 0.160; predicts refusal, not harmfulness.</li>
+      </ul>
+    </div>
+
+    <div class="card questions reveal">
+      <h2>Questions for Further Exploration <span class="zh">待探索问题</span></h2>
+      <ol>
+        <li>Does it scale to 7B–70B models on H100 / Blackwell (sm_90+), where offsets, kernel names, and CUDA-graph behaviour all differ?</li>
+        <li>Can the refusal call beat AUROC 0.876 / FPR 0.282 via multi-layer probing — and how would it compare to simply classifying the generated reply?</li>
+        <li>Does the hand-off-chain selector survive continuous batching, speculative decoding, and multi-request concurrency?</li>
+        <li>Can acquisition become genuinely low-intrusive — hardware watchpoints, driver-level tracing, sampled breakpoints — closing the 4–5 order-of-magnitude latency gap?</li>
+        <li>What other behaviours (prompt-injection success, persona identity, memorised content) can be read from recovered residual states?</li>
+        <li>Do difference-of-means directions transfer as cleanly as the refusal direction did?</li>
+      </ol>
+    </div>
+
+  </section>
+
+  <footer>
+    <a href="./2611.18272.md">↗ Markdown source</a>
+    <a href="https://arxiv.org/abs/2611.18272" target="_blank" rel="noopener">↗ arXiv abstract</a>
+    <span class="note">Curated dashboard · daily_paper vault · 2026-11-09</span>
+  </footer>
+
+</div>
+
+<script>
+(function(){
+  var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  /* count-up for the key metric */
+  var el = document.getElementById('metricNum');
+  if (el) {
+    var target = 0.876, dur = 950, t0 = null;
+    if (reduce) { el.textContent = target.toFixed(3); }
+    else {
+      function tick(ts){
+        if (t0 === null) t0 = ts;
+        var p = Math.min((ts - t0) / dur, 1);
+        var eased = 1 - Math.pow(1 - p, 3);
+        el.textContent = (target * eased).toFixed(3);
+        if (p < 1) requestAnimationFrame(tick);
+      }
+      requestAnimationFrame(tick);
+    }
+  }
+
+  /* reveal-on-scroll for cards */
+  var reveals = document.querySelectorAll('.reveal');
+  if (reduce || !('IntersectionObserver' in window)) {
+    reveals.forEach(function(n){ n.classList.add('in'); });
+    return;
+  }
+  var io = new IntersectionObserver(function(entries){
+    entries.forEach(function(e){
+      if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); }
+    });
+  }, {threshold: 0.12});
+  reveals.forEach(function(n){ io.observe(n); });
+})();
+</script>
+
+</body>
+</html>

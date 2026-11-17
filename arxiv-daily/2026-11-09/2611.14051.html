@@ -1,0 +1,452 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>2611.14051 — KV Cache Reuse Across Model Updates</title>
+<style>
+  :root{
+    --accent:#0E7A6C;          /* one topic-derived accent: cache "reuse" teal-green */
+    --accent-ink:#0B5F54;
+    --accent-soft:#E3F0ED;
+    --ink:#1B1A17;
+    --paper:#FAF8F3;
+    --card:#FFFFFF;
+    --line:#E5E1D6;
+    --muted:#716C60;
+    --warn-bg:#221F1A;
+    --warn-ink:#F4EFE3;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{scroll-behavior:smooth}
+  body{
+    font-family:ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,"PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+    background:var(--paper);color:var(--ink);
+    line-height:1.75;font-size:16px;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{width:min(95vw,1100px);margin:0 auto}
+  a{color:var(--accent-ink)}
+
+  /* ---------- fixed nav ---------- */
+  .digest-nav{
+    position:fixed;top:14px;left:14px;z-index:50;
+    background:var(--card);border:1px solid var(--line);border-left:3px solid var(--accent);
+    padding:6px 12px;border-radius:6px;font-size:.82rem;font-weight:600;
+    text-decoration:none;color:var(--ink);box-shadow:0 1px 4px rgba(27,26,23,.08);
+  }
+  .digest-nav:hover{border-color:var(--accent);color:var(--accent-ink)}
+
+  /* ---------- hero ---------- */
+  .hero{padding:72px 0 26px;border-bottom:2px solid var(--ink)}
+  .kicker{
+    font-size:.78rem;letter-spacing:.14em;text-transform:uppercase;
+    color:var(--muted);font-weight:600;margin-bottom:14px;
+  }
+  .kicker b{color:var(--accent-ink)}
+  h1.finding{
+    font-size:clamp(1.65rem,4.3vw,3.35rem);
+    line-height:1.14;font-weight:800;letter-spacing:-.015em;
+    text-wrap:balance;max-width:24ch;
+  }
+  h1.finding em{font-style:normal;color:var(--accent);box-shadow:inset 0 -.14em 0 var(--accent-soft)}
+  .zh{
+    margin-top:14px;font-size:.95rem;color:var(--muted);line-height:1.9;max-width:62ch;
+  }
+  .paper-block{margin-top:22px;display:flex;flex-wrap:wrap;gap:6px 28px;align-items:baseline}
+  .paper-title{font-size:1.02rem;font-weight:600;max-width:58ch}
+  .paper-title a{text-decoration:none;border-bottom:1px solid var(--line)}
+  .paper-title a:hover{border-color:var(--accent)}
+  .meta{font-size:.85rem;color:var(--muted)}
+  .meta .affil{font-weight:600;color:var(--ink)}
+  .chips{list-style:none;display:flex;flex-wrap:wrap;gap:8px;margin-top:16px}
+  .chips li{
+    font-size:.72rem;font-weight:600;letter-spacing:.05em;
+    border:1px solid var(--accent);color:var(--accent-ink);
+    padding:2px 10px;border-radius:999px;background:var(--accent-soft);
+  }
+
+  /* ---------- asset row ---------- */
+  .assets{
+    display:grid;grid-template-columns:1.25fr 1fr 1fr;gap:14px;
+    margin:22px 0 8px;
+  }
+  .asset{
+    background:var(--card);border:1px solid var(--line);border-radius:10px;
+    padding:20px 20px 16px;position:relative;
+  }
+  .asset .tag{
+    font-size:.68rem;letter-spacing:.12em;text-transform:uppercase;
+    font-weight:700;color:var(--muted);margin-bottom:10px;display:block;
+  }
+  .asset.metric{border-top:4px solid var(--accent)}
+  .asset.why{border-top:4px solid var(--line)}
+  .asset.edge{background:var(--warn-bg);border-color:var(--warn-bg);color:var(--warn-ink)}
+  .asset.edge .tag{color:#C9C2AF}
+  .metric .num{
+    font-size:clamp(3.4rem,6.5vw,5.4rem);font-weight:800;line-height:1;
+    color:var(--accent);letter-spacing:-.03em;font-variant-numeric:tabular-nums;
+    display:flex;align-items:baseline;gap:2px;
+  }
+  .metric .num .x{font-size:.45em;font-weight:700;color:var(--accent-ink)}
+  .metric .ctx{margin-top:10px;font-size:.92rem;font-weight:600}
+  .metric .sub{margin-top:6px;font-size:.8rem;color:var(--muted);line-height:1.6}
+  .why p{font-size:.95rem;font-weight:500;line-height:1.7}
+  .why .src,.metric .src{margin-top:10px;font-size:.7rem;color:var(--muted)}
+  .edge p{font-size:.95rem;line-height:1.7;font-weight:500}
+  .edge p strong{color:#FFD98A;font-weight:700}
+  .edge .src{margin-top:10px;font-size:.7rem;color:#8F887A}
+
+  /* ---------- jump nav ---------- */
+  .jumps{
+    display:flex;flex-wrap:wrap;gap:8px;margin:26px 0 14px;
+  }
+  .jumps a{
+    font-size:.78rem;font-weight:600;text-decoration:none;
+    border:1px solid var(--line);background:var(--card);
+    padding:4px 12px;border-radius:999px;color:var(--ink);
+  }
+  .jumps a:hover{border-color:var(--accent);color:var(--accent-ink)}
+
+  /* ---------- body grid ---------- */
+  .grid{display:grid;grid-template-columns:1fr 1.25fr;gap:14px;padding-bottom:8px}
+  .card{
+    background:var(--card);border:1px solid var(--line);border-radius:10px;
+    padding:22px;
+  }
+  .card h2{
+    font-size:.8rem;letter-spacing:.14em;text-transform:uppercase;
+    color:var(--accent-ink);font-weight:700;margin-bottom:12px;
+    display:flex;align-items:center;gap:8px;
+  }
+  .card h2::before{content:"";width:18px;height:3px;background:var(--accent);border-radius:2px}
+  .card.wide{grid-column:1 / -1}
+  .card ul{list-style:none}
+  .card ul li{
+    padding-left:18px;position:relative;font-size:.9rem;line-height:1.7;
+    margin-bottom:9px;
+  }
+  .card ul li::before{content:"—";position:absolute;left:0;color:var(--accent);font-weight:700}
+  .card ul li b{font-weight:700}
+  .card p.note{font-size:.85rem;color:var(--muted);line-height:1.7}
+
+  /* tables */
+  table{width:100%;border-collapse:collapse;font-size:.82rem;margin:10px 0 4px}
+  caption{
+    caption-side:top;text-align:left;font-size:.72rem;font-weight:700;
+    letter-spacing:.08em;text-transform:uppercase;color:var(--muted);padding-bottom:6px;
+  }
+  th{
+    text-align:left;font-size:.7rem;letter-spacing:.06em;text-transform:uppercase;
+    color:var(--accent-ink);border-bottom:2px solid var(--accent);
+    padding:6px 8px;white-space:nowrap;
+  }
+  td{padding:7px 8px;border-bottom:1px solid var(--line);line-height:1.5;vertical-align:top}
+  tr:last-child td{border-bottom:none}
+  td.num,th.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+  .good{color:var(--accent-ink);font-weight:700}
+  .bad{color:#A4401F;font-weight:700}
+
+  /* HFR bars */
+  .hfr{margin:14px 0 4px}
+  .hfr .row{display:grid;grid-template-columns:170px 1fr 56px;gap:10px;align-items:center;margin-bottom:7px}
+  .hfr .lbl{font-size:.78rem;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .hfr .track{background:var(--accent-soft);border-radius:3px;height:12px;overflow:hidden}
+  .hfr .bar{height:100%;background:var(--accent);width:0;transition:width 1s cubic-bezier(.2,.7,.2,1)}
+  .hfr .row:nth-child(4) .bar,.hfr .row:nth-child(5) .bar{background:#A4401F}
+  .hfr .val{font-size:.78rem;font-weight:700;text-align:right;font-variant-numeric:tabular-nums}
+  .hfr-cap{font-size:.75rem;color:var(--muted)}
+
+  /* fcd contrast strip */
+  .fcd{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:14px}
+  .fcd div{border:1px solid var(--line);border-radius:8px;padding:12px 14px}
+  .fcd .k{font-size:.72rem;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:700}
+  .fcd .v{font-size:1.15rem;font-weight:800;font-variant-numeric:tabular-nums}
+  .fcd .v.up{color:#A4401F}
+  .fcd .v.flat{color:var(--accent-ink)}
+  .fcd .d{font-size:.75rem;color:var(--muted)}
+
+  /* strengths / limitations split */
+  .split{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  .split .card{margin:0}
+  .split .card.lim ul li::before{content:"×";color:#A4401F}
+  .split .card h2.lim-h{color:#7C3418}
+  .split .card.lim h2::before{background:#A4401F}
+
+  /* questions */
+  .qs ol{margin-left:20px;font-size:.88rem;line-height:1.7}
+  .qs li{margin-bottom:7px;padding-left:4px}
+  .qs li::marker{color:var(--accent);font-weight:800}
+
+  /* footer */
+  footer{
+    margin-top:26px;border-top:2px solid var(--ink);padding:18px 0 40px;
+    display:flex;flex-wrap:wrap;gap:8px 24px;align-items:baseline;
+  }
+  footer a{
+    font-size:.85rem;font-weight:700;text-decoration:none;
+    border-bottom:2px solid var(--accent);
+  }
+  footer .fine{font-size:.72rem;color:var(--muted);margin-left:auto}
+
+  /* reveal animation */
+  .reveal{opacity:0;transform:translateY(14px)}
+  .reveal.in{opacity:1;transform:none;transition:opacity .6s ease,transform .6s ease}
+
+  @media (max-width:960px){
+    .assets{grid-template-columns:1fr 1fr}
+    .asset.metric{grid-column:1 / -1}
+    .grid{grid-template-columns:1fr}
+  }
+  @media (max-width:720px){
+    .assets,.split{grid-template-columns:1fr}
+    .fcd{grid-template-columns:1fr}
+    .hero{padding-top:88px}
+    .hfr .row{grid-template-columns:120px 1fr 52px}
+  }
+  @media (prefers-reduced-motion:reduce){
+    .reveal{opacity:1;transform:none;transition:none}
+    .hfr .bar{transition:none}
+    html{scroll-behavior:auto}
+  }
+</style>
+</head>
+<body>
+
+<a class="digest-nav" href="./index.html">↩ Today's digest</a>
+
+<div class="wrap">
+
+  <!-- ============ HERO ============ -->
+  <header class="hero">
+    <p class="kicker">arXiv <b>2611.14051</b> · cs.DC / cs.AI · 10 Nov 2026 · empirical study</p>
+    <h1 class="finding">An updated model can directly reuse its predecessor's KV&nbsp;cache for 2–5× faster first tokens — but compatibility swings from near-perfect to <em>catastrophic</em>.</h1>
+    <p class="zh" lang="zh">新版模型直接消费旧版生成的前缀 cache：长前缀 QA 中位 TTFT 加速 2.10–5.08×，但检索兼容性随更新剧烈变化（有害翻转率 0.53%–78.30%），且“任务有用性”与“行为保真度”是两个独立标准。</p>
+    <div class="paper-block">
+      <p class="paper-title"><a href="https://arxiv.org/abs/2611.14051">Can KV Cache Be Reused Across Model Updates? A DeepSeek-V4-Flash Case Study ↗</a></p>
+      <p class="meta"><span class="affil">Zhikun Tao · Fangyong Jin · Junping Zhao</span> — Rank Computing</p>
+    </div>
+    <ul class="chips">
+      <li>KV-Cache Reuse</li>
+      <li>Model Updates</li>
+      <li>Long Context</li>
+      <li>Inference Efficiency</li>
+      <li>LLM Serving</li>
+    </ul>
+  </header>
+
+  <!-- ============ ASSET ROW ============ -->
+  <section class="assets">
+
+    <article class="asset metric reveal">
+      <span class="tag">Key Metric</span>
+      <div class="num"><span id="metricNum">0.00</span><span class="x">×</span></div>
+      <p class="ctx">median TTFT speedup — HotpotQA, 14.3K-token prefixes</p>
+      <p class="sub">Prepared-cache reuse, DeepSeek-V4-Flash → Flash-0731, 585-example QA suite on SGLang / 8×H100. At an F1 cost of −3.0 (69.3 → 66.3). Across benchmarks: 2.10× (2WikiMQA) … 5.08× (HotpotQA).</p>
+      <p class="src">from Results — QA latency/quality panel</p>
+    </article>
+
+    <article class="asset why reveal">
+      <span class="tag">Why This Matters</span>
+      <p>Quantifies the gains and risks of reusing long-prefix caches across rolling model upgrades — directly informing RAG / long-context serving and cross-version cache management.</p>
+      <p class="src">from Relevance</p>
+    </article>
+
+    <article class="asset edge reveal">
+      <span class="tag">Critical Edge</span>
+      <p>The 5× headline <strong>assumes a warm, importable cache already exists</strong> — end-to-end costs of cache storage, versioning, and page-format migration are never modeled.</p>
+      <p class="src">from Limitations</p>
+    </article>
+
+  </section>
+
+  <!-- ============ JUMPS ============ -->
+  <nav class="jumps">
+    <a href="#method">Method</a>
+    <a href="#results">Results</a>
+    <a href="#tradeoffs">Strengths vs Limits</a>
+    <a href="#questions">Open Questions</a>
+  </nav>
+
+  <!-- ============ BODY GRID ============ -->
+  <main class="grid">
+
+    <!-- Methodology -->
+    <article id="method" class="card reveal">
+      <h2>Methodology</h2>
+      <ul>
+        <li><b>Three paired configurations</b> per (prefix, question): <b>Target</b> (new model does prefill + generation), <b>Source</b> (old model throughout), <b>KV Reuse</b> (old model's prefill cache handed to the new model, which processes the question suffix and generates). Identical token IDs; greedy decoding.</li>
+        <li><b>Retrieval compatibility:</b> RULER-style single-token NIAH at 512–32K-token prefixes (192 queries per length; queries at 10/50/90% depth, phase-balanced), extended to 64K–512K for V4.1-Flash (1,920 queries). Metrics: answer accuracy + <b>harmful flip rate</b>.</li>
+        <li><b>QA quality &amp; latency:</b> 585 fixed examples (300 BABILong, 100 HotpotQA, 100 2WikiMQA, 85 MultiFieldQA-en); paired median TTFT with source cache pre-loaded, on SGLang, 8×H100, TP=8.</li>
+        <li><b>Functional Cache Divergence (FCD):</b> scaled Jensen–Shannon divergence between next-token distributions under reused vs. native caches — 12,288 matched positions.</li>
+        <li><b>Mechanistics:</b> gold-logit-margin analysis, Indexer top-k overlap, and crossed input/cache interventions at layers 27/37/42 to localize drift.</li>
+        <li><b>Baseline:</b> closed-form Ridge Mapper (Heo et al. 2026) adapted to DeepSeek's composite cache, calibrated on 500 FineWeb-Edu documents.</li>
+      </ul>
+    </article>
+
+    <!-- Results -->
+    <article id="results" class="card reveal">
+      <h2>Results — beyond the headline</h2>
+
+      <table>
+        <caption>NIAH retrieval @ 32K prefix — four real model updates</caption>
+        <thead>
+          <tr><th>Update pair</th><th class="num">Target</th><th class="num">Reuse</th><th class="num">Harmful flips</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>GLM-5.2 → 5.3 (750B)</td><td class="num">86.5%</td><td class="num good">90.6% ↑</td><td class="num">4.22%</td></tr>
+          <tr><td>V4.1-Flash → 1017 (552B)</td><td class="num">97.9%</td><td class="num good">97.9% =</td><td class="num">0.53%</td></tr>
+          <tr><td>V4-Flash → 0731 (284B)</td><td class="num">25.5%</td><td class="num good">31.3% ↑</td><td class="num">26.53%</td></tr>
+          <tr><td>Qwen3 → Instruct-2507 (30.5B)</td><td class="num">55.2%</td><td class="num bad">13.0% ↓</td><td class="num bad">78.30%</td></tr>
+        </tbody>
+      </table>
+
+      <div class="hfr" aria-label="Harmful flip rate at 32K">
+        <div class="row"><span class="lbl">V4.1-Flash → 1017</span><span class="track"><span class="bar" data-w="0.53"></span></span><span class="val">0.53%</span></div>
+        <div class="row"><span class="lbl">GLM-5.2 → 5.3</span><span class="track"><span class="bar" data-w="4.22"></span></span><span class="val">4.22%</span></div>
+        <div class="row"><span class="lbl">V4-Flash → 0731</span><span class="track"><span class="bar" data-w="26.53"></span></span><span class="val">26.53%</span></div>
+        <div class="row"><span class="lbl">Qwen3 → Instruct-2507</span><span class="track"><span class="bar" data-w="78.30"></span></span><span class="val">78.30%</span></div>
+      </div>
+      <p class="hfr-cap">Harmful flip rate @ 32K — fraction of Target-correct answers that break under reuse. Same protocol, four updates: the whole spectrum.</p>
+
+      <table>
+        <caption>QA latency / quality — Flash → Flash-0731</caption>
+        <thead>
+          <tr><th>Benchmark</th><th class="num">Prefix</th><th class="num">TTFT</th><th class="num">F1 (T → R)</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>HotpotQA</td><td class="num">14.3K</td><td class="num good">5.08×</td><td class="num">69.3 → 66.3 (−3.0)</td></tr>
+          <tr><td>MultiFieldQA-en</td><td class="num">7.7K</td><td class="num good">2.51×</td><td class="num">45.9 → 46.2 (kept)</td></tr>
+          <tr><td>2WikiMQA</td><td class="num">6.4K</td><td class="num good">2.10×</td><td class="num bad">61.7 → 54.7 (−7.0)</td></tr>
+          <tr><td>BABILong</td><td class="num">1.7K</td><td class="num bad">0.86× (slower)</td><td class="num">59.0 → 58.7</td></tr>
+        </tbody>
+      </table>
+
+      <div class="fcd">
+        <div>
+          <p class="k">FCD · NIAH retrieval</p>
+          <p class="v up">2.87 → 30.62</p>
+          <p class="d">drift explodes as prefix grows 512 → 32K</p>
+        </div>
+        <div>
+          <p class="k">FCD · natural text (FineWeb-Edu)</p>
+          <p class="v flat">3.0 – 3.6 flat</p>
+          <p class="d">continuation drift stays low at every length</p>
+        </div>
+      </div>
+
+      <p class="note" style="margin-top:12px">Also: at a 512K prefix, direct reuse keeps 61.46% accuracy vs. 40.10% for the adapted Ridge Mapper — and a transferred cache lifts Flash-Base's NIAH accuracy from 0% to 91.15% @2K with frozen weights.</p>
+    </article>
+
+    <!-- Strengths / Limitations -->
+    <section id="tradeoffs" class="card wide reveal" style="padding:22px;background:transparent;border:none">
+      <div class="split">
+        <article class="card">
+          <h2>Strengths</h2>
+          <ul>
+            <li><b>Clean paired design</b> — identical token IDs and decoding; every comparison is within-pair, not cross-run.</li>
+            <li><b>Four independent real updates</b>, not one cherry-picked pair: exposes the full spectrum from near-native (V4.1) to severely degraded (Qwen).</li>
+            <li><b>FCD separates drift from accuracy</b> — yielding the most interesting finding: retrieval drift grows with prefix length while natural-text drift stays flat.</li>
+            <li><b>Mechanistic depth</b>: margin-vs-survival, Indexer overlap, crossed interventions show drift rides incoming hidden states (layer-37 NMSE 0.473 vs 0.019 local), not local caches.</li>
+            <li><b>Unusually transparent</b> — 512K key-pool reuse, non-additive interventions, and the Qwen Source 0% artifact are disclosed in the paper itself.</li>
+          </ul>
+        </article>
+        <article class="card lim">
+          <h2 class="lim-h">Limitations</h2>
+          <ul>
+            <li><b>Only four updates</b>, all same-architecture/same-size pairs; update magnitude, architectural tweaks, and open-weights replication unstudied.</li>
+            <li><b>TTFT accounting excludes</b> source prefill, cache storage, versioned cache management, and page-format migration across serving-stack upgrades.</li>
+            <li><b>No per-query flip predictor</b> before deployment; multi-hop QA loses up to −7.0 F1 — reuse is not safe for reasoning-heavy workloads at long prefixes.</li>
+            <li><b>Best results on 750B/552B models</b> with excellent native retrieval — the regime where reuse matters least and the hardware barrier is highest.</li>
+            <li><b>Mechanistic coverage is thin</b>: three inspected layers, 96+48-query cohorts; FCD at a single answer position.</li>
+            <li><b>Greedy decoding only</b>; sampling and generations beyond ~48 tokens untested.</li>
+          </ul>
+        </article>
+      </div>
+    </section>
+
+    <!-- Questions -->
+    <article id="questions" class="card wide reveal qs">
+      <h2>Questions for Further Exploration</h2>
+      <ol>
+        <li>Can <b>update magnitude</b> (KL between old/new outputs) predict per-prefix reuse safety before deployment — turning post-hoc FCD into an admission-control signal?</li>
+        <li>Does the retrieval-vs-continuation FCD gap (30.62 vs 3.51 @32K) persist for multi-hop reasoning, code completion, and agentic tool-call traces?</li>
+        <li>Would hybrid policies — direct reuse for natural text, selective recomputation for retrieval-critical regions — recover the lost 3–7 F1 while keeping most of the speedup?</li>
+        <li>Since drift propagates through hidden states rather than local caches, can an early-layer "drift firewall" (recomputing a few shallow layers) cheaply bound divergence?</li>
+        <li>Do the findings transfer to open-weights models — and does MoE expert-assignment drift explain part of the Qwen failure mode?</li>
+        <li>What is the end-to-end systems cost of maintaining versioned prefix caches (storage, format migration, staleness policy)?</li>
+      </ol>
+    </article>
+
+  </main>
+
+  <footer>
+    <a href="./2611.14051.md">↗ Markdown source</a>
+    <a href="https://arxiv.org/abs/2611.14051">↗ arXiv abstract</a>
+    <p class="fine">Assets extracted from the curated summary, not verified against the PDF.</p>
+  </footer>
+
+</div>
+
+<script>
+(function(){
+  var reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  /* reveal cards */
+  var els = document.querySelectorAll('.reveal');
+  if (reduce || !('IntersectionObserver' in window)) {
+    els.forEach(function(e){ e.classList.add('in'); });
+  } else {
+    var io = new IntersectionObserver(function(entries){
+      entries.forEach(function(en){
+        if (en.isIntersecting) { en.target.classList.add('in'); io.unobserve(en.target); }
+      });
+    }, {threshold: .12});
+    els.forEach(function(e){ io.observe(e); });
+  }
+
+  /* count-up metric 0 -> 5.08 */
+  var numEl = document.getElementById('metricNum');
+  var target = 5.08;
+  function setFinal(){ numEl.textContent = target.toFixed(2); }
+  if (reduce) { setFinal(); }
+  else {
+    var started = false;
+    var run = function(){
+      if (started) return; started = true;
+      var t0 = null, D = 1100;
+      function step(ts){
+        if (!t0) t0 = ts;
+        var p = Math.min((ts - t0) / D, 1);
+        var e = 1 - Math.pow(1 - p, 3); /* easeOutCubic */
+        numEl.textContent = (target * e).toFixed(2);
+        if (p < 1) requestAnimationFrame(step); else setFinal();
+      }
+      requestAnimationFrame(step);
+    };
+    if ('IntersectionObserver' in window) {
+      var io2 = new IntersectionObserver(function(en){
+        if (en[0].isIntersecting) { run(); io2.disconnect(); }
+      }, {threshold: .4});
+      io2.observe(numEl);
+    } else run();
+  }
+
+  /* animate HFR bars to data-w % */
+  var bars = document.querySelectorAll('.hfr .bar');
+  function fill(){
+    bars.forEach(function(b){ b.style.width = b.getAttribute('data-w') + '%'; });
+  }
+  if (reduce || !('IntersectionObserver' in window)) {
+    bars.forEach(function(b){ b.style.transition = 'none'; }); fill();
+  } else {
+    var io3 = new IntersectionObserver(function(en){
+      if (en[0].isIntersecting) { fill(); io3.disconnect(); }
+    }, {threshold: .3});
+    io3.observe(document.querySelector('.hfr'));
+  }
+})();
+</script>
+
+</body>
+</html>

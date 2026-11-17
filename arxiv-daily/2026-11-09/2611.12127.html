@@ -1,0 +1,462 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Lost in Rounding — bf16 Recurrent State Makes Hybrid Reasoning Models Think Longer (2611.12127)</title>
+<meta name="description" content="Dashboard: bf16 round-to-nearest recurrent-state rounding lengthens hybrid reasoning models' chains; same-width stochastic rounding fixes it at zero cost.">
+<style>
+  :root{
+    --accent:#c2410c;          /* burnt orange — rounding-error warning */
+    --accent-soft:#fdebe0;
+    --ink:#221a13;
+    --ink-soft:#6b5d4e;
+    --paper:#f7f2ea;
+    --card:#fffdf8;
+    --line:#e4dac9;
+    --line-strong:#d3c5ae;
+    --dark:#241c14;
+    --dark-text:#f3ece1;
+    --maxw:min(95vw,1100px);
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei","Noto Sans CJK SC",sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{scroll-behavior:smooth}
+  body{
+    font-family:var(--sans);
+    background:var(--paper);
+    color:var(--ink);
+    line-height:1.7;
+    -webkit-font-smoothing:antialiased;
+  }
+  ::selection{background:var(--accent);color:#fff}
+  a{color:var(--accent);text-decoration:none}
+  a:hover{text-decoration:underline}
+  a:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+  /* ---------- fixed nav ---------- */
+  .topnav{
+    position:fixed;top:14px;left:14px;z-index:50;
+    background:var(--card);
+    border:1px solid var(--line-strong);
+    border-radius:999px;
+    padding:5px 14px;
+    font-size:13px;font-weight:600;
+    box-shadow:0 1px 4px rgba(34,26,19,.08);
+  }
+  .topnav a{color:var(--ink)}
+  .topnav a:hover{color:var(--accent);text-decoration:none}
+
+  .wrap{width:var(--maxw);margin:0 auto;padding:0 0 40px}
+
+  /* ---------- hero ---------- */
+  .hero{padding:76px 0 26px;border-bottom:3px solid var(--ink)}
+  .kicker{
+    font-size:12px;font-weight:800;letter-spacing:.22em;
+    text-transform:uppercase;color:var(--accent);
+    display:flex;align-items:center;gap:10px;
+  }
+  .kicker::after{content:"";flex:0 0 44px;height:2px;background:var(--accent)}
+  .hero h1{
+    margin:14px 0 12px;
+    font-size:clamp(27px,4.3vw,50px);
+    line-height:1.18;font-weight:800;letter-spacing:-.015em;
+    max-width:20ch;
+    text-wrap:balance;
+  }
+  .hero h1 .acc{color:var(--accent)}
+  .hero .zh{
+    font-size:clamp(14px,1.5vw,16.5px);
+    color:var(--ink-soft);
+    max-width:62ch;line-height:1.9;
+    border-left:3px solid var(--line-strong);
+    padding-left:14px;margin-bottom:22px;
+  }
+  .paper-meta{display:flex;flex-wrap:wrap;gap:6px 26px;align-items:baseline}
+  .paper-title{
+    font-size:15.5px;font-weight:700;color:var(--ink);
+    border-bottom:2px solid var(--accent);
+  }
+  .paper-title:hover{color:var(--accent)}
+  .meta-line{font-size:13px;color:var(--ink-soft)}
+  .meta-line b{color:var(--ink);font-weight:600}
+  .chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+  .chip{
+    font-size:11.5px;font-weight:600;letter-spacing:.04em;
+    border:1px solid var(--accent);color:var(--accent);
+    border-radius:999px;padding:2px 11px;background:var(--accent-soft);
+  }
+
+  /* ---------- asset row ---------- */
+  .assets{
+    display:grid;grid-template-columns:5fr 4fr 4fr;
+    gap:14px;margin:20px 0 34px;
+  }
+  .card{
+    background:var(--card);
+    border:1px solid var(--line);
+    border-radius:10px;
+    padding:20px 22px;
+    box-shadow:0 1px 3px rgba(34,26,19,.05);
+  }
+  .card .label{
+    font-size:11px;font-weight:800;letter-spacing:.2em;
+    text-transform:uppercase;color:var(--ink-soft);
+    margin-bottom:10px;display:flex;align-items:center;gap:8px;
+  }
+  .card .label::before{content:"";width:8px;height:8px;background:var(--accent);border-radius:2px}
+
+  .metric .num{
+    font-size:clamp(56px,6.5vw,84px);
+    font-weight:800;letter-spacing:-.03em;line-height:1;
+    color:var(--accent);font-variant-numeric:tabular-nums;
+    display:flex;align-items:baseline;gap:8px;
+  }
+  .metric .num .unit{font-size:.32em;font-weight:700;color:var(--ink);letter-spacing:0}
+  .metric .ctx{font-size:14px;margin-top:10px;color:var(--ink)}
+  .metric .ctx b{font-weight:700}
+  .metric .sub{
+    margin-top:12px;padding-top:10px;border-top:1px dashed var(--line-strong);
+    font-size:12.5px;color:var(--ink-soft);font-variant-numeric:tabular-nums;
+  }
+  .matters p{font-size:15.5px;line-height:1.65;font-weight:500}
+  .matters .src{font-size:12px;color:var(--ink-soft);margin-top:10px}
+
+  .edge{
+    background:var(--dark);color:var(--dark-text);
+    border:1px solid var(--dark);
+  }
+  .edge .label{color:#d8c9b4}
+  .edge .label::before{background:var(--accent)}
+  .edge p{font-size:15.5px;line-height:1.65;font-weight:500}
+  .edge p b{color:#ffb185;font-weight:700}
+  .edge .src{font-size:12px;color:#b3a48d;margin-top:10px}
+
+  /* ---------- body grid ---------- */
+  .body-grid{
+    display:grid;grid-template-columns:repeat(12,1fr);
+    gap:14px;
+  }
+  .sec-title{
+    font-size:19px;font-weight:800;letter-spacing:-.01em;
+    display:flex;align-items:baseline;gap:10px;margin-bottom:12px;
+  }
+  .sec-title .no{
+    font-size:12px;font-weight:800;color:var(--accent);
+    font-variant-numeric:tabular-nums;letter-spacing:.08em;
+  }
+  .method{grid-column:span 5}
+  .results{grid-column:span 7}
+  .panels{grid-column:span 12;display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  .questions{grid-column:span 12}
+
+  .body-grid ul{list-style:none}
+  .body-grid ul li{
+    padding:7px 0 7px 20px;
+    position:relative;
+    font-size:14px;line-height:1.65;
+    border-bottom:1px solid var(--paper);
+  }
+  .body-grid ul li:last-child{border-bottom:none}
+  .body-grid ul li::before{
+    content:"";position:absolute;left:2px;top:16px;
+    width:8px;height:2px;background:var(--accent);
+  }
+  .body-grid ul li b{font-weight:700}
+  .fineprint{
+    margin-top:12px;padding-top:10px;border-top:1px dashed var(--line-strong);
+    font-size:12px;color:var(--ink-soft);line-height:1.6;
+  }
+
+  /* tables */
+  table{width:100%;border-collapse:collapse;font-size:13.5px;margin:6px 0 4px}
+  th{
+    text-align:left;font-size:11px;font-weight:800;letter-spacing:.12em;
+    text-transform:uppercase;color:var(--ink-soft);
+    border-bottom:2px solid var(--ink);
+    padding:6px 8px;white-space:nowrap;
+  }
+  td{
+    padding:8px;border-bottom:1px solid var(--line);
+    font-variant-numeric:tabular-nums;vertical-align:middle;
+  }
+  tr:hover td{background:var(--accent-soft)}
+  td.model b{font-weight:700}
+  td.model span{display:block;font-size:11.5px;color:var(--ink-soft)}
+  .ratio{font-weight:800;color:var(--accent);font-size:15px}
+  .null{color:var(--ink-soft);font-weight:600}
+  .bar{
+    height:8px;background:var(--accent);border-radius:2px;
+    min-width:2px;margin-top:4px;
+  }
+  .bar-note{font-size:11.5px;color:var(--ink-soft);margin-bottom:10px}
+  .result-cols{display:grid;grid-template-columns:1fr 1fr;gap:0 22px}
+  .result-cols > div > h4{
+    font-size:12px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;
+    color:var(--accent);margin:12px 0 4px;
+  }
+  .mini-note{font-size:12.5px;color:var(--ink-soft);line-height:1.6}
+
+  /* strengths vs limitations */
+  .str .sec-title{color:#166534}
+  .str ul li::before{background:#166534}
+  .lim .sec-title{color:var(--accent)}
+  .str{border-top:4px solid #166534}
+  .lim{border-top:4px solid var(--accent)}
+
+  /* questions */
+  .questions ol{list-style:none;counter-reset:q;display:grid;grid-template-columns:1fr 1fr;gap:2px 26px}
+  .questions ol li{
+    counter-increment:q;
+    font-size:13.5px;line-height:1.65;
+    padding:9px 0 9px 34px;position:relative;
+    border-bottom:1px solid var(--paper);
+  }
+  .questions ol li::before{
+    content:counter(q,decimal-leading-zero);
+    position:absolute;left:0;top:10px;
+    font-size:12px;font-weight:800;color:var(--accent);
+    font-variant-numeric:tabular-nums;letter-spacing:.05em;
+  }
+
+  /* footer */
+  .foot{
+    margin-top:26px;padding-top:16px;border-top:3px solid var(--ink);
+    display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;
+    font-size:13px;color:var(--ink-soft);
+  }
+  .foot a{font-weight:700}
+
+  /* reveal (JS-gated so no-JS users see everything) */
+  .js .reveal{opacity:0;transform:translateY(14px);transition:opacity .5s ease,transform .5s ease}
+  .js .reveal.in{opacity:1;transform:none}
+  @media (prefers-reduced-motion:reduce){
+    html{scroll-behavior:auto}
+    .js .reveal{opacity:1;transform:none;transition:none}
+  }
+
+  /* ---------- responsive ---------- */
+  @media (max-width:960px){
+    .assets{grid-template-columns:1fr 1fr}
+    .metric{grid-column:span 2}
+    .method,.results{grid-column:span 12}
+  }
+  @media (max-width:720px){
+    .assets{grid-template-columns:1fr;gap:12px;margin:16px 0 26px}
+    .metric{grid-column:span 1}
+    .panels{grid-template-columns:1fr}
+    .hero{padding-top:88px}
+    .result-cols{grid-template-columns:1fr}
+    .questions ol{grid-template-columns:1fr}
+    .hero h1{max-width:none}
+  }
+</style>
+</head>
+<body>
+
+<nav class="topnav"><a href="./index.html">↩ Today's digest</a></nav>
+
+<main class="wrap">
+
+  <!-- ================= HERO ================= -->
+  <header class="hero reveal in">
+    <div class="kicker">Key Finding</div>
+    <h1><span class="acc">Rounding bias</span> in bf16 recurrent-state caches — <span class="acc">not lost precision</span> — silently makes hybrid reasoning models think longer.</h1>
+    <p class="zh">bf16 循环状态的舍入偏差（而非精度不足）让混合推理模型思维链变长、触顶与重复循环增多；同位宽随机舍入以 bf16 的显存与速度恢复 FP32 行为。</p>
+    <div class="paper-meta">
+      <a class="paper-title" href="https://arxiv.org/abs/2611.12127">Lost in Rounding: bf16 Recurrent State Makes Hybrid Reasoning Models Think Longer</a>
+      <span class="meta-line"><b>Yuchuan Weng · Xin Chen · Chi Liu</b> — PayPal AI</span>
+      <span class="meta-line">2026-11-09 · arXiv 2611.12127</span>
+    </div>
+    <div class="chips">
+      <span class="chip">hybrid reasoning models</span>
+      <span class="chip">recurrent-state quantization</span>
+      <span class="chip">stochastic rounding</span>
+      <span class="chip">Mamba-2 · GDN</span>
+      <span class="chip">inference efficiency</span>
+    </div>
+  </header>
+
+  <!-- ================= ASSET ROW ================= -->
+  <section class="assets">
+    <div class="card metric reveal in">
+      <div class="label">Key Metric</div>
+      <div class="num">−14.8<span class="unit">pts</span></div>
+      <p class="ctx">Qwen3.5-9B competition-math accuracy, bf16 RTN state vs FP32 — <b>85.6% → 70.8%</b> (McNemar p = 2e−14); every one of the 112 lost items was a capped run.</p>
+      <div class="sub">32K cap hits rise 118 → 223 · length inflation ×1.07–×1.27 across 5 of 6 models · LiveCodeBench pass@1 −12.6 / −13.4 pts</div>
+    </div>
+
+    <div class="card matters reveal in">
+      <div class="label">Why This Matters</div>
+      <p>A silent engine dtype default for the recurrent state can cost 12–15 points on math and code benchmarks — serving and evaluation practices must change.</p>
+      <p class="src">Distilled from 「Relevance」+ Critical Assessment (vLLM ships bf16, SGLang ships FP32 — for the same config).</p>
+    </div>
+
+    <div class="card edge reveal in">
+      <div class="label">Critical Edge</div>
+      <p>Stochastic rounding is billed as the fix, yet it <b>fails on the one MoE model tested</b> — Nemotron-3's unexplained ×1.05 bulk length shift survives full-head SR.</p>
+      <p class="src">Critical Assessment, red flag (1); head-localization story also rests on a single model lineage.</p>
+    </div>
+  </section>
+
+  <!-- ================= BODY GRID ================= -->
+  <section class="body-grid">
+
+    <!-- Methodology -->
+    <div class="card method reveal">
+      <h2 class="sec-title"><span class="no">01</span>Methodology</h2>
+      <ul>
+        <li><b>Controlled paired comparison</b> on SGLang 0.5.21, 8× RTX PRO 6000 Blackwell. Only the recurrent-state dtype changes between arms (FP32 / bf16 RTN / bf16 + SR); weights and activations stay bf16.</li>
+        <li><b>Six open hybrids:</b> Nemotron-Nano-9B/12B-v2 (Mamba-2), Nemotron-3-Nano-30B-A3B (Mamba-2 MoE), Qwen3.5-9B &amp; Qwen3-Next-80B-A3B (Gated DeltaNet), Falcon-H1R-7B (parallel attention + Mamba).</li>
+        <li><b>590 competition-math problems</b> (MATH-500 + AIME 2024/25 + HMMT Feb 2025) under a 32K output cap, plus LiveCodeBench v6 (175 × 2) for two models; greedy (T=0) arms rule out sampling artifacts.</li>
+        <li><b>Statistics:</b> Wilcoxon on paired log length ratios; exact McNemar on accuracy; intervention effect F<sub>log</sub> with 4,000-resample bootstrap CIs.</li>
+        <li><b>SR kernels:</b> 16 random bits inserted below the bf16 mantissa before truncation (same storage as RTN); fast variant uses a lowbias32 integer-hash RNG, fresh 32-bit seed per decode step.</li>
+      </ul>
+      <p class="fineprint">Hygiene: pre-registered pass/fail criteria (failures reported), concurrency-matched controls, FP32 seed replication, bitwise-identity check of kernels with SR off. Kernels described but not stated to be publicly released.</p>
+    </div>
+
+    <!-- Results -->
+    <div class="card results reveal">
+      <h2 class="sec-title"><span class="no">02</span>Results</h2>
+
+      <h4 style="font-size:12px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:var(--accent);margin:4px 0 2px">Length inflation, bf16 RTN vs FP32 (590 problems)</h4>
+      <div class="bar-note">bar = extra generated tokens vs FP32 (scale: max +26.5%)</div>
+      <table>
+        <thead>
+          <tr><th>Model</th><th>Length ×</th><th>Excess length</th><th>Math acc. FP32 → bf16</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="model"><b>Qwen3.5-9B</b><span>Gated DeltaNet</span></td>
+            <td class="ratio">×1.265</td>
+            <td><div class="bar" style="width:100%"></div></td>
+            <td>85.6% → <b>70.8%</b> (p=2e−14)</td>
+          </tr>
+          <tr>
+            <td class="model"><b>Nemotron-Nano-9B-v2</b><span>Mamba-2</span></td>
+            <td class="ratio">×1.197</td>
+            <td><div class="bar" style="width:74%"></div></td>
+            <td>—</td>
+          </tr>
+          <tr>
+            <td class="model"><b>Nemotron-Nano-12B-v2</b><span>Mamba-2</span></td>
+            <td class="ratio">×1.188</td>
+            <td><div class="bar" style="width:71%"></div></td>
+            <td>—</td>
+          </tr>
+          <tr>
+            <td class="model"><b>Nemotron-3-Nano-30B-A3B</b><span>Mamba-2 MoE</span></td>
+            <td class="ratio">×1.081</td>
+            <td><div class="bar" style="width:31%"></div></td>
+            <td>92.5% → <b>87.3%</b> (p=3e−7)</td>
+          </tr>
+          <tr>
+            <td class="model"><b>Qwen3-Next-80B-A3B</b><span>Gated DeltaNet</span></td>
+            <td class="ratio">×1.070</td>
+            <td><div class="bar" style="width:26%"></div></td>
+            <td>—</td>
+          </tr>
+          <tr>
+            <td class="model"><b>Falcon-H1R-7B</b><span>parallel Attn + Mamba</span></td>
+            <td class="null">×1.008 — null</td>
+            <td><div class="bar" style="width:3%;background:var(--line-strong)"></div></td>
+            <td class="null">p = 0.66, unexplained</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="result-cols">
+        <div>
+          <h4>The fix — same-width bf16 SR</h4>
+          <table>
+            <thead><tr><th>Qwen3.5-9B</th><th>Acc.</th><th>Caps</th></tr></thead>
+            <tbody>
+              <tr><td>FP32 state</td><td>85.6%</td><td>118</td></tr>
+              <tr><td>bf16 RTN</td><td><b>70.8%</b></td><td><b>223</b></td></tr>
+              <tr><td>bf16 + SR</td><td><b>87.6%</b></td><td>111</td></tr>
+            </tbody>
+          </table>
+          <p class="mini-note">SR restores FP32-level behavior in 4 of 5 affected models, at identical bf16 storage — pinning the cause on rounding bias, not resolution.</p>
+        </div>
+        <div>
+          <h4>Zero-cost, decoded</h4>
+          <ul>
+            <li><b>10,393 vs 10,163 tokens/s</b> — hash-RNG SR is as fast as RTN end-to-end (default Philox SR: only 30–60% decode speed).</li>
+            <li><b>128K rerun (n=268):</b> accuracy gap halves (93.6% vs 86.6%) but never-finishing runs stay 2× more common (66 vs 17) — <b>85% are exact repetition loops</b>; median length 41,949 vs 19,951 tokens.</li>
+            <li><b>Head localization:</b> SR on one intermediate-decay band (25% of heads) removes nearly the whole effect (F<sub>log</sub>=1.03); the octile with the largest teacher-forced KL share (49%) removes nothing — <b>KL misranks head groups</b>.</li>
+          </ul>
+        </div>
+      </div>
+      <p class="fineprint">Context: a prior vLLM bug fix saw FP32 state cut cap hits 23% → 0.25% and lift requests/s 2.55×; Nemotron 3 Super reported up to 37% FP16 verbosity increase. Engine defaults still differ silently today.</p>
+    </div>
+
+    <!-- Strengths / Limitations -->
+    <div class="panels">
+      <div class="card str reveal">
+        <h2 class="sec-title"><span class="no">03</span>Strengths</h2>
+        <ul>
+          <li><b>Clean causal separation</b> of rounding bias from format resolution via same-width SR — resolves conflicting prior reports (LeapQuant vs DAMP).</li>
+          <li><b>Practically free fix:</b> integer-hash RNG turns a diagnostic into a deployable repair at bf16 memory footprint (2× the concurrency of FP32 state).</li>
+          <li><b>128K rerun decomposes the loss</b> into budget-limited verbosity vs non-termination, exposing how both-finished metrics hide the second failure.</li>
+          <li><b>Rare honesty:</b> pre-registered criteria published with failures included; concrete negative results (KL misranking, non-transferring bands).</li>
+          <li><b>Actionable guidance:</b> report state dtype, rounding mode, cap rate, and length with accuracy.</li>
+        </ul>
+      </div>
+      <div class="card lim reveal">
+        <h2 class="sec-title"><span class="no">04</span>Limitations</h2>
+        <ul>
+          <li><b>Single seed</b> for most arms; one engine (SGLang 0.5.21), one GPU type; only 32 rerun items in the Nemotron-9B 128K analysis.</li>
+          <li><b>Narrow task coverage:</b> competition math + one code benchmark — no long-context, agentic, or open-ended generation.</li>
+          <li><b>SR is decode-only</b> — prefill state writes still use RTN; fast hash variant validated end-to-end on Qwen3.5-9B only.</li>
+          <li><b>No general allocation recipe:</b> decay-band localization holds in one lineage; fails on Nemotron-3 and Qwen3.5-9B.</li>
+          <li><b>Unexplained anomalies:</b> Falcon-H1R null and Nemotron-3's residual ×1.05 shift; toy integrator explains only the band's upper edge.</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- Questions -->
+    <div class="card questions reveal">
+      <h2 class="sec-title"><span class="no">05</span>Questions for Further Exploration</h2>
+      <ol>
+        <li>Why is Falcon-H1R-7B (parallel attention + Mamba per layer) immune — parallel mixing, state size, or its decay-rate distribution?</li>
+        <li>What causes Nemotron-3's residual ×1.05 bulk shift that survives full-head SR — MoE routing rather than state rounding?</li>
+        <li>Do the lengthening and exact-loop non-termination appear in long-context and agentic workloads, where state drift has more steps to accumulate?</li>
+        <li>Can hash-RNG SR extend to INT8/FP8 state caches, and does the bias-vs-resolution split hold at 8 bits?</li>
+        <li>Is there a closed-loop, generation-based proxy cheaper than full benchmark reruns for validating per-head precision allocation?</li>
+        <li>Do bf16 RTN repetition loops share a mechanistic signature with overthinking loops under weight quantization — a common numerical-origin failure mode?</li>
+      </ol>
+    </div>
+
+  </section>
+
+  <footer class="foot">
+    <span>Dashboard generated from the paper summary · 2611.12127 · 2026-11-09</span>
+    <a href="./2611.12127.md">↗ Markdown source</a>
+  </footer>
+
+</main>
+
+<script>
+(function () {
+  var doc = document.documentElement;
+  doc.classList.add('js');
+  var cards = Array.prototype.slice.call(document.querySelectorAll('.reveal'));
+  var reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (reduced || !('IntersectionObserver' in window)) {
+    cards.forEach(function (c) { c.classList.add('in'); });
+    return;
+  }
+  var io = new IntersectionObserver(function (entries) {
+    entries.forEach(function (e) {
+      if (e.isIntersecting) {
+        e.target.classList.add('in');
+        io.unobserve(e.target);
+      }
+    });
+  }, { threshold: 0.08, rootMargin: '0px 0px -20px 0px' });
+  cards.forEach(function (c) { io.observe(c); });
+})();
+</script>
+
+</body>
+</html>

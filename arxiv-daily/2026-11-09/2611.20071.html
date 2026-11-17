@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>2611.20071 — The Silent Cost of Conversation History in LLM Reasoning</title>
+<meta name="description" content="Dashboard: keeping an LLM's own replies in context is a silent reliability hazard — accuracy collapses and no monitor sees it.">
+<style>
+  :root{
+    --bg:#faf8f5;
+    --ink:#1c1917;
+    --muted:#6f6862;
+    --faint:#9a928a;
+    --line:#e6e0d6;
+    --card:#ffffff;
+    --accent:#d9480f;         /* topic color: drift / silent failure — burnt orange */
+    --accent-soft:#fdeee4;
+    --accent-bright:#ff7a2f;  /* tint of the same accent, for dark surfaces */
+    --dark:#211d1a;
+    --dark-text:#f4efe8;
+    --dark-muted:#b9b0a6;
+    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{scroll-behavior:smooth}
+  body{
+    background:var(--bg);
+    color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Source Han Sans SC","Microsoft YaHei","Noto Sans CJK SC",sans-serif;
+    font-size:16px;
+    line-height:1.7;
+  }
+  a{color:var(--accent);text-decoration:none}
+  a:hover{text-decoration:underline}
+  ::selection{background:var(--accent);color:#fff}
+
+  /* scroll progress */
+  #progress{position:fixed;top:0;left:0;right:0;height:3px;background:var(--accent);transform:scaleX(0);transform-origin:0 50%;z-index:60}
+
+  /* fixed nav */
+  .digest-nav{
+    position:fixed;top:14px;left:14px;z-index:50;
+    background:var(--bg);border:1px solid var(--line);border-radius:999px;
+    padding:6px 14px;font-size:.8rem;font-weight:600;color:var(--ink);
+    box-shadow:0 1px 3px rgba(28,25,23,.06);
+  }
+  .digest-nav:hover{border-color:var(--accent);color:var(--accent);text-decoration:none}
+
+  .wrap{width:min(95vw,1100px);margin:0 auto;padding:64px 0 0}
+
+  /* ---------- HERO ---------- */
+  .hero{padding:26px 0 26px;border-bottom:2px solid var(--ink)}
+  .kicker{
+    font-family:var(--mono);font-size:.72rem;letter-spacing:.14em;text-transform:uppercase;
+    color:var(--accent);font-weight:700;margin-bottom:14px;
+  }
+  .kicker .sep{color:var(--faint);margin:0 6px}
+  h1.finding{
+    font-size:clamp(1.7rem,4.3vw,3.3rem);
+    line-height:1.14;font-weight:800;letter-spacing:-.02em;
+    max-width:22ch;margin-bottom:16px;
+  }
+  h1.finding em{font-style:normal;color:var(--accent);
+    box-shadow:inset 0 -.14em 0 var(--accent-soft)}
+  .zh-line{
+    font-size:.92rem;color:var(--muted);line-height:1.8;max-width:72ch;
+    border-left:3px solid var(--line);padding-left:14px;margin-bottom:20px;
+  }
+  .hero-meta{display:flex;flex-wrap:wrap;align-items:baseline;gap:8px 18px}
+  .paper-title{font-size:1.02rem;font-weight:650;color:var(--ink)}
+  .paper-title:hover{color:var(--accent)}
+  .byline{font-size:.85rem;color:var(--muted)}
+  .byline b{color:var(--ink);font-weight:600}
+  .chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}
+  .chip{
+    font-size:.72rem;font-weight:600;letter-spacing:.02em;
+    border:1px solid var(--line);background:var(--card);color:var(--muted);
+    border-radius:999px;padding:3px 11px;
+  }
+  .chip.hot{border-color:var(--accent);color:var(--accent);background:var(--accent-soft)}
+
+  /* ---------- ASSET ROW ---------- */
+  .assets{
+    display:grid;grid-template-columns:1.15fr 1fr 1.05fr;gap:14px;
+    margin:22px 0 10px;
+  }
+  .asset{
+    background:var(--card);border:1px solid var(--line);border-radius:10px;
+    padding:20px 22px 18px;position:relative;overflow:hidden;
+  }
+  .asset .tag{
+    font-family:var(--mono);font-size:.68rem;font-weight:700;letter-spacing:.16em;
+    text-transform:uppercase;color:var(--accent);margin-bottom:12px;
+  }
+  .metric-num{
+    font-family:var(--mono);font-weight:700;letter-spacing:-.03em;
+    font-size:clamp(2.5rem,4.8vw,3.7rem);line-height:1.05;color:var(--ink);
+    display:flex;align-items:baseline;gap:.18em;white-space:nowrap;
+  }
+  .metric-num .to{color:var(--faint);font-size:.55em;transform:translateY(-.08em)}
+  .metric-num .bad{color:var(--accent)}
+  .metric-sub{font-size:.85rem;color:var(--muted);margin-top:10px;line-height:1.55}
+  .metric-side{display:flex;gap:22px;margin-top:14px;padding-top:12px;border-top:1px dashed var(--line)}
+  .metric-side div{font-size:.78rem;color:var(--muted)}
+  .metric-side b{display:block;font-family:var(--mono);font-size:1.05rem;color:var(--ink);font-weight:700}
+  .asset.why p{font-size:.98rem;font-weight:500;line-height:1.6;max-width:30ch}
+  .asset.why .arrow{color:var(--accent);font-weight:800}
+  .asset.edge{background:var(--dark);border-color:var(--dark);color:var(--dark-text)}
+  .asset.edge .tag{color:var(--accent-bright)}
+  .asset.edge p{font-size:.95rem;line-height:1.62}
+  .asset.edge p b{color:var(--accent-bright)}
+  .asset.edge .glyph{
+    position:absolute;right:14px;top:10px;font-size:1.5rem;color:var(--accent-bright);opacity:.5;
+  }
+
+  /* ---------- BODY GRID ---------- */
+  .grid{
+    display:grid;grid-template-columns:repeat(12,1fr);gap:14px;margin:26px 0 0;
+  }
+  .card{
+    background:var(--card);border:1px solid var(--line);border-radius:10px;
+    padding:24px 26px;
+  }
+  .card h2{
+    font-size:.78rem;font-family:var(--mono);font-weight:700;letter-spacing:.16em;
+    text-transform:uppercase;color:var(--muted);margin-bottom:14px;
+    display:flex;align-items:center;gap:8px;
+  }
+  .card h2::before{content:"";width:10px;height:10px;background:var(--accent);
+    clip-path:polygon(0 0,100% 50%,0 100%);flex:none}
+  .m-method{grid-column:span 5}
+  .m-results{grid-column:span 7}
+  .m-strengths{grid-column:span 6}
+  .m-limits{grid-column:span 6}
+  .m-questions{grid-column:span 12}
+
+  .card ul{list-style:none}
+  .card ul li{
+    padding:7px 0 7px 20px;position:relative;font-size:.9rem;line-height:1.65;
+    border-bottom:1px solid #f0ebe2;
+  }
+  .card ul li:last-child{border-bottom:none}
+  .card ul li::before{content:"▸";position:absolute;left:2px;color:var(--accent);font-size:.8rem;top:9px}
+  .card ul li b{font-weight:650}
+  .m-limits ul li::before{content:"▾";color:var(--faint)}
+  .m-strengths ul li::before{content:"▴";color:var(--accent)}
+
+  /* tables */
+  .tbl-title{font-size:.8rem;font-weight:700;margin:16px 0 6px;color:var(--ink)}
+  .tbl-title span{color:var(--faint);font-weight:500}
+  table{width:100%;border-collapse:collapse;font-size:.85rem}
+  th{
+    text-align:left;font-size:.68rem;font-family:var(--mono);letter-spacing:.08em;
+    text-transform:uppercase;color:var(--faint);font-weight:700;
+    padding:6px 10px;border-bottom:2px solid var(--ink);
+  }
+  td{padding:8px 10px;border-bottom:1px solid #efe9df;vertical-align:top}
+  td.num,th.num{text-align:right}
+  td .v{font-family:var(--mono);font-weight:600}
+  td .v.bad{color:var(--accent)}
+  td .v.dim{color:var(--muted);font-weight:500}
+  .bar{display:block;height:4px;background:#eee7db;border-radius:2px;margin-top:5px;overflow:hidden}
+  .bar i{display:block;height:100%;width:0;background:#c9c0b2;transition:width .9s cubic-bezier(.2,.7,.2,1)}
+  .bar.hot i{background:var(--accent)}
+  .in .bar i{width:var(--w)}
+  .tbl-note{font-size:.74rem;color:var(--faint);margin-top:6px;line-height:1.55}
+  .facts li b{font-family:var(--mono)}
+
+  /* questions */
+  .qgrid{display:grid;grid-template-columns:1fr 1fr;gap:0 34px}
+  .q{display:flex;gap:14px;padding:10px 0;border-bottom:1px solid #f0ebe2;font-size:.88rem;line-height:1.6}
+  .q:last-child{border-bottom:none}
+  .q .n{font-family:var(--mono);font-weight:700;color:var(--accent);flex:none;font-size:.85rem;padding-top:1px}
+
+  /* footer */
+  footer{
+    margin:30px 0 0;padding:22px 0 34px;border-top:2px solid var(--ink);
+    display:flex;flex-wrap:wrap;gap:10px 28px;align-items:baseline;justify-content:space-between;
+  }
+  .src-link{font-weight:700;font-size:.92rem}
+  .cred{font-size:.74rem;color:var(--faint);line-height:1.7;max-width:62ch}
+  footer .links{display:flex;gap:20px;font-size:.82rem}
+
+  /* reveal animation */
+  .reveal{opacity:0;transform:translateY(12px);transition:opacity .55s ease,transform .55s ease}
+  .reveal.in{opacity:1;transform:none}
+  @media (prefers-reduced-motion:reduce){
+    .reveal{opacity:1;transform:none;transition:none}
+    .bar i{transition:none;width:var(--w)}
+  }
+
+  /* responsive */
+  @media (max-width:980px){
+    .assets{grid-template-columns:1fr}
+    .m-method,.m-results,.m-strengths,.m-limits,.m-questions{grid-column:span 12}
+  }
+  @media (max-width:720px){
+    .wrap{padding-top:76px}
+    .qgrid{grid-template-columns:1fr}
+    .metric-side{flex-wrap:wrap;gap:12px}
+    h1.finding{max-width:none}
+  }
+</style>
+</head>
+<body>
+<div id="progress"></div>
+<a class="digest-nav" href="./index.html">↩ Today's digest</a>
+
+<div class="wrap">
+
+  <!-- ================= HERO ================= -->
+  <header class="hero">
+    <div class="kicker">arXiv 2611.20071<span class="sep">·</span>Pre-registered reliability studies<span class="sep">·</span>Nov 2026</div>
+
+    <h1 class="finding">Keeping an LLM&rsquo;s own replies in context is a <em>silent reliability hazard</em> — accuracy collapses, and no monitor sees it coming.</h1>
+
+    <p class="zh-line" lang="zh">保留 LLM 自己的历史回复会把多轮任务成功率拉低 0.21–0.29；在 100 轮状态追踪基准 CDR-Stream 上，完整历史让准确率约 20 轮内从 ~0.6 崩塌到 ~0.1，而所有过程质量指标与漂移检测器均无法预警——稳定性甚至随准确率下降而上升。</p>
+
+    <div class="hero-meta">
+      <a class="paper-title" href="https://arxiv.org/abs/2611.20071">The Silent Cost of Conversation History in LLM Reasoning ↗</a>
+      <span class="byline"><b>Ali Şenol</b> · Tarsus University · 2026-11-09</span>
+    </div>
+    <div class="chips">
+      <span class="chip hot">multi-turn dialogue</span>
+      <span class="chip">conversation history</span>
+      <span class="chip">state tracking</span>
+      <span class="chip">drift detection</span>
+      <span class="chip">LLM reliability</span>
+    </div>
+  </header>
+
+  <!-- ================= ASSET ROW ================= -->
+  <section class="assets">
+
+    <div class="asset metric reveal">
+      <div class="tag">Key metric · context collapse</div>
+      <div class="metric-num">0.6<span class="to">→</span><span class="bad">0.1</span></div>
+      <p class="metric-sub">Accuracy within ~<b>20 turns</b> under full dialogue history — at matched difficulty, all 3 models, on the 100-turn CDR-Stream benchmark.</p>
+      <div class="metric-side">
+        <div><b>−0.208</b>GPT-4o-mini, final-turn success (p=.026)</div>
+        <div><b>−0.292</b>Mistral-7B, final-turn success (p=.004)</div>
+      </div>
+    </div>
+
+    <div class="asset why reveal">
+      <div class="tag">Why this matters</div>
+      <p>Multi-turn agents must keep task state in a <span class="arrow">verified external store</span> and monitor across sessions — never trust one conversation&rsquo;s coherence dashboard.</p>
+    </div>
+
+    <div class="asset edge reveal">
+      <span class="glyph">⚠</span>
+      <div class="tag">Critical edge</div>
+      <p>The mitigation is an <b>oracle</b> — it shrinks context, removes replies, and injects correct state at once; with no user-only arm, Study 2 cannot attribute the collapse to the model&rsquo;s own replies.</p>
+    </div>
+
+  </section>
+
+  <!-- ================= BODY GRID ================= -->
+  <main class="grid">
+
+    <!-- Methodology -->
+    <section class="card m-method reveal">
+      <h2>Methodology</h2>
+      <ul>
+        <li><b>Two pre-registered studies</b> — analysis protocols frozen before outcomes were computed; every result carries an evidence label (confirmatory / prespecified / exploratory / post hoc).</li>
+        <li><b>Three context policies</b> at turn <i>t</i>: full dialogue history · fresh prefix (user turns only) · verified state summary (solver-rendered exact state + current turn).</li>
+        <li><b>Study 1</b> — 48 sharded GSM8K tasks (&ldquo;Lost in Conversation&rdquo; subset); 3 models answer every turn in both arms; K=5 samples, frozen rewordings; exact McNemar tests + Holm correction; all 11,382 calls succeeded.</li>
+        <li><b>Study 2 (CDR-Stream)</b> — 100-turn state-tracking dialogues in 4 domains (budget ledger, warehouse, lab protocol, milestones); exact solver gold answer per turn; 12-level difficulty ladder calibrated per model; 5 schedules (2 stationary nulls + 3 scheduled changes); 30 held-out dialogues per model; one-sided sign-flip tests.</li>
+        <li><b>Monitoring framework</b> — six RQEval quality dimensions + five drift detectors (CUSUM, Page–Hinkley, EWMA, DDM, ADWIN), thresholds calibrated on nulls to ≤5% false alarms; Proposition 1 derives a closed-form minimum detectable drop.</li>
+      </ul>
+    </section>
+
+    <!-- Results -->
+    <section class="card m-results reveal">
+      <h2>Results</h2>
+
+      <div class="tbl-title">Study 1 <span>— final-turn success, 48 paired sharded tasks</span></div>
+      <table>
+        <thead><tr><th>Model</th><th class="num">Fresh prefix</th><th class="num">Full history</th><th class="num">Δ</th><th class="num">Holm p</th></tr></thead>
+        <tbody>
+          <tr><td>GPT-4o-mini</td>
+              <td class="num"><span class="v">0.896</span><span class="bar"><i style="--w:89.6%"></i></span></td>
+              <td class="num"><span class="v bad">0.688</span><span class="bar hot"><i style="--w:68.8%"></i></span></td>
+              <td class="num"><span class="v bad">−0.208</span></td><td class="num"><span class="v dim">0.026</span></td></tr>
+          <tr><td>Mistral-7B</td>
+              <td class="num"><span class="v">0.354</span><span class="bar"><i style="--w:35.4%"></i></span></td>
+              <td class="num"><span class="v bad">0.063</span><span class="bar hot"><i style="--w:6.3%"></i></span></td>
+              <td class="num"><span class="v bad">−0.292</span></td><td class="num"><span class="v dim">0.004</span></td></tr>
+          <tr><td>Llama-4 Scout</td>
+              <td class="num"><span class="v dim">—</span></td><td class="num"><span class="v dim">—</span></td>
+              <td class="num"><span class="v dim">−0.104</span></td><td class="num"><span class="v dim">0.125 (ns)</span></td></tr>
+        </tbody>
+      </table>
+      <p class="tbl-note">Fresh prefix = user turns only. Δ = history − fresh (Holm-adjusted McNemar).</p>
+
+      <div class="tbl-title">Study 2 <span>— CDR-Stream, dialogue-history arm, 30 dialogues/model</span></div>
+      <table>
+        <thead><tr><th>Model</th><th class="num">Turns 1–5</th><th class="num">Turns 21–100</th><th class="num">Summary gap, turns 1–100</th></tr></thead>
+        <tbody>
+          <tr><td>GPT-4o-mini</td>
+              <td class="num"><span class="v">0.61</span><span class="bar"><i style="--w:61%"></i></span></td>
+              <td class="num"><span class="v bad">0.09</span><span class="bar hot"><i style="--w:9%"></i></span></td>
+              <td class="num"><span class="v">+0.521</span></td></tr>
+          <tr><td>Llama-3 70B</td>
+              <td class="num"><span class="v">0.60</span><span class="bar"><i style="--w:60%"></i></span></td>
+              <td class="num"><span class="v bad">0.11</span><span class="bar hot"><i style="--w:11%"></i></span></td>
+              <td class="num"><span class="v">+0.545</span> <span class="v dim">(p&lt;.001)</span></td></tr>
+          <tr><td>Gemma 3 12B</td>
+              <td class="num"><span class="v">0.61</span><span class="bar"><i style="--w:61%"></i></span></td>
+              <td class="num"><span class="v bad">0.08</span><span class="bar hot"><i style="--w:8%"></i></span></td>
+              <td class="num"><span class="v">+0.588</span> <span class="v dim">(p&lt;.001)</span></td></tr>
+        </tbody>
+      </table>
+      <p class="tbl-note">Gap = verified state summary − full history (sign-flip tests, Holm). The summary also shrinks the turn-100 prompt from tens of thousands of tokens to a few hundred.</p>
+
+      <ul class="facts" style="margin-top:14px">
+        <li><b>Not a difficulty artifact</b> — in stationary-easy dialogues (turns 21–100), history scored 0.10–0.14 vs 0.82–0.86 for the summary; at the same ladder level, late turns trail early turns by <b>−0.118</b> (p&lt;.001).</li>
+        <li><b>Quality metrics move the wrong way</b> — stability rose 0.94 → 0.98 while accuracy fell 0.61 → 0.08: replies become more anchored, not more erratic.</li>
+        <li><b>Monitoring fails three ways</b> — best calibrated detection rate 0.067; stationary nulls themselves collapsed; tuned rules failed frozen cross-model validation.</li>
+        <li><b>Power, not tuning</b> — a single 100-turn stream detects only ~0.5 drops at 80% power (actual drifts 0.1–0.3); pooling 6–18 dialogues lowers the detectable drop to 0.2–0.1.</li>
+      </ul>
+    </section>
+
+    <!-- Strengths / Limitations -->
+    <section class="card m-strengths reveal">
+      <h2>Strengths</h2>
+      <ul>
+        <li>Pre-registered, prospectively frozen analyses with per-result evidence labels — a standard rarely met in LLM evaluation papers.</li>
+        <li>CDR-Stream kills the &ldquo;later questions are harder&rdquo; confound via per-model difficulty calibration and a same-ladder-level early-vs-late contrast.</li>
+        <li>The negative monitoring result is established carefully: null-calibrated false alarms, cross-model transfer, and a closed-form power bound that explains the failure.</li>
+        <li>Full transparency: public code and protocols, disclosed deviations, and a disclosed ADWIN bug re-run with no change in conclusions.</li>
+      </ul>
+    </section>
+
+    <section class="card m-limits reveal">
+      <h2>Limitations</h2>
+      <ul>
+        <li>All tasks are arithmetic state tracking with exact answers; open-ended dialogue, retrieval, and tool use are untested.</li>
+        <li>The verified summary is solver-backed and not deployable as-is; no intermediate (self-maintained state files) was tested.</li>
+        <li>Model sets differ between studies; none are frontier models; repeat-based metrics were complete only for GPT-4o-mini in Study 2.</li>
+        <li>Monitoring beyond the frozen tests is exploratory or post hoc; one investigator performed the task audit and calibration; token/semantic entropy never collected.</li>
+      </ul>
+    </section>
+
+    <!-- Questions -->
+    <section class="card m-questions reveal">
+      <h2>Questions for further exploration</h2>
+      <div class="qgrid">
+        <div class="q"><span class="n">Q1</span><span>Own replies vs sheer state load — what drives the collapse? A fresh-prefix or paraphrased-history 100-turn arm would decompose the mechanism.</span></div>
+        <div class="q"><span class="n">Q2</span><span>Would a model-maintained, periodically solver-verified state file recover most of the +0.52–0.59 gap, and at what verification cost?</span></div>
+        <div class="q"><span class="n">Q3</span><span>Do token-entropy (ERGO-style) or semantic-entropy signals give the early warning that consistency, coherence, and stability failed to provide?</span></div>
+        <div class="q"><span class="n">Q4</span><span>Does the collapse replicate with frontier models on a harder ladder, and in open-ended domains without exact gold answers?</span></div>
+        <div class="q"><span class="n">Q5</span><span>Can counterfactual re-queries be made cheap enough to serve as production-grade drift monitors, given pooled multi-session CUSUM detects 0.1–0.3 drops?</span></div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ================= FOOTER ================= -->
+  <footer>
+    <div>
+      <a class="src-link" href="./2611.20071.md">↗ Markdown source</a>
+      <div class="links">
+        <a href="https://arxiv.org/abs/2611.20071">arXiv abs</a>
+        <a href="https://github.com/senolali/reasoning-monitor-3501">Code &amp; frozen protocols</a>
+      </div>
+    </div>
+    <p class="cred">Credibility: single-author (Ali Şenol, Tarsus University; TÜBİTAK 126E663) · protocols frozen before outcomes · raw responses stored before scoring · Claude disclosed for analysis code &amp; language editing only · all numbers regenerable from hashed inputs.</p>
+  </footer>
+
+</div>
+
+<script>
+(function(){
+  // scroll progress
+  var bar = document.getElementById('progress');
+  var tick = function(){
+    var h = document.documentElement;
+    var max = h.scrollHeight - h.clientHeight;
+    bar.style.transform = 'scaleX(' + (max > 0 ? h.scrollTop / max : 0) + ')';
+  };
+  addEventListener('scroll', tick, {passive:true});
+  addEventListener('resize', tick);
+  tick();
+
+  // reveal on scroll (cards + assets)
+  var els = document.querySelectorAll('.reveal');
+  if (!('IntersectionObserver' in window)) {
+    els.forEach(function(el){ el.classList.add('in'); });
+    return;
+  }
+  var io = new IntersectionObserver(function(entries){
+    entries.forEach(function(e){
+      if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); }
+    });
+  }, {threshold: 0.12});
+  els.forEach(function(el){ io.observe(el); });
+})();
+</script>
+</body>
+</html>
