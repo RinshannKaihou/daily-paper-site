@@ -1,0 +1,652 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>2611.23398 — HardwareDx: repair as graph node classification</title>
+<meta name="description" content="A single GNN over machine topology cuts datacenter repair time 18.3% on H100 and 16.1% on TPU in a live production A/B — but symptom text, not topology, carries the offline gain.">
+<meta name="theme-color" content="#f7f9fc">
+<style>
+*,*::before,*::after{box-sizing:border-box}
+:root{
+  --paper:#f7f9fc;
+  --surface:#ffffff;
+  --ink:#11151c;
+  --muted:#57616f;
+  --faint:#8a94a3;
+  --line:#e3e8ef;
+  --line-strong:#cdd5e0;
+  --accent:#1c4fd8;
+  --accent-weak:#edf2fe;
+  --accent-line:#c9d8f9;
+  --caution:#9a3d1d;
+  --caution-weak:#fdf3ee;
+  --caution-line:#eed6c8;
+  --radius:12px;
+}
+html{font-size:16px;-webkit-text-size-adjust:100%;-webkit-font-smoothing:antialiased}
+body{
+  margin:0;background:var(--paper);color:var(--ink);
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Helvetica Neue","PingFang SC","Hiragino Sans GB","Microsoft YaHei",Arial,sans-serif;
+  line-height:1.64;
+}
+a{color:var(--accent)}
+.wrap{max-width:min(95vw,1100px);margin:0 auto;padding:0 24px 56px}
+
+/* fixed nav */
+.nav{
+  position:fixed;top:14px;left:16px;z-index:30;
+  display:inline-flex;align-items:center;gap:6px;
+  background:var(--surface);border:1px solid var(--line);
+  border-radius:999px;padding:6px 12px;
+  font-size:.78rem;font-weight:600;color:var(--accent);text-decoration:none;
+  box-shadow:0 1px 2px rgba(17,21,28,.06);
+}
+.nav:hover{border-color:var(--accent-line);background:var(--accent-weak)}
+
+/* hero */
+.hero{padding:76px 0 24px}
+.kicker{
+  display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin:0;
+  font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  font-size:.68rem;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);
+}
+.kicker .dot{width:6px;height:6px;border-radius:50%;background:var(--accent);flex:none}
+.kicker .sep{color:var(--line-strong)}
+.finding{
+  margin:16px 0 0;max-width:34ch;
+  font-size:clamp(1.85rem,4.5vw,3.35rem);
+  line-height:1.06;letter-spacing:-.034em;font-weight:750;
+  text-wrap:balance;
+}
+.finding .hl{color:var(--accent)}
+.finding .thin{font-weight:400;color:var(--muted)}
+.paper-title{margin:20px 0 0;max-width:74ch;font-size:.97rem;font-weight:600;line-height:1.45}
+.paper-title a{color:var(--ink);text-decoration:none;border-bottom:1px solid var(--line-strong);padding-bottom:1px}
+.paper-title a:hover{color:var(--accent);border-color:var(--accent)}
+.authors{margin:9px 0 0;font-size:.85rem;color:var(--muted)}
+.authors .etal{font-style:italic}
+.affil{margin:3px 0 0;font-size:.76rem;color:var(--faint)}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin:12px 0 0;padding:0;list-style:none}
+.chip{font-size:.69rem;letter-spacing:.01em;color:var(--muted);background:var(--surface);border:1px solid var(--line);border-radius:999px;padding:3px 9px}
+.zh{
+  margin:14px 0 0;padding:2px 0 2px 12px;border-left:2px solid var(--accent-line);
+  max-width:86ch;font-size:.83rem;line-height:1.85;color:var(--muted);
+}
+
+/* asset row */
+.assets{display:grid;grid-template-columns:1.08fr 1fr 1fr;gap:14px;margin:4px 0 0}
+.asset{
+  border:1px solid var(--line);border-radius:var(--radius);padding:16px 17px 15px;
+  background:var(--surface);display:flex;flex-direction:column;
+}
+.asset-label{
+  font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  font-size:.63rem;letter-spacing:.11em;text-transform:uppercase;color:var(--faint);
+  display:flex;align-items:center;gap:7px;margin:0 0 10px;
+}
+.asset-label::after{content:"";flex:1;height:1px;background:var(--line)}
+.asset p{margin:0;font-size:.86rem;line-height:1.62}
+
+.asset.metric{background:var(--ink);border-color:var(--ink);color:#eef2f8}
+.asset.metric .asset-label{color:#93a0b4}
+.asset.metric .asset-label::after{background:#2b3444}
+.bignum{
+  font-size:clamp(2.5rem,6vw,3.5rem);line-height:.92;letter-spacing:-.05em;font-weight:780;
+  font-variant-numeric:tabular-nums;color:#fff;margin:2px 0 0;
+}
+.bignum .unit{font-size:.42em;font-weight:600;letter-spacing:-.01em;color:#b9c7de;margin-left:2px}
+.metric-sub{margin:9px 0 0;font-size:.79rem;line-height:1.5;color:#b9c7de}
+.metric-split{
+  margin:12px 0 0;padding-top:11px;border-top:1px solid #2b3444;
+  display:grid;grid-template-columns:1fr 1fr;gap:4px 12px;
+  font-size:.74rem;color:#8f9db2;
+}
+.metric-split b{color:#e7edf7;font-weight:650;font-variant-numeric:tabular-nums}
+.asset.metric .foot{margin:10px 0 0;font-size:.68rem;line-height:1.5;color:#7d8ba1}
+
+.asset.why{border-top:3px solid var(--accent)}
+.asset.why p{font-size:.9rem;color:#2a3240}
+.asset.edge{background:var(--caution-weak);border-color:var(--caution-line);border-top:3px solid var(--caution)}
+.asset.edge .asset-label{color:var(--caution)}
+.asset.edge .asset-label::after{background:var(--caution-line)}
+.asset.edge p{color:#5d2f1c;font-size:.85rem}
+.asset.edge .src{margin-top:auto;padding-top:9px;font-size:.66rem;color:#a06b53;letter-spacing:.02em}
+
+/* body grid */
+.grid{display:grid;grid-template-columns:repeat(12,1fr);gap:14px;margin-top:14px}
+.card{
+  background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);
+  padding:18px 19px 19px;min-width:0;
+}
+.card h2{
+  margin:0 0 4px;font-size:1.02rem;letter-spacing:-.012em;font-weight:700;
+  display:flex;align-items:baseline;gap:9px;flex-wrap:wrap;
+}
+.card h2 .tag{
+  font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  font-size:.63rem;letter-spacing:.08em;text-transform:uppercase;color:var(--faint);font-weight:500;
+}
+.card .lead{margin:2px 0 14px;font-size:.83rem;color:var(--muted);max-width:80ch}
+.card p{margin:0 0 10px;font-size:.85rem}
+.card p:last-child{margin-bottom:0}
+.s7{grid-column:span 7}
+.s5{grid-column:span 5}
+.s6{grid-column:span 6}
+.s12{grid-column:span 12}
+
+/* methodology steps */
+.steps{margin:8px 0 0;padding:0;list-style:none;counter-reset:st}
+.steps li{
+  position:relative;padding:0 0 14px 30px;margin:0;font-size:.845rem;line-height:1.6;
+}
+.steps li:last-child{padding-bottom:0}
+.steps li::before{
+  counter-increment:st;content:counter(st);
+  position:absolute;left:0;top:1px;width:20px;height:20px;border-radius:5px;
+  background:var(--accent-weak);border:1px solid var(--accent-line);color:var(--accent);
+  font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  font-size:.66rem;font-weight:700;display:flex;align-items:center;justify-content:center;
+}
+.steps li::after{
+  content:"";position:absolute;left:9.5px;top:24px;bottom:4px;width:1px;background:var(--line);
+}
+.steps li:last-child::after{display:none}
+.steps b{font-weight:670}
+.steps .math{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.79rem;background:#f2f5fa;padding:1px 4px;border-radius:3px}
+.plainlist{margin:8px 0 0;padding:0 0 0 16px}
+.plainlist li{font-size:.845rem;line-height:1.6;margin:0 0 9px}
+.plainlist li:last-child{margin-bottom:0}
+.plainlist li::marker{color:var(--accent)}
+.svgbox{margin:14px 0 0;padding:12px 12px 8px;border:1px solid var(--line);border-radius:9px;background:#fbfcfe}
+.svgbox svg{display:block;width:100%;height:auto;max-height:230px}
+.svgbox figcaption{margin:8px 2px 0;font-size:.68rem;line-height:1.5;color:var(--faint)}
+.svgbox .legend{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:9.5px;fill:#8a94a3}
+
+/* stat strip */
+.strip{display:grid;grid-template-columns:repeat(2,1fr);gap:1px;background:var(--line);border:1px solid var(--line);border-radius:9px;overflow:hidden;margin:0 0 14px}
+.strip > div{background:var(--surface);padding:9px 11px}
+.strip .n{font-size:1.28rem;font-weight:720;letter-spacing:-.03em;font-variant-numeric:tabular-nums;line-height:1.15}
+.strip .l{font-size:.66rem;color:var(--faint);letter-spacing:.03em;text-transform:uppercase;margin-top:1px}
+
+/* tables */
+.tbl{width:100%;border-collapse:collapse;font-size:.79rem;margin:2px 0 0}
+.tbl caption{caption-side:top;text-align:left;font-size:.68rem;color:var(--faint);padding-bottom:6px;letter-spacing:.02em}
+.tbl th{
+  text-align:left;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  font-size:.63rem;letter-spacing:.07em;text-transform:uppercase;color:var(--faint);font-weight:600;
+  padding:0 8px 6px;border-bottom:1px solid var(--line-strong);white-space:nowrap;
+}
+.tbl td{padding:7px 8px;border-bottom:1px solid var(--line);vertical-align:top}
+.tbl tr:last-child td{border-bottom:none}
+.tbl .num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.tbl tr.hi td{background:var(--accent-weak);font-weight:620}
+.tbl tr.hi td:first-child{box-shadow:inset 3px 0 0 var(--accent)}
+.tbl .sub{display:block;font-weight:400;font-size:.71rem;color:var(--faint);line-height:1.4}
+.tbl .warn{color:var(--caution)}
+.tbl tbody tr:hover td{background:#f6f9ff}
+.tbl tr.hi:hover td{background:var(--accent-weak)}
+.warn{color:var(--caution)}
+.tablewrap{overflow-x:auto}
+
+/* bars */
+.bars{margin:4px 0 0;padding:0;list-style:none}
+.bars li{margin:0 0 9px}
+.bars .row{display:flex;justify-content:space-between;align-items:baseline;font-size:.765rem;margin-bottom:3px;gap:10px}
+.bars .row b{font-weight:620}
+.bars .row .v{font-variant-numeric:tabular-nums;color:var(--muted);font-size:.73rem}
+.bars .track{height:7px;background:#eef1f6;border-radius:4px;overflow:hidden}
+.bars .fill{height:100%;background:#b9c3d2;border-radius:4px}
+.bars li.own .fill{background:var(--accent)}
+.bars li.collapse .fill{background:var(--caution)}
+.bars li.own .row b{color:var(--accent)}
+.bars li.collapse .row .v{color:var(--caution);font-weight:650}
+
+/* symptom paradox */
+.paradox{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:6px}
+.pbox{border:1px solid var(--line);border-radius:9px;padding:12px 13px;background:#fbfcfe}
+.pbox.bad{border-color:var(--caution-line);background:var(--caution-weak)}
+.pbox h3{margin:0 0 2px;font-size:.78rem;letter-spacing:.01em}
+.pbox .plat{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.63rem;color:var(--faint);text-transform:uppercase;letter-spacing:.07em}
+.bigdelta{display:flex;align-items:baseline;gap:7px;flex-wrap:wrap;margin:9px 0 4px;font-variant-numeric:tabular-nums}
+.bigdelta .from{font-size:1.02rem;color:var(--faint);text-decoration:line-through;text-decoration-thickness:1px}
+.bigdelta .arrow{color:var(--faint);font-size:.9rem}
+.bigdelta .to{font-size:1.72rem;font-weight:750;letter-spacing:-.03em;line-height:1}
+.pbox.bad .bigdelta .to{color:var(--caution)}
+.pbox .fine{font-size:.755rem;line-height:1.55;color:var(--muted);margin:4px 0 0}
+.pbox .pair{display:grid;grid-template-columns:1fr auto;gap:2px 10px;font-size:.755rem;margin:8px 0 0}
+.pbox .pair span{color:var(--muted)}
+.pbox .pair b{font-variant-numeric:tabular-nums;font-weight:650}
+.verdict{
+  margin:14px 0 0;padding:11px 13px;border-left:3px solid var(--caution);
+  background:var(--caution-weak);border-radius:0 7px 7px 0;
+  font-size:.82rem;line-height:1.6;color:#5d2f1c;
+}
+.verdict b{font-weight:680}
+.stair{
+  display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 20px;
+  margin:12px 0 0;padding:10px 13px;border:1px solid var(--line);border-radius:8px;background:#fbfcfe;
+  font-size:.78rem;color:var(--muted);
+}
+.stair .stair-label{
+  font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.63rem;
+  letter-spacing:.08em;text-transform:uppercase;color:var(--faint);
+}
+.stair b{color:var(--ink);font-variant-numeric:tabular-nums}
+.stair i{font-style:normal;color:var(--faint);font-size:.72rem;font-variant-numeric:tabular-nums}
+
+/* readiness timeline */
+.rail{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--line);border:1px solid var(--line);border-radius:9px;overflow:hidden;margin:6px 0 12px}
+.rail > div{background:var(--surface);padding:11px 12px}
+.rail .when{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.63rem;text-transform:uppercase;letter-spacing:.06em;color:var(--faint)}
+.rail .acc{font-size:1.5rem;font-weight:740;letter-spacing:-.035em;font-variant-numeric:tabular-nums;line-height:1.15;margin-top:3px}
+.rail .rec{font-size:.71rem;color:var(--muted);font-variant-numeric:tabular-nums}
+.rail .best{background:var(--accent-weak)}
+.rail .best .acc{color:var(--accent)}
+
+/* strengths / limitations */
+.pairgrid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.panel{border:1px solid var(--line);border-radius:9px;padding:13px 14px;background:#fbfcfe}
+.panel.lim{border-color:var(--caution-line);background:var(--caution-weak)}
+.panel h3{margin:0 0 8px;font-size:.68rem;letter-spacing:.1em;text-transform:uppercase;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--muted);font-weight:600}
+.panel.lim h3{color:var(--caution)}
+.panel ul{margin:0;padding:0 0 0 15px}
+.panel li{font-size:.815rem;line-height:1.58;margin:0 0 7px}
+.panel li:last-child{margin-bottom:0}
+.panel li::marker{color:var(--faint)}
+.panel.lim li::marker{color:var(--caution)}
+
+/* questions */
+.qgrid{display:grid;grid-template-columns:1fr 1fr;gap:12px 22px;margin-top:6px}
+.q{display:flex;gap:10px;align-items:flex-start}
+.qn{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.66rem;color:var(--faint);padding-top:3px;flex:none}
+.q p{margin:0;font-size:.815rem;line-height:1.6;color:#2c3542}
+
+/* footer */
+footer{display:flex;flex-wrap:wrap;align-items:center;gap:8px 18px;margin-top:22px;padding:16px 2px 0;border-top:1px solid var(--line-strong);font-size:.78rem}
+footer a{text-decoration:none;font-weight:600}
+footer a:hover{text-decoration:underline}
+footer .note{color:var(--faint);font-size:.69rem;line-height:1.5;flex:1 1 320px}
+
+@media (max-width:960px){
+  .assets{grid-template-columns:1fr 1fr}
+  .asset.metric{grid-column:span 2}
+  .s7,.s5,.s6{grid-column:span 12}
+  .paradox{grid-template-columns:1fr}
+}
+@media (max-width:720px){
+  .wrap{padding:0 16px 44px}
+  .nav{top:10px;left:10px}
+  .hero{padding-top:66px}
+  .assets{grid-template-columns:1fr}
+  .asset.metric{grid-column:span 1}
+  .grid{grid-template-columns:1fr}
+  .s7,.s5,.s6,.s12{grid-column:span 1}
+  .rail{grid-template-columns:1fr}
+  .pairgrid,.qgrid{grid-template-columns:1fr}
+  .strip{grid-template-columns:1fr 1fr}
+  .finding{max-width:100%}
+}
+</style>
+</head>
+<body>
+
+<a class="nav" href="./index.html">↩ Today's digest</a>
+
+<div class="wrap">
+
+  <header class="hero">
+    <p class="kicker">
+      <span class="dot"></span><span>NeurIPS 2026</span>
+      <span class="sep">/</span><span>Google</span>
+      <span class="sep">/</span><span>live production A/B</span>
+      <span class="sep">/</span><span>graph foundation model</span>
+    </p>
+
+    <h1 class="finding">
+      One GNN over machine topology cuts repair time <span class="hl">18.3%</span> on&nbsp;H100
+      and <span class="hl">16.1%</span> on TPU — in live production.
+    </h1>
+
+    <p class="paper-title">
+      <a href="https://arxiv.org/abs/2611.23398">HardwareDx: A Foundational Graph Model System for Datacenter Machine Repairs</a>
+    </p>
+    <p class="authors">
+      Yuanlin Wen, Elan Markowitz, Zubo Gu, Sami Abu-El-Haija, Bryan Perozzi, Mikhail Galkin, et al.
+      <span class="etal">(14 authors)</span>
+    </p>
+    <p class="affil">Google · 2026-11-16 · arXiv:2611.23398</p>
+
+    <ul class="chips">
+      <li class="chip">datacenter reliability</li>
+      <li class="chip">hardware fault localization</li>
+      <li class="chip">GATv2 + graph Transformer</li>
+      <li class="chip">time-to-repair</li>
+      <li class="chip">A/B deployment</li>
+    </ul>
+
+    <p class="zh">把每台机器的物理拓扑（100+ FRU 及端口子部件）建成一张异构图，类型专属编码器投影到统一隐空间后交给共享 GATv2 + Graph-Transformer 主干；三个头分别学故障标签、技师动作倾向、动作成功率。Google 生产 A/B：H100 平均修复时长 −18.3%、TPU −16.1%。</p>
+  </header>
+
+  <!-- ASSET ROW -->
+  <section class="assets" aria-label="Extracted essentials">
+
+    <div class="asset metric">
+      <p class="asset-label">Key metric</p>
+      <p class="bignum">−18.3<span class="unit">%</span></p>
+      <p class="metric-sub">mean time-to-repair, H100 live A/B<br>n = 225 repair windows · 50% pilot</p>
+      <div class="metric-split">
+        <span>TPU TTR <b>−16.1%</b></span>
+        <span>n = <b>2,567</b></span>
+        <span>QA delivery <b>−28.3%</b></span>
+        <span>auto-coverage <b>83.1→93.9</b></span>
+      </div>
+      <p class="foot">H100 interval is ±7.6 pts; the tighter TPU estimate (−16.1% ±2.6%) is arguably the better headline.</p>
+    </div>
+
+    <div class="asset why">
+      <p class="asset-label">Why this matters</p>
+      <p>Broken accelerators tax training uptime directly. This replaces hand-written repair rules with a learned diagnosis — no new hardware, six months in the fleet.</p>
+    </div>
+
+    <div class="asset edge">
+      <p class="asset-label">Critical edge</p>
+      <p>On H100, symptom-only features match the full 13-feature graph (0.9697 vs 0.9691 F1) — most of the offline gain comes from symptom text, not the topology story.</p>
+      <p class="src">— the paper's own Table 7, reported in the TL;DR</p>
+    </div>
+
+  </section>
+
+  <!-- BODY -->
+  <div class="grid">
+
+    <!-- METHODOLOGY -->
+    <section class="card s7">
+      <h2>How it works <span class="tag">method</span></h2>
+      <p class="lead">Repair is reframed as node classification on one machine's physical graph. The architectural trick is decoupling <em>what a node looks like</em> from <em>how messages move</em>.</p>
+
+      <ol class="steps">
+        <li><b>Build the graph.</b> Every FRU and subcomponent (port, cable) is a node; telemetry, sensors, symptoms and log errors hang off the part that emitted them as <em>feature nodes</em>. One machine is one self-contained graph — no cross-machine edges — median <b>1,613 nodes</b> on H100, so faults stay inside the chassis.</li>
+        <li><b>Virtualize the types.</b> A standard heterogeneous GNN needs per-relation weights, <span class="math">O(|T_v|²·|T_e|)</span>, which overfits sparse physical links and breaks when new hardware introduces an uninitialized relation. Instead: type-specific encoders (MLP / lookup / <b>Gecko-1B-En</b>) project into one latent space, and a shared homogeneous backbone does all message passing.</li>
+        <li><b>Mix local and global.</b> Interleaved GATv2 and graph-Transformer layers (GPS recipe: MPNN + attention, no positional encodings). Motivation is mechanical: failure syndromes span up to <b>eight hops</b>, and "software" nodes are disconnected from the topology, so pure message passing over-squashes.</li>
+        <li><b>Three heads, one policy.</b> Faulty (BCE on expert labels), propensity (all historical trajectories), success (masked to actions actually taken). Inference either follows the component's action plan above <span class="math">P̂_faulty &gt; 0.5</span>, or filters candidates by learned propensity — a BCQ-style support constraint — then takes the success argmax. That gate exists to stop out-of-distribution prescriptions like swapping live high-voltage parts.</li>
+      </ol>
+
+      <figure class="svgbox">
+        <svg viewBox="0 0 440 234" role="img" aria-label="Schematic of one machine as a graph: component nodes connected by solid physical edges and a dashed symptom feature node attached to the accelerator.">
+          <line x1="130" y1="106" x2="183" y2="107" stroke="#c3ccd9" stroke-width="1.4"/>
+          <line x1="307" y1="103" x2="330" y2="64" stroke="#c3ccd9" stroke-width="1.4"/>
+          <line x1="307" y1="109" x2="330" y2="110" stroke="#c3ccd9" stroke-width="1.4"/>
+          <line x1="246" y1="125" x2="238" y2="168" stroke="#c3ccd9" stroke-width="1.4"/>
+          <line x1="80" y1="120" x2="80" y2="168" stroke="#c3ccd9" stroke-width="1.4"/>
+          <line x1="376" y1="72" x2="376" y2="96" stroke="#c3ccd9" stroke-width="1.4"/>
+          <line x1="246" y1="41" x2="246" y2="92" stroke="#1c4fd8" stroke-width="1.3" stroke-dasharray="3 3"/>
+
+          <rect x="30" y="92" width="100" height="28" rx="5" fill="#fff" stroke="#11151c" stroke-width="1.2"/>
+          <text x="80" y="110" font-size="9.5" text-anchor="middle" fill="#11151c" font-family="-apple-system,Segoe UI,sans-serif">PCIe cable</text>
+
+          <rect x="183" y="92" width="124" height="33" rx="5" fill="#fff" stroke="#11151c" stroke-width="1.4"/>
+          <text x="245" y="112" font-size="10" text-anchor="middle" fill="#11151c" font-weight="600" font-family="-apple-system,Segoe UI,sans-serif">Accelerator</text>
+
+          <rect x="330" y="44" width="92" height="28" rx="5" fill="#fff" stroke="#11151c" stroke-width="1.2"/>
+          <text x="376" y="62" font-size="9.5" text-anchor="middle" fill="#11151c" font-family="-apple-system,Segoe UI,sans-serif">CPU</text>
+
+          <rect x="330" y="96" width="92" height="28" rx="5" fill="#fff" stroke="#11151c" stroke-width="1.2"/>
+          <text x="376" y="114" font-size="9.5" text-anchor="middle" fill="#11151c" font-family="-apple-system,Segoe UI,sans-serif">DIMM</text>
+
+          <rect x="30" y="168" width="110" height="28" rx="5" fill="#fff" stroke="#11151c" stroke-width="1.2"/>
+          <text x="85" y="186" font-size="9.5" text-anchor="middle" fill="#11151c" font-family="-apple-system,Segoe UI,sans-serif">NVSwitch</text>
+
+          <rect x="188" y="168" width="100" height="28" rx="5" fill="#fff" stroke="#11151c" stroke-width="1.2"/>
+          <text x="238" y="186" font-size="9.5" text-anchor="middle" fill="#11151c" font-family="-apple-system,Segoe UI,sans-serif">PSU</text>
+
+          <rect x="151" y="14" width="190" height="27" rx="5" fill="#edf2fe" stroke="#1c4fd8" stroke-width="1.2" stroke-dasharray="4 3"/>
+          <text x="246" y="31" font-size="9" text-anchor="middle" fill="#1c4fd8" font-family="ui-monospace,Menlo,monospace">symptom · gpu-pcie-bus-error</text>
+
+          <text x="14" y="206" class="legend">solid = physical / internal edge &nbsp;·&nbsp; dashed = feature edge</text>
+          <text x="14" y="220" class="legend">schematic, not to scale &nbsp;·&nbsp; ~1,613 nodes per H100 machine</text>
+        </svg>
+        <figcaption>Every feature node is attached to the component that emitted it, so the model learns "which part is failing" from structure plus text, not from device paths (deliberately dropped).</figcaption>
+      </figure>
+    </section>
+
+    <!-- FOOTPRINT -->
+    <section class="card s5">
+      <h2>Deployment footprint <span class="tag">scale</span></h2>
+      <p class="lead">Six months, six accelerator platforms, and a per-platform data table that makes the cold-start problem concrete.</p>
+
+      <div class="strip">
+        <div><div class="n">6 mo</div><div class="l">in production</div></div>
+        <div><div class="n">50+</div><div class="l">ML clusters</div></div>
+        <div><div class="n">6</div><div class="l">accelerator platforms</div></div>
+        <div><div class="n">1,613</div><div class="l">median nodes / H100</div></div>
+      </div>
+
+      <div class="tablewrap">
+        <table class="tbl">
+          <caption>Training corpus per platform — trajectories / expert-labelled cases</caption>
+          <thead>
+            <tr><th>Platform</th><th class="num">Traj.</th><th class="num">Labelled</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>TPU v5p</td><td class="num">111,764</td><td class="num">5,236</td></tr>
+            <tr><td>H100</td><td class="num">81,015</td><td class="num">6,780</td></tr>
+            <tr><td>TPU v7x</td><td class="num">43,987</td><td class="num">7,529</td></tr>
+            <tr><td>H200</td><td class="num">7,558</td><td class="num">1,838</td></tr>
+            <tr><td>B200</td><td class="num">18,481</td><td class="num">1,667</td></tr>
+            <tr><td>TPU v7</td><td class="num">1,381</td><td class="num">245</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p style="margin-top:11px;font-size:.75rem;color:var(--faint)">Labels take months per platform to curate — which is exactly why a pretrained backbone that transfers is worth more than a better per-platform classifier.</p>
+    </section>
+
+    <!-- PRODUCTION RESULTS -->
+    <section class="card s7">
+      <h2>Production A/B <span class="tag">field results</span></h2>
+      <p class="lead">Randomized at the machine level against the incumbent rules engine. TTR excludes install time; QA delivery is the repair-time percentile needed to hit the cluster-turnover SLO.</p>
+
+      <div class="tablewrap">
+        <table class="tbl">
+          <caption>Table 1 — HardwareDx vs. production rules engine (negative is better)</caption>
+          <thead>
+            <tr><th>Metric</th><th class="num">H100</th><th class="num">TPU</th></tr>
+          </thead>
+          <tbody>
+            <tr class="hi"><td>Mean time-to-repair</td><td class="num">−18.3% <span class="sub">±7.6</span></td><td class="num">−16.1% <span class="sub">±2.6</span></td></tr>
+            <tr><td>QA delivery time</td><td class="num">−28.3% <span class="sub">±10.7</span></td><td class="num">−25.1% <span class="sub">±2.5</span></td></tr>
+            <tr><td>Automated diagnostic share</td><td class="num">83.1 → 93.9 <span class="sub">+10.7 pts</span></td><td class="num">72.9 → 82.8 <span class="sub">+9.9 pts</span></td></tr>
+            <tr><td>Repair windows</td><td class="num">225</td><td class="num">2,567</td></tr>
+            <tr><td>Pilot share of fleet</td><td class="num">50%</td><td class="num">20%</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p style="margin-top:12px">The H100 effect is ≈2.4 standard errors, so the interval spans roughly 3% to 26%. The honest read: <b>TPU is the strong evidence, H100 is the pilot.</b></p>
+      <p style="margin-top:8px;font-size:.79rem;color:var(--muted)">Confound the paper does not resolve: the treated arm's automated coverage also rises 10.7 points, so part of the TTR gain may come from resolving cases without manual escalation rather than from better diagnosis.</p>
+    </section>
+
+    <!-- OFFLINE RESULTS -->
+    <section class="card s5">
+      <h2>Offline accuracy <span class="tag">TPU v7x · component F1</span></h2>
+      <p class="lead">A 45-point gap to the best <em>non-graph</em> baseline — and a 55-point collapse when the text encoder is removed. Both numbers matter more than the architecture.</p>
+
+      <ul class="bars">
+        <li class="own">
+          <div class="row"><b>GATv2 + Transformer</b><span class="v">0.990 F1 · 0.988 acc</span></div>
+          <div class="track"><div class="fill" style="width:99%"></div></div>
+        </li>
+        <li>
+          <div class="row"><b>R-GCN + Transformer</b><span class="v">0.988</span></div>
+          <div class="track"><div class="fill" style="width:98.8%"></div></div>
+        </li>
+        <li>
+          <div class="row"><b>GIN + Transformer</b><span class="v">0.987</span></div>
+          <div class="track"><div class="fill" style="width:98.7%"></div></div>
+        </li>
+        <li>
+          <div class="row"><b>Transformer only</b><span class="v">0.929 · 0.846 acc</span></div>
+          <div class="track"><div class="fill" style="width:92.9%"></div></div>
+        </li>
+        <li>
+          <div class="row"><b>GBDT, flattened</b><span class="v">0.540 · 0.286 acc</span></div>
+          <div class="track"><div class="fill" style="width:54%"></div></div>
+        </li>
+        <li>
+          <div class="row"><b>MLP, flattened</b><span class="v">0.514 · 0.283 acc</span></div>
+          <div class="track"><div class="fill" style="width:51.4%"></div></div>
+        </li>
+        <li class="collapse">
+          <div class="row"><b>No LLM text features</b><span class="v">0.444 · 0.304 acc</span></div>
+          <div class="track"><div class="fill" style="width:44.4%"></div></div>
+        </li>
+      </ul>
+
+      <p style="margin-top:12px;font-size:.79rem;color:var(--muted)">Removing the Gecko-1B-En text embeddings costs <b class="warn">0.55 F1</b> — a bigger hit than any architectural choice. In this domain, how you featurize symptom strings dominates which GNN you pick.</p>
+    </section>
+
+    <!-- PARADOX -->
+    <section class="card s12">
+      <h2>The symptom paradox <span class="tag">what the ablations actually say</span></h2>
+      <p class="lead">The paper's central architectural claim is that structural priors transfer across platforms. Its own keep-only ablations point the other way — and the inversion is never explained.</p>
+
+      <div class="paradox">
+        <div class="pbox bad">
+          <h3>TPU v7x · remove symptoms, the model dies</h3>
+          <p class="plat">Tables 6–7 · 3 seeds</p>
+          <div class="bigdelta"><span class="from">0.9715</span><span class="arrow">→</span><span class="to">0.3532</span></div>
+          <p class="fine">Dropping the symptom feature family costs <b>0.62 F1</b>. Dropping any of the other five families stays inside noise (0.9708–0.9754), so on this platform the graph is barely doing the work.</p>
+        </div>
+
+        <div class="pbox">
+          <h3>H100 · symptoms alone reach full parity</h3>
+          <p class="plat">Table 7 · 3 seeds</p>
+          <div class="bigdelta"><span class="from">0.9270</span><span class="arrow">→</span><span class="to" style="color:var(--ink)">0.9697</span></div>
+          <p class="fine">On H100 the profile inverts: the 12 non-symptom families add essentially nothing to component F1, while symptoms add 4.3 points.</p>
+          <div class="pair">
+            <span>If priors truly transferred…</span><b>importance wouldn't flip</b>
+            <span>What supports topology</span><b>case studies only</b>
+            <span>Those cases vs. rules engine</span><b class="warn">no head-to-head</b>
+          </div>
+        </div>
+      </div>
+
+      <div class="stair">
+        <span class="stair-label">H100 feature staircase</span>
+        <span>Symptom-only <b>0.9697</b> <i>±0.0013</i></span>
+        <span>All 13 features <b>0.9691</b> <i>±0.0006</i></span>
+        <span>All 12 non-symptom <b class="warn">0.9270</b> <i>±0.0060</i></span>
+      </div>
+
+      <p class="verdict"><b>The sharpest critique:</b> if the shared backbone really learned transferable structural priors, feature importance should not reverse between two platforms running the same architecture. As reported, the offline story on TPU reduces to "symptom text does the work"; the topology contribution rests on two qualitative case studies (76.3% PCIe-chain / 8.5% GPU / 6.8% backplane for multi-GPU missing) that never compare against what the rules engine recommended on the same incidents.</p>
+    </section>
+
+    <!-- READINESS -->
+    <section class="card s7">
+      <h2>Cold start &amp; readiness <span class="tag">job accuracy</span></h2>
+      <p class="lead">Foundation-model pretraining buys accuracy before hardware GA — the operational claim is "ready at launch", not "better at maturity".</p>
+
+      <div class="rail">
+        <div>
+          <div class="when">Rules @ HW-GA</div>
+          <div class="acc">0.596</div>
+          <div class="rec">recall 0.722</div>
+        </div>
+        <div>
+          <div class="when">Prev gen @ GA+4mo</div>
+          <div class="acc">0.749</div>
+          <div class="rec">recall 0.819</div>
+        </div>
+        <div class="best">
+          <div class="when">HardwareDx @ GA+4mo</div>
+          <div class="acc">0.942</div>
+          <div class="rec">recall 0.969</div>
+        </div>
+      </div>
+
+      <ul class="plainlist">
+        <li><b>At GA, HardwareDx already scores 0.722 / 0.776</b> versus 0.521 / 0.664 for the previous no-pretraining model — the gap the authors call "up to four months" of pull-forward.</li>
+        <li><b>~10× less fine-tuning data</b> to reach production-grade accuracy on a new platform (Fig. 4).</li>
+        <li><b>Transfer is real but small when data exists:</b> on TPU v7x the multi-platform model scores 0.9892 vs 0.9877 per-platform; on B200, 0.9817 / 0.9848 vs 0.9728 / 0.9787 from scratch.</li>
+      </ul>
+      <p style="margin-top:12px;font-size:.78rem;color:var(--muted)">Caveat: the Rules@HW-GA row is "whatever the rules recommended at the time", not a replay, so the longitudinal table mixes in-situ and re-evaluated evidence. The authors note the bias runs <em>in favour of</em> the rules engine.</p>
+    </section>
+
+    <!-- PRESCRIPTIVE -->
+    <section class="card s5">
+      <h2>The prescriptive half <span class="tag">not deployed</span></h2>
+      <p class="lead">Production runs only Task 1 (faulty classification). The novel propensity / success machinery is evaluated on replayed windows.</p>
+
+      <div class="tablewrap">
+        <table class="tbl">
+          <caption>Table 9 — 941 simulated repair windows</caption>
+          <thead>
+            <tr><th>Metric</th><th class="num">HardwareDx</th><th class="num">Existing</th></tr>
+          </thead>
+          <tbody>
+            <tr class="hi"><td>Final-action replication</td><td class="num">63.42%</td><td class="num">56.23%</td></tr>
+            <tr><td>Action-weighted replication</td><td class="num">73.04%</td><td class="num">62.50%</td></tr>
+            <tr><td>Est. iterations</td><td class="num">−0.50</td><td class="num">−0.29</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p style="margin-top:12px;font-size:.8rem">The metric asks whether the <em>union</em> of predictions across iterations contains the final action set — it structurally rewards prescribing more actions over more iterations and never penalizes unnecessary ones. And the "existing system" baseline is ambiguous: rules engine, or something else?</p>
+    </section>
+
+    <!-- STRENGTHS / LIMITS -->
+    <section class="card s12">
+      <h2>Strengths &amp; limitations <span class="tag">side by side</span></h2>
+      <p class="lead">This reads like an operations report, which is both why the evidence is unusually real and why the ML claims are under-defended.</p>
+
+      <div class="pairgrid">
+        <div class="panel">
+          <h3>What holds up</h3>
+          <ul>
+            <li>A genuine six-month, multi-platform production A/B — rare in this literature and much harder to fake than a benchmark table.</li>
+            <li>Universal-graph virtualization is a portable idea: decouple per-type encoders from a shared message-passing backbone, and schema churn stops detonating the model.</li>
+            <li>The LLM-embedding result is the paper's best transferable lesson: for text-derived categorical features, embedding choice beats architecture choice (0.990 → 0.444 F1).</li>
+            <li>Unusually honest appendices: cluster counts, Woodruff standard errors for percentiles, and a self-critique of their own credit assignment.</li>
+            <li>Calibration is actually measured — ECE 0.0015, Brier 0.0062 on TPU v7x — which matters when the output triggers a physical repair.</li>
+          </ul>
+        </div>
+
+        <div class="panel lim">
+          <h3>What doesn't</h3>
+          <ul>
+            <li>Unreplicable by construction: proprietary telemetry and labels, no code, no public benchmark. An existence proof, not a reproducible result.</li>
+            <li>The intro claims "&gt;95% precision at &gt;95% recall" but no table reports precision at all, and "component F1" is never defined as micro, macro or per-machine.</li>
+            <li>H100 arm is thin (225 windows, ±7.6%) and the analysis is per-window, not cluster-robust, despite machine-level randomization and shared cluster rules.</li>
+            <li>Baselines are strawmen: GBDT and MLP on <em>flattened</em> features, with no sequence model over the test-result trace and no published log-diagnosis baseline (LogBERT, LogPPT, L4).</li>
+            <li>Task 3's temporal credit assignment is admittedly broken — partial repairs labelled failure, concurrent actions sharing one success signal — and deployment sidesteps rather than solves it.</li>
+            <li>"Zero-touch new hardware" is not achieved: each platform still needs a topology definition and telemetry schema (Appendix D concedes this).</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- QUESTIONS -->
+    <section class="card s12">
+      <h2>Questions for further exploration <span class="tag">open threads</span></h2>
+      <div class="qgrid">
+        <div class="q"><span class="qn">01</span><p>Why does removing symptoms collapse TPU v7x to 0.3532 F1 but cost only 4.2 points on H100? Label coverage (59 unique labels on TPU v5p vs 85 on H100), or a real difference in what each topology exposes?</p></div>
+        <div class="q"><span class="qn">02</span><p>What would a GRU or Transformer over the raw test-result trace score on the same held-out set? Without it, nobody can say how much of 0.990 F1 is graph structure versus symptom text.</p></div>
+        <div class="q"><span class="qn">03</span><p>Does the TTR gain survive a cluster-robust variance estimate — and does it persist when conditioned on automated-coverage-matched subgroups, i.e. is it diagnosis quality or escalation policy?</p></div>
+        <div class="q"><span class="qn">04</span><p>How were τ<sub>na</sub> and τ<sub>p</sub> chosen, and what fraction of production prescriptions does the propensity filter veto? Without a veto rate, we can't tell if the safety gate ever blocks correct-but-rare actions.</p></div>
+        <div class="q"><span class="qn">05</span><p>How much of the "10× less data" is pretraining versus the shared symptom vocabulary the LLM encoder provides? Pretrain with categorical symptom embeddings and the two effects separate.</p></div>
+        <div class="q"><span class="qn">06</span><p>Can the graph cross the chassis boundary into inter-node fabric (ICI, NVLink switches, ToR), where a large share of remaining datacenter failures live? The paper flags it as future work; it may be where topology-aware diagnosis pays off most.</p></div>
+      </div>
+    </section>
+
+  </div>
+
+  <footer>
+    <a href="https://arxiv.org/abs/2611.23398">↗ arXiv abstract</a>
+    <a href="./2611.23398.md">↗ Markdown source</a>
+    <span class="note">Dashboard built from the paper's markdown summary; not browser-verified. All figures as reported by the authors; the ± intervals and window counts are theirs, not derived here.</span>
+  </footer>
+
+</div>
+
+</body>
+</html>

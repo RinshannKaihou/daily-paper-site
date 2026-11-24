@@ -1,0 +1,591 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>IsoMoE — Expert placement stops changing the answer</title>
+<meta name="description" content="Dashboard for arXiv 2611.27604: IsoMoE replays the CPU expert kernel on the GPU bit-for-bit, so moving MoE experts between devices never changes greedy output. 160/160 identical, 1.26× faster.">
+<style>
+  :root{
+    --ink:#14181b;
+    --ink-2:#3f464c;
+    --muted:#6d757c;
+    --line:#e4e0d7;
+    --line-2:#efebe3;
+    --paper:#fbfaf6;
+    --card:#ffffff;
+    --accent:#0e6f66;
+    --accent-ink:#0a534c;
+    --accent-soft:#eaf3f1;
+    --warn:#9a3d13;
+    --warn-soft:#fdf4ed;
+    --warn-line:#efd5c2;
+    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
+  }
+  *{box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%}
+  body{
+    margin:0;background:var(--paper);color:var(--ink);
+    font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI","PingFang SC","Noto Sans SC","Hiragino Sans GB",sans-serif;
+    font-size:16px;line-height:1.55;-webkit-font-smoothing:antialiased;
+  }
+  a{color:var(--accent);text-decoration:none}
+  a:hover{text-decoration:underline;text-underline-offset:2px}
+  .wrap{width:min(95vw,1100px);margin:0 auto;padding:0 0 64px}
+  code,.mono{font-family:var(--mono);font-size:.88em}
+  .num{font-variant-numeric:tabular-nums}
+
+  /* ── fixed nav ───────────────────────────────────────────── */
+  .nav-back{
+    position:fixed;top:14px;left:16px;z-index:60;
+    display:inline-block;padding:7px 13px;
+    background:var(--card);border:1px solid var(--line);border-radius:999px;
+    color:var(--ink-2);font-size:12.5px;font-weight:600;
+    box-shadow:0 1px 0 rgba(20,24,27,.03);
+  }
+  .nav-back:hover{color:var(--accent);border-color:#bfd8d3;text-decoration:none}
+
+  /* ── hero ────────────────────────────────────────────────── */
+  .hero{padding:86px 0 26px;border-bottom:1px solid var(--line)}
+  .eyebrow{
+    display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin:0 0 18px;
+    font-size:10.5px;font-weight:700;letter-spacing:.16em;text-transform:uppercase;color:var(--accent);
+  }
+  .eyebrow .dot{width:7px;height:7px;border-radius:50%;background:var(--accent);flex:none}
+  .eyebrow .sep{color:#c3bdb1;font-weight:400;letter-spacing:.04em}
+  .eyebrow .plain{color:var(--muted);font-weight:600}
+  h1{
+    margin:0 0 16px;max-width:23ch;
+    font-size:clamp(2.05rem,5vw,3.85rem);
+    line-height:.99;letter-spacing:-.033em;font-weight:800;text-wrap:balance;
+  }
+  h1 .hl{color:var(--accent)}
+  .deck{
+    margin:0 0 22px;font-family:var(--mono);font-size:12.5px;letter-spacing:.02em;
+    color:var(--muted);
+  }
+  .deck b{color:var(--ink-2);font-weight:600}
+  .hero-zh{
+    margin:0 0 22px;max-width:60ch;color:var(--ink-2);
+    font-size:.98rem;line-height:1.85;letter-spacing:.01em;
+  }
+  .paper-title{margin:0 0 14px;font-size:1.02rem;font-weight:650;letter-spacing:-.01em;max-width:64ch;line-height:1.45}
+  .paper-title a{color:var(--ink)}
+  .paper-title a:hover{color:var(--accent)}
+  .meta{display:flex;flex-wrap:wrap;align-items:center;gap:7px 14px;font-size:12.5px;color:var(--muted)}
+  .meta .authors{color:var(--ink-2)}
+  .chips{display:flex;flex-wrap:wrap;gap:6px;width:100%;margin-top:4px}
+  .chip{
+    display:inline-block;padding:2px 8px;border-radius:3px;
+    background:var(--accent-soft);color:var(--accent-ink);
+    font-family:var(--mono);font-size:10.5px;letter-spacing:.02em;
+  }
+  .chip.ghost{background:transparent;border:1px solid var(--line);color:var(--muted)}
+
+  /* ── asset row ───────────────────────────────────────────── */
+  .assets{
+    display:grid;grid-template-columns:1.05fr 1fr 1fr;gap:14px;
+    margin:26px 0 0;
+  }
+  .asset{
+    background:var(--card);border:1px solid var(--line);border-radius:5px;
+    padding:20px 20px 18px;display:flex;flex-direction:column;
+  }
+  .asset-label{
+    font-family:var(--mono);font-size:10px;font-weight:600;letter-spacing:.14em;
+    text-transform:uppercase;color:var(--muted);margin:0 0 12px;
+    display:flex;align-items:center;gap:7px;
+  }
+  .asset-label::before{content:"";width:14px;height:2px;background:var(--accent);flex:none}
+  .metric-big{
+    font-size:clamp(2.9rem,6.4vw,4.3rem);line-height:.92;font-weight:800;
+    letter-spacing:-.045em;color:var(--accent);margin:0 0 2px;
+  }
+  .metric-sub{
+    font-family:var(--mono);font-size:11.5px;color:var(--muted);margin:0 0 12px;letter-spacing:.02em;
+  }
+  .asset p{margin:0;font-size:13.5px;line-height:1.62;color:var(--ink-2)}
+  .asset p + p{margin-top:8px}
+  .asset.metric{background:var(--accent-soft);border-color:#cfe3df}
+  .asset.edge{background:var(--warn-soft);border-color:var(--warn-line)}
+  .asset.edge .asset-label{color:var(--warn)}
+  .asset.edge .asset-label::before{background:var(--warn)}
+  .asset.edge p{color:#5d3a26}
+  .asset.edge .tag{
+    display:inline-block;margin-top:auto;padding-top:12px;
+    font-family:var(--mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--warn);
+  }
+
+  /* ── section chrome ──────────────────────────────────────── */
+  section{margin-top:40px}
+  .sec-head{display:flex;align-items:baseline;justify-content:space-between;gap:16px;flex-wrap:wrap;margin:0 0 16px}
+  .sec-head h2{
+    margin:0;font-size:1.02rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;
+    font-family:var(--mono);color:var(--ink);
+  }
+  .sec-head .hint{font-size:12.5px;color:var(--muted);max-width:52ch}
+  .card{
+    background:var(--card);border:1px solid var(--line);border-radius:5px;padding:22px 22px 20px;
+  }
+  .card h3{margin:0 0 4px;font-size:.95rem;font-weight:700;letter-spacing:-.005em}
+  .card .cap{margin:0 0 14px;font-size:12px;color:var(--muted);font-family:var(--mono);letter-spacing:.01em}
+
+  /* ── problem strip ───────────────────────────────────────── */
+  .problem-intro{
+    max-width:74ch;font-size:15px;line-height:1.7;color:var(--ink-2);margin:0 0 18px;
+  }
+  .problem-intro strong{color:var(--ink);font-weight:650}
+  .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+  .stat{
+    background:var(--card);border:1px solid var(--line);border-left:3px solid var(--accent);
+    border-radius:3px;padding:14px 14px 13px;
+  }
+  .stat .v{font-size:clamp(1.5rem,3vw,2rem);font-weight:800;letter-spacing:-.03em;line-height:1;color:var(--ink)}
+  .stat .k{display:block;margin-top:7px;font-size:12px;line-height:1.5;color:var(--muted)}
+  .stat .k b{color:var(--ink-2);font-weight:600}
+  .problem-foot{
+    margin:14px 0 0;font-size:12.5px;color:var(--muted);font-family:var(--mono);letter-spacing:.01em;
+  }
+
+  /* ── method steps ────────────────────────────────────────── */
+  .steps{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  .step{
+    background:var(--card);border:1px solid var(--line);border-radius:5px;padding:20px 22px;
+  }
+  .step .n{
+    font-family:var(--mono);font-size:10.5px;font-weight:600;letter-spacing:.12em;
+    color:var(--accent);margin:0 0 8px;display:flex;align-items:center;gap:8px;
+  }
+  .step .n::after{content:"";flex:1;height:1px;background:var(--line-2)}
+  .step h3{margin:0 0 8px;font-size:.94rem;font-weight:700;line-height:1.35}
+  .step p{margin:0;font-size:13.5px;line-height:1.65;color:var(--ink-2)}
+  .step p + p{margin-top:8px}
+
+  /* replay strip */
+  .replay{
+    margin-top:14px;border:1px dashed #cdd8d5;border-radius:5px;background:#f6faf9;
+    padding:18px 20px;
+  }
+  .replay-label{
+    font-family:var(--mono);font-size:10px;letter-spacing:.14em;text-transform:uppercase;
+    color:var(--accent);font-weight:600;margin:0 0 14px;
+  }
+  .lanes{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:12px}
+  .lane{
+    background:var(--card);border:1px solid var(--line);border-radius:4px;padding:11px 14px;
+  }
+  .lane .who{
+    font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);
+  }
+  .lane .what{font-family:var(--mono);font-size:12px;color:var(--ink);margin-top:3px;line-height:1.5}
+  .lane .what em{color:var(--accent);font-style:normal;font-weight:600}
+  .lanes .mid{
+    font-size:11px;font-family:var(--mono);text-transform:uppercase;letter-spacing:.08em;
+    color:var(--muted);text-align:center;line-height:1.5;max-width:9ch;
+  }
+  .lanes .mid span{display:block;font-size:16px;color:var(--accent)}
+  .replay-note{margin:14px 0 0;font-size:12.5px;color:var(--muted);line-height:1.6}
+
+  /* ── evidence ────────────────────────────────────────────── */
+  .evidence{display:grid;grid-template-columns:1.06fr 1fr;gap:14px;align-items:start}
+
+  table.t{width:100%;border-collapse:collapse;font-size:13px}
+  table.t th{
+    text-align:left;font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;
+    color:var(--muted);font-weight:600;padding:0 8px 8px 0;border-bottom:1px solid var(--line);
+  }
+  table.t td{padding:9px 8px 9px 0;border-bottom:1px solid var(--line-2);vertical-align:top;color:var(--ink-2);line-height:1.5}
+  table.t tr:last-child td{border-bottom:0}
+  table.t td:first-child{color:var(--ink)}
+  table.t .ok{color:var(--accent);font-weight:700;white-space:nowrap}
+  table.t .bad{color:#a24a1c;font-weight:600;white-space:nowrap}
+  table.t .dash{color:#b9b3a8}
+  .tnote{margin:12px 0 0;font-size:12px;color:var(--muted);line-height:1.6}
+
+  .bars{display:grid;gap:9px;margin:4px 0 0}
+  .bar-row{display:grid;grid-template-columns:104px 1fr 66px;align-items:center;gap:10px}
+  .bar-row .lb{font-size:11.5px;color:var(--ink-2);line-height:1.3}
+  .bar-row .tr{height:15px;background:#f1eee7;border-radius:2px;overflow:hidden}
+  .bar-row .bar{height:100%;width:var(--w);background:#c3cfcb;border-radius:2px}
+  .bar-row.is-exact .bar{background:var(--accent)}
+  .bar-row .vl{font-family:var(--mono);font-size:11.5px;color:var(--ink);text-align:right;font-variant-numeric:tabular-nums}
+  .bar-row .vl small{color:var(--muted)}
+  .bars-legend{margin:12px 0 0;font-size:11.5px;color:var(--muted);line-height:1.6}
+
+  .bigline{
+    margin:16px 0 0;padding-top:14px;border-top:1px solid var(--line-2);
+    display:flex;flex-wrap:wrap;gap:8px 20px;
+  }
+  .bigline div{font-size:12.5px;color:var(--muted)}
+  .bigline b{display:block;font-family:var(--mono);font-size:15px;color:var(--ink);letter-spacing:-.01em;margin-bottom:2px}
+  .summary-card{margin-top:14px}
+  .summary-line{margin-top:0;padding-top:0;border-top:0}
+
+  .kernelnums{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:14px 0 0;padding-top:14px;border-top:1px solid var(--line-2)}
+  .kernelnums div{font-size:12px;color:var(--muted);line-height:1.55}
+  .kernelnums b{display:block;font-family:var(--mono);font-size:19px;color:var(--ink);letter-spacing:-.02em}
+  .kernelnums .neg b{color:#a24a1c}
+
+  /* ── strengths / limits ──────────────────────────────────── */
+  .dual{display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:start}
+  .panel{border-radius:5px;padding:22px;border:1px solid var(--line);background:var(--card)}
+  .panel.limits{background:#fdfbf7;border-color:#e6dccd}
+  .panel h3{
+    margin:0 0 14px;font-family:var(--mono);font-size:10.5px;font-weight:600;letter-spacing:.14em;
+    text-transform:uppercase;color:var(--accent);
+  }
+  .panel.limits h3{color:#8a5a1f}
+  .panel ul{margin:0;padding:0;list-style:none;display:grid;gap:11px}
+  .panel li{
+    position:relative;padding-left:16px;font-size:13.2px;line-height:1.62;color:var(--ink-2);
+  }
+  .panel li::before{
+    content:"";position:absolute;left:0;top:.58em;width:6px;height:6px;border-radius:50%;
+    background:var(--accent);
+  }
+  .panel.limits li::before{background:#c99a63}
+  .panel li b{color:var(--ink);font-weight:650}
+
+  /* ── questions ───────────────────────────────────────────── */
+  .questions{background:#f7f5ef;border:1px solid var(--line);border-radius:5px;padding:22px}
+  .questions h3{
+    margin:0 0 14px;font-family:var(--mono);font-size:10.5px;letter-spacing:.14em;
+    text-transform:uppercase;color:var(--ink-2);font-weight:600;
+  }
+  .questions ol{
+    margin:0;padding:0;list-style:none;counter-reset:q;
+    display:grid;grid-template-columns:1fr 1fr;gap:12px 26px;
+  }
+  .questions li{
+    counter-increment:q;position:relative;padding-left:26px;
+    font-size:12.8px;line-height:1.6;color:var(--ink-2);
+  }
+  .questions li::before{
+    content:"Q" counter(q);position:absolute;left:0;top:0;
+    font-family:var(--mono);font-size:10.5px;font-weight:600;color:var(--muted);line-height:1.95;
+  }
+
+  /* ── footer ──────────────────────────────────────────────── */
+  footer{
+    margin-top:40px;padding-top:18px;border-top:1px solid var(--line);
+    display:flex;flex-wrap:wrap;gap:10px 22px;align-items:baseline;
+    font-size:12.5px;color:var(--muted);
+  }
+  footer .spacer{flex:1}
+  footer .fine{font-size:11.5px;color:#948d80;font-family:var(--mono);letter-spacing:.01em}
+
+  /* ── responsive ──────────────────────────────────────────── */
+  @media (max-width:960px){
+    .assets{grid-template-columns:1fr 1fr}
+    .asset.metric{grid-column:1 / -1}
+    .stats{grid-template-columns:1fr 1fr}
+    .evidence{grid-template-columns:1fr}
+    .questions ol{grid-template-columns:1fr}
+  }
+  @media (max-width:720px){
+    .wrap{width:94vw}
+    .hero{padding-top:78px}
+    .assets{grid-template-columns:1fr}
+    .steps{grid-template-columns:1fr}
+    .dual{grid-template-columns:1fr}
+    .lanes{grid-template-columns:1fr;gap:8px}
+    .lanes .mid{max-width:none;display:flex;gap:8px;justify-content:center;align-items:center}
+    .bar-row{grid-template-columns:88px 1fr 60px}
+    .meta{font-size:12px}
+    h1{max-width:26ch}
+    .sec-head h2{font-size:.94rem}
+  }
+</style>
+</head>
+<body>
+
+<a class="nav-back" href="./index.html">↩ Today's digest</a>
+
+<div class="wrap">
+
+  <!-- ══════════ HERO: the finding, not the paper title ══════════ -->
+  <header class="hero">
+    <p class="eyebrow">
+      <span class="dot"></span> Systems
+      <span class="sep">/</span> <span class="plain">MoE Inference</span>
+      <span class="sep">/</span> <span class="plain">Bitwise Determinism</span>
+    </p>
+
+    <h1>Move experts between CPU and GPU — the output stays <span class="hl">bit-identical</span>.</h1>
+
+    <p class="deck">160 / 160 problems &nbsp;·&nbsp; four placements &nbsp;·&nbsp; zero bit differences &nbsp;·&nbsp; <b>1.26× mean decode throughput</b></p>
+
+    <p class="hero-zh" lang="zh-CN">把 KTransformers 的 CPU 专家核当作规范算术，让 GPU 用 <code>fma.rn.ftz</code> 逐位重放同一累加顺序；专家放 CPU 还是 GPU，答案逐位相同。</p>
+
+    <p class="paper-title"><a href="https://arxiv.org/abs/2611.27604">IsoMoE: Placement-Invariant Hybrid CPU-GPU MoE Inference with Lossless 12-bit Experts</a></p>
+
+    <div class="meta">
+      <span class="authors">Hang Gu, Teng Wang, Zhendong Zheng, Qianyu Cheng, et al.</span>
+      <span>USTC · Hefei &amp; Suzhou</span>
+      <time datetime="2026-11-16">2026-11-16</time>
+      <span class="mono">arXiv 2611.27604</span>
+      <span class="chips">
+        <span class="chip">expert offloading</span>
+        <span class="chip">bit-exact replay</span>
+        <span class="chip">12-bit lossless</span>
+        <span class="chip">AVX-512</span>
+        <span class="chip ghost">KTransformers 0.3.2</span>
+      </span>
+    </div>
+  </header>
+
+  <!-- ══════════ ASSET ROW ══════════ -->
+  <section class="assets" aria-label="Key assets">
+    <article class="asset metric">
+      <p class="asset-label">Headline result</p>
+      <p class="metric-big num">160/160</p>
+      <p class="metric-sub">AIME + MATH500 · batch 8 · greedy · ≤16K tokens</p>
+      <p>Bitwise-identical greedy outputs across all-CPU, 20-slot, 41-slot and online placement (49,712 swap-ins). The same engine with replay switched off manages <strong>1/160</strong>.</p>
+    </article>
+
+    <article class="asset">
+      <p class="asset-label">Why it matters</p>
+      <p>Free GPU memory silently rewrites your answers, contaminating every hybrid-inference comparison. IsoMoE removes that variable — and still decodes <strong>1.26×</strong> faster than the best baseline.</p>
+    </article>
+
+    <article class="asset edge">
+      <p class="asset-label">Critical edge</p>
+      <p>“Bitwise identical” means identical to KTransformers’ approximate <code>vrcp14ps</code> arithmetic. Accuracy is never measured against ground truth — this is determinism, not correctness.</p>
+      <span class="tag">Read the invariance claim narrowly</span>
+    </article>
+  </section>
+
+  <!-- ══════════ THE PROBLEM ══════════ -->
+  <section>
+    <div class="sec-head">
+      <h2>The problem is not a corner case</h2>
+      <p class="hint">Placement changes are decided by whatever else is running on the GPU at launch. Existing hybrid engines diverge badly — and quietly.</p>
+    </div>
+
+    <p class="problem-intro">No random seed is involved. Rounding-level differences flip <em>which expert</em> a token routes to; Top-8 routing then magnifies “8th vs 9th expert are almost tied” into a discrete jump, and the answer changes.</p>
+
+    <div class="stats">
+      <div class="stat">
+        <span class="v num">5/56</span>
+        <span class="k"><b>llama.cpp</b> problems unchanged after moving 12 layers’ experts to the GPU</span>
+      </div>
+      <div class="stat">
+        <span class="v num">56/56</span>
+        <span class="k"><b>FreeToken</b> outputs that changed when the expert cache was halved</span>
+      </div>
+      <div class="stat">
+        <span class="v num">3/16</span>
+        <span class="k">unchanged when another process held <b>4 GiB</b> at startup (first 2,048 tokens)</span>
+      </div>
+      <div class="stat">
+        <span class="v num">15.8%</span>
+        <span class="k">routing decisions that flip under noise on <b>87</b> non-resident experts — 13.5% even with an FP32 router</span>
+      </div>
+    </div>
+
+    <p class="problem-foot">Divergent outputs share a median prefix of only 125–320 tokens · CPU expert compute = 82% of each decode step at ~127 GB/s</p>
+  </section>
+
+  <!-- ══════════ METHOD ══════════ -->
+  <section>
+    <div class="sec-head">
+      <h2>One canonical arithmetic, replayed</h2>
+      <p class="hint">The inversion: don’t make both devices “more correct”. Declare the bottleneck side canonical and let the idle side emulate it.</p>
+    </div>
+
+    <div class="steps">
+      <article class="step">
+        <p class="n">Step 01 · choose a reference</p>
+        <h3>Keep the CPU kernel untouched</h3>
+        <p>CPU expert compute is 82% of each decode step with all experts on CPU, and still 49% with 13.5 GiB resident on the GPU. Fixing the busy side costs throughput; emulating the idle side costs almost nothing.</p>
+      </article>
+
+      <article class="step">
+        <p class="n">Step 02 · replay the dot product</p>
+        <h3><code>vdpbf16ps</code> → two <code>fma.rn.ftz</code></h3>
+        <p>AVX-512 adds the odd product first, the even one second, rounding after each add. Two inline-PTX FMAs reproduce that order and denormal handling exactly, in code the compiler cannot reassociate.</p>
+      </article>
+
+      <article class="step">
+        <p class="n">Step 03 · tabulate the rest</p>
+        <h3>65,536-entry activation table</h3>
+        <p><code>vrcp14ps</code>’s 14-bit reciprocal cannot be reproduced bit-for-bit on the GPU, so every BF16 activation input maps to the CPU-computed output instead.</p>
+      </article>
+
+      <article class="step">
+        <p class="n">Step 04 · lay out the weights</p>
+        <h3>“CPU order” 12-bit codewords</h3>
+        <p>Low byte kept, high byte squeezed to sign + 3-bit exponent offset against a per-matrix base (≈12.1 bits/weight). Rows are permuted into the dot-product’s fetch order, so decompressed <code>w0/w1</code> <em>are</em> the operands — no 32×32 transpose per call.</p>
+      </article>
+
+      <article class="step">
+        <p class="n">Step 05 · pipeline without bits moving</p>
+        <h3>Two micro-batches, whole-batch shapes</h3>
+        <p>Micro-batches are offset by half a layer and computed at full-batch shape (zero-row padding, KV split by whole batch), so library kernel selection cannot perturb arithmetic. Swap-ins commit after each layer’s attention and router.</p>
+      </article>
+
+      <article class="step">
+        <p class="n">Step 06 · merge in routing order</p>
+        <h3><code>k=1</code> dummy tokens for single experts</h3>
+        <p>The CPU library only returns a pre-accumulated <code>y</code>. IsoMoE feeds each (token, expert) pair as its own weight-1.0 token to recover <code>d_j</code>, then the GPU re-applies the same FMAs in routing order.</p>
+      </article>
+    </div>
+
+    <div class="replay" aria-label="Replay lanes">
+      <p class="replay-label">Same bytes · same order · same rounding</p>
+      <div class="lanes">
+        <div class="lane">
+          <p class="who">CPU · canonical</p>
+          <p class="what">AVX-512 <em>vdpbf16ps</em><br>odd → even, round each add</p>
+        </div>
+        <div class="mid"><span>⇄</span>merge by route</div>
+        <div class="lane">
+          <p class="who">GPU · emulator</p>
+          <p class="what"><em>fma.rn.ftz</em> ×2, inline PTX<br>no reassociation allowed</p>
+        </div>
+      </div>
+      <p class="replay-note">The GPU is allowed to be slower per-operation because it was never the bottleneck. That is also why the guarantee is nearly free.</p>
+    </div>
+  </section>
+
+  <!-- ══════════ EVIDENCE ══════════ -->
+  <section>
+    <div class="sec-head">
+      <h2>Evidence</h2>
+      <p class="hint">Qwen3-30B-A3B-Thinking-2507 · Xeon 8488C + RTX A6000 · PCIe 4.0 ×16</p>
+    </div>
+
+    <div class="evidence">
+      <article class="card">
+        <h3>Exact mode vs the control</h3>
+        <p class="cap">160 AIME+MATH500 problems · batch 8 · greedy · ≤16K tokens</p>
+        <table class="t">
+          <thead>
+            <tr><th>Comparison</th><th>IsoMoE exact</th><th>Same engine, fast mode</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>All-CPU ↔ 20 slots ↔ 41 slots</td>
+              <td class="ok num">160/160</td>
+              <td class="bad num">1/160</td>
+            </tr>
+            <tr>
+              <td>Online placement, 49,712 swap-ins</td>
+              <td class="ok num">56/56</td>
+              <td class="dash">—</td>
+            </tr>
+            <tr>
+              <td>Final answers changed (fast mode)</td>
+              <td class="dash">—</td>
+              <td class="bad num">8.8–10.0%</td>
+            </tr>
+            <tr>
+              <td>vs untouched KTransformers, bitwise</td>
+              <td class="ok">matches at every step</td>
+              <td class="dash">—</td>
+            </tr>
+          </tbody>
+        </table>
+        <p class="tnote">The last row spans 16 problems at a 32K cap (longest output 32,264 tokens), DeepSeek-V2-Lite at 10/21/31 slots with per-layer output hashes at every step, and Mixtral at 1/2/4 slots. Fast mode differs only by removing the replay — same engine, same 12-bit format.</p>
+      </article>
+
+      <article class="card">
+        <h3>Where the speed comes from</h3>
+        <p class="cap">Ablation · Qwen3 · batch 8 · 13.5 GiB of GPU experts · tok/s</p>
+        <div class="bars">
+          <div class="bar-row">
+            <div class="lb">BF16 baseline</div>
+            <div class="tr"><div class="bar" style="--w:74%"></div></div>
+            <div class="vl">87.7</div>
+          </div>
+          <div class="bar-row">
+            <div class="lb">+ 12-bit format</div>
+            <div class="tr"><div class="bar" style="--w:88.7%"></div></div>
+            <div class="vl">105.1 <small>1.20×</small></div>
+          </div>
+          <div class="bar-row">
+            <div class="lb">+ 41 slots</div>
+            <div class="tr"><div class="bar" style="--w:100%"></div></div>
+            <div class="vl">118.5 <small>1.35×</small></div>
+          </div>
+          <div class="bar-row is-exact">
+            <div class="lb">+ exact replay</div>
+            <div class="tr"><div class="bar" style="--w:99.5%"></div></div>
+            <div class="vl">117.9 <small>1.34×</small></div>
+          </div>
+        </div>
+        <p class="bars-legend">Compression frees 13.5 → 10.3 GiB of slot memory; the freed slots lift expert hit rate 67% → 75%. Determinism costs <strong>0.5%</strong> — inside run-to-run variation (exact/fast 1.02× on Qwen3, 0.97× on DeepSeek).</p>
+
+        <div class="kernelnums">
+          <div><b>1.35×</b> CPU expert compute vs BF16 — matching the 12.1/16-bit byte ratio</div>
+          <div class="neg"><b>0.59–1.07×</b> for zstd / Huffman / rANS formats at a ~1.5 byte ratio: decompression eats the win</div>
+        </div>
+      </article>
+    </div>
+
+    <div class="card summary-card">
+      <div class="bigline summary-line">
+        <div><b>1.26× / 1.54×</b>mean / max decode throughput vs fastest baseline, highest in all 3 models × 4 budgets × 2 batch sizes</div>
+        <div><b>1.39–2.76×</b>versus baselines forced to keep every expert on CPU to preserve their outputs</div>
+        <div><b>1.28–1.35×</b>of BF16 across 1–40 threads with CPU order; row-major collapses to 0.68–0.70× at ~15 GB/s per core</div>
+        <div><b>12.1 bit</b>per weight, lossless — and the layout, not the compression, is what keeps the win as bandwidth grows</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════ STRENGTHS / LIMITS ══════════ -->
+  <section>
+    <div class="sec-head">
+      <h2>Read it like a reviewer</h2>
+      <p class="hint">Strongest controls in the paper, and the claims it does not actually test.</p>
+    </div>
+
+    <div class="dual">
+      <article class="panel">
+        <h3>Strengths</h3>
+        <ul>
+          <li><b>A problem statement you cannot wave away.</b> “5 of 56 unchanged”, “3 of 16 when another process holds 4 GiB” turn reproducibility into a concrete evaluation hazard.</li>
+          <li><b>The asymmetric-replay inversion.</b> Letting the bottleneck side define the reference arithmetic is a reusable idea for any heterogeneous engine, not just MoE.</li>
+          <li><b>CPU order is mechanism, not marketing.</b> The decompressor’s output <em>is</em> the dot-product operand — and the row-major sweep (0.68–0.70× vs 1.28–1.35×) shows why.</li>
+          <li><b>Honest controls.</b> The fast-mode row flips 159/160 outputs; per-layer hashes are checked against an untouched engine; 49,712 swap-ins are stress-tested online.</li>
+        </ul>
+      </article>
+
+      <article class="panel limits">
+        <h3>Limits &amp; open edges</h3>
+        <ul>
+          <li><b>One box.</b> Single 8488C, single A6000, PCIe 4.0, batch ≤32, GPU budget ≤37.5% of BF16 experts. No multi-GPU, NVLink, H100/B200, AMX, or ARM — and the AVX-512 layout has no stated portability path.</li>
+          <li><b>No accuracy evaluation.</b> The 8.8–10.0% answer churn in fast mode is never scored, so the cost of divergence is unknown.</li>
+          <li><b>The reference is an approximation.</b> <code>vrcp14ps</code> activations are canonized by table; compare across engines or kernel versions and the guarantee evaporates.</li>
+          <li><b>Exception paths are unquantified.</b> Overflow-segment frequency, side-table size, data-dependent access cost, offline 12-bit conversion — all unmeasured.</li>
+          <li><b>Decode only.</b> No prefill/TTFT, tail latency, or staging-buffer footprint, even though the dual micro-batch design is decode-phase specific.</li>
+          <li><b>Baseline gaps.</b> FreeToken on Qwen3 only, HybriMoE excluded, and the 1.54× headline is a self-ablation against IsoMoE’s own BF16 variant; the honest number is 1.26×.</li>
+        </ul>
+      </article>
+    </div>
+  </section>
+
+  <!-- ══════════ QUESTIONS ══════════ -->
+  <section class="questions">
+    <h3>Questions for further exploration</h3>
+    <ol>
+      <li>How far is the frozen reference from a correctly rounded SiLU — and could a “correct-activation” canonical be shared by both sides at similar cost?</li>
+      <li>What fraction of 64-weight row segments overflow the 3-bit exponent offset, how big is the side table, and does it show up in the per-step latency tail?</li>
+      <li>What happens on H100/B200 with different Tensor-Core accumulation, or on SPR/AMX where <code>vdpbf16ps</code> becomes tile instructions?</li>
+      <li>With CPU still at 82% of the step, what is the headroom from reducing CPU work — a cheaper exact activation, or 2:4 sparsity — and does invariance constrain it?</li>
+      <li>Does the extra 12-bit slot budget interact with KV-cache pressure? Qwen3’s 24.1 GiB KV cache already caps its expert budget at 31.25%.</li>
+      <li>Can placement invariance compose with batch invariance and cross-engine reproducibility without a 20–50% throughput tax?</li>
+    </ol>
+  </section>
+
+  <footer>
+    <a href="https://arxiv.org/abs/2611.27604">arXiv 2611.27604</a>
+    <span>·</span>
+    <a href="./2611.27604.md">↗ Markdown source</a>
+    <span class="spacer"></span>
+    <span class="fine">Dashboard distilled from the bilingual summary · not browser-verified</span>
+  </footer>
+
+</div>
+</body>
+</html>

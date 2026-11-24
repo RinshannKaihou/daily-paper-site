@@ -1,0 +1,454 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DexAttention — distributed sparse attention in milliseconds</title>
+<meta name="description" content="DexAttention plans mask-aware distributed sparse attention in 6–23 ms and executes it with one persistent kernel per GPU pass.">
+<style>
+  :root{
+    --bg:#f4f5f7;
+    --card:#ffffff;
+    --ink:#12151c;
+    --ink-2:#3d4450;
+    --muted:#6b7280;
+    --rule:#e3e6eb;
+    --rule-strong:#cdd3dc;
+    --accent:#1e40af;
+    --accent-soft:#eaeefb;
+    --warn:#9a3412;
+    --warn-bg:#fdf3ee;
+    --warn-rule:#f0d6c8;
+    --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%}
+  body{
+    margin:0;padding-top:52px;
+    background:var(--bg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Noto Sans CJK SC","Microsoft YaHei",sans-serif;
+    font-size:16px;line-height:1.62;
+    -webkit-font-smoothing:antialiased;
+  }
+  a{color:var(--accent)}
+
+  /* fixed nav */
+  .nav{position:fixed;top:0;left:0;right:0;height:52px;z-index:50;
+    background:var(--bg);border-bottom:1px solid var(--rule);display:flex;align-items:center}
+  .nav .inner{width:min(95vw,1100px);margin:0 auto;display:flex;justify-content:space-between;
+    align-items:center;gap:12px}
+  .nav a{font-size:12.5px;font-weight:650;letter-spacing:.01em;color:var(--ink-2);text-decoration:none}
+  .nav a:hover{color:var(--accent)}
+  .nav .meta{font-size:11.5px;color:var(--muted);font-family:var(--mono);white-space:nowrap}
+
+  .wrap{width:min(95vw,1100px);margin:0 auto;padding:26px 0 72px}
+
+  /* hero */
+  .hero{padding:6px 0 28px;border-bottom:1px solid var(--rule-strong);margin-bottom:22px}
+  .kicker{font-size:10.5px;letter-spacing:.17em;text-transform:uppercase;font-weight:700;
+    color:var(--accent);margin:0 0 14px}
+  .finding{font-size:clamp(1.85rem,4.6vw,3.45rem);line-height:1.06;letter-spacing:-.025em;
+    font-weight:700;margin:0 0 22px;max-width:20ch;color:var(--ink)}
+  @media (min-width:900px){.finding{max-width:24ch}}
+  .paper-title{font-size:15px;font-weight:600;line-height:1.45;margin:0 0 9px;max-width:78ch}
+  .paper-title a{color:var(--ink-2);text-decoration:none;border-bottom:1px solid var(--rule-strong)}
+  .paper-title a:hover{color:var(--accent);border-color:var(--accent)}
+  .byline{font-size:12.5px;color:var(--muted);display:flex;flex-wrap:wrap;gap:4px 14px;align-items:baseline}
+  .byline b{font-weight:600;color:var(--ink-2)}
+  .zh{font-size:13px;color:var(--muted);margin:14px 0 0;line-height:1.7;max-width:70ch}
+  .chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:14px}
+  .chip{font-size:11px;letter-spacing:.02em;padding:3px 9px;border:1px solid var(--rule-strong);
+    border-radius:999px;color:var(--ink-2);background:#fff}
+
+  /* cards */
+  .card{background:var(--card);border:1px solid var(--rule);border-radius:4px;padding:20px 22px}
+  .label{font-size:10px;letter-spacing:.15em;text-transform:uppercase;color:var(--muted);
+    font-weight:700;margin:0 0 10px}
+  .card p{margin:0;font-size:13.5px;line-height:1.62;color:var(--ink-2)}
+  .card p + p{margin-top:9px}
+  h2{font-size:11.5px;letter-spacing:.13em;text-transform:uppercase;font-weight:700;
+    margin:0 0 16px;display:flex;align-items:center;gap:9px;color:var(--ink)}
+  h2::before{content:"";width:14px;height:2px;background:var(--accent);flex:none}
+
+  /* assets */
+  .assets{display:grid;grid-template-columns:1.08fr 1fr 1fr;gap:14px;margin-bottom:14px}
+  .metric .num{font-family:var(--mono);font-size:clamp(2.7rem,5.2vw,4rem);line-height:.92;
+    font-weight:600;letter-spacing:-.045em;color:var(--accent);font-variant-numeric:tabular-nums}
+  .metric .num .x{font-size:.62em;letter-spacing:-.02em}
+  .metric .ctx{font-size:12.5px;margin-top:13px;color:var(--ink-2)}
+  .metric .sub{font-size:11.5px;margin-top:11px;padding-top:11px;border-top:1px solid var(--rule);
+    color:var(--muted);font-family:var(--mono);line-height:1.5}
+  .why p{font-size:14px;line-height:1.6;color:var(--ink)}
+  .edge{background:var(--warn-bg);border-color:var(--warn-rule);border-left:3px solid var(--warn)}
+  .edge .label{color:var(--warn)}
+  .edge p{color:#5b2a18;font-size:13px}
+
+  /* grid */
+  .grid{display:grid;grid-template-columns:repeat(12,1fr);gap:14px}
+  .c5{grid-column:span 5}.c6{grid-column:span 6}.c7{grid-column:span 7}.c12{grid-column:span 12}
+  .stack{display:flex;flex-direction:column;gap:14px}
+
+  /* methodology flow */
+  .flow{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:16px}
+  .step{border:1px solid var(--rule);border-top:2px solid var(--accent);border-radius:3px;
+    padding:12px 13px;background:#fbfcfe}
+  .step .tag{font-size:10px;letter-spacing:.1em;text-transform:uppercase;font-weight:700;
+    color:var(--accent);margin-bottom:6px}
+  .step p{font-size:12px;line-height:1.55;color:var(--ink-2)}
+  .step .s{font-family:var(--mono);font-size:11px;color:var(--ink);margin-top:9px;
+    padding-top:8px;border-top:1px dotted var(--rule-strong);font-variant-numeric:tabular-nums}
+  ul.tight{margin:0;padding-left:16px;font-size:13px;line-height:1.6;color:var(--ink-2)}
+  ul.tight li{margin:0 0 7px}
+  ul.tight li:last-child{margin-bottom:0}
+  ul.tight li::marker{color:var(--accent)}
+  ul.limit li::marker{color:var(--muted)}
+  .note{font-size:11.5px;color:var(--muted);line-height:1.55;margin-top:12px;
+    padding-top:10px;border-top:1px solid var(--rule)}
+
+  /* tables */
+  .tw{overflow-x:auto}
+  table{width:100%;border-collapse:collapse;font-size:12.5px;line-height:1.45}
+  th{text-align:left;font-size:9.5px;letter-spacing:.09em;text-transform:uppercase;
+    color:var(--muted);font-weight:700;padding:0 10px 8px 0;border-bottom:1px solid var(--rule-strong);
+    vertical-align:bottom}
+  td{padding:8px 10px 8px 0;border-bottom:1px solid var(--rule);color:var(--ink-2);vertical-align:top}
+  tr:last-child td{border-bottom:none}
+  td.num,th.num{text-align:right;font-family:var(--mono);font-variant-numeric:tabular-nums;
+    white-space:nowrap;padding-right:0}
+  th.num{padding-right:0}
+  td.num{color:var(--ink);font-size:12.5px}
+  .hl{color:var(--accent);font-weight:650}
+  th.hl{color:var(--accent)}
+  td.hl{background:var(--accent-soft);padding-right:6px}
+  th.num.hl{padding-right:6px}
+  .wl{white-space:nowrap;font-weight:600;color:var(--ink)}
+  .sub2{display:block;font-weight:400;color:var(--muted);font-size:11px;margin-top:2px}
+
+  /* bars */
+  .bar-row{margin-bottom:11px}
+  .bar-head{display:flex;justify-content:space-between;align-items:baseline;gap:10px;
+    font-size:12px;margin-bottom:4px}
+  .bar-head span{color:var(--ink-2)}
+  .bar-head b{font-family:var(--mono);font-weight:600;font-size:11.5px;color:var(--ink);
+    font-variant-numeric:tabular-nums;white-space:nowrap}
+  .track{position:relative;height:7px;background:#eceef2;border-radius:2px;overflow:hidden}
+  .fill{position:absolute;top:0;bottom:0;background:#9aa3b2;border-radius:2px}
+  .fill.acc{background:var(--accent)}
+  .axis{position:relative;height:14px;margin-top:8px;border-top:1px solid var(--rule)}
+  .axis span{position:absolute;top:3px;transform:translateX(-50%);font-size:9.5px;color:var(--muted);
+    font-family:var(--mono);white-space:nowrap}
+  .axis span:first-child{transform:none}
+
+  /* stat strip */
+  .strip{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-top:14px}
+  .stat-block{background:#fff;border:1px solid var(--rule);border-left:3px solid var(--accent);
+    border-radius:3px;padding:13px 15px}
+  .stat-block .v{font-family:var(--mono);font-size:17px;font-weight:600;letter-spacing:-.02em;
+    color:var(--ink);font-variant-numeric:tabular-nums;line-height:1.2}
+  .stat-block .v sup{font-size:.62em}
+  .stat-block .k{font-size:11px;color:var(--muted);margin-top:6px;line-height:1.45}
+
+  /* duo */
+  .duo{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  .duo h3{font-size:10.5px;letter-spacing:.13em;text-transform:uppercase;margin:0 0 12px;
+    color:var(--ink-2);display:flex;align-items:center;gap:8px}
+  .duo h3::before{content:"";width:9px;height:9px;border-radius:2px;background:var(--accent);flex:none}
+  .duo .neg h3::before{background:var(--warn)}
+
+  /* questions */
+  .qs{counter-reset:q;list-style:none;margin:0;padding:0;
+    display:grid;grid-template-columns:1fr 1fr;gap:9px 26px}
+  .qs li{counter-increment:q;position:relative;padding-left:26px;font-size:13px;
+    line-height:1.55;color:var(--ink-2)}
+  .qs li::before{content:counter(q,decimal-leading-zero);position:absolute;left:0;top:1px;
+    font-family:var(--mono);font-size:10.5px;color:var(--accent);font-weight:600}
+
+  footer{margin-top:24px;padding-top:16px;border-top:1px solid var(--rule-strong);
+    display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;font-size:11.5px;
+    color:var(--muted)}
+  footer a{font-weight:650;text-decoration:none}
+  footer a:hover{text-decoration:underline}
+
+  @media (max-width:900px){
+    .assets{grid-template-columns:1fr}
+    .grid{grid-template-columns:1fr}
+    .c5,.c6,.c7,.c12{grid-column:auto}
+    .flow{grid-template-columns:1fr}
+    .strip{grid-template-columns:1fr 1fr}
+    .duo{grid-template-columns:1fr}
+    .qs{grid-template-columns:1fr}
+  }
+  @media (max-width:560px){
+    .strip{grid-template-columns:1fr}
+    .card{padding:17px 16px}
+    .nav .meta{display:none}
+  }
+</style>
+</head>
+<body>
+
+<nav class="nav">
+  <div class="inner">
+    <a href="./index.html">↩ Today's digest</a>
+    <span class="meta">2026-11-16 · arXiv:2611.23512</span>
+  </div>
+</nav>
+
+<div class="wrap">
+
+  <header class="hero">
+    <p class="kicker">Distributed sparse attention · systems</p>
+    <h1 class="finding">A millisecond planner is enough to make mask-aware distributed sparse attention pay off.</h1>
+    <p class="paper-title"><a href="https://arxiv.org/abs/2611.23512">DexAttention: Distributed Sparse Attention through Rapid Online Planning and Persistent GPU Execution</a></p>
+    <p class="byline">
+      <b>Sirui Chen</b> (Purdue) · <b>Xuehai Qian</b> (Tsinghua)
+      <span>Preprint, 14 pp.</span>
+      <span>Code released</span>
+    </p>
+    <p class="zh">把稀疏注意力在 context parallelism 下的“规划”当作一等公民：GPU 端聚类 assigner + CPU 贪心 scheduler（6–23 ms 一次），配上每卡只启动一次的常驻 kernel。</p>
+    <div class="chips">
+      <span class="chip">context parallelism</span>
+      <span class="chip">sparse attention</span>
+      <span class="chip">persistent kernels</span>
+      <span class="chip">communication scheduling</span>
+      <span class="chip">NVSHMEM</span>
+    </div>
+  </header>
+
+  <section class="assets">
+    <div class="card metric">
+      <p class="label">Key metric</p>
+      <div class="num">1.39<span class="x">×</span></div>
+      <p class="ctx">Geometric-mean end-to-end training speedup over the fastest applicable baseline — 11 configurations on 4 nodes × 4 RTX A5000.</p>
+      <p class="sub">dynamic video workload: 2.11–2.37× vs Ring, planning included</p>
+    </div>
+
+    <div class="card why">
+      <p class="label">Why this matters</p>
+      <p>Long-context training chokes on attention communication. Cheap online scheduling, not faster hardware, reclaims it — and the pattern transfers to any mask-irregular distributed operator.</p>
+    </div>
+
+    <div class="card edge">
+      <p class="label">Critical edge</p>
+      <p>Every result comes from one 16-GPU A5000 cluster on 200 Gb/s IB with no NVLink — and the gain falls as per-GPU bandwidth rises, so these are a fabric-specific upper bound, not a forecast.</p>
+    </div>
+  </section>
+
+  <main class="grid">
+
+    <!-- METHODOLOGY -->
+    <section class="card c7">
+      <h2>Three stages, one attention pass</h2>
+
+      <div class="flow">
+        <div class="step">
+          <div class="tag">01 · Assigner (GPU)</div>
+          <p>64-row Q chunks are clustered by shared-KV similarity <em>S</em> = AA<sup>T</sup>; four rounds yield ~19 clusters under a load cap C<sub>ε</sub> = (1+ε)W/|U|, with KV re-split (k ≤ 4) for communication-bound candidates.</p>
+          <div class="s">4.9–6.3 ms · assignment only</div>
+        </div>
+        <div class="step">
+          <div class="tag">02 · Scheduler (CPU)</div>
+          <p>One gateway GPU per node absorbs a shared remote chunk, transfers are ordered by compute work ÷ transfer time, and remote partial outputs return first.</p>
+          <div class="s">12–19 ms static · 6–23 ms dynamic</div>
+        </div>
+        <div class="step">
+          <div class="tag">03 · Executor (persistent)</div>
+          <p>One controller block + 63 worker blocks, launched once per pass. Block 0 polls NVSHMEM epoch signals; ready tiles dispatch with no host round-trip.</p>
+          <div class="s">0.07 ms launch + setup per call</div>
+        </div>
+      </div>
+
+      <ul class="tight">
+        <li><strong>The cost model only ranks candidates</strong>, it never simulates a timeline: T<sub>b</sub> = max(compute, communication) + tail, with calibration fixed across all six workloads.</li>
+        <li><strong>Deliberate division of labor</strong> — the planner gives coarse order and refuses to predict interleaving; piece-level readiness is a runtime signal. A coarse plan drives fine-grained execution.</li>
+        <li>Runs behind FA2, InfLLM-v2, SpargeAttention2 and FlexPrefill; dense matmuls are captured in CUDA graphs and inter-node traffic uses NVSHMEM put-with-signal.</li>
+      </ul>
+    </section>
+
+    <!-- PER-WORKLOAD RESULTS -->
+    <section class="card c5">
+      <h2>Speedup by workload</h2>
+      <div class="tw">
+        <table>
+          <thead>
+            <tr><th>Workload</th><th class="num">Gain</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><span class="wl">W1</span> sink + 4K window<span class="sub2">Qwen1.5-1.8B, 32K–256K</span></td><td class="num">4.45–9.82×</td></tr>
+            <tr><td><span class="wl">W2</span> shared prefix, MHA<span class="sub2">Qwen1.5-1.8B, LongReason</span></td><td class="num">1.94–2.37×</td></tr>
+            <tr><td><span class="wl">W3</span> shared prefix, GQA<span class="sub2">Qwen3-4B, 38K–203K</span></td><td class="num">1.08–1.71×</td></tr>
+            <tr><td><span class="wl">W4</span> InfLLM-v2 top-k<span class="sub2">MiniCPM4.1-8B, LongBench-v2</span></td><td class="num">1.00–1.12×</td></tr>
+            <tr><td><span class="wl">W5</span> SpargeAttn2 video<span class="sub2">Wan2.1-1.3B, VBench</span></td><td class="num">2.11–2.37×</td></tr>
+            <tr><td><span class="wl">W6</span> FlexPrefill prefill<span class="sub2">Llama-3.1-8B, RULER</span></td><td class="num">0.98–1.07×</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="note">W1 is attention-call latency against the fastest baseline; W2–W5 are end-to-end training steps (W5 measured against Ring, planning included); W6 is prefill with the assigner enabled, which is slower than running without it.</p>
+    </section>
+
+    <!-- PLANNING COST -->
+    <section class="card c5">
+      <h2>Planning cost, end to end</h2>
+
+      <div class="bar-row">
+        <div class="bar-head"><span>DexAttention</span><b>6–23 ms</b></div>
+        <div class="track"><span class="fill acc" style="left:14.7%;width:11%"></span></div>
+      </div>
+      <div class="bar-row">
+        <div class="bar-head"><span>MagiAttention</span><b>30–760 ms</b></div>
+        <div class="track"><span class="fill" style="left:27.9%;width:26.5%"></span></div>
+      </div>
+      <div class="bar-row">
+        <div class="bar-head"><span>DCP (KaHyPar)</span><b>6.4–111 s</b></div>
+        <div class="track"><span class="fill" style="left:71.8%;width:23.4%"></span></div>
+      </div>
+      <div class="bar-row">
+        <div class="bar-head"><span>UltraAttn (Gurobi)</span><b>0.9–116 s</b></div>
+        <div class="track"><span class="fill" style="left:55.7%;width:39.8%"></span></div>
+      </div>
+
+      <div class="axis">
+        <span style="left:0%">1 ms</span>
+        <span style="left:37.7%">100 ms</span>
+        <span style="left:75.5%">10 s</span>
+        <span style="left:94.3%">100 s</span>
+      </div>
+
+      <p class="note">Log scale; includes metadata exchange, table upload and broadcast — not just solver time. 14 of 104 UltraAttn plans time out, and DCP/UA figures are best-case under a 120 s search budget. After overlapping backward planning on a worker thread, only 2.6–4.9% (W4) and 5–9% (W5) of step time stays exposed.</p>
+    </section>
+
+    <!-- ABLATION LADDER -->
+    <section class="card c7">
+      <h2>Planner or executor? Controlled substitution</h2>
+      <div class="tw">
+        <table>
+          <thead>
+            <tr>
+              <th>Plan source</th>
+              <th class="num">Own stack</th>
+              <th class="num">Dex exec</th>
+              <th class="num">+ sched</th>
+              <th class="num hl">+ assigner</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td class="wl">UltraAttn</td><td class="num">5.33</td><td class="num">2.21</td><td class="num">1.75</td><td class="num hl">1.00</td></tr>
+            <tr><td class="wl">MagiAttention</td><td class="num">4.64</td><td class="num">4.00</td><td class="num">2.14</td><td class="num hl">1.00</td></tr>
+            <tr><td class="wl">DCP</td><td class="num">4.25</td><td class="num">1.22</td><td class="num">1.09</td><td class="num hl">1.00</td></tr>
+            <tr><td class="wl">Ring</td><td class="num">3.55</td><td class="num">1.39</td><td class="num">—</td><td class="num hl">1.00</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="note">Forward latency, normalized to full Dex = 1.00. Each column swaps in one more piece of Dex while holding the rest fixed. The result cuts both ways: fast clustering is roughly as good as slow clustering (baseline plans only reach 1.09–2.14× once execution is fixed), and DCP's KaHyPar plan still wins outright on 3 of 15 static inputs. The planner's value is latency, not a better plan.</p>
+    </section>
+
+    <!-- EXECUTOR -->
+    <section class="card c6">
+      <h2>What actually carries the gain</h2>
+      <p style="margin-bottom:14px">Dex's own plans replayed on a decomposed executor (host-launched transfers, one attention call per step) run slower by:</p>
+
+      <div class="bar-row">
+        <div class="bar-head"><span>W1 forward</span><b>2.54×</b></div>
+        <div class="track"><span class="fill acc" style="left:0;width:93%"></span></div>
+      </div>
+      <div class="bar-row">
+        <div class="bar-head"><span>W2</span><b>2.43×</b></div>
+        <div class="track"><span class="fill acc" style="left:0;width:89%"></span></div>
+      </div>
+      <div class="bar-row">
+        <div class="bar-head"><span>W3</span><b>2.72×</b></div>
+        <div class="track"><span class="fill acc" style="left:0;width:100%"></span></div>
+      </div>
+      <div class="bar-row">
+        <div class="bar-head"><span>W5</span><b>1.58×</b></div>
+        <div class="track"><span class="fill acc" style="left:0;width:58%"></span></div>
+      </div>
+      <div class="bar-row">
+        <div class="bar-head"><span>W6 prefill</span><b>2.47×</b></div>
+        <div class="track"><span class="fill acc" style="left:0;width:91%"></span></div>
+      </div>
+
+      <p class="note">So the persistent kernel, not the planner, is the larger single contributor; planning adds 1.14–1.41× on W5. Amortized 128×128 tile time is 1.8 µs against 90 µs for a standalone FA2 call — one launch per GPU per pass instead of one per tile.</p>
+    </section>
+
+    <!-- NEGATIVE RESULTS -->
+    <section class="card c6">
+      <h2>Where it does not pay</h2>
+      <ul class="tight">
+        <li><strong>W4 top-k training: 1.00–1.12×.</strong> Non-attention work is 72–82% of the step, so there is almost nothing left to win; the assigner declines to move Q and keeps ownership.</li>
+        <li><strong>W6 prefill gets slower with assignment:</strong> 0.98–1.07× vs Ring with the assigner, 1.11–1.16× without — FlexPrefill's mask selection alone is 24–31% of prefill time.</li>
+        <li><strong>Memory:</strong> 0.8–2.4 GiB above Ring (W3 at 128K: 16.4 vs 14.2 GiB), though still under UltraAttn's 17.6 and ahead of DCP, which OOMs at 128K.</li>
+        <li><strong>Balance is a means, not the objective:</strong> on W5 traffic drops 277 → 126 MiB per node while compute imbalance rises 1.05 → 1.31.</li>
+      </ul>
+    </section>
+
+    <!-- STAT STRIP -->
+    <section class="c12">
+      <div class="strip">
+        <div class="stat-block">
+          <div class="v">762 → 32 MiB</div>
+          <div class="k">Max inbound traffic per node, W1. W5: 277 → 126 MiB with 1.31× imbalance accepted.</div>
+        </div>
+        <div class="stat-block">
+          <div class="v">90 → 1.8 µs</div>
+          <div class="k">Amortized 128×128 tile time vs a standalone FA2 call — ~50× less launch overhead.</div>
+        </div>
+        <div class="stat-block">
+          <div class="v">76 vs 84 TFLOP/s</div>
+          <div class="k">Dense 8K-token pass vs FA2: the paper buys granularity, not peak FLOPS.</div>
+        </div>
+        <div class="stat-block">
+          <div class="v">3.0×10<sup>−4</sup></div>
+          <div class="k">Worst relative L2 error vs FP64 on W1–W3 (4.7×10<sup>−3</sup> on W4/W5), matching All-gather.</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- STRENGTHS / LIMITATIONS -->
+    <section class="c12">
+      <div class="duo">
+        <div class="card">
+          <h3>Strengths</h3>
+          <ul class="tight">
+            <li>Tables 5 and 6 are the control most systems papers skip: replaying each plan on the other's stack makes the 1.39× attributable, and yields an honest negative — a 12–19 ms heuristic matches planners that take seconds.</li>
+            <li>Planning latency is measured end to end, including table upload and W5's rank-0 broadcast, rather than quoted as solver time.</li>
+            <li>Real executor engineering: one kernel launch per GPU per pass, controller/worker split that dodges the register spilling seen in fused ring stages.</li>
+            <li>Publishes the failures and explains them — W4 keeps ownership, W6 slows down — plus FP64 checks on outputs <em>and</em> gradients, a memory table with DCP's OOM, and released code.</li>
+          </ul>
+        </div>
+        <div class="card neg">
+          <h3>Limitations</h3>
+          <ul class="tight limit">
+            <li>One 4-node, 16-GPU A5000 cluster over 200 Gb/s IB, no NVLink, 1.75 GB/s per GPU — no faster fabric is tested, so the speedups are an upper bound.</li>
+            <li>1.3B–8B models, ≤256K context, 2–4 warmed steps per configuration: no convergence evidence, which is what practitioners actually need.</li>
+            <li>Global planning stops at one node: at ≥16 nodes each rank plans only its own node and metadata exchange is excluded; the 128-GPU axis invites over-reading.</li>
+            <li>No per-layer mask dynamism test — “dynamic” replays masks rather than producing them live inside a step, sidestepping the pipeline stall that motivates online planning.</li>
+            <li>SparSP, FlashMask-3 and db-SP are discussed but never run, leaving the ceiling of placement + assignment + persistent execution untested.</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- QUESTIONS -->
+    <section class="card c12">
+      <h2>Open questions</h2>
+      <ol class="qs">
+        <li>How much of the 1.39× survives on NVLink or 400G/800G IB? The cost model already parameterizes link bandwidth, so a sweep would settle whether online planning is a slow-fabric fix or a general technique.</li>
+        <li>What does planning cost when masks change per layer and are produced live in the training step, rather than replayed?</li>
+        <li>Why does W6 lose with assignment while W5 gains 1.14–1.41× — planning residue, lost ownership locality, or Q redistribution? Can the assigner learn to decline before it plans?</li>
+        <li>Can the assigner compose with SparSP-style initial placement or FlashMask-3 interval masks without breaking the millisecond budget?</li>
+        <li>How sensitive is the 126 MiB / 1.31-imbalance operating point to ε, and does the buffer-credit protocol hold under recomputation plus HSDP with overlapping backward plans?</li>
+        <li>How does the persistent kernel interact with CUDA-graph capture when mask shapes vary across calls — is W6's four-layer sampling cost-driven or a capture limitation?</li>
+      </ol>
+    </section>
+
+  </main>
+
+  <footer>
+    <span>↗ <a href="./2611.23512.md">Markdown source</a> · <a href="https://arxiv.org/abs/2611.23512">arXiv:2611.23512</a></span>
+    <span>Not browser-verified · generated from source markdown</span>
+  </footer>
+
+</div>
+</body>
+</html>

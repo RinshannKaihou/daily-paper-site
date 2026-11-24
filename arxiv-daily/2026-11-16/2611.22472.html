@@ -1,0 +1,613 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
+<meta name="description" content="PRUDENT: a 2B full-image checker flags the visual-token pruning failures a 38B VLM is confidently wrong about. 88.4% of full-token score at a 2.5% budget, +5.0 over IF-Prune.">
+<title>Disagree to Prune — a 2B checker for pruned VLMs · arXiv 2611.22472</title>
+<style>
+  :root{
+    --bg:#f5f4f0;
+    --card:#fffefc;
+    --ink:#14181a;
+    --ink-2:#454d4f;
+    --ink-3:#6d7678;
+    --line:#e2e1da;
+    --line-2:#c8c7be;
+    --accent:#0d6b60;
+    --accent-ink:#084a42;
+    --accent-soft:#e5f0ec;
+    --accent-line:#bcd8d1;
+    --warn:#a04b1c;
+    --warn-ink:#5e3218;
+    --warn-soft:#fbeee4;
+    --warn-line:#ecd6c4;
+    --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
+  }
+  *{box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%}
+  body{
+    margin:0;background:var(--bg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Helvetica Neue",Arial,"PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+    font-size:16px;line-height:1.55;-webkit-font-smoothing:antialiased;
+  }
+  :lang(zh){line-height:1.85}
+  a{color:var(--accent-ink);text-decoration:none}
+  a:hover{text-decoration:underline;text-underline-offset:2px}
+  a:focus-visible,button:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+  ::selection{background:var(--accent-soft)}
+  strong{font-weight:650}
+  code{
+    font-family:var(--mono);font-size:.88em;background:#efeee8;
+    border:1px solid var(--line);border-radius:3px;padding:.03em .28em;overflow-wrap:anywhere;
+  }
+  .num{font-variant-numeric:tabular-nums}
+
+  /* ---------- fixed nav ---------- */
+  .nav{
+    position:fixed;top:14px;left:14px;z-index:60;
+    padding:6px 13px 6px 11px;background:var(--bg);
+    border:1px solid var(--line-2);border-radius:999px;
+    font-size:.78rem;color:var(--ink-2);
+  }
+  .nav:hover{color:var(--ink);border-color:var(--ink-3);text-decoration:none}
+
+  .wrap{width:min(95vw,1100px);margin:0 auto;padding:66px 0 38px}
+
+  /* ---------- hero ---------- */
+  .hero{padding:2px 0 20px;border-bottom:1px solid var(--line-2)}
+  .eyebrow{
+    display:flex;flex-wrap:wrap;align-items:center;gap:9px;
+    font:600 .67rem/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;
+    color:var(--accent);margin-bottom:14px;
+  }
+  .eyebrow .dot{width:5px;height:5px;border-radius:50%;background:var(--accent);display:inline-block}
+  .eyebrow .sep{color:var(--line-2)}
+
+  h1.finding{
+    margin:0 0 14px;max-width:31ch;
+    font-size:clamp(1.88rem,4.1vw,2.9rem);
+    line-height:1.05;letter-spacing:-.031em;font-weight:700;
+  }
+  h1.finding em{font-style:normal;color:var(--accent);border-bottom:3px solid var(--accent-line)}
+
+  .paper-title{margin:0 0 3px;font-size:.97rem;font-weight:600;color:var(--ink-2);letter-spacing:-.004em}
+  .paper-title a{color:var(--ink-2);border-bottom:1px dotted var(--line-2)}
+  .paper-title a:hover{color:var(--accent-ink);text-decoration:none;border-color:var(--accent)}
+  .byline{margin:0;font-size:.82rem;color:var(--ink-3)}
+  .byline .aff{font-family:var(--mono);font-size:.72rem;letter-spacing:.005em}
+  .byline .sep{color:var(--line-2);margin:0 5px}
+  .zh{margin:8px 0 0;font-size:.9rem;color:var(--ink-2);max-width:82ch}
+
+  .chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:12px}
+  .chip{
+    font-size:.68rem;letter-spacing:.03em;padding:3px 8px;
+    border:1px solid var(--line-2);border-radius:3px;color:var(--ink-2);background:var(--card);
+  }
+
+  /* ---------- asset row ---------- */
+  .assets{display:grid;grid-template-columns:1.42fr 1fr 1.3fr;gap:14px;margin:16px 0 16px}
+  .asset{border:1px solid var(--line);background:var(--card);border-radius:5px;padding:16px 18px 17px}
+  .lab{
+    font:600 .63rem/1.3 var(--mono);letter-spacing:.155em;text-transform:uppercase;
+    color:var(--ink-3);margin:0 0 9px;
+  }
+  .metric{background:var(--accent-soft);border-color:var(--accent-line)}
+  .metric .lab{color:var(--accent-ink)}
+  .metric .big{
+    font-size:clamp(2.95rem,6.6vw,4.2rem);line-height:.9;letter-spacing:-.05em;
+    font-weight:700;color:var(--accent-ink);font-variant-numeric:tabular-nums;
+  }
+  .metric .big .pct{font-size:.42em;letter-spacing:-.02em;margin-left:.06em;font-weight:600}
+  .metric .ctx{margin:8px 0 0;font-size:.85rem;line-height:1.45;color:var(--ink-2)}
+  .delta{
+    display:inline-block;margin-top:10px;padding:3px 9px;border-radius:999px;
+    border:1px solid var(--accent);color:var(--accent-ink);
+    font:600 .7rem/1.5 var(--mono);letter-spacing:.02em;
+  }
+  .metric .alt{display:block;margin-top:7px;font:500 .69rem/1.5 var(--mono);color:var(--ink-3);letter-spacing:.01em}
+
+  .why p{margin:0;font-size:.92rem;line-height:1.52;color:var(--ink-2)}
+  .why p strong{color:var(--ink)}
+
+  .edge{background:var(--warn-soft);border-color:var(--warn-line);border-left:3px solid var(--warn)}
+  .edge .lab{color:var(--warn)}
+  .edge p{margin:0;font-size:.9rem;line-height:1.5;color:var(--warn-ink)}
+  .edge .src{display:block;margin-top:8px;font:500 .68rem/1.4 var(--mono);color:#8a6a55;letter-spacing:.01em}
+
+  /* ---------- body grid ---------- */
+  .body{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:14px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:5px;padding:20px 22px 22px;min-width:0}
+  .s4{grid-column:span 4}.s5{grid-column:span 5}.s6{grid-column:span 6}
+  .s7{grid-column:span 7}.s8{grid-column:span 8}.s12{grid-column:span 12}
+  .cardhead{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 10px;border-bottom:1px solid var(--line);padding-bottom:10px;margin-bottom:14px}
+  .idx{font:600 .62rem/1 var(--mono);letter-spacing:.12em;color:var(--accent);white-space:nowrap}
+  .cardhead h2{margin:0;font-size:1rem;letter-spacing:-.012em;font-weight:650}
+  .cardhead .tag{margin-left:auto;font:500 .66rem/1.4 var(--mono);color:var(--ink-3);text-align:right}
+
+  /* flow */
+  .flow{display:grid;grid-template-columns:1fr auto 1fr auto 1fr;gap:7px;align-items:stretch;margin:2px 0 14px}
+  .step{border:1px solid var(--line-2);border-radius:4px;background:#fbfaf6;padding:9px 10px;font-size:.79rem;line-height:1.42;color:var(--ink-2)}
+  .step b{display:block;font:600 .58rem/1.3 var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--accent);margin-bottom:4px}
+  .step em{font-style:normal;color:var(--ink);font-weight:600}
+  .arrow{display:grid;place-items:center;color:var(--accent);font-size:1rem;line-height:1}
+
+  .bullets{list-style:none;margin:0;padding:0}
+  .bullets li{position:relative;padding-left:15px;margin-bottom:7px;font-size:.875rem;line-height:1.5;color:var(--ink-2)}
+  .bullets li:last-child{margin-bottom:0}
+  .bullets li::before{content:"—";position:absolute;left:0;top:0;color:var(--accent);font-weight:600}
+  .bullets li strong{color:var(--ink)}
+  .bullets.warn li::before{color:var(--warn)}
+
+  /* allocator */
+  .alloc{margin-top:14px;border-top:1px solid var(--line);padding-top:12px}
+  .alloc-head{display:flex;align-items:baseline;justify-content:space-between;gap:10px}
+  .alloc-head label{font:600 .62rem/1.3 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3)}
+  .alloc-head output{font:700 .95rem/1 var(--mono);color:var(--accent-ink);font-variant-numeric:tabular-nums}
+  input[type=range]{
+    -webkit-appearance:none;appearance:none;width:100%;height:22px;margin:6px 0 2px;
+    background:transparent;accent-color:var(--accent);cursor:pointer;
+  }
+  input[type=range]::-webkit-slider-runnable-track{height:2px;background:var(--line-2);border-radius:2px}
+  input[type=range]::-webkit-slider-thumb{
+    -webkit-appearance:none;width:14px;height:14px;margin-top:-6px;border-radius:50%;
+    background:var(--accent);border:2px solid var(--card);box-shadow:0 0 0 1px var(--accent);
+  }
+  input[type=range]::-moz-range-track{height:2px;background:var(--line-2);border-radius:2px}
+  input[type=range]::-moz-range-thumb{width:14px;height:14px;border-radius:50%;background:var(--accent);border:2px solid var(--card)}
+  .alloc-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:4px}
+  .alloc-grid div{border-left:2px solid var(--accent-line);padding-left:8px}
+  .alloc-grid .k{display:block;font:500 .63rem/1.4 var(--mono);letter-spacing:.03em;color:var(--ink-3)}
+  .alloc-grid b{font-size:.95rem;font-variant-numeric:tabular-nums;color:var(--ink)}
+  .alloc-note{margin:9px 0 0;font-size:.73rem;line-height:1.45;color:var(--ink-3)}
+  .alloc-note code{font-size:.9em}
+
+  /* props */
+  .props{list-style:none;margin:0;padding:0}
+  .props li{position:relative;padding:8px 0 8px 30px;border-top:1px solid var(--line);font-size:.845rem;line-height:1.48;color:var(--ink-2)}
+  .props li:first-child{border-top:none;padding-top:0}
+  .props li .p{position:absolute;left:0;top:9px;font:600 .62rem/1 var(--mono);color:var(--accent);letter-spacing:.04em}
+  .props li:first-child .p{top:1px}
+  .props li strong{color:var(--ink)}
+
+  .twins{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-top:12px;border-top:1px solid var(--line);padding-top:12px}
+  .twin{border:1px solid var(--line);border-radius:4px;background:#fbfaf6;padding:9px 10px}
+  .twin .n{font-size:1.36rem;font-weight:700;letter-spacing:-.025em;color:var(--accent-ink);font-variant-numeric:tabular-nums;line-height:1.1}
+  .twin .n.muted{color:var(--ink-3)}
+  .twin .t{font-size:.7rem;line-height:1.35;color:var(--ink-3);margin-top:2px}
+  .twins-cap{margin:9px 0 0;font-size:.74rem;line-height:1.45;color:var(--ink-3)}
+
+  /* results */
+  .res-top{display:grid;grid-template-columns:1.02fr 1fr;gap:26px}
+  .subhead{font:600 .63rem/1.4 var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3);margin:0 0 10px}
+
+  .bars{margin:0}
+  .brow{display:grid;grid-template-columns:100px 1fr 54px;gap:10px;align-items:center;margin-bottom:9px;font-size:.81rem}
+  .brow:last-child{margin-bottom:0}
+  .brow .name{color:var(--ink-2)}
+  .brow.ref .name{color:var(--ink-3)}
+  .track{height:11px;background:#eae8e1;border-radius:2px;overflow:hidden}
+  .track.ghost{background:transparent;border:1px dashed var(--line-2);padding:1px}
+  .fill{height:100%;background:#b7b5ab;border-radius:1px}
+  .fill.acc{background:var(--accent)}
+  .fill.ref{background:#dcdad1}
+  .brow .val{text-align:right;font-weight:650;font-variant-numeric:tabular-nums;color:var(--ink)}
+  .brow .val.acc{color:var(--accent-ink)}
+  .brow .val small{font-weight:500;font-size:.72em;color:var(--ink-3)}
+
+  table{width:100%;border-collapse:collapse;font-size:.82rem;font-variant-numeric:tabular-nums}
+  caption{caption-side:top;text-align:left;font:600 .62rem/1.5 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3);padding-bottom:6px}
+  th{text-align:right;font-weight:600;font-size:.66rem;letter-spacing:.07em;text-transform:uppercase;color:var(--ink-3);border-bottom:1px solid var(--line-2);padding:4px 5px;white-space:nowrap}
+  th:first-child,td:first-child{text-align:left}
+  td{padding:5px 5px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}
+  tr:last-child td{border-bottom:none}
+  td.win{color:var(--accent-ink);font-weight:650}
+  td.mut{color:var(--ink-3)}
+  .tablewrap{overflow-x:auto}
+
+  .res-tables{display:grid;grid-template-columns:repeat(3,1fr);gap:22px;margin-top:20px;border-top:1px solid var(--line);padding-top:16px}
+  .res-tables p.note{margin:7px 0 0;font-size:.71rem;line-height:1.45;color:var(--ink-3)}
+
+  /* reading notes */
+  .notes .note{border-left:2px solid var(--line-2);padding-left:11px;margin-bottom:12px}
+  .notes .note:last-child{margin-bottom:0}
+  .notes .note b{display:block;font:600 .63rem/1.4 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3);margin-bottom:2px}
+  .notes .note p{margin:0;font-size:.83rem;line-height:1.48;color:var(--ink-2)}
+  .notes .note p strong{color:var(--ink)}
+
+  /* ablations */
+  .abl{display:grid;grid-template-columns:1fr 1fr;gap:0 30px}
+  .ab{display:grid;grid-template-columns:1fr auto;gap:4px 10px;align-items:baseline;padding:8px 0;border-top:1px solid var(--line);font-size:.82rem;color:var(--ink-2)}
+  .ab:nth-child(1),.ab:nth-child(2){border-top:none;padding-top:0}
+  .ab .v{font-weight:700;font-variant-numeric:tabular-nums;color:var(--warn);white-space:nowrap}
+  .ab .track{grid-column:1/-1;height:4px;background:#eeece5;margin-top:3px}
+  .ab .fill{background:var(--warn)}
+  .abl-note{margin:14px 0 0;font-size:.72rem;line-height:1.45;color:var(--ink-3);border-top:1px solid var(--line);padding-top:10px}
+
+  /* questions */
+  ol.q{margin:0;padding-left:20px;columns:2;column-gap:34px;font-size:.855rem;line-height:1.48;color:var(--ink-2)}
+  ol.q li{margin-bottom:9px;break-inside:avoid}
+  ol.q li::marker{font:600 .78rem var(--mono);color:var(--accent)}
+
+  footer{margin-top:18px;border-top:1px solid var(--line-2);padding-top:14px;display:flex;flex-wrap:wrap;gap:10px 22px;align-items:baseline;font-size:.78rem;color:var(--ink-3)}
+  footer .links{display:flex;flex-wrap:wrap;gap:18px}
+  footer .fine{margin-left:auto;font-size:.72rem;color:var(--ink-3)}
+
+  @media (max-width:980px){
+    .assets{grid-template-columns:1fr}
+    .s4,.s5,.s6,.s7,.s8{grid-column:span 12}
+    .res-top{grid-template-columns:1fr;gap:20px}
+    .res-tables{grid-template-columns:1fr 1fr}
+    .flow{grid-template-columns:1fr}
+    .arrow{display:none}
+  }
+  @media (max-width:720px){
+    body{font-size:15.5px}
+    .wrap{padding:58px 0 30px}
+    .nav{top:10px;left:10px;font-size:.74rem;padding:5px 11px}
+    .card{padding:16px 16px 18px}
+    .asset{padding:14px 15px 15px}
+    .flow{grid-template-columns:1fr}
+    .arrow{display:none}
+    .res-tables{grid-template-columns:1fr;gap:18px}
+    .abl{grid-template-columns:1fr}
+    .ab:nth-child(2){border-top:1px solid var(--line);padding-top:8px}
+    ol.q{columns:1}
+    .brow{grid-template-columns:86px 1fr 48px;font-size:.78rem}
+    .alloc-grid{grid-template-columns:1fr;gap:8px}
+    footer .fine{margin-left:0}
+  }
+</style>
+</head>
+<body>
+<a class="nav" href="./index.html">↩ Today’s digest</a>
+
+<main class="wrap">
+
+  <header class="hero">
+    <div class="eyebrow">
+      <span class="dot"></span><span>Visual-token pruning</span>
+      <span class="sep">/</span><span>Inference reliability</span>
+      <span class="sep">/</span><span class="num">arXiv 2611.22472</span>
+    </div>
+
+    <h1 class="finding">A 2B model that reads the whole image catches the pruned answers the 38B model is <em>confidently</em> wrong about.</h1>
+
+    <p class="paper-title"><a href="https://arxiv.org/abs/2611.22472">Disagree to Prune: Reallocating Visual Tokens Where a Small VLM Dissents</a></p>
+    <p class="byline">
+      Yanchao Li, Jiaqing Xie, Ben Gao, Yusu Zhang, et al.
+      <span class="sep">·</span><span class="aff">Nanjing U. · Shanghai AI Lab · Fudan · SJTU +4</span>
+      <span class="sep">·</span>2026-11-16
+    </p>
+    <p class="zh" lang="zh">一句话：用全图作答的小 VLM 与大 VLM 剪枝后的答案不一致，是比大模型自身置信度更好的剪枝失败信号；省下的 token 用来对不一致的题目重答，平均预算不变。</p>
+
+    <div class="chips">
+      <span class="chip">18 benchmarks</span>
+      <span class="chip">InternVL3 8B–78B</span>
+      <span class="chip">Qwen3-VL · Gemma 4</span>
+      <span class="chip">2.5% token budget</span>
+    </div>
+  </header>
+
+  <section class="assets" aria-label="Extracted assets">
+    <article class="asset metric">
+      <p class="lab">Key metric</p>
+      <div class="big num">88.4<span class="pct">%</span></div>
+      <p class="ctx">of full-token accuracy kept at a <strong>2.5%</strong> visual-token budget — InternVL3-38B, mean over 18 benchmarks.</p>
+      <span class="delta">+5.0 pts vs IF-Prune</span>
+      <span class="alt">IF-Prune 83.4 · SGL 79.1 · full tokens 100</span>
+    </article>
+
+    <article class="asset why">
+      <p class="lab">Why it matters</p>
+      <p>Pruning stops being a gamble on text-heavy documents: <strong>ChartQA recovers from 52.2% to 71.9%</strong> of full accuracy while reading 2.5% of the tokens.</p>
+    </article>
+
+    <article class="asset edge">
+      <p class="lab">The critical edge</p>
+      <p>τ, ℓ and the b/ρ schedule were tuned on ten of the evaluation benchmarks, so the headline numbers carry a mild optimistic bias.</p>
+      <span class="src">Critical Assessment → Rigor</span>
+    </article>
+  </section>
+
+  <section class="body">
+
+    <!-- 01 mechanism -->
+    <article class="card s7">
+      <div class="cardhead">
+        <span class="idx">01</span>
+        <h2>Two passes, one trust decision per question</h2>
+        <span class="tag">PRUDENT · PRUning with DissENT</span>
+      </div>
+
+      <div class="flow">
+        <div class="step"><b>Pass 1</b>Large VLM answers <em>every</em> question at half budget, <em>b = K/2</em>.</div>
+        <div class="arrow" aria-hidden="true">→</div>
+        <div class="step"><b>Check</b>A 2B checker reads the <em>full image</em> — not the kept tokens — and answers the same question.</div>
+        <div class="arrow" aria-hidden="true">→</div>
+        <div class="step"><b>Re-answer</b>Disagreeing questions, least confident first, up to quota ρ get a second pass at <em>2K</em>; the new answer replaces the old.</div>
+      </div>
+
+      <ul class="bullets">
+        <li><strong>The signal is answer disagreement</strong> δ = 1[c<sub>q</sub> ≠ a<sub>q</sub>(k)], computed at test time with no labels.</li>
+        <li><strong>Abstention:</strong> if the checker’s least-probable token falls below τ = 0.5 or its answer exceeds ℓ = 10 words, the question falls back to a single pass at K.</li>
+        <li><strong>Ranking is unchanged:</strong> an InternVL2.5-1B guide supplies token order in both passes — attention ranks averaged with learned importance, learned-only for multiple-choice and yes/no.</li>
+        <li><strong>Cost:</strong> the 2B checker adds 4.3 GB of weights over IF-Prune’s 1B guide; a 1B-checker variant matches IF-Prune + draft FLOPs.</li>
+      </ul>
+
+      <div class="alloc">
+        <div class="alloc-head">
+          <label for="budget">Average budget K — drag</label>
+          <output id="kout" class="num">2.5%</output>
+        </div>
+        <input id="budget" type="range" min="0" max="3" step="1" value="1"
+               aria-label="Average visual-token budget, 1 to 10 percent">
+        <div class="alloc-grid">
+          <div><span class="k">pass 1 · b = K/2</span><b id="b1" class="num">1.25%</b></div>
+          <div><span class="k">re-answer · 2K</span><b id="b2" class="num">5%</b></div>
+          <div><span class="k">quota · ρ</span><b id="b3">¼ of questions</b></div>
+        </div>
+        <p class="alloc-note">b + 2ρK = K, so the average budget never moves. At K = 2.5% the paper reports b = 1% and ρ = 0.30 rather than 1.25% / 0.25.</p>
+      </div>
+    </article>
+
+    <!-- 02 theory -->
+    <article class="card s5">
+      <div class="cardhead">
+        <span class="idx">02</span>
+        <h2>Why a kept-token detector cannot work</h2>
+      </div>
+
+      <ul class="props">
+        <li><span class="p">P1</span><strong>Break-even.</strong> Re-answering pays only if the mean net repair rate beats H̄/ρ; random selection cannot beat one pass when the score curve is concave on [b, 2K].</li>
+        <li><span class="p">P2</span><strong>Blindness.</strong> A detector reading only kept tokens gives identical outputs on two questions with the same kept view, so it must err on one. A full-image checker’s flag error is bounded by γ.</li>
+        <li><span class="p">C1</span><strong>Nested views.</strong> V(b) is a function of V(b′) for b &lt; b′, so mutual information is monotone in budget and the bound holds at every k.</li>
+        <li><span class="p">P3</span><strong>Ordering.</strong> Disagreement first, then low-to-high confidence, is optimal; any signal is capped by the top ρ|C| conditional gains.</li>
+      </ul>
+
+      <div class="twins">
+        <div class="twin">
+          <div class="n num">63.6%</div>
+          <div class="t">twin pairs separated by a full-image checker</div>
+        </div>
+        <div class="twin">
+          <div class="n muted num">3.5%</div>
+          <div class="t">same pairs, checker restricted to kept tokens</div>
+        </div>
+      </div>
+      <p class="twins-cap">392 “valid twins” built by editing only the pruned region — direct evidence for P2.</p>
+    </article>
+
+    <!-- 03 results -->
+    <article class="card s12">
+      <div class="cardhead">
+        <span class="idx">03</span>
+        <h2>Where the points come from</h2>
+        <span class="tag">% of each benchmark’s full-token score</span>
+      </div>
+
+      <div class="res-top">
+        <div>
+          <p class="subhead">InternVL3-38B · 2.5% budget · 18-benchmark mean</p>
+          <div class="bars">
+            <div class="brow">
+              <span class="name">PRUDENT</span>
+              <div class="track"><div class="fill acc" style="width:88.4%"></div></div>
+              <span class="val acc">88.4</span>
+            </div>
+            <div class="brow">
+              <span class="name">IF-Prune</span>
+              <div class="track"><div class="fill" style="width:83.4%"></div></div>
+              <span class="val">83.4</span>
+            </div>
+            <div class="brow">
+              <span class="name">SGL</span>
+              <div class="track"><div class="fill" style="width:79.1%"></div></div>
+              <span class="val">79.1</span>
+            </div>
+            <div class="brow ref">
+              <span class="name">Full tokens</span>
+              <div class="track ghost"><div class="fill ref" style="width:100%"></div></div>
+              <span class="val">100</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="tablewrap">
+          <table>
+            <caption>Per-benchmark, 38B at 2.5%</caption>
+            <thead>
+              <tr><th scope="col">Benchmark</th><th scope="col">PRUDENT</th><th scope="col">IF-Prune</th><th scope="col">Δ</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>ChartQA</td><td class="win">71.9</td><td>52.2</td><td class="win">+19.7</td></tr>
+              <tr><td>DocVQA</td><td class="win">85.5</td><td>77.2</td><td class="win">+8.3</td></tr>
+              <tr><td>POPE</td><td class="win">89.9</td><td>89.5</td><td class="win">+0.4</td></tr>
+            </tbody>
+          </table>
+          <p class="note">The gain is overwhelmingly on text-rich items; yes/no recognition barely moves.</p>
+        </div>
+      </div>
+
+      <div class="res-tables">
+        <div class="tablewrap">
+          <table>
+            <caption>Stress test at 1% · 6 text-rich benchmarks</caption>
+            <thead>
+              <tr><th scope="col">Model</th><th scope="col">PRUDENT</th><th scope="col">IF-Prune</th><th scope="col">SGL</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>8B</td><td class="win">73.6</td><td>64.4</td><td class="mut">—</td></tr>
+              <tr><td>14B</td><td class="win">71.0</td><td>62.1</td><td class="mut">—</td></tr>
+              <tr><td>26B</td><td class="win">72.5</td><td>64.0</td><td class="mut">—</td></tr>
+              <tr><td>38B</td><td class="win">71.1</td><td>62.3</td><td>60.2</td></tr>
+              <tr><td>78B</td><td class="win">73.2</td><td>65.3</td><td class="mut">—</td></tr>
+            </tbody>
+          </table>
+          <p class="note">+7.9 to +9.2 points at every size — the effect does not depend on model scale.</p>
+        </div>
+
+        <div class="tablewrap">
+          <table>
+            <caption>Margins close as the budget loosens · 8B</caption>
+            <thead>
+              <tr><th scope="col">Budget</th><th scope="col">PRUDENT</th><th scope="col">IF-Prune</th><th scope="col">Δ</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>2.5%</td><td class="win">92.3</td><td>87.7</td><td class="win">+4.6</td></tr>
+              <tr><td>5%</td><td class="win">95.1</td><td>92.0</td><td class="win">+3.1</td></tr>
+              <tr><td>10%</td><td class="win">97.5</td><td>94.9</td><td class="win">+2.6</td></tr>
+            </tbody>
+          </table>
+          <p class="note">SGL scores 81.9 at 2.5%. The shrinking gap is what the break-even threshold predicts.</p>
+        </div>
+
+        <div class="tablewrap">
+          <table>
+            <caption>Cost at 5% · InternVL3-38B</caption>
+            <thead>
+              <tr><th scope="col">Method</th><th scope="col">ms/q</th><th scope="col">FLOPs</th><th scope="col">Acc.</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>PRUDENT</td><td class="win">421</td><td>54.6%</td><td class="win">92.7</td></tr>
+              <tr><td>IF-Prune</td><td>383</td><td>48.4%</td><td>87.3</td></tr>
+              <tr><td>Full tokens</td><td>499</td><td>100%</td><td>100</td></tr>
+            </tbody>
+          </table>
+          <p class="note">1B-checker variant: 380 ms, 49.7% FLOPs, 92.1% — +1.3 FLOP points over SGL for +6.7 accuracy points.</p>
+        </div>
+      </div>
+    </article>
+
+    <!-- 04 reading the table -->
+    <article class="card s4 notes">
+      <div class="cardhead">
+        <span class="idx">04</span>
+        <h2>Reading the 88.4</h2>
+      </div>
+      <div class="note">
+        <b>Baseline set</b>
+        <p>Five of the eight baselines collapse to <strong>15–30%</strong> on ChartQA. The real contest is SGL and IF-Prune, both carefully reproduced.</p>
+      </div>
+      <div class="note">
+        <b>Tokens ≠ latency</b>
+        <p>“Same budget” counts the large model’s visual tokens only: <strong>+38 ms and +6.2 FLOP points</strong> over IF-Prune at 5%, because the checker reads every image in full.</p>
+      </div>
+      <div class="note">
+        <b>Asymmetric baseline</b>
+        <p>SGL runs without its early exit, which is also its main compute saving. The 1B-checker row (380 ms) is the fairer headline than the default configuration.</p>
+      </div>
+      <div class="note">
+        <b>Answer shape</b>
+        <p>Disagreement is exact match after normalisation, and answers over 10 words abstain — so open-ended cases quietly fall back to one-pass pruning.</p>
+      </div>
+    </article>
+
+    <!-- 05 counterfactuals -->
+    <article class="card s8">
+      <div class="cardhead">
+        <span class="idx">05</span>
+        <h2>Every shortcut costs</h2>
+        <span class="tag">Ablations · 2.5% text-rich mean</span>
+      </div>
+      <div class="abl">
+        <div class="ab"><span>Answer once at K, no checker</span><span class="v">−2.4</span><div class="track"><div class="fill" style="width:30%"></div></div></div>
+        <div class="ab"><span>Random re-answer selection</span><span class="v">−6.4</span><div class="track"><div class="fill" style="width:80%"></div></div></div>
+        <div class="ab"><span>Large VLM’s own confidence as signal</span><span class="v">−3.0</span><div class="track"><div class="fill" style="width:38%"></div></div></div>
+        <div class="ab"><span>SGL’s early-exit score as signal</span><span class="v">−4.4</span><div class="track"><div class="fill" style="width:55%"></div></div></div>
+        <div class="ab"><span>Checker never abstains</span><span class="v">−1.1</span><div class="track"><div class="fill" style="width:14%"></div></div></div>
+        <div class="ab"><span>IF-Prune ranking in both passes</span><span class="v">−7.8</span><div class="track"><div class="fill" style="width:98%"></div></div></div>
+      </div>
+      <p class="abl-note">What remains is the decision, not the ranking: on general benchmarks the ranking-only variant costs just −0.5, because there re-answering does the work. Placing IF-Prune’s or SGL’s own ranking inside both passes still improves those methods.</p>
+    </article>
+
+    <!-- 06 strengths -->
+    <article class="card s6">
+      <div class="cardhead">
+        <span class="idx">06</span>
+        <h2>Strengths</h2>
+      </div>
+      <ul class="bullets">
+        <li><strong>A genuinely new axis:</strong> allocate trust per question instead of chasing a better global token ranking.</li>
+        <li><strong>Theory that is used, not decoration:</strong> the break-even threshold predicts both the budget trend and why random re-answering fails.</li>
+        <li><strong>Unusually complete evidence:</strong> 18 benchmarks, five sizes, three families, 1–40% budgets, paired bootstrap with Holm correction, per-benchmark appendix tables.</li>
+        <li><strong>Orthogonality demonstrated:</strong> two SOTA pruners improve when their own rankings run inside the two-pass loop.</li>
+        <li><strong>Honest accounting:</strong> latency, memory, FLOPs, a FLOP-matched variant, released code and a transparent LLM-use statement.</li>
+      </ul>
+    </article>
+
+    <!-- 07 limitations -->
+    <article class="card s6">
+      <div class="cardhead">
+        <span class="idx">07</span>
+        <h2>Limitations</h2>
+      </div>
+      <ul class="bullets warn">
+        <li><strong>Short answers only:</strong> the checker abstains above 10 words, so long-form VQA falls back to plain one-pass pruning.</li>
+        <li><strong>Narrow setting:</strong> single image, single turn, English and Chinese; video and multi-image are future work.</li>
+        <li><strong>Real cost:</strong> a second model (+4.3 GB) and a full-image pass — 421 ms / 54.6% FLOPs vs 383 ms / 48.4% at 5%.</li>
+        <li><strong>Exact match can misread paraphrases</strong> as disagreement, and τ and ℓ are themselves tuned hyperparameters.</li>
+        <li><strong>Gains fade where pruning is already mild:</strong> Gemma 4 31B at 20% reaches 92.5 vs 91.4.</li>
+      </ul>
+    </article>
+
+    <!-- 08 questions -->
+    <article class="card s12">
+      <div class="cardhead">
+        <span class="idx">08</span>
+        <h2>Open questions</h2>
+      </div>
+      <ol class="q">
+        <li>How much of the 421 ms returns if the 2K re-answer reuses the first pass’s KV cache and visual tokens?</li>
+        <li>What happens with a much weaker or cross-family checker — where exactly does the γ bound bite?</li>
+        <li>Does the break-even threshold H̄/ρ transfer across domains, or must ρ be re-tuned per deployment?</li>
+        <li>Can the same disagreement signal gate KV-cache eviction or speculative-draft acceptance?</li>
+        <li>Why is the Qwen3-VL and Gemma 4 gain only ~1 point — looser budget, weaker checker, or answer format?</li>
+        <li>Would a semantic-equivalence judge for δ change the recall / false-alarm trade-off, and at what cost?</li>
+      </ol>
+    </article>
+
+  </section>
+
+  <footer>
+    <div class="links">
+      <a href="./2611.22472.md">↗ Markdown source</a>
+      <a href="https://arxiv.org/abs/2611.22472">arXiv abstract</a>
+      <a href="https://github.com/LiZaiyuan0619/PRUDENT">Code</a>
+    </div>
+    <span class="fine">Figures as reported in the paper; dashboard distilled from the bilingual summary.</span>
+  </footer>
+</main>
+
+<script>
+(function () {
+  var input = document.getElementById('budget');
+  if (!input) return;
+  var kout = document.getElementById('kout');
+  var b1 = document.getElementById('b1');
+  var b2 = document.getElementById('b2');
+  var b3 = document.getElementById('b3');
+  var steps = [
+    { k: 1,   half: 0.5,  twice: 2,  quota: '¼ of questions' },
+    { k: 2.5, half: 1.25, twice: 5,  quota: '¼ of questions' },
+    { k: 5,   half: 2.5,  twice: 10, quota: '¼ of questions' },
+    { k: 10,  half: 5,    twice: 20, quota: '¼ of questions' }
+  ];
+  function pct(x) {
+    var r = Math.round(x * 100) / 100;
+    return String(r) + '%';
+  }
+  function render() {
+    var s = steps[Number(input.value)] || steps[1];
+    kout.textContent = pct(s.k);
+    b1.textContent = pct(s.half);
+    b2.textContent = pct(s.twice);
+    b3.textContent = s.quota;
+  }
+  input.addEventListener('input', render);
+  render();
+})();
+</script>
+</body>
+</html>

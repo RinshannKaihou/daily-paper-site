@@ -1,0 +1,520 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GNoF — GPU-native NVMe-oF completion path · 2611.21288</title>
+<script>document.documentElement.classList.add('js');</script>
+<style>
+  :root{
+    --paper:#f5f3ee;
+    --card:#fffefa;
+    --ink:#171a1c;
+    --muted:#63696d;
+    --line:#dcd7cd;
+    --line-soft:#e9e5dc;
+    --accent:#1d5c86;
+    --accent-ink:#14425f;
+    --accent-soft:#e7eff5;
+    --caution:#a8452a;
+    --caution-soft:#fbeee8;
+    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+  }
+  *{box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%}
+  body{
+    margin:0;background:var(--paper);color:var(--ink);
+    font-family:var(--sans);font-size:16px;line-height:1.6;
+    padding:76px 0 0;
+  }
+  a{color:var(--accent-ink);text-decoration:none}
+  a:hover{text-decoration:underline;text-underline-offset:3px}
+
+  .back{
+    position:fixed;top:16px;left:16px;z-index:50;
+    display:inline-block;padding:8px 13px;
+    background:var(--card);border:1px solid var(--line);
+    border-radius:999px;font-size:13px;font-weight:600;
+    color:var(--ink);letter-spacing:.01em;
+    box-shadow:0 1px 0 rgba(0,0,0,.03);
+  }
+  .back:hover{text-decoration:none;border-color:var(--accent);color:var(--accent-ink)}
+  .stamp{
+    position:fixed;top:20px;right:18px;z-index:40;
+    font-family:var(--mono);font-size:10.5px;letter-spacing:.12em;
+    text-transform:uppercase;color:#8b8f92;
+  }
+
+  .wrap{width:min(95vw,1100px);margin:0 auto}
+
+  /* ---------- HERO ---------- */
+  .hero{padding:18px 0 26px;border-bottom:1px solid var(--line)}
+  .kicker{
+    display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;
+    font-family:var(--mono);font-size:11.5px;letter-spacing:.1em;
+    text-transform:uppercase;color:var(--muted);
+  }
+  .kicker .dot{width:5px;height:5px;border-radius:50%;background:var(--accent)}
+  h1{
+    margin:14px 0 12px;
+    font-size:clamp(2rem,4.3vw,3.35rem);
+    line-height:1.03;letter-spacing:-.03em;font-weight:800;
+    max-width:24ch;
+  }
+  h1 em{font-style:normal;color:var(--accent-ink)}
+  .zh{
+    margin:14px 0 0;max-width:66ch;color:#4d5357;
+    font-size:13.5px;line-height:1.8;
+  }
+  .papermeta{display:grid;gap:7px}
+  .papermeta .ptitle{
+    font-size:14.5px;line-height:1.45;color:var(--ink);font-weight:600;
+    max-width:78ch;
+  }
+  .byline{font-family:var(--mono);font-size:11.5px;color:var(--muted);letter-spacing:.02em}
+  .byline b{color:var(--ink);font-weight:600}
+  .chips{list-style:none;display:flex;flex-wrap:wrap;gap:6px;margin:4px 0 0;padding:0}
+  .chips li{
+    font-family:var(--mono);font-size:10.5px;letter-spacing:.04em;
+    padding:3px 9px;border:1px solid var(--line);border-radius:999px;
+    background:#fbfaf6;color:#4a5054;
+  }
+
+  /* ---------- ASSETS ---------- */
+  .assets{
+    display:grid;grid-template-columns:1.05fr 1fr 1fr;gap:14px;
+    padding:22px 0 8px;
+  }
+  .asset{
+    background:var(--card);border:1px solid var(--line);
+    padding:18px 18px 16px;display:flex;flex-direction:column;
+  }
+  .asset .lbl{
+    font-family:var(--mono);font-size:10px;letter-spacing:.15em;
+    text-transform:uppercase;color:var(--muted);margin-bottom:10px;
+  }
+  .metric .num{
+    font-size:clamp(3.3rem,6.2vw,4.7rem);line-height:.86;
+    font-weight:800;letter-spacing:-.05em;color:var(--accent-ink);
+    font-variant-numeric:tabular-nums;
+  }
+  .metric .num sup{font-size:.38em;font-weight:700;letter-spacing:0;vertical-align:super;margin-left:2px;color:var(--accent)}
+  .metric .cap{font-size:13.5px;font-weight:600;margin-top:12px;line-height:1.35}
+  .metric .ctx{font-size:12px;color:var(--muted);margin-top:5px;line-height:1.45}
+  .why p{margin:0;font-size:14px;line-height:1.55;color:#33383b}
+  .why .tail{margin-top:auto;padding-top:12px;font-family:var(--mono);font-size:10.5px;color:#8b8f92;letter-spacing:.04em}
+  .edge{background:var(--caution-soft);border-color:#e6cabf;border-left:3px solid var(--caution)}
+  .edge .lbl{color:var(--caution)}
+  .edge p{margin:0;font-size:13.8px;line-height:1.52;color:#54291c;font-weight:500}
+  .edge .tail{margin-top:auto;padding-top:12px;font-family:var(--mono);font-size:10px;color:#a2705f;letter-spacing:.04em}
+
+  /* ---------- BODY GRID ---------- */
+  .grid{
+    display:grid;grid-template-columns:repeat(12,1fr);
+    gap:14px;padding:14px 0 0;
+  }
+  .card{
+    background:var(--card);border:1px solid var(--line);
+    padding:22px 22px 20px;
+  }
+  .card h2{
+    margin:0 0 4px;font-size:12px;letter-spacing:.13em;text-transform:uppercase;
+    font-family:var(--mono);color:var(--accent-ink);font-weight:700;
+  }
+  .card .sub{font-size:12px;color:var(--muted);margin:0 0 16px}
+  .span7{grid-column:span 7}
+  .span5{grid-column:span 5}
+  .span12{grid-column:span 12}
+  .span6{grid-column:span 6}
+
+  /* methodology */
+  .steps{list-style:none;margin:0 0 16px;padding:0;display:grid;gap:0}
+  .steps li{
+    display:grid;grid-template-columns:26px 1fr;gap:10px;
+    padding:9px 0;border-bottom:1px dashed var(--line-soft);
+  }
+  .steps li:last-child{border-bottom:0}
+  .steps .n{
+    font-family:var(--mono);font-size:10px;color:var(--accent);
+    padding-top:3px;letter-spacing:.04em;
+  }
+  .steps .t{font-size:13.4px;line-height:1.5;color:#303539}
+  .steps .t b{font-weight:650;color:var(--ink)}
+  .steps .t code{
+    font-family:var(--mono);font-size:11.5px;background:var(--accent-soft);
+    padding:1px 4px;border-radius:3px;color:var(--accent-ink);
+  }
+  .mnote{
+    border-top:1px solid var(--line);padding-top:13px;
+    font-size:12.5px;line-height:1.55;color:var(--muted);
+  }
+  .mnote b{color:var(--ink);font-weight:650}
+
+  /* mechanisms */
+  .mech{display:grid;gap:12px}
+  .mech .m{
+    border:1px solid var(--line-soft);background:#fbfaf6;
+    padding:12px 13px;
+  }
+  .mech .m h3{
+    margin:0 0 5px;font-size:12.8px;font-weight:700;letter-spacing:-.005em;
+    display:flex;align-items:baseline;gap:8px;
+  }
+  .mech .m h3 span{font-family:var(--mono);font-size:9.5px;color:var(--accent);letter-spacing:.08em}
+  .mech .m p{margin:0;font-size:12.3px;line-height:1.5;color:#54595d}
+  .kpis{
+    display:grid;grid-template-columns:1fr 1fr;gap:0;
+    margin-top:14px;border-top:1px solid var(--line);
+  }
+  .kpis div{padding:11px 8px 0 0}
+  .kpis div+div{padding-left:12px;border-left:1px solid var(--line-soft)}
+  .kpis .v{font-family:var(--mono);font-size:15px;font-weight:700;color:var(--accent-ink);letter-spacing:-.02em}
+  .kpis .k{font-size:10.5px;color:var(--muted);line-height:1.35;margin-top:2px}
+
+  /* results */
+  .statstrip{
+    display:grid;grid-template-columns:repeat(4,1fr);gap:0;
+    border:1px solid var(--line-soft);background:#fbfaf6;margin-bottom:18px;
+  }
+  .statstrip .s{padding:13px 14px}
+  .statstrip .s+.s{border-left:1px solid var(--line-soft)}
+  .statstrip .sv{
+    font-size:clamp(1.35rem,2.4vw,1.75rem);font-weight:800;letter-spacing:-.03em;
+    color:var(--accent-ink);line-height:1;
+  }
+  .statstrip .sl{font-size:11px;color:var(--muted);line-height:1.4;margin-top:6px}
+
+  table{width:100%;border-collapse:collapse;font-size:12.7px;line-height:1.42}
+  caption{
+    caption-side:top;text-align:left;font-family:var(--mono);font-size:10px;
+    letter-spacing:.1em;text-transform:uppercase;color:var(--muted);padding-bottom:8px;
+  }
+  thead th{
+    text-align:left;font-family:var(--mono);font-size:9.8px;letter-spacing:.08em;
+    text-transform:uppercase;color:#5c6266;font-weight:600;
+    padding:8px 10px;border-bottom:1.5px solid var(--ink);vertical-align:bottom;
+  }
+  tbody td{padding:10px;border-bottom:1px solid var(--line-soft);vertical-align:top}
+  tbody tr:last-child td{border-bottom:0}
+  tbody tr.hi{background:var(--accent-soft)}
+  tbody tr.hi td:first-child{box-shadow:inset 3px 0 0 var(--accent)}
+  td.scheme{font-weight:650}
+  td.scheme small{display:block;font-weight:400;font-size:10.5px;color:var(--muted);margin-top:2px}
+  .num-cell{font-family:var(--mono);font-variant-numeric:tabular-nums;white-space:nowrap}
+  .good{color:var(--accent-ink);font-weight:700}
+  .bad{color:var(--caution);font-weight:650}
+  .tnote{margin:14px 0 0;font-size:11.8px;color:var(--muted);line-height:1.5}
+  .tnote b{color:var(--ink)}
+
+  .losses{
+    margin-top:16px;padding:12px 14px;border:1px dashed #d9c7b8;
+    background:#fdf8f2;font-size:12.2px;line-height:1.55;color:#5d4a3d;
+  }
+  .losses b{color:#7b3f22}
+
+  /* strengths / limitations */
+  .duo h2{display:flex;align-items:center;gap:8px}
+  .duo ul{margin:2px 0 0;padding:0;list-style:none}
+  .duo li{
+    position:relative;padding:9px 0 9px 18px;font-size:12.9px;line-height:1.5;
+    border-bottom:1px solid var(--line-soft);color:#33383b;
+  }
+  .duo li:last-child{border-bottom:0;padding-bottom:0}
+  .duo li::before{
+    content:"";position:absolute;left:0;top:16px;
+    width:6px;height:6px;border-radius:1px;background:var(--accent);
+  }
+  .lim{border-top:3px solid #cfa48f;background:#fffdfa}
+  .lim h2{color:#8a4529}
+  .lim li::before{background:#c08062}
+  .lim li{color:#4b3a33}
+
+  /* questions */
+  .q{
+    background:#fbfaf6;border:1px solid var(--line);
+    padding:18px 22px;
+  }
+  .q h2{
+    margin:0 0 2px;font-family:var(--mono);font-size:12px;font-weight:700;
+    letter-spacing:.13em;text-transform:uppercase;color:var(--muted);
+  }
+  .q ol{margin:8px 0 0;padding-left:20px;columns:2;column-gap:34px}
+  .q li{font-size:12.5px;line-height:1.55;color:#41474b;margin:0 0 10px;break-inside:avoid}
+  .q li::marker{font-family:var(--mono);font-size:10px;color:var(--accent)}
+
+  footer{
+    display:flex;flex-wrap:wrap;gap:10px 22px;align-items:center;justify-content:space-between;
+    margin:30px 0 44px;padding-top:16px;border-top:1px solid var(--line);
+    font-family:var(--mono);font-size:11px;color:var(--muted);letter-spacing:.03em;
+  }
+  footer a{font-weight:600}
+  footer .fine{max-width:54ch;line-height:1.5;letter-spacing:0}
+
+  /* reveal — content is visible unless JS is running */
+  .reveal{opacity:1}
+  html.js .reveal{transform:translateY(6px);opacity:0}
+  html.js .reveal.in{transform:none;opacity:1;transition:transform .5s ease,opacity .5s ease}
+  @media (prefers-reduced-motion:reduce){
+    html.js .reveal{transform:none;opacity:1;transition:none}
+  }
+
+  /* responsive */
+  @media (max-width:980px){
+    .assets{grid-template-columns:1fr 1fr}
+    .asset.metric{grid-column:span 2}
+    .metric .num{font-size:4rem}
+    .span7,.span5{grid-column:span 12}
+    .statstrip{grid-template-columns:1fr 1fr}
+    .statstrip .s:nth-child(3){border-left:0;border-top:1px solid var(--line-soft)}
+    .statstrip .s:nth-child(4){border-top:1px solid var(--line-soft)}
+    .q ol{columns:1}
+  }
+  @media (max-width:720px){
+    body{padding-top:70px}
+    .stamp{display:none}
+    h1{max-width:none}
+    .assets{grid-template-columns:1fr}
+    .asset.metric{grid-column:auto}
+    .span6{grid-column:span 12}
+    .card{padding:18px 16px}
+    .statstrip{grid-template-columns:1fr}
+    .statstrip .s+.s{border-left:0;border-top:1px solid var(--line-soft)}
+    table{font-size:11.8px}
+    thead th,tbody td{padding:7px 6px}
+    .losses{font-size:11.8px}
+    footer{flex-direction:column;align-items:flex-start;gap:10px}
+  }
+</style>
+</head>
+<body>
+
+<a class="back" href="./index.html">↩ Today's digest</a>
+<div class="stamp">2611.21288 · 2026-11-16</div>
+
+<main class="wrap">
+
+  <!-- ============ HERO ============ -->
+  <header class="hero">
+    <div class="kicker">
+      <span class="dot"></span>
+      <span>GPU-initiated storage</span>
+      <span>·</span>
+      <span>NVMe-oF / RDMA</span>
+      <span>·</span>
+      <span>NUDT · single 200 Gb/s fabric</span>
+    </div>
+
+    <h1>A GPU-native NVMe-oF path hits <em>1.77M IOPS</em> on ~1% of SM throughput and 0.37% host CPU.</h1>
+
+    <div class="papermeta">
+      <a class="ptitle" href="https://arxiv.org/abs/2611.21288">GNoF: A Low-SM-Overhead GPU-Native NVMe-over-Fabrics Completion Path for Data-Intensive GPU Workloads</a>
+      <div class="byline"><b>Lei Tian, Wenhao Gu</b> · NUDT · 2026-11-16 · arXiv:2611.21288 [cs.DC]</div>
+      <ul class="chips">
+        <li>GPU-initiated I/O</li>
+        <li>NVMe-oF</li>
+        <li>RDMA</li>
+        <li>GPU page cache</li>
+        <li>SPDK target unchanged</li>
+      </ul>
+    </div>
+
+    <p class="zh">一句话：把 NVMe-oF/RDMA 的完整数据路径——64 B 命令胶囊、mlx5 SEND WQE、BlueFlame 门铃、CQ 收割——搬进 GPU 设备代码，再用门铃合并、批量 CQ 轮询与按需 GPU 页缓存替代自旋等待。</p>
+  </header>
+
+  <!-- ============ ASSET ROW ============ -->
+  <section class="assets" aria-label="Extracted highlights">
+    <div class="asset metric">
+      <div class="lbl">Key metric</div>
+      <div class="num">1.77<sup>M</sup></div>
+      <div class="cap">4 KB random-read IOPS per client</div>
+      <div class="ctx">at 0.37% host CPU and 1.07% SM occupancy over 200 Gb/s InfiniBand — writes reach ~1.0M IOPS.</div>
+    </div>
+
+    <div class="asset why">
+      <div class="lbl">Why this matters</div>
+      <p>GPU kernels can read remote flash directly, taking the CPU off the I/O path — and its batching tricks are reusable by any GPU-storage builder.</p>
+      <div class="tail">0.37% vs 40.3% host CPU</div>
+    </div>
+
+    <div class="asset edge">
+      <div class="lbl">Critical edge</div>
+      <p>No ablation: the doorbell mover, batched poller and page cache are never disabled individually, so the 1.07% SM figure cannot be attributed to any one mechanism.</p>
+      <div class="tail">Source: Limitations / Critical Assessment</div>
+    </div>
+  </section>
+
+  <!-- ============ BODY ============ -->
+  <div class="grid">
+
+    <!-- methodology -->
+    <section class="card span7 reveal">
+      <h2>Methodology</h2>
+      <p class="sub">Split the stack by critical-path relevance, not by the CPU/GPU boundary.</p>
+
+      <ol class="steps">
+        <li><span class="n">01</span><span class="t"><b>Host sets up, then blocks.</b> RDMA-CM connect, fabrics CONNECT / Identify / Set-Features, one RC QP per I/O channel, one GPU pool registered via <code>nvidia-peermem</code>, and <code>cudaHostRegister</code> over SQ/CQ/DBrec plus the BlueFlame UAR page so the GPU may MMIO them.</span></li>
+        <li><span class="n">02</span><span class="t"><b>GPU submits.</b> 64 channels × 256 SQ slots. A CAS on <code>sq_head</code> claims a slot, the thread writes a 64 B capsule with a keyed SGL into VRAM, then posts a 32 B SEND WQE at the true HCA ring position.</span></li>
+        <li><span class="n">03</span><span class="t"><b>Doorbells are batched.</b> A mover scans the contiguous prefix of set <code>wrote[]</code> flags under one lock and rings BlueFlame once per burst, preserving WQE order. It is the answer to “thousands of doorbells serialize on the NIC”.</span></li>
+        <li><span class="n">04</span><span class="t"><b>Completions drain in bulk.</b> A lock-free peek on the head CQE’s owner bit, one poll lock draining the ready batch, then <code>atomicAdd(comp[slot])</code>. Counters are monotonic, so the lost-wakeup race is gone by construction.</span></li>
+        <li><span class="n">05</span><span class="t"><b>Waiters help instead of hanging.</b> Spins on <code>comp[slot] &gt; target</code> with a ~10 s budget returning <code>0xffffffff</code>; the same poll routine is called by in-flight-full and page-cache waiters, so a blocked thread still moves the queue.</span></li>
+        <li><span class="n">06</span><span class="t"><b>Remote pages on demand.</b> 4 KB slots, 8-way set-associative with Fibonacci hashing, reference pins, <code>EMPTY/FILLING/VALID</code> states, <code>fetch</code> split from <code>wait</code>, and orphan-fill takeover after ~100 ms.</span></li>
+      </ol>
+
+      <div class="mnote"><b>Two invariants do the quiet work:</b> the SQ slot number <i>is</i> the NVMe CID (encoded <code>(target+1)&lt;&lt;32 | slot</code>), and a slot is claimable only while <code>head − resp_done &lt; sq_slots</code> — which removes the send-CQE-lag reuse race at the root. Non-coherence is handled explicitly: <code>__ldcg</code> for NIC-written pages, <code>st.mmio.relaxed.sys</code> for doorbells, <code>__threadfence_system()</code> before publishing.</div>
+    </section>
+
+    <!-- mechanisms + kpis -->
+    <aside class="card span5 reveal">
+      <h2>Three mechanisms</h2>
+      <p class="sub">The bundle that replaces BaM-style lock-step polling.</p>
+
+      <div class="mech">
+        <div class="m">
+          <h3>Doorbell mover <span>MMIO</span></h3>
+          <p>Collapses a burst’s per-thread rings into one BlueFlame doorbell by scanning the contiguous set prefix — one MMIO per batch, WQE order intact.</p>
+        </div>
+        <div class="m">
+          <h3>Batched CQ poller <span>CQ</span></h3>
+          <p>Owner-bit fast peek touches no lock word; one lock drains the whole ready batch. Per-slot counters only ever increase, so no wakeup can be lost.</p>
+        </div>
+        <div class="m">
+          <h3>GPU page cache <span>VRAM</span></h3>
+          <p>8-way set-associative 4 KB slots, pinned against eviction, misses pipelined via fetch/wait split, and wedged owners reaped after a grace period.</p>
+        </div>
+      </div>
+
+      <div class="kpis">
+        <div><div class="v">64</div><div class="k">RC QPs = NVMe-oF I/O queues per client</div></div>
+        <div><div class="v">~1%</div><div class="k">peak SM throughput occupancy, capped at 16.67% warps-active</div></div>
+        <div><div class="v">0.37%</div><div class="k">host CPU at C = 1024 in-flight requests</div></div>
+        <div><div class="v">0</div><div class="k">target or SSD-firmware changes required</div></div>
+      </div>
+    </aside>
+
+    <!-- results -->
+    <section class="card span12 reveal">
+      <h2>Results &amp; highlights</h2>
+      <p class="sub">Four schemes aligned by total in-flight requests C — not by threads or cores — on one Ada GPU, one BlueField-3, one unmodified SPDK target.</p>
+
+      <div class="statstrip">
+        <div class="s"><div class="sv">10–22×</div><div class="sl">faster cold NYC-taxi column scan than a fixed ~5 s full-image load, bit-identical results</div></div>
+        <div class="s"><div class="sv">2.60×</div><div class="sl">speedup from compute/I/O overlap, 36/36 zero-failure runs (P1: 2.25×)</div></div>
+        <div class="s"><div class="sv">98 µs</div><div class="sl">single 4 KB read RTT at 0.2% host CPU; p99 135 µs vs 197 µs for P1</div></div>
+        <div class="s"><div class="sv">~109×</div><div class="sl">less host CPU than kernel nvme-rdma at comparable fabric throughput</div></div>
+      </div>
+
+      <table>
+        <caption>Peak concurrency, C = 1024 (Tables 2–3, Figures 2–4)</caption>
+        <thead>
+          <tr>
+            <th scope="col">Scheme</th>
+            <th scope="col">Host CPU</th>
+            <th scope="col">GPU SM cost</th>
+            <th scope="col">4 KB random IOPS</th>
+            <th scope="col">What caps it</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="scheme">P1 · kernel nvme-rdma<small>fio / io_uring into host memory</small></td>
+            <td class="num-cell bad">40.3%</td>
+            <td>host path — no SM polling</td>
+            <td class="num-cell">saturates from C = 64</td>
+            <td>host cores and per-round kernel launch (~139 µs)</td>
+          </tr>
+          <tr class="hi">
+            <td class="scheme">P2 · GNoF<small>GPU-native initiator</small></td>
+            <td class="num-cell good">0.37%</td>
+            <td class="good">0.03 → 1.07%<br><span style="font-weight:400;color:#5c6266">sm_throughput, T = 128→4096</span></td>
+            <td class="num-cell good">~1.77M read<br>~1.0M write</td>
+            <td>64 QPs × 256 SQ slots; RTT-batching overhead</td>
+          </tr>
+          <tr>
+            <td class="scheme">P3 · BaM over BF3 SNAP<small>DPU Arm initiator</small></td>
+            <td class="num-cell">0.90% + <span class="bad">24.8% DPU Arm</span></td>
+            <td class="bad">≈100% SM issue</td>
+            <td class="num-cell">1.2–1.8M</td>
+            <td>SNAP <code>MQES = 64</code>; falls to 0.59× when 8 Arm cores burn</td>
+          </tr>
+          <tr>
+            <td class="scheme">P4 · BaM on local SSD<small>same drive, no fabric</small></td>
+            <td class="num-cell">1.20%</td>
+            <td class="bad">≈100% SM issue</td>
+            <td class="num-cell">~55K read<br>~126K seq · 1.17M write</td>
+            <td>BaM’s lock-step read path, not the device (fio: 1.76M)</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <p class="tnote"><b>Reading the table:</b> P3’s queue depth is hardware-capped, so the three-way high-concurrency comparison is really a two-way one plus a ceiling. P4’s read gap is the sharpest number in the paper and the least clean: its writes scale normally on the same SSD.</p>
+
+      <div class="losses">
+        <b>Honest losses, stated by the authors:</b> BFS on the 8.5 GB R-MAT graph is slower with GNoF (11 870 ms) than bulk staging (9 873 ms), though the 2.13 GB graph wins 1 975 vs 2 567 ms. Vector-add reaches 863 MiB/s / 3.56 s at T = 512 versus 1.56 s for the best staged pipeline. Inter-SM contention costs 5–8% through 32 copy SMs, then collapses to 0.227 retention at 48 as DRAM saturates and CQ polling starves.
+      </div>
+    </section>
+
+    <!-- strengths -->
+    <section class="card span6 duo reveal">
+      <h2>Strengths</h2>
+      <ul>
+        <li><b>The counter is the idea.</b> Because <code>comp[]</code> never clears, the lost-wakeup race cannot exist rather than being patched; the same poll routine doubles as a helping primitive.</li>
+        <li><b>Deployable by default.</b> Byte-compatible with the libmlx5 provider contract, an unmodified SPDK target, no firmware change, 64 RC QPs — an operator could actually adopt this.</li>
+        <li><b>Non-coherence taken seriously.</b> <code>__ldcg</code>, <code>st.mmio.relaxed.sys</code>, system fences, and an explanation of why GPU L1 cannot be invalidated from device code.</li>
+        <li><b>Measurement discipline.</b> Schemes aligned by in-flight C, three repetitions, direct I/O, one at a time — and failures reported as failures: P3’s MQES cap, BaM’s Xid43 race, the BFS loss.</li>
+      </ul>
+    </section>
+
+    <!-- limitations -->
+    <section class="card span6 duo lim reveal">
+      <h2>Limitations</h2>
+      <ul>
+        <li><b>Client-side only.</b> No multi-client coordination, access control, or replication, so the “all-flash array” framing outruns the implementation.</li>
+        <li><b>A 16× VRAM footprint.</b> 8 702 MiB peak at C = 1024 versus 552 MiB for either BaM variant, never analyzed against a real 30+ GB working set.</li>
+        <li><b>No mechanism ablation.</b> Doorbell mover, batched poller, and page cache are never individually disabled; the serialization motivation is never quantified.</li>
+        <li><b>Application comparison is incomplete.</b> Table 4 has no BaM or CoPilotIO column, so it supports “beats bulk staging on selective scans”, not “beats existing GPU-native storage”.</li>
+        <li><b>One testbed, one topology.</b> A single SYS-class NUMA-crossing bridge and a 200 Gb/s fabric; the 48-SM collapse and the large-graph BFS loss are plausibly topology artifacts.</li>
+        <li><b>No artifact yet.</b> A reference implementation “may be released separately”.</li>
+      </ul>
+    </section>
+
+    <!-- questions -->
+    <section class="q span12 reveal">
+      <h2>Questions for further exploration</h2>
+      <ol>
+        <li>What is each mechanism’s isolated contribution — GNoF with per-thread doorbells, or with flag-clearing completions? The serialization claim needs a number.</li>
+        <li>Why does 2.13 GB BFS win by 23% while 8.5 GB BFS loses? Read amplification, cache thrashing above a threshold, or the fabric’s 965 MB/s ceiling? A miss-rate trace would settle it.</li>
+        <li>How does an 8.7 GB pool coexist with an LLM batch already holding 30+ GB of the 46 GB card?</li>
+        <li>Does the mover still help on sparse bursts, where the contiguous-prefix scan degenerates toward one MMIO per request?</li>
+        <li>What happens with multiple clients on one target namespace, given per-client SQ/CQ isolation but unmodeled target arbitration?</li>
+        <li>Does the monotonic-counter design transfer to CXL memory or local PCIe, where the 10–100 µs RTT that justifies batching disappears?</li>
+      </ol>
+    </section>
+
+  </div>
+
+  <footer>
+    <span><a href="./2611.21288.md">↗ Markdown source</a> &nbsp;·&nbsp; <a href="https://arxiv.org/abs/2611.21288">arXiv abstract</a></span>
+    <span class="fine">Distilled from the paper’s own text; numbers are as reported by the authors on a single testbed.</span>
+  </footer>
+
+</main>
+
+<script>
+  (function () {
+    var nodes = document.querySelectorAll('.reveal');
+    if (!('IntersectionObserver' in window) || window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      for (var i = 0; i < nodes.length; i++) nodes[i].classList.add('in');
+      return;
+    }
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (e) {
+        if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); }
+      });
+    }, { rootMargin: '0px 0px -8% 0px', threshold: 0.08 });
+    for (var j = 0; j < nodes.length; j++) io.observe(nodes[j]);
+  })();
+</script>
+
+</body>
+</html>

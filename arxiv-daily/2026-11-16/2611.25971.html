@@ -1,0 +1,724 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kameleo — In-Situ Activation-Precision Selection for Bit-Serial LLM Accelerators</title>
+<meta name="description" content="Dashboard for arXiv 2611.25971: per-GEMM activation mantissa lengths chosen at runtime inside the bit-serial datapath, with zero calibration data.">
+<style>
+  :root{
+    --ink:#14161a;
+    --ink-2:#3a3f47;
+    --muted:#6c7179;
+    --faint:#8c9198;
+    --line:#e2ded5;
+    --line-2:#efece5;
+    --paper:#faf9f6;
+    --card:#ffffff;
+    --accent:#2b4fd6;
+    --accent-ink:#1c379c;
+    --accent-soft:#eef1fd;
+    --warn:#8d3c14;
+    --warn-bg:#fdf4ec;
+    --warn-line:#eed6c2;
+    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
+    --sans:ui-sans-serif,system-ui,-apple-system,"Segoe UI","PingFang SC","Noto Sans SC","Hiragino Sans GB",sans-serif;
+  }
+  *{box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%}
+  body{
+    margin:0;background:var(--paper);color:var(--ink);
+    font-family:var(--sans);font-size:16px;line-height:1.55;
+    -webkit-font-smoothing:antialiased;
+  }
+  a{color:var(--accent);text-decoration:none}
+  a:hover{text-decoration:underline;text-underline-offset:2px}
+  .wrap{width:min(95vw,1100px);margin:0 auto;padding:0 0 64px}
+
+  /* ---------- fixed nav ---------- */
+  .nav-back{
+    position:fixed;top:14px;left:16px;z-index:60;
+    display:inline-block;padding:6px 12px;
+    background:var(--card);border:1px solid var(--line);border-radius:999px;
+    color:var(--ink-2);font-size:12.5px;font-weight:600;letter-spacing:.01em;
+    box-shadow:0 1px 0 rgba(21,23,27,.03);
+  }
+  .nav-back:hover{color:var(--accent);border-color:#c9d2f2;text-decoration:none}
+
+  /* ---------- hero ---------- */
+  .hero{padding:84px 0 0;border-bottom:1px solid var(--line)}
+  .eyebrow{
+    display:flex;align-items:center;flex-wrap:wrap;gap:8px 10px;margin:0 0 18px;
+    font-family:var(--mono);font-size:10.5px;font-weight:700;
+    letter-spacing:.18em;text-transform:uppercase;color:var(--accent);
+  }
+  .eyebrow .dot{width:7px;height:7px;background:var(--accent);flex:none}
+  .eyebrow .sep{color:#c3bdb1;letter-spacing:.04em;font-weight:500}
+  .eyebrow .plain{color:var(--muted);letter-spacing:.12em}
+
+  h1{
+    margin:0 0 16px;max-width:25ch;
+    font-size:clamp(2rem,4.5vw,3.5rem);
+    line-height:1.02;letter-spacing:-.033em;font-weight:800;
+    text-wrap:balance;
+  }
+  h1 .hl{color:var(--accent)}
+  h1 .u{box-shadow:inset 0 -.1em 0 var(--accent-soft)}
+
+  .hero-zh{
+    margin:0 0 22px;max-width:60ch;color:var(--ink-2);
+    font-size:.96rem;line-height:1.8;letter-spacing:.01em;
+  }
+  .paper-title{margin:0 0 10px;font-size:1.02rem;font-weight:650;letter-spacing:-.012em;max-width:66ch;line-height:1.4}
+  .paper-title a{color:var(--ink)}
+  .paper-title a:hover{color:var(--accent)}
+  .meta{display:flex;flex-wrap:wrap;align-items:center;gap:6px 14px;font-size:12.5px;color:var(--muted);margin-bottom:14px}
+  .meta .authors{color:var(--ink-2);font-weight:500}
+  .meta .dotm{color:#c9c3b7}
+  .meta time{font-variant-numeric:tabular-nums;font-family:var(--mono);font-size:11.5px;letter-spacing:.02em}
+  .chips{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:26px}
+  .chip{
+    display:inline-block;padding:3px 9px;border:1px solid var(--line);
+    border-radius:2px;background:#fcfbf8;
+    font-family:var(--mono);font-size:10.5px;letter-spacing:.05em;
+    text-transform:uppercase;color:var(--ink-2);
+  }
+
+  /* spec strip */
+  .spec{
+    display:grid;grid-template-columns:repeat(4,1fr);
+    border-top:1px solid var(--line);margin-bottom:0;
+  }
+  .spec div{padding:13px 14px 15px;border-left:1px solid var(--line-2)}
+  .spec div:first-child{border-left:0;padding-left:0}
+  .spec b{
+    display:block;font-size:1.25rem;font-weight:750;letter-spacing:-.02em;
+    font-variant-numeric:tabular-nums;line-height:1.15;
+  }
+  .spec span{
+    display:block;font-family:var(--mono);font-size:9.5px;letter-spacing:.14em;
+    text-transform:uppercase;color:var(--faint);margin-top:4px;
+  }
+
+  /* ---------- asset row ---------- */
+  .assets{
+    display:grid;grid-template-columns:1.15fr 1fr 1.15fr;gap:14px;
+    margin:26px 0 30px;
+  }
+  .asset{
+    background:var(--card);border:1px solid var(--line);border-radius:3px;
+    padding:18px 18px 20px;display:flex;flex-direction:column;
+  }
+  .asset .label{
+    font-family:var(--mono);font-size:9.5px;font-weight:700;letter-spacing:.17em;
+    text-transform:uppercase;color:var(--faint);margin-bottom:12px;
+  }
+  .asset-metric{border-top:2px solid var(--accent);padding-top:16px}
+  .metric-big{
+    display:flex;align-items:baseline;gap:8px;
+    font-size:clamp(3rem,6.4vw,4.4rem);font-weight:800;letter-spacing:-.045em;
+    line-height:.92;color:var(--ink);font-variant-numeric:tabular-nums;
+    margin-bottom:2px;
+  }
+  .metric-big .unit{
+    font-size:.28em;font-weight:700;letter-spacing:.06em;color:var(--accent);
+    font-family:var(--mono);text-transform:uppercase;
+  }
+  .metric-sub{
+    font-family:var(--mono);font-size:10.5px;letter-spacing:.06em;
+    color:var(--muted);margin-bottom:11px;
+  }
+  .asset p{margin:0;font-size:13.2px;line-height:1.6;color:var(--ink-2)}
+  .asset .zh{
+    margin-top:9px;font-size:12px;line-height:1.7;color:var(--muted);
+    border-top:1px dashed var(--line);padding-top:8px;
+  }
+  .asset-why{padding-top:18px}
+  .asset-why .ask{
+    font-size:15px;line-height:1.5;font-weight:600;letter-spacing:-.005em;
+    color:var(--ink);margin:0 0 10px;
+  }
+  .asset-edge{
+    background:var(--warn-bg);border:1px solid var(--warn-line);
+    border-top:3px solid var(--warn);padding-top:15px;
+  }
+  .asset-edge .label{color:#a0562b}
+  .asset-edge p{color:#5d3a22;font-size:13.4px;line-height:1.55}
+  .flag{font-family:var(--mono);font-size:11px;letter-spacing:.1em;color:var(--warn);font-weight:700}
+
+  /* ---------- body grid ---------- */
+  .body{display:grid;grid-template-columns:repeat(12,1fr);gap:14px}
+  .card{
+    background:var(--card);border:1px solid var(--line);border-radius:3px;
+    padding:20px 20px 22px;min-width:0;
+  }
+  .card h2{
+    margin:0 0 14px;font-size:10.5px;font-weight:700;letter-spacing:.16em;
+    text-transform:uppercase;color:var(--ink);font-family:var(--mono);
+    display:flex;align-items:center;gap:9px;
+  }
+  .card h2 .num{
+    display:inline-flex;align-items:center;justify-content:center;
+    width:17px;height:17px;background:var(--ink);color:#fff;
+    font-size:9px;letter-spacing:0;border-radius:2px;flex:none;
+  }
+  .card h2 .rule{flex:1;height:1px;background:var(--line-2)}
+  .card p{margin:0 0 10px;font-size:13.6px;line-height:1.62;color:var(--ink-2)}
+  .card p:last-child{margin-bottom:0}
+  .card strong{color:var(--ink);font-weight:650}
+  .span7{grid-column:span 7}
+  .span5{grid-column:span 5}
+  .span8{grid-column:span 8}
+  .span4{grid-column:span 4}
+  .span6{grid-column:span 6}
+  .span12{grid-column:span 12}
+
+  /* methodology list */
+  .m-list{list-style:none;margin:0;padding:0;display:grid;gap:11px}
+  .m-list li{
+    display:grid;grid-template-columns:78px 1fr;gap:12px;
+    font-size:13.4px;line-height:1.6;color:var(--ink-2);
+    padding-top:11px;border-top:1px solid var(--line-2);
+  }
+  .m-list li:first-child{border-top:0;padding-top:0}
+  .m-list b{
+    font-family:var(--mono);font-size:9.5px;letter-spacing:.12em;
+    text-transform:uppercase;color:var(--accent);padding-top:3px;
+  }
+
+  /* equation */
+  .eq{
+    margin:14px 0 4px;padding:13px 15px;background:#fbfaf7;
+    border:1px solid var(--line-2);border-left:2px solid var(--accent);
+    font-family:var(--mono);font-size:12.6px;line-height:1.9;color:var(--ink);
+    overflow-x:auto;
+  }
+  .eq .lbl{color:var(--faint);font-size:9.5px;letter-spacing:.14em;display:block;margin-bottom:5px}
+  .eq sup{font-size:9px}
+  .eq .cm{color:var(--muted)}
+
+  /* flow */
+  .flow{display:flex;align-items:stretch;gap:0;margin:2px 0 14px}
+  .flow .step{
+    flex:1;padding:9px 10px;border:1px solid var(--line);
+    background:#fcfbf8;min-width:0;
+  }
+  .flow .step:first-child{border-radius:2px 0 0 2px}
+  .flow .step:last-child{border-radius:0 2px 2px 0}
+  .flow .arw{
+    flex:none;display:flex;align-items:center;justify-content:center;
+    width:24px;color:var(--faint);font-size:13px;
+  }
+  .flow .k{
+    display:block;font-family:var(--mono);font-size:9px;letter-spacing:.12em;
+    text-transform:uppercase;color:var(--faint);margin-bottom:3px;
+  }
+  .flow .v{display:block;font-size:12px;line-height:1.35;color:var(--ink);font-weight:600}
+  .flow .step.on{background:var(--accent-soft);border-color:#ccd6f7}
+  .flow .step.on .k{color:var(--accent-ink)}
+
+  /* tables */
+  table{width:100%;border-collapse:collapse;font-size:12.8px;margin:0}
+  th{
+    text-align:left;font-family:var(--mono);font-size:9px;letter-spacing:.1em;
+    text-transform:uppercase;color:var(--faint);font-weight:700;
+    padding:0 8px 7px;border-bottom:1px solid var(--line);white-space:nowrap;
+  }
+  td{padding:8px 8px;border-bottom:1px solid var(--line-2);vertical-align:baseline;color:var(--ink-2)}
+  tr:last-child td{border-bottom:0}
+  td.num{font-family:var(--mono);font-variant-numeric:tabular-nums;font-size:12px;color:var(--ink);white-space:nowrap}
+  td.model{color:var(--ink);font-weight:600;font-size:12.6px;white-space:nowrap}
+  .tag{
+    display:inline-block;padding:1px 5px;border-radius:2px;font-family:var(--mono);
+    font-size:9px;letter-spacing:.06em;text-transform:uppercase;
+  }
+  .tag.ok{background:var(--accent-soft);color:var(--accent-ink)}
+  .tag.over{background:#fbe9e2;color:#a4401c}
+  .tag.ref{background:#f1efe9;color:var(--muted)}
+  tr.hi td{background:#f7f8fe}
+  tr.hi td:first-child{box-shadow:inset 2px 0 0 var(--accent)}
+  .tnote{margin:10px 0 0;font-size:11.5px;line-height:1.55;color:var(--muted)}
+  .tnote em{font-style:normal;color:var(--ink-2)}
+
+  /* delta chart */
+  .chart{margin:24px 0 0}
+  .row{display:grid;grid-template-columns:96px 1fr 46px;align-items:center;gap:10px;margin-bottom:6px}
+  .row .nm{font-size:11.5px;color:var(--ink-2);white-space:nowrap;text-align:right;font-family:var(--mono);letter-spacing:-.01em}
+  .track{
+    position:relative;height:22px;background:linear-gradient(90deg,#f4f3ef 0%,#f4f3ef 100%);
+    border-radius:1px;
+  }
+  .track .budget{
+    position:absolute;left:0;top:0;bottom:0;width:88.9%;
+    background:rgba(43,79,214,.07);border-right:1px dashed #b9c6ee;
+  }
+  .track .budget span{
+    position:absolute;right:4px;top:-15px;font-family:var(--mono);font-size:8.5px;
+    letter-spacing:.08em;color:var(--accent-ink);text-transform:uppercase;
+  }
+  .mk{
+    position:absolute;top:50%;width:9px;height:9px;border-radius:50%;
+    transform:translate(-50%,-50%);
+  }
+  .mk.k{background:var(--accent);box-shadow:0 0 0 2px #fff}
+  .mk.a{background:#fff;border:1.5px solid #9aa0a8}
+  .row .val{font-family:var(--mono);font-size:10.5px;color:var(--muted);text-align:right;font-variant-numeric:tabular-nums}
+  .axis{display:grid;grid-template-columns:96px 1fr 46px;gap:10px;margin-top:2px}
+  .axis .ticks{display:flex;justify-content:space-between;font-family:var(--mono);font-size:8.5px;color:var(--faint)}
+  .legend{
+    display:flex;gap:16px;margin-top:14px;padding-top:11px;border-top:1px solid var(--line-2);
+    font-size:11px;color:var(--muted);align-items:center;flex-wrap:wrap;
+  }
+  .legend i{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:5px;vertical-align:-1px}
+  .legend i.k{background:var(--accent)}
+  .legend i.a{background:#fff;border:1.5px solid #9aa0a8}
+
+  /* fraction bar */
+  .frac{display:flex;align-items:baseline;gap:8px;margin:2px 0 12px}
+  .frac .n{font-size:2.7rem;font-weight:800;letter-spacing:-.04em;line-height:1;font-variant-numeric:tabular-nums;color:var(--ink)}
+  .frac .d{font-size:1rem;font-weight:600;color:var(--muted);font-family:var(--mono)}
+  .frac .cap{margin-left:auto;font-family:var(--mono);font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--warn);text-align:right;line-height:1.4}
+  .split{display:flex;height:9px;border-radius:1px;overflow:hidden;margin-bottom:8px}
+  .split .bad{background:var(--warn);width:42.857%}
+  .split .good{background:#dfe5f7;width:57.143%}
+  .keys{display:flex;justify-content:space-between;font-family:var(--mono);font-size:9px;letter-spacing:.06em;color:var(--faint);text-transform:uppercase}
+  .keys .b{color:var(--warn)}
+
+  /* cost rows */
+  .cost{display:grid;gap:0;margin-top:2px}
+  .cost .cr{
+    display:grid;grid-template-columns:1fr auto;gap:10px;align-items:baseline;
+    padding:9px 0;border-bottom:1px solid var(--line-2);
+  }
+  .cost .cr:last-child{border-bottom:0}
+  .cost .cl{font-size:12.4px;color:var(--ink-2);line-height:1.4}
+  .cost .cl small{display:block;font-family:var(--mono);font-size:9.5px;color:var(--faint);letter-spacing:.03em;margin-top:2px}
+  .cost .cv{font-family:var(--mono);font-size:13px;font-weight:700;color:var(--ink);white-space:nowrap;font-variant-numeric:tabular-nums}
+  .cost .cv.acc{color:var(--accent-ink)}
+  .cost .cv.warn{color:var(--warn)}
+
+  /* strengths / limits */
+  .sl h2 .num{background:var(--accent)}
+  .lim h2 .num{background:var(--warn)}
+  .sl ul,.lim ul{margin:0;padding:0;list-style:none;display:grid;gap:9px}
+  .sl li,.lim li{
+    position:relative;padding-left:16px;font-size:12.9px;line-height:1.55;color:var(--ink-2);
+  }
+  .sl li::before{
+    content:"+";position:absolute;left:0;top:0;color:var(--accent);font-weight:800;
+    font-family:var(--mono);font-size:12px;
+  }
+  .lim li::before{
+    content:"!";position:absolute;left:1px;top:1px;color:var(--warn);font-weight:800;
+    font-family:var(--mono);font-size:11px;
+  }
+
+  /* questions */
+  .qgrid{display:grid;grid-template-columns:1fr 1fr;gap:8px 26px;margin:0;padding:0;list-style:none;counter-reset:q}
+  .qgrid li{
+    counter-increment:q;position:relative;padding-left:26px;
+    font-size:12.7px;line-height:1.55;color:var(--ink-2);
+  }
+  .qgrid li::before{
+    content:counter(q,decimal-leading-zero);position:absolute;left:0;top:1px;
+    font-family:var(--mono);font-size:10px;color:var(--accent);letter-spacing:.02em;
+    border-bottom:1px solid #ccd6f7;padding-bottom:1px;
+  }
+
+  /* footer */
+  .foot{
+    margin-top:26px;padding-top:18px;border-top:1px solid var(--line);
+    display:flex;flex-wrap:wrap;gap:10px 22px;align-items:center;
+    font-size:12.5px;color:var(--muted);
+  }
+  .foot a{font-weight:600}
+  .foot .spacer{flex:1}
+  .foot .note{font-family:var(--mono);font-size:10px;letter-spacing:.06em;color:var(--faint)}
+
+  /* reveal */
+  .js .reveal{opacity:0;transform:translateY(8px);transition:opacity .5s ease,transform .5s ease}
+  .js .reveal.in{opacity:1;transform:none}
+  @media (prefers-reduced-motion:reduce){
+    .js .reveal{opacity:1;transform:none;transition:none}
+  }
+
+  /* ---------- responsive ---------- */
+  @media (max-width:980px){
+    .assets{grid-template-columns:1fr 1fr}
+    .asset-metric{grid-column:span 2}
+    .span7,.span5,.span8,.span4{grid-column:span 12}
+    .span6{grid-column:span 6}
+  }
+  @media (max-width:720px){
+    body{font-size:15.5px}
+    .wrap{width:92vw}
+    .hero{padding-top:66px}
+    .spec{grid-template-columns:1fr 1fr}
+    .spec div{padding:11px 12px 13px;border-left:1px solid var(--line-2)}
+    .spec div:nth-child(odd){border-left:0;padding-left:0}
+    .spec div:nth-child(3),.spec div:nth-child(4){border-top:1px solid var(--line-2)}
+    .assets{grid-template-columns:1fr;gap:12px;margin:20px 0 24px}
+    .asset-metric{grid-column:auto}
+    .span6{grid-column:span 12}
+    .body{gap:12px}
+    .qgrid{grid-template-columns:1fr;gap:10px}
+    .m-list li{grid-template-columns:1fr;gap:3px}
+    .m-list b{padding-top:0}
+    .flow{flex-direction:column;gap:5px}
+    .flow .arw{height:14px;width:100%;transform:rotate(90deg);font-size:11px}
+    .flow .step{border-radius:2px!important}
+    .row{grid-template-columns:78px 1fr 40px;gap:7px}
+    .axis{grid-template-columns:78px 1fr 40px;gap:7px}
+    .row .nm{font-size:10px}
+    .nav-back{position:absolute}
+    table{font-size:11.8px}
+    th,td{padding-left:6px;padding-right:6px}
+    .card{padding:17px 15px 19px}
+  }
+  @media (max-width:420px){
+    .metric-big{font-size:2.7rem}
+    .frac .n{font-size:2.2rem}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <a class="nav-back" href="./index.html">↩ Today's digest</a>
+
+  <!-- ================= HERO ================= -->
+  <header class="hero">
+    <div class="eyebrow">
+      <span class="dot"></span>Key finding
+      <span class="sep">/</span>
+      <span class="plain">arXiv 2611.25971</span>
+      <span class="sep">/</span>
+      <span class="plain">LLM accelerator</span>
+    </div>
+
+    <h1>Activation mantissa lengths are now chosen at <span class="hl">runtime</span> — read out of arithmetic the accelerator <span class="u">already performs</span>.</h1>
+
+    <p class="hero-zh">把"每层激活留几位尾数"的决定，从离线 PPL 标定搬进 bit-serial 数据通路本身：不改一次模型评估，也不带一份标定数据。</p>
+
+    <p class="paper-title"><a href="https://arxiv.org/abs/2611.25971">Kameleo: In-Situ Activation-Precision Selection for Bit-Serial LLM Accelerators</a></p>
+
+    <div class="meta">
+      <span class="authors">Robin Geens, Thomas Debelle, Marian Verhelst, Chao Fang</span>
+      <span class="dotm">·</span>
+      <span>MICAS, KU Leuven</span>
+      <span class="dotm">·</span>
+      <time datetime="2026-11-16">2026-11-16</time>
+    </div>
+
+    <div class="chips">
+      <span class="chip">bit-serial compute</span>
+      <span class="chip">activation quantization</span>
+      <span class="chip">block floating point</span>
+      <span class="chip">runtime precision</span>
+      <span class="chip">prefill</span>
+    </div>
+
+    <div class="spec">
+      <div><b>4 LLMs</b><span>2 Llama · Qwen · Yi</span></div>
+      <div><b>7 datasets</b><span>prose · code · German</span></div>
+      <div><b>0</b><span>calibration evaluations</span></div>
+      <div><b>2.12–2.29×</b><span>MXU prefill cycles</span></div>
+    </div>
+  </header>
+
+  <!-- ================= ASSETS ================= -->
+  <section class="assets">
+    <div class="asset asset-metric reveal">
+      <div class="label">Key metric</div>
+      <div class="metric-big">2.29<span class="unit">× MXU cycles</span></div>
+      <div class="metric-sub">Llama2-13B · WikiText2 · +0.80% PPL</div>
+      <p>Zero-calibration prefill speedup. ANDA, calibrated <em>on WikiText2 itself</em>, reaches 2.37× but pays +1.00% PPL — Kameleo is both faster in quality and 97% as fast in cycles.</p>
+    </div>
+
+    <div class="asset asset-why reveal">
+      <div class="label">Why this matters</div>
+      <p class="ask">Variable-length activations were blocked by per-workload recalibration that silently breaks when data drifts.</p>
+      <p>Kameleo turns that into a runtime decision for 3.7% area — no calibration set, no re-deployment, no 0.4–1.7 H100-hours per search.</p>
+      <p class="zh">跨数据集标定会静默掉点（42 次迁移里 18 次超预算）；把精度变成在线决策，才让可变长激活真正可部署。</p>
+    </div>
+
+    <div class="asset asset-edge reveal">
+      <div class="label"><span class="flag">▲</span> Critical edge</div>
+      <p>The selection loop itself is never validated end-to-end: lengths come from a software binary search, and equivalence to the hardware's two-pass, three-candidate search is argued from monotonicity shown for Llama2-7B only.</p>
+    </div>
+  </section>
+
+  <!-- ================= BODY ================= -->
+  <main class="body">
+
+    <!-- methodology -->
+    <section class="card span7 reveal">
+      <h2><span class="num">1</span>Methodology<span class="rule"></span></h2>
+
+      <ul class="m-list">
+        <li>
+          <b>Problem</b>
+          <span>W4A16 keeps activations in FP16, so activation arithmetic dominates the compute-bound prefill. Bit-serial block floating point with one mantissa length per GEMM recovers that cost — but the length must be chosen, and today's answer is offline greedy search against full-model perplexity: <strong>13–25 PPL evaluations, 0.4–1.7 H100-hours</strong>, and one number for hundreds of GEMMs.</span>
+        </li>
+        <li>
+          <b>Proxy</b>
+          <span>Replace global PPL with a <strong>local, label-free error rate per GEMM</strong>. Counting erroneous elements (one bit each) rather than summing error magnitude keeps a few outliers from dominating the metric.</span>
+        </li>
+        <li>
+          <b>Search</b>
+          <span>ε<sub>k</sub> is monotone in k, so nine candidate lengths (3–11 bits) need only a search: each GEMM tries three candidates per pass, pass 1 narrows 9 → ≤3, pass 2 resolves and locks. Both passes are ordinary full-precision forwards whose tokens are still served.</span>
+        </li>
+        <li>
+          <b>Hardware</b>
+          <span>ANDA's bit-serial PE already holds the exact k-bit dot product at cycle k. So the reduced and full results need <strong>no second arithmetic pass</strong>: three FP32 candidate registers plus a reference latch the partial sum, an error-check unit compares, and a flag collector folds 256 PE flags into 16 INT5 counts per tile.</span>
+        </li>
+      </ul>
+
+      <div class="eq">
+        <span class="lbl">Acceptance rule · fixed at design time</span>
+        |ŷ<sub>k</sub> − y| &gt; 2<sup>−s</sup>|y| &nbsp;<span class="cm">→</span>&nbsp; element counts as an error<br>
+        ε<sub>k</sub> = erroneous elements / GEMM outputs &nbsp;<span class="cm">→</span>&nbsp; accept shortest k with ε<sub>k</sub> ≤ τ<br>
+        <span class="cm">s = 4 &nbsp;·&nbsp; τ = 0.28 &nbsp;·&nbsp; identical for all GEMMs, models, datasets</span>
+      </div>
+
+      <div class="flow">
+        <div class="step on"><span class="k">Pass 1 · T tokens</span><span class="v">9 candidates → ≤ 3</span></div>
+        <div class="arw">→</div>
+        <div class="step on"><span class="k">Pass 2 · T tokens</span><span class="v">resolve · lock</span></div>
+        <div class="arw">→</div>
+        <div class="step"><span class="k">Steady state</span><span class="v">locked lengths, 2T = 16 384 tokens spent</span></div>
+      </div>
+
+      <p class="tnote">Evaluation: four dense models (Llama2-13B, Llama3.1-8B, Qwen2.5-7B, Yi1.5-34B) × seven datasets; INT4 OmniQuant weights at initialization; PPL over 2 048-token windows against the full 11-bit BFP mantissa; 1% budget. Throughput is analytic MXU-cycle reduction validated against cycle-accurate RTL, with attention GEMMs held at full mantissa.</p>
+    </section>
+
+    <!-- hardware cost -->
+    <section class="card span5 reveal">
+      <h2><span class="num">2</span>What it costs<span class="rule"></span></h2>
+      <p>Kameleo is built as a strict superset of ANDA — same TSMC 16 nm, 250 MHz, 0.75 V, same quantizer, same cost metric — so the price of runtime selection is isolated architecturally rather than by comparison.</p>
+
+      <div class="cost">
+        <div class="cr">
+          <div class="cl">Full accelerator area<small>SRAM buffers dominate the die</small></div>
+          <div class="cv acc">2.33 → 2.42 mm² &nbsp;+3.7%</div>
+        </div>
+        <div class="cr">
+          <div class="cl">MXU area<small>FP accumulator path: +55%</small></div>
+          <div class="cv">+25.8%</div>
+        </div>
+        <div class="cr">
+          <div class="cl">MXU power, inference<small>selection registers clock-gated off</small></div>
+          <div class="cv acc">111.1 → 115.0 mW &nbsp;+3.5%</div>
+        </div>
+        <div class="cr">
+          <div class="cl">MXU power, during selection<small>lasts 2T = 16 384 tokens; outputs still served</small></div>
+          <div class="cv warn">166.7 mW &nbsp;+50%</div>
+        </div>
+      </div>
+
+      <p class="tnote">The +3.7% headline is deliberately checkable against the +55% local cost: the expensive part is a narrow FP comparator path, not the datapath.</p>
+    </section>
+
+    <!-- results -->
+    <section class="card span8 reveal">
+      <h2><span class="num">3</span>Results — beat the oracle-calibrated baseline on quality<span class="rule"></span></h2>
+
+      <table>
+        <thead>
+          <tr>
+            <th>Model / WikiText2</th>
+            <th>Kameleo · no calibration</th>
+            <th>ANDA · calibrated on WikiText2</th>
+            <th>Share of oracle speedup</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr class="hi">
+            <td class="model">Llama2-13B</td>
+            <td class="num">2.29× · 5.03 PPL <span class="tag ok">+0.80%</span></td>
+            <td class="num">2.37× · 5.04 <span class="tag ref">+1.00%</span></td>
+            <td class="num">96.6%</td>
+          </tr>
+          <tr>
+            <td class="model">Llama3.1-8B</td>
+            <td class="num">2.29× · 6.78 <span class="tag ok">+0.39%</span></td>
+            <td class="num">2.38× · 6.79 <span class="tag ref">+0.63%</span></td>
+            <td class="num">96.2%</td>
+          </tr>
+          <tr>
+            <td class="model">Qwen2.5-7B</td>
+            <td class="num">2.12× · 7.29 <span class="tag ok">−0.04%</span></td>
+            <td class="num">2.24× · 7.36 <span class="tag ref">+0.95%</span></td>
+            <td class="num">—</td>
+          </tr>
+          <tr>
+            <td class="model">Yi1.5-34B</td>
+            <td class="num">2.26× · 5.00 <span class="tag ok">−0.16%</span></td>
+            <td class="num">2.83× · 5.05 <span class="tag ref">+0.79%</span></td>
+            <td class="num">79.9%</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <p class="tnote"><em>Read the last column carefully:</em> Kameleo recovers 80–97% of the oracle's cycle saving, and the gap is widest on the 34B model. Every Kameleo operating point sits inside the 1% PPL budget; the oracle-calibrated baseline does not, on Llama2-13B.</p>
+
+      <div class="chart">
+        <div class="row">
+          <div class="nm">Kameleo</div>
+          <div class="track">
+            <div class="budget"><span>within 1% budget</span></div>
+            <span class="mk k" style="left:77.8%" title="Llama2-13B +0.80%"></span>
+            <span class="mk k" style="left:55.0%" title="Llama3.1-8B +0.39%"></span>
+            <span class="mk k" style="left:31.1%" title="Qwen2.5-7B −0.04%"></span>
+            <span class="mk k" style="left:24.4%" title="Yi1.5-34B −0.16%"></span>
+          </div>
+          <div class="val">Δ PPL</div>
+        </div>
+        <div class="row">
+          <div class="nm">ANDA-cal</div>
+          <div class="track">
+            <div class="budget"></div>
+            <span class="mk a" style="left:88.9%" title="Llama2-13B +1.00%"></span>
+            <span class="mk a" style="left:68.3%" title="Llama3.1-8B +0.63%"></span>
+            <span class="mk a" style="left:86.1%" title="Qwen2.5-7B +0.95%"></span>
+            <span class="mk a" style="left:77.2%" title="Yi1.5-34B +0.79%"></span>
+          </div>
+          <div class="val">Δ PPL</div>
+        </div>
+        <div class="axis">
+          <div></div>
+          <div class="ticks"><span>−0.6%</span><span>+0.3%</span><span>+1.2%</span></div>
+          <div></div>
+        </div>
+        <div class="legend">
+          <span><i class="k"></i>Kameleo, selected in situ</span>
+          <span><i class="a"></i>ANDA, calibrated on the test distribution</span>
+          <span style="color:var(--faint)">dashed line = 1% budget</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- transfer evidence -->
+    <section class="card span4 reveal">
+      <h2><span class="num">4</span>Offline calibration does not transfer<span class="rule"></span></h2>
+
+      <div class="frac">
+        <span class="n">18</span>
+        <span class="d">/ 42</span>
+        <span class="cap">cross-dataset<br>transfers over budget</span>
+      </div>
+      <div class="split"><span class="bad"></span><span class="good"></span></div>
+      <div class="keys"><span class="b">▲ &gt; 1% PPL</span><span>within budget</span></div>
+
+      <p style="margin-top:14px">Calibrate ANDA on each of seven datasets, deploy on the other six: <strong>18 transfers blow the 1% budget</strong>, worst case <strong>+2.9%</strong> (LAMBADA-calibrated config on CBT). Kameleo stays inside on all seven datasets at 2.25–2.28×.</p>
+      <p>C4-calibrated Llama2-13B reads 5.11 PPL on WikiText2 — <strong>+2.36%</strong>, more than double the budget. On Yi1.5-34B the WikiText2 configuration fails 5 of 6 transfers while the C4 one fails only 1: the fragility is configuration-dependent, i.e. unpredictable ahead of time.</p>
+      <p class="tnote">A seven-by-seven matrix is the right experiment for this claim, and reporting all 42 cells — not one anecdote — is what makes the regime argument land.</p>
+    </section>
+
+    <!-- ladder -->
+    <section class="card span6 reveal">
+      <h2><span class="num">5</span>The speed–quality ladder, Llama2-13B / WikiText2<span class="rule"></span></h2>
+      <table>
+        <thead><tr><th>Configuration</th><th>MXU cycles</th><th>PPL</th><th>vs. 1% budget</th></tr></thead>
+        <tbody>
+          <tr><td class="model">W4A16 · FP16 activations</td><td class="num">1.00×</td><td class="num">4.99</td><td><span class="tag ref">reference</span></td></tr>
+          <tr><td>FIGNA · 13-bit BFP</td><td class="num">1.23×</td><td class="num">4.99</td><td><span class="tag ok">inside</span></td></tr>
+          <tr><td>11-bit BFP reference</td><td class="num">1.45×</td><td class="num">4.99</td><td><span class="tag ok">inside</span></td></tr>
+          <tr><td>ANDA · calibrated on WikiText2</td><td class="num">2.37×</td><td class="num">5.04</td><td><span class="tag ok">at the edge</span></td></tr>
+          <tr class="hi"><td class="model">Kameleo · in situ</td><td class="num">2.29×</td><td class="num">5.03</td><td><span class="tag ok">+0.80%</span></td></tr>
+          <tr><td>VS-Quant · per-vector INT4</td><td class="num">3.61×</td><td class="num">5.21</td><td><span class="tag over">+4.41%</span></td></tr>
+        </tbody>
+      </table>
+      <p class="tnote">VS-Quant is the fastest point on the table but runs <em>4.4× over the paper's own budget</em>. It is shown as the far end of the trade-off, not as an iso-quality competitor — see questions 04.</p>
+    </section>
+
+    <!-- constants -->
+    <section class="card span6 reveal">
+      <h2><span class="num">6</span>Are the two constants really constants?<span class="rule"></span></h2>
+      <p>s = 4 and τ = 0.28 are never retuned across four models and seven datasets — the obvious objection is that this is calibration in disguise. Two sweeps answer it:</p>
+      <div class="cost">
+        <div class="cr">
+          <div class="cl">τ from 0.15 → 0.60<small>cycle reduction 1.91× → 2.83×; all four models stay inside 1% up to τ = 0.32</small></div>
+          <div class="cv acc">τ = 0.28 has margin</div>
+        </div>
+        <div class="cr">
+          <div class="cl">Selection prefix 32 768 → 2 048 tokens<small>cycle reduction moves ≤ 0.02×, PPL ≤ 0.07%</small></div>
+          <div class="cv">2T is enough</div>
+        </div>
+        <div class="cr">
+          <div class="cl">Downstream zero-shot, six tasks<small>PIQA · ARC-e · ARC-c · BoolQ · HellaSwag · WinoGrande</small></div>
+          <div class="cv acc">72.8 → 72.9%</div>
+        </div>
+      </div>
+      <p class="tnote">Every model's average accuracy moves by at most 0.1 points — quality holds beyond perplexity, though only for WikiText2-selected lengths.</p>
+    </section>
+
+    <!-- strengths / limitations -->
+    <section class="card span6 sl reveal">
+      <h2><span class="num">✓</span>Strengths<span class="rule"></span></h2>
+      <ul>
+        <li>The quality signal is read out of arithmetic the accelerator is already doing — cost is registers and a comparator, not a second datapath.</li>
+        <li>An unusually honest baseline: ANDA calibrated on the evaluation data itself, and Kameleo still wins on PPL at every model.</li>
+        <li>A 7×7 transfer matrix instead of a single anecdotal failure, with 18/42 violations reported rather than one cherry-picked cell.</li>
+        <li>Both constants stress-tested, which is the right answer to "this is calibration in disguise".</li>
+        <li>Cost reported at three granularities — FP path, MXU, whole accelerator — so +3.7% can be checked against +55%.</li>
+        <li>Strict superset of a published accelerator: the ablation is architectural, not comparative.</li>
+      </ul>
+    </section>
+
+    <section class="card span6 lim reveal">
+      <h2><span class="num">!</span>Limitations<span class="rule"></span></h2>
+      <ul>
+        <li>Selection is demonstrated by software emulation with bit-exact truncation, not by the actual two-pass, three-candidate hardware loop.</li>
+        <li>No per-GEMM agreement rate against oracle lengths, and no measure of how often a GEMM is mis-locked.</li>
+        <li>Throughput is analytic MXU-cycle counting validated by RTL — no end-to-end latency, energy-per-token or tokens-per-joule.</li>
+        <li>Decode is memory-bound and out of scope; the serving-mix win is unquantified.</li>
+        <li>A fixed 8 192-token prefix is a poor fit for short chat or agentic requests; no amortization or break-even analysis.</li>
+        <li>The baseline uses four GEMM-type lengths, Kameleo one per GEMM — criterion and granularity are conflated in the 80–97% figure.</li>
+        <li>No iso-quality VS-Quant point, so the Pareto claim is unresolved; RTL is not stated to be open-sourced.</li>
+      </ul>
+    </section>
+
+    <!-- questions -->
+    <section class="card span12 reveal">
+      <h2><span class="num">?</span>Questions for further exploration<span class="rule"></span></h2>
+      <ol class="qgrid">
+        <li>What is the per-GEMM agreement rate with oracle-calibrated lengths, and does disagreement sit on flat ε<sub>k</sub> curves (nearly free) or steep ones?</li>
+        <li>How does it behave on a prompt shorter than the 8 192-token prefix — what is the break-even length, and would hierarchical selection preserve the guarantee?</li>
+        <li>Is ε<sub>k</sub> monotone for <em>every</em> GEMM of every model, or only on average? If not, can the search provably lock a length that violates τ?</li>
+        <li>Where does per-vector INT4 sit near the 1% budget — is there a 2.8× operating point that makes the runtime machinery unnecessary?</li>
+        <li>How does it interact with KV-cache quantization and decode-phase arithmetic, where bandwidth rather than MXU cycles dominates?</li>
+        <li>Can ε<sub>k</sub> drift be watched as a cheap online health signal — turning the selection unit into a distribution-shift or numerical-anomaly monitor?</li>
+        <li>What is the energy (not power) overhead of the two passes, amortized over a multi-tenant trace with mixed prompt lengths?</li>
+      </ol>
+    </section>
+
+  </main>
+
+  <footer class="foot">
+    <a href="./2611.25971.md">↗ Markdown source</a>
+    <a href="https://arxiv.org/abs/2611.25971">arXiv:2611.25971</a>
+    <span class="spacer"></span>
+    <span class="note">not browser-verified · built from source markdown</span>
+  </footer>
+
+</div>
+
+<script>
+(function(){
+  document.documentElement.classList.add('js');
+  var els = document.querySelectorAll('.reveal');
+  if(!('IntersectionObserver' in window) || window.matchMedia('(prefers-reduced-motion: reduce)').matches){
+    for(var i=0;i<els.length;i++) els[i].classList.add('in');
+    return;
+  }
+  var io = new IntersectionObserver(function(entries){
+    entries.forEach(function(e){
+      if(e.isIntersecting){ e.target.classList.add('in'); io.unobserve(e.target); }
+    });
+  }, {rootMargin:'0px 0px -8% 0px', threshold:0.05});
+  for(var j=0;j<els.length;j++) io.observe(els[j]);
+})();
+</script>
+</body>
+</html>

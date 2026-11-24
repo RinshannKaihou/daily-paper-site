@@ -1,0 +1,550 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
+<meta name="description" content="CarrierKV shows that a rotating positional carrier dominates 4-bit KV keys; subtracting it before RoPE and rebuilding its score term on-chip lifts 32K RULER on Qwen3-4B from 79.4 to 91.1 (BF16 92.6) at +2.9% area.">
+<title>CarrierKV — subtract the positional carrier, rebuild it on-chip · arXiv 2611.26857</title>
+<style>
+  :root{
+    --paper:#f8f7f3;
+    --card:#fffefa;
+    --ink:#12161c;
+    --ink-2:#464f5a;
+    --ink-3:#737d88;
+    --line:#e4e3dc;
+    --line-2:#cbcdc6;
+    --accent:#14477d;
+    --accent-ink:#0f3862;
+    --accent-soft:#e7eef7;
+    --accent-pale:#f2f6fb;
+    --dark:#101a26;
+    --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
+  }
+  *{box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%}
+  body{
+    margin:0;background:var(--paper);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Helvetica Neue",Arial,"PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+    font-size:16px;line-height:1.55;-webkit-font-smoothing:antialiased;
+  }
+  :lang(zh){line-height:1.8}
+  a{color:var(--accent-ink);text-decoration:none}
+  a:hover{text-decoration:underline;text-underline-offset:2px}
+  ::selection{background:var(--accent-soft)}
+  code{
+    font-family:var(--mono);font-size:.9em;letter-spacing:-.01em;
+    background:#eef1f4;border:1px solid #e0e5eb;border-radius:3px;
+    padding:.04em .3em;color:var(--ink);overflow-wrap:anywhere;
+  }
+  .nav{
+    position:fixed;top:14px;left:14px;z-index:60;
+    padding:6px 13px 6px 11px;background:var(--paper);
+    border:1px solid var(--line-2);border-radius:999px;
+    font-size:.78rem;letter-spacing:.01em;color:var(--ink-2);
+    box-shadow:0 1px 0 rgba(0,0,0,.03);
+  }
+  .nav:hover{color:var(--ink);border-color:var(--ink-3);text-decoration:none}
+  .wrap{width:min(95vw,1100px);margin:0 auto;padding:62px 0 34px}
+
+  /* ---------- hero ---------- */
+  .hero{padding:2px 0 18px;border-bottom:1px solid var(--line-2)}
+  .eyebrow{
+    display:flex;flex-wrap:wrap;align-items:center;gap:9px;
+    font:600 .68rem/1 var(--mono);letter-spacing:.13em;text-transform:uppercase;
+    color:var(--accent);margin-bottom:13px;
+  }
+  .eyebrow .dot{width:5px;height:5px;border-radius:50%;background:var(--accent);display:inline-block}
+  .eyebrow .sep{color:var(--line-2)}
+  .eyebrow .plain{color:var(--ink-3);letter-spacing:.09em}
+  h1.finding{
+    margin:0 0 16px;max-width:29ch;
+    font-size:clamp(1.9rem,4vw,3rem);
+    line-height:1.07;letter-spacing:-.029em;font-weight:700;
+  }
+  h1.finding em{font-style:normal;color:var(--accent)}
+  .paper-title{margin:0 0 5px;font-size:.98rem;font-weight:600;color:var(--ink-2);letter-spacing:-.005em}
+  .paper-title a{color:var(--ink-2);border-bottom:1px dotted var(--line-2)}
+  .paper-title a:hover{color:var(--accent-ink);text-decoration:none;border-color:var(--accent)}
+  .byline{margin:0;font-size:.83rem;color:var(--ink-3)}
+  .byline .aff{font-family:var(--mono);font-size:.72rem;letter-spacing:.005em}
+  .byline .sep{color:var(--line-2);margin:0 5px}
+  .chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:11px}
+  .chip{
+    font-size:.68rem;letter-spacing:.03em;padding:3px 8px;
+    border:1px solid var(--line-2);border-radius:3px;color:var(--ink-2);background:var(--card);
+  }
+  .chip.stat{border-style:dashed;color:var(--ink-3);font-family:var(--mono);font-size:.64rem;padding-top:4px}
+
+  /* ---------- asset row ---------- */
+  .assets{display:grid;grid-template-columns:1.08fr .98fr 1.06fr;gap:12px;margin-top:12px}
+  .acard{
+    background:var(--card);border:1px solid var(--line);border-radius:5px;
+    padding:15px 17px 14px;display:flex;flex-direction:column;min-height:214px;min-width:0;
+  }
+  .label{font:600 .62rem/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3)}
+  .acard.metric-card{border-top:2px solid var(--accent)}
+  .metric-card .label{color:var(--accent)}
+  .metric{
+    display:flex;align-items:baseline;gap:3px;margin:7px 0 2px;
+    font-weight:700;font-size:clamp(3rem,6vw,4.2rem);line-height:.86;
+    letter-spacing:-.055em;color:var(--accent);font-variant-numeric:tabular-nums;
+  }
+  .metric .unit{font-size:.3em;font-weight:600;letter-spacing:-.01em;color:var(--ink-3);transform:translateY(-.18em)}
+  .metric-note{margin:8px 0 12px;font-size:.8rem;line-height:1.45;color:var(--ink-2)}
+  .metric-note strong{color:var(--ink);font-weight:600}
+  .minibars{display:grid;gap:5px;margin-top:auto}
+  .mb{display:grid;grid-template-columns:62px 1fr 36px;align-items:center;gap:7px;font:500 .62rem/1 var(--mono);color:var(--ink-3)}
+  .mb-track{display:block;height:5px;background:#eceef0;border-radius:2px;overflow:hidden;min-width:0}
+  .mb-fill{display:block;height:100%;background:#c3c9d1;border-radius:2px}
+  .mb.ours .mb-fill{background:var(--accent)}
+  .mb-v{text-align:right;color:var(--ink-2);font-variant-numeric:tabular-nums}
+  .mb.ours .mb-v{color:var(--accent-ink);font-weight:700}
+  .why .body-text{margin:9px 0 0;font-size:1rem;line-height:1.47;color:var(--ink);letter-spacing:-.006em}
+  .scope{
+    margin:auto 0 0;padding-top:11px;border-top:1px solid var(--line);
+    font:.63rem/1.5 var(--mono);letter-spacing:.01em;color:var(--ink-3);
+  }
+  .acard.edge{background:var(--dark);border-color:var(--dark);color:#eef2f7}
+  .edge .label{color:#8fb4dc}
+  .edge .body-text{margin:10px 0 0;font-size:.92rem;line-height:1.5;color:#e6ebf1}
+  .edge .body-text strong{color:#fff;font-weight:600}
+  .edge .source{margin:auto 0 0;padding-top:11px;font:.6rem/1.4 var(--mono);letter-spacing:.03em;color:#8d99a6}
+
+  /* ---------- body grid ---------- */
+  .body{display:grid;grid-template-columns:repeat(12,1fr);gap:12px;margin-top:12px}
+  .card{
+    background:var(--card);border:1px solid var(--line);border-radius:5px;
+    padding:17px 19px 16px;min-width:0;
+    display:flex;flex-direction:column;overflow-wrap:break-word;
+  }
+  .span-5{grid-column:span 5}
+  .span-6{grid-column:span 6}
+  .span-7{grid-column:span 7}
+  .span-12{grid-column:span 12}
+  .kicker{
+    display:flex;align-items:center;gap:8px;
+    font:600 .62rem/1 var(--mono);letter-spacing:.13em;text-transform:uppercase;
+    color:var(--accent);margin-bottom:9px;
+  }
+  .kicker .no{color:var(--ink-3);letter-spacing:.07em;font-weight:500}
+  .kicker::after{content:"";flex:1;height:1px;background:var(--line)}
+  .card h2{margin:0 0 9px;font-size:1.04rem;line-height:1.25;letter-spacing:-.014em;font-weight:700;color:var(--ink)}
+  .card p{margin:0 0 8px;font-size:.85rem;line-height:1.55;color:var(--ink-2)}
+  .card p:last-child{margin-bottom:0}
+  .card strong{color:var(--ink);font-weight:600}
+  .lede{font-size:.79rem;color:var(--ink-3);margin:0 0 8px;line-height:1.5}
+
+  /* energy composition bar */
+  .energybar{margin:12px 0 6px}
+  .eb-track{
+    display:flex;height:26px;border:1px solid var(--line-2);border-radius:3px;overflow:hidden;background:#f2f2ee;
+  }
+  .eb-seg{display:block;height:100%}
+  .eb-solid{background:var(--accent);width:61%}
+  .eb-range{
+    width:12%;
+    background:repeating-linear-gradient(135deg,var(--accent) 0 4px,#7ba3cc 4px 8px);
+  }
+  .eb-rest{flex:1;background:#e9e9e3}
+  .eb-scale{display:flex;justify-content:space-between;font:500 .6rem/1 var(--mono);color:var(--ink-3);margin-top:5px}
+  .eb-legend{display:grid;gap:4px;margin-top:9px;font:500 .66rem/1.35 var(--mono);color:var(--ink-2)}
+  .eb-legend span{display:grid;grid-template-columns:10px 1fr;gap:7px;align-items:baseline}
+  .sw{width:9px;height:9px;border-radius:2px;display:block;transform:translateY(1px)}
+  .sw.carrier{background:var(--accent)}
+  .sw.range{background:repeating-linear-gradient(135deg,var(--accent) 0 3px,#7ba3cc 3px 6px)}
+  .sw.rest{background:#dcdcd6;border:1px solid var(--line-2)}
+  .fig{font:.61rem/1.45 var(--mono);color:var(--ink-3);margin:8px 0 0}
+
+  .facts{display:grid;grid-template-columns:1fr 1fr;gap:0 16px;margin:11px 0 0;border-top:1px solid var(--line)}
+  .fact{padding:8px 0 2px;border-bottom:1px solid var(--line)}
+  .fact:nth-last-child(-n+2){border-bottom:none}
+  .fk{display:block;font:500 .57rem/1.25 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3);margin-bottom:3px}
+  .fv{display:block;font:700 1.02rem/1.15 var(--mono);color:var(--ink);letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+  .fv small{font-weight:500;font-size:.62em;color:var(--ink-3);letter-spacing:0}
+
+  .pull{
+    margin:12px 0 0;padding:9px 11px;border-left:2px solid var(--accent);border-radius:0 3px 3px 0;
+    background:var(--accent-pale);color:var(--accent-ink);font-size:.79rem;line-height:1.5;
+  }
+  .pull b{font-weight:700}
+
+  /* flow */
+  .flow{display:flex;flex-wrap:wrap;align-items:center;gap:5px 6px;margin:10px 0 11px}
+  .flow .step{
+    border:1px solid var(--line-2);background:#f6f6f1;border-radius:3px;
+    padding:4px 7px;font:.64rem/1.35 var(--mono);color:var(--ink-2);letter-spacing:.005em;
+  }
+  .flow .step.hot{border-color:var(--accent);background:var(--accent-soft);color:var(--accent-ink);font-weight:600}
+  .flow .step.io{background:var(--dark);border-color:var(--dark);color:#e8edf3}
+  .flow .arw{color:var(--line-2);font-size:.8rem;line-height:1}
+  .flowlabel{font:600 .57rem/1 var(--mono);letter-spacing:.11em;text-transform:uppercase;color:var(--ink-3);margin:10px 0 0}
+
+  /* equation block */
+  .eq{
+    margin:12px 0 10px;padding:11px 13px 12px;background:var(--accent-pale);
+    border:1px solid #d5e1ef;border-left:2px solid var(--accent);border-radius:0 3px 3px 0;
+  }
+  .eq .math{font:600 .94rem/1.5 var(--mono);color:var(--ink);letter-spacing:-.015em}
+  .eq .math .term{color:var(--accent-ink)}
+  .eq .math .op{color:var(--ink-3);padding:0 3px}
+  .eq .parts{display:grid;grid-template-columns:1fr 1fr;gap:4px 14px;margin-top:8px}
+  .eq .part{font:.66rem/1.4 var(--mono);color:var(--ink-2)}
+  .eq .part b{display:block;font-weight:600;color:var(--accent);letter-spacing:.07em;text-transform:uppercase;font-size:.57rem;margin-bottom:2px}
+  .eq .exact{margin-top:8px;font-size:.74rem;line-height:1.45;color:var(--ink-2)}
+
+  /* tables */
+  table{width:100%;border-collapse:collapse;margin-top:4px}
+  thead th{
+    font:600 .57rem/1.15 var(--mono);letter-spacing:.07em;text-transform:uppercase;color:var(--ink-3);
+    text-align:left;padding:0 7px 7px 0;border-bottom:1px solid var(--line-2);vertical-align:bottom;
+  }
+  tbody td{padding:6px 7px 6px 0;border-bottom:1px solid var(--line);color:var(--ink-2);vertical-align:middle;font-size:.8rem}
+  tbody tr:last-child td{border-bottom:none}
+  td.n{font-family:var(--mono);font-variant-numeric:tabular-nums;font-weight:600;color:var(--ink);white-space:nowrap}
+  td.m{font-weight:600;color:var(--ink);white-space:nowrap}
+  thead th.c,td.c{text-align:center}
+  .res th:nth-child(1){width:27%}
+  .res .delta{color:var(--accent-ink);font-weight:700}
+  .res tr.weak td{background:#f6f2ea}
+  .res tr.weak td.m::after{content:" ▲";font-size:.7em;color:#8a5a2b}
+  .tdnote{display:block;font-size:.64rem;line-height:1.3;color:var(--ink-3);margin-top:1px;font-weight:400}
+  .note{font-size:.71rem;line-height:1.5;color:var(--ink-3);margin:9px 0 0}
+  .card > .note:last-child{margin-top:auto;padding-top:9px}
+
+  /* stats grid */
+  .stats{display:grid;grid-template-columns:1fr 1fr;border:1px solid var(--line);border-radius:4px;overflow:hidden;background:#f8f8f4;margin:10px 0 0}
+  .stat{padding:8px 10px 9px}
+  .stat:nth-child(odd){border-right:1px solid var(--line)}
+  .stat:nth-child(-n+2){border-bottom:1px solid var(--line)}
+  .sk{display:block;font:500 .55rem/1.2 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3);margin-bottom:4px}
+  .sv{display:block;font:700 1.16rem/1 var(--mono);color:var(--ink);letter-spacing:-.025em;font-variant-numeric:tabular-nums}
+  .sv.accent{color:var(--accent-ink)}
+  .sd{display:block;font-size:.64rem;line-height:1.3;color:var(--ink-3);margin-top:3px}
+
+  /* hw architecture strip */
+  .hw{display:grid;gap:4px;margin:10px 0 0;border-top:1px solid var(--line)}
+  .hw-row{display:grid;grid-template-columns:118px 1fr;gap:9px;align-items:baseline;padding:5px 0;border-bottom:1px solid var(--line);font-size:.76rem;color:var(--ink-2)}
+  .hw-row .hk{font:600 .59rem/1.3 var(--mono);letter-spacing:.05em;text-transform:uppercase;color:var(--ink)}
+  .hw-row .hd{line-height:1.38}
+
+  /* strengths / limitations */
+  .plist{list-style:none;margin:4px 0 0;padding:0;display:grid;gap:7px}
+  .plist li{position:relative;padding-left:15px;font-size:.81rem;line-height:1.47;color:var(--ink-2)}
+  .plist li::before{content:"";position:absolute;left:0;top:.52em;width:6px;height:6px;border-radius:1px;background:var(--accent);opacity:.5}
+  .plist.limits li::before{background:#a8552f;opacity:.85}
+  .plist li b{color:var(--ink);font-weight:600}
+
+  /* questions */
+  .qlist{list-style:none;margin:2px 0 0;padding:0;display:grid;grid-template-columns:repeat(3,1fr);gap:11px 26px;counter-reset:q}
+  .qlist li{counter-increment:q;position:relative;padding-left:25px;font-size:.78rem;line-height:1.46;color:var(--ink-2)}
+  .qlist li::before{content:"Q" counter(q);position:absolute;left:0;top:.1em;font:600 .59rem/1 var(--mono);color:var(--accent);letter-spacing:.03em}
+  .qlist li b{color:var(--ink);font-weight:600}
+
+  .foot{
+    display:flex;flex-wrap:wrap;align-items:center;gap:5px 14px;margin-top:14px;padding-top:14px;
+    border-top:1px solid var(--line-2);font:500 .71rem/1.4 var(--mono);color:var(--ink-3);
+  }
+  .foot a{color:var(--ink-2);border-bottom:1px dotted var(--line-2)}
+  .foot a:hover{color:var(--accent-ink);text-decoration:none;border-color:var(--accent)}
+  .foot .dotsep{color:var(--line-2)}
+  .foot .grow{margin-left:auto}
+  .foot .flag{color:#8a5a2b}
+
+  @media (max-width:980px){
+    .assets{grid-template-columns:1fr 1fr}
+    .acard.edge{grid-column:span 2}
+    .acard{min-height:0}
+    .edge .source{margin-top:12px}
+    .qlist{grid-template-columns:1fr 1fr}
+  }
+  @media (max-width:900px){
+    .body{grid-template-columns:1fr}
+    .span-5,.span-6,.span-7,.span-12{grid-column:span 1}
+  }
+  @media (max-width:720px){
+    .wrap{padding-top:58px}
+    .assets{grid-template-columns:1fr}
+    .acard.edge{grid-column:span 1}
+    h1.finding{font-size:clamp(1.75rem,7.2vw,2.4rem);max-width:none}
+    .facts{grid-template-columns:1fr}
+    .fact{border-bottom:1px solid var(--line)}
+    .fact:nth-last-child(-n+2){border-bottom:1px solid var(--line)}
+    .fact:last-child{border-bottom:none}
+    .eq .parts{grid-template-columns:1fr}
+    .qlist{grid-template-columns:1fr}
+    .stats{grid-template-columns:1fr 1fr}
+    .nav{top:8px;left:8px}
+  }
+  @media (prefers-reduced-motion:no-preference){
+    .metric,.sv{transition:none}
+  }
+</style>
+</head>
+<body>
+
+<a class="nav" href="./index.html">↩ Today's digest</a>
+
+<main class="wrap">
+
+  <!-- ============ HERO ============ -->
+  <section class="hero">
+    <div class="eyebrow">
+      <span class="dot"></span>
+      <span>Positional carrier decomposition</span>
+      <span class="sep">/</span>
+      <span class="plain">KV cache · edge accelerator</span>
+    </div>
+
+    <h1 class="finding">4-bit KV keys lose accuracy to a rotating <em>positional carrier</em> — subtract it before RoPE, rebuild its score on-chip.</h1>
+
+    <p class="paper-title"><a href="https://arxiv.org/abs/2611.26857" target="_blank" rel="noopener">CarrierKV: An Edge LLM Accelerator with Positional Carrier Decomposition for Low-Bit KV Cache</a></p>
+    <p class="byline">
+      Junyi Luo, Xinting Jiang, Ruichen Qi, Gregory Kielian, et al.
+      <span class="sep">·</span>
+      <span class="aff">Brown University / Google Research</span>
+      <span class="sep">·</span>
+      2026-11-16
+    </p>
+
+    <div class="chips">
+      <span class="chip">KV-cache quantization</span>
+      <span class="chip">NVFP4 keys</span>
+      <span class="chip">RoPE</span>
+      <span class="chip">Long-context degradation</span>
+      <span class="chip">22 nm FDSOI</span>
+      <span class="chip stat">4.5 bit / element</span>
+      <span class="chip stat">batch = 1</span>
+    </div>
+  </section>
+
+  <!-- ============ ASSET ROW ============ -->
+  <section class="assets" aria-label="Key assets">
+
+    <article class="acard metric-card">
+      <span class="label">Key metric · 32K RULER avg</span>
+      <div class="metric">91.1<span class="unit">/100</span></div>
+      <p class="metric-note"><strong>Qwen3-4B, same 4.5-bit cache.</strong> Plain NVFP4 keys score 79.4; BF16 is 92.6 — so this recovers ~86% of the loss, +11.7 pts.</p>
+      <div class="minibars" aria-label="32K RULER comparison">
+        <div class="mb"><span>NVFP4</span><span class="mb-track"><i class="mb-fill" style="width:79.4%"></i></span><span class="mb-v">79.4</span></div>
+        <div class="mb ours"><span>CarrierKV</span><span class="mb-track"><i class="mb-fill" style="width:91.1%"></i></span><span class="mb-v">91.1</span></div>
+        <div class="mb"><span>BF16</span><span class="mb-track"><i class="mb-fill" style="width:92.6%"></i></span><span class="mb-v">92.6</span></div>
+      </div>
+    </article>
+
+    <article class="acard why">
+      <span class="label">Why this matters</span>
+      <p class="body-text">A common 4-bit KV-cache failure gets a measurable cause and a near-free fix — for anyone pushing aggressive inference optimization into long context.</p>
+      <p class="scope">Scope: single-stream edge decode, 600 MHz. Accuracy emulated in software; area and energy are modelled, not silicon.</p>
+    </article>
+
+    <article class="acard edge">
+      <span class="label">Critical edge</span>
+      <p class="body-text">On <strong>Llama-3.2-3B</strong> the gain collapses (0.667 → 0.363), and at 3.5 bits CarrierKV is <strong>worse than plain NVFP4</strong> (1.35 vs 0.667) — with no per-model carrier measurement to say why.</p>
+      <p class="source">Critical Assessment §1 · Limitations</p>
+    </article>
+
+  </section>
+
+  <!-- ============ BODY ============ -->
+  <section class="body">
+
+    <!-- DIAGNOSIS -->
+    <article class="card span-5">
+      <div class="kicker"><span class="no">01</span><span>The diagnosis</span></div>
+      <h2>A constant that RoPE only rotates</h2>
+      <p class="lede">Every KV head's pre-RoPE keys sit near a mean vector <code>c</code>. RoPE spins it, but never shrinks it — so the cache stores mostly a positional bias.</p>
+
+      <div class="energybar">
+        <div class="eb-track" role="img" aria-label="Carrier accounts for 61 to 73 percent of cached key energy">
+          <span class="eb-seg eb-solid"></span>
+          <span class="eb-seg eb-range"></span>
+          <span class="eb-seg eb-rest"></span>
+        </div>
+        <div class="eb-scale"><span>0</span><span>61%</span><span>73%</span><span>100% of key energy</span></div>
+        <div class="eb-legend">
+          <span><i class="sw carrier"></i>carrier + its rotation, lower bound</span>
+          <span><i class="sw range"></i>range across models (61–73%)</span>
+          <span><i class="sw rest"></i>content residual <code>r(s)</code></span>
+        </div>
+      </div>
+      <p class="fig">PG19 key-energy decomposition; on Qwen3-4B the rotating part alone grows 13% (4K) → 22% (32K).</p>
+
+      <div class="facts">
+        <div class="fact">
+          <span class="fk">Block scale coarsened</span>
+          <span class="fv">1.7–1.9<small>×</small></span>
+        </div>
+        <div class="fact">
+          <span class="fk">Blocks affected</span>
+          <span class="fv">57–72<small>%</small></span>
+        </div>
+        <div class="fact">
+          <span class="fk">Content SQNR, kept carrier</span>
+          <span class="fv">14.5–15.7<small> dB</small></span>
+        </div>
+        <div class="fact">
+          <span class="fk">Content SQNR, decomposed</span>
+          <span class="fv">20.4<small> dB</small></span>
+        </div>
+      </div>
+
+      <div class="pull">The causal test is the sharp one: drop the 9 slowest RoPE pairs <b>without regenerating</b> the carrier and 32K PPL increase jumps <b>0.199 → 0.456</b>. The model is using that term.</div>
+    </article>
+
+    <!-- METHODOLOGY -->
+    <article class="card span-7">
+      <div class="kicker"><span class="no">02</span><span>Method</span></div>
+      <h2>Decompose, then rotate — and never decode a key</h2>
+      <p>Keys are written as <code>k(s) = c + r(s)</code>. Since RoPE is linear, the score splits exactly in two, and the first half is a closed form the hardware can synthesize instead of store.</p>
+
+      <div class="eq">
+        <div class="math">q<sup>T</sup>R(s)k(s) <span class="op">=</span> <span class="term">q<sup>T</sup>R(s)r(s)</span> <span class="op">+</span> <span class="term">q<sup>T</sup>R(s)c</span></div>
+        <div class="parts">
+          <div class="part"><b>content · on 4-bit codes</b>quantized as <code>ĤR(s)r(s)</code>; no key is ever widened back to FP16</div>
+          <div class="part"><b>carrier · on-chip</b><code>aⱼcos(sθⱼ) − bⱼsin(sθⱼ)</code>, one dot + one cross per pair, per query head, per step</div>
+        </div>
+        <p class="exact">Exact for <em>any</em> fixed <code>c</code> — <code>c</code> only sets how small (and therefore how quantizable) the residual gets. This is not a learned approximation.</p>
+      </div>
+
+      <p class="flowlabel">Write path · prefill once</p>
+      <div class="flow">
+        <span class="step">k = c + r</span><span class="arw">→</span>
+        <span class="step">est. c over ≤512 prompt tok.</span><span class="arw">→</span>
+        <span class="step hot">subtract c</span><span class="arw">→</span>
+        <span class="step">RoPE</span><span class="arw">→</span>
+        <span class="step">Hadamard</span><span class="arw">→</span>
+        <span class="step io">NVFP4 residual</span>
+      </div>
+
+      <p class="flowlabel">Read path · every decode step</p>
+      <div class="flow">
+        <span class="step">rotate q once → q̂</span><span class="arw">→</span>
+        <span class="step">content on 4-bit</span><span class="arw">+</span>
+        <span class="step hot">28-bit phase acc.</span><span class="arw">→</span>
+        <span class="step io">score</span>
+      </div>
+
+      <p>Token 0 is skipped as an attention sink. The carrier is stored once per layer in 8-bit with one shared exponent — <strong>0.0002 bit/element</strong> of metadata at 32K, versus 0.23 bit/element for NSNQuant's per-chunk means, three orders of magnitude apart. The <code>c</code> prefetch is ≈36 KB per decode step: 0.003% of 32K KV traffic.</p>
+      <p class="note">Rejected after measurement: centering <em>after</em> RoPE (the carrier rotates), and a plain randomized Hadamard on raw keys (it smears the dominant component across blocks — see Limitations).</p>
+    </article>
+
+    <!-- RESULTS -->
+    <article class="card span-7">
+      <div class="kicker"><span class="no">03</span><span>Results</span></div>
+      <h2>Four models, three families — with one visible hole</h2>
+      <table class="res">
+        <thead>
+          <tr>
+            <th>Model</th>
+            <th class="c">32K RULER<br>NVFP4</th>
+            <th class="c">→ CarrierKV</th>
+            <th class="c">BF16</th>
+            <th class="c">32K PG19 ΔPPL<br>NVFP4 → CK</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="m">Qwen3-4B</td>
+            <td class="n c">79.4</td><td class="n c delta">91.1</td><td class="n c">92.6</td>
+            <td class="n c">0.917 → <span class="delta">0.199</span></td>
+          </tr>
+          <tr>
+            <td class="m">Qwen3-8B</td>
+            <td class="n c">95.1</td><td class="n c delta">97.4</td><td class="n c">98.2</td>
+            <td class="n c">0.503 → <span class="delta">0.086</span></td>
+          </tr>
+          <tr class="weak">
+            <td class="m">Llama-3.2-3B</td>
+            <td class="n c">63.8</td><td class="n c delta">70.6</td><td class="n c">72.7</td>
+            <td class="n c">0.667 → <span class="delta">0.363</span></td>
+          </tr>
+          <tr>
+            <td class="m">Gemma-3-4B</td>
+            <td class="n c">49.2</td><td class="n c delta">50.3</td><td class="n c">51.2</td>
+            <td class="n c">0.363 → <span class="delta">0.102</span></td>
+          </tr>
+        </tbody>
+      </table>
+      <p class="note">RULER = 7 KV-sensitive subtasks of 13, 100 samples each (noise floor matters: Gemma's +1.1 pts is inside it). Best 32K RULER on all four models, but the PPL gain range is 1.8× (Llama) to 5.9× (Qwen3-8B). MK3 rises 43 → 79 against BF16's 87 — the subtask NVFP4 actually breaks.</p>
+
+      <div class="pull">Same cache budget, better trade than FP8 keys: 32K RULER <b>91.1 vs 89.3</b>, 13.7% less energy/token and 1.16× faster; at 128K, 22.2% less energy and 1.28× faster.</div>
+      <p class="note">Also holds under a different number format — 3-bit TurboQuant keys on Qwen3-4B go 69.7 → 0.762 PPL increase. And at 3.5 bits/key it beats 4.5-bit NVFP4 on three of four models (0.766 / 0.346 / 0.333 vs 0.917 / 0.503 / 0.363), a 22% cache cut the paper never pursues.</p>
+    </article>
+
+    <!-- HARDWARE -->
+    <article class="card span-5">
+      <div class="kicker"><span class="no">04</span><span>Hardware</span></div>
+      <h2>The carrier is cheaper than the DRAM</h2>
+      <p>A numerically-controlled-oscillator block: one 28-bit phase accumulator per RoPE pair, advanced by <code>θⱼ</code> with adds only. Two quadrant bits pick the sign; the next eight index a 256-entry 8-bit quarter-turn cos table; one 64-pair set serves all <em>G</em> query heads of a KV head.</p>
+
+      <div class="hw">
+        <div class="hw-row"><span class="hk">Carrier MAC</span><span class="hd"><em>G</em>×64×2 4b×8b multipliers — one key per cycle, so no added per-key latency</span></div>
+        <div class="hw-row"><span class="hk">Baseline</span><span class="hd">32×32 NVFP4 array, W4A4 with an FP4×8b split mode, 2.1 MB SRAM, LPDDR5-6400</span></div>
+        <div class="hw-row"><span class="hk">Memory bound</span><span class="hd">one key + one value (128 elems) per cycle is already more than DRAM delivers</span></div>
+      </div>
+
+      <div class="stats">
+        <div class="stat"><span class="sk">Area</span><span class="sv">+2.9%</span><span class="sd">4.945 → 5.087 mm²</span></div>
+        <div class="stat"><span class="sk">Energy / token</span><span class="sv">+0.12%</span><span class="sd">86.595 → 86.700 mJ</span></div>
+        <div class="stat"><span class="sk">DRAM share</span><span class="sv accent">96%</span><span class="sd">83.071 mJ of that total</span></div>
+        <div class="stat"><span class="sk">vs FP8 @128K</span><span class="sv accent">1.28×</span><span class="sd">and 22.2% less energy</span></div>
+      </div>
+      <p class="note">22 nm FDSOI, 600 MHz, 0.8 V. Carrier unit 0.096 mm², score-unit delta 0.182 mm². Because DRAM dominates, the energy number mostly measures the memory system — the real price is area.</p>
+    </article>
+
+    <!-- STRENGTHS -->
+    <article class="card span-6">
+      <div class="kicker"><span class="no">05</span><span>Strengths</span></div>
+      <ul class="plist">
+        <li><b>Mechanistic, not a bag of tricks.</b> Energy share, block-scale coarsening, SQNR in dB, plus a causal ablation that removes the carrier's regeneration to prove the model uses it.</li>
+        <li><b>Exact decomposition.</b> No accuracy ceiling of its own; <code>c</code> only changes how compressible the residual is — stronger footing than learned centering.</li>
+        <li><b>Metadata is genuinely negligible</b> (0.0002 bit/element, 0.003% of traffic), which is why this could ship where per-chunk means cannot.</li>
+        <li><b>Keeps the NVFP4 format and footprint</b>, so it composes with an existing 4-bit accelerator instead of demanding a new number system.</li>
+        <li><b>Honest accounting:</b> per-block area/energy attribution, no silicon claimed, and negative Llama results sit in the main table.</li>
+        <li><b>Unusual evaluation breadth:</b> 4 models, 7 RULER subtasks, all 21 LongBench tasks, 4K/32K/64K PG19, thinking-mode reasoning, two formats, and a length-resolved curve where the gap <em>widens</em> with context.</li>
+      </ul>
+    </article>
+
+    <!-- LIMITATIONS -->
+    <article class="card span-6">
+      <div class="kicker"><span class="no">06</span><span>Limitations</span></div>
+      <ul class="plist limits">
+        <li><b>Model dependence is unexplained.</b> Llama gains little, loses at 3.5 bits, and regresses under 3-bit TurboQuant; no per-model carrier statistics to predict who benefits.</li>
+        <li><b>Baselines are re-implementations.</b> "SageAttention" is post-RoPE centering; "P3-LLM" uses a Llama-3 channel recipe that scores <em>below</em> plain NVFP4. NSNQuant and SpectrumQuant are never run.</li>
+        <li><b>Static carrier.</b> Frozen after ≤512 prompt tokens; no test of drift over 32K+ generation, multi-turn switching, or domain shift, and no re-estimation scheme.</li>
+        <li><b>No silicon.</b> Accuracy emulated on H100s; area/energy from a model plus gate-level power. Real FP4 accumulation order and kernel fusion are untested.</li>
+        <li><b>Single stream only.</b> Batch 1, 600 MHz edge envelope — the 4.5-bit and <code>c</code>-prefetch economics say nothing about batched serving.</li>
+        <li><b>The Hadamard claim rests on one seed.</b> On Qwen3 it turns 0.917 into 3.50 PPL and 79.4 into 57.7 RULER; no sweep over sign seed, block size, or placement.</li>
+      </ul>
+    </article>
+
+    <!-- QUESTIONS -->
+    <article class="card span-12">
+      <div class="kicker"><span class="no">07</span><span>Open questions</span></div>
+      <ol class="qlist">
+        <li><b>What is Llama's carrier share?</b> Is the weak gain predicted by a smaller <code>c</code>, a different carrier direction across layers, or drift between the prefill estimate and keys seen 32K later?</li>
+        <li><b>Does <code>c</code> drift?</b> Re-estimating costs ~36 KB per layer — would periodic refresh recover Llama and the 3-bit TurboQuant regression?</li>
+        <li><b>Why does Hadamard hurt Qwen3?</b> QuaRot/SpinQuant report gains; is this massive-activation channels, and how sensitive to the random sign seed and rotation order?</li>
+        <li><b>Can 3.5 bits work on Llama?</b> A 22% cache reduction on three of four models is worth more than the accuracy win — but no RULER, LongBench, or reasoning numbers exist for it.</li>
+        <li><b>Is there a carrier in values, or in MoE caches?</b> And does the "one cos/sin set serves all G heads" argument get stronger under GQA with G ≫ 4?</li>
+        <li><b>What breaks at batch &gt; 1?</b> Per-sequence <code>c</code> and phase accumulators must be replicated — does 0.0002 bit/element survive contact with real serving?</li>
+      </ol>
+    </article>
+
+  </section>
+
+  <footer class="foot">
+    <a href="./2611.26857.md">↗ Markdown source</a>
+    <span class="dotsep">·</span>
+    <a href="https://arxiv.org/abs/2611.26857" target="_blank" rel="noopener">arXiv 2611.26857</a>
+    <span class="dotsep">·</span>
+    <span>Dashboard, not a transcript</span>
+    <span class="grow flag">Not browser-verified</span>
+  </footer>
+
+</main>
+
+</body>
+</html>

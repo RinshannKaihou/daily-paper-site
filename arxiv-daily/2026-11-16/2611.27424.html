@@ -1,0 +1,592 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Jagged Robustness — INT4 safety decay is uneven · 2611.27424</title>
+<style>
+  :root{
+    --paper:#faf8f4;
+    --card:#ffffff;
+    --ink:#181713;
+    --ink-2:#4e4b44;
+    --ink-3:#8b867c;
+    --rule:#e6e0d5;
+    --rule-2:#d4ccbd;
+    --accent:#a1501c;
+    --accent-2:#7d3d13;
+    --accent-soft:#f7ede3;
+    --night:#1d1a16;
+    --night-ink:#f4eee4;
+    --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+    --sans:ui-sans-serif,system-ui,-apple-system,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+  }
+  *{box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%}
+  body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);font-size:16px;line-height:1.55}
+  :lang(zh),.zh{line-height:1.8}
+  a{color:inherit}
+  ::selection{background:var(--accent-soft)}
+
+  /* ---------- fixed bar ---------- */
+  .topbar{
+    position:fixed;inset:0 0 auto 0;z-index:20;
+    display:flex;align-items:center;justify-content:space-between;gap:16px;
+    padding:11px clamp(14px,3vw,26px);
+    background:var(--paper);border-bottom:1px solid transparent;
+    transition:border-color .18s ease;
+  }
+  .topbar.stuck{border-bottom-color:var(--rule)}
+  .back{
+    font-family:var(--mono);font-size:.75rem;letter-spacing:.01em;color:var(--ink-2);
+    text-decoration:none;border-bottom:1px solid var(--rule-2);padding-bottom:2px;white-space:nowrap;
+  }
+  .back:hover{color:var(--accent-2);border-bottom-color:var(--accent)}
+  .rail{display:flex;align-items:center}
+  .rail a{
+    font-family:var(--mono);font-size:.68rem;letter-spacing:.05em;color:var(--ink-3);
+    text-decoration:none;margin-left:18px;padding-bottom:2px;border-bottom:1px solid transparent;
+  }
+  .rail a:hover{color:var(--ink-2)}
+  .rail a.active{color:var(--accent-2);border-bottom-color:var(--accent)}
+  @media (max-width:820px){.rail{display:none}}
+
+  /* ---------- shell ---------- */
+  .wrap{width:min(95vw,1100px);margin:0 auto;padding:66px 0 38px}
+  section[id]{scroll-margin-top:78px}
+
+  /* ---------- hero ---------- */
+  .hero{padding:clamp(16px,4.4vw,42px) 0 clamp(18px,2.6vw,26px)}
+  .eyebrow{
+    margin:0 0 16px;font-family:var(--mono);font-size:.67rem;letter-spacing:.16em;
+    text-transform:uppercase;color:var(--ink-3);
+  }
+  .eyebrow b{color:var(--accent-2);font-weight:500}
+  h1.claim{
+    margin:0 0 18px;max-width:24ch;
+    font-size:clamp(1.95rem,5.1vw,3.35rem);line-height:1.06;letter-spacing:-.032em;
+    font-weight:660;text-wrap:balance;
+  }
+  .claim .hl{
+    color:var(--accent-2);
+    text-decoration:underline;text-decoration-color:var(--rule-2);
+    text-decoration-thickness:2px;text-underline-offset:6px;
+  }
+  .claim .cont{
+    display:block;margin-top:.42em;max-width:52ch;
+    font-size:.5em;line-height:1.28;letter-spacing:-.012em;font-weight:480;color:var(--ink-2);
+  }
+  .papertitle{margin:0 0 10px;max-width:76ch;font-size:.95rem;line-height:1.45}
+  .papertitle a{text-decoration:none;border-bottom:1px solid var(--rule-2);padding-bottom:1px}
+  .papertitle a:hover{border-bottom-color:var(--accent);color:var(--accent-2)}
+  .byline{margin:0 0 14px;font-size:.8rem;color:var(--ink-3);max-width:80ch}
+  .byline .sep{margin:0 .5em;color:var(--rule-2)}
+  .chips{list-style:none;margin:0;padding:0;display:flex;flex-wrap:wrap;gap:6px}
+  .chips li{
+    font-family:var(--mono);font-size:.64rem;letter-spacing:.06em;text-transform:uppercase;
+    color:var(--ink-2);background:var(--card);border:1px solid var(--rule);
+    padding:3px 8px;border-radius:2px;
+  }
+
+  /* ---------- asset row ---------- */
+  .assets{display:grid;grid-template-columns:1.12fr 1fr 1.22fr;gap:12px;margin:0 0 12px}
+  @media (max-width:900px){.assets{grid-template-columns:1fr}}
+  .card{
+    background:var(--card);border:1px solid var(--rule);border-radius:3px;
+    padding:clamp(15px,1.7vw,21px);
+  }
+  .klabel{
+    margin:0 0 10px;font-family:var(--mono);font-size:.61rem;letter-spacing:.17em;
+    text-transform:uppercase;color:var(--ink-3);
+  }
+  .metric .big{
+    display:block;margin:0 0 2px;
+    font-size:clamp(2.9rem,8.2vw,4.6rem);line-height:.92;letter-spacing:-.045em;
+    font-weight:680;font-variant-numeric:tabular-nums;color:var(--accent-2);
+  }
+  .metric .big .unit{font-size:.26em;letter-spacing:.02em;font-weight:520;color:var(--ink-2);margin-left:.22em}
+  .metric .mctx{margin:10px 0 0;font-size:.86rem;line-height:1.5;color:var(--ink-2)}
+  .metric .mctx b{color:var(--ink);font-weight:600;font-variant-numeric:tabular-nums}
+  .metric .mfoot{
+    margin:12px 0 0;padding-top:9px;border-top:1px dashed var(--rule);
+    font-family:var(--mono);font-size:.67rem;letter-spacing:.02em;color:var(--ink-3);
+  }
+  .why p{margin:0;font-size:.95rem;line-height:1.55;color:var(--ink)}
+  .why .zhm{margin-top:10px;font-size:.82rem;line-height:1.8;color:var(--ink-2)}
+  .edge{
+    background:var(--night);border-color:var(--night);
+    color:var(--night-ink);display:flex;flex-direction:column;justify-content:center;
+  }
+  .edge .klabel{color:#b9ac97}
+  .edge p{margin:0;font-size:.95rem;line-height:1.5}
+  .edge .src{margin-top:11px;font-family:var(--mono);font-size:.64rem;letter-spacing:.04em;color:#9c9081}
+  .edge b{color:#fff;font-weight:600}
+
+  /* ---------- body grid ---------- */
+  .grid{display:grid;grid-template-columns:repeat(12,1fr);gap:12px}
+  @media (max-width:900px){.grid{grid-template-columns:1fr}}
+  .s7{grid-column:span 7}
+  .s5{grid-column:span 5}
+  .s4{grid-column:span 4}
+  .s8{grid-column:span 8}
+  .s6{grid-column:span 6}
+  .s12{grid-column:span 12}
+  @media (max-width:900px){[class*="s7"],[class*="s5"],[class*="s4"],[class*="s8"],[class*="s6"]{grid-column:auto}}
+  h2.ct{
+    margin:0 0 4px;font-size:1.06rem;line-height:1.25;letter-spacing:-.015em;font-weight:620;
+  }
+  .dek{margin:0 0 14px;font-size:.79rem;color:var(--ink-3);line-height:1.45}
+  .card p{margin:0 0 10px}
+  .card p:last-child{margin-bottom:0}
+  .card .body{font-size:.87rem;line-height:1.58;color:var(--ink-2)}
+  .card .body b,.card .body strong{color:var(--ink);font-weight:600}
+
+  /* ---------- benchmark chart ---------- */
+  .legend{
+    display:flex;gap:16px;flex-wrap:wrap;align-items:center;
+    font-family:var(--mono);font-size:.62rem;letter-spacing:.05em;color:var(--ink-3);
+    margin:0 0 12px;padding-bottom:9px;border-bottom:1px solid var(--rule);
+  }
+  .sw{display:inline-block;width:22px;height:7px;margin-right:6px;vertical-align:1px;background:var(--rule-2)}
+  .sw.q{background:var(--accent)}
+  .bench{padding:9px 0 10px;border-bottom:1px solid var(--rule)}
+  .bench:last-of-type{border-bottom:0}
+  .bhead{display:flex;align-items:baseline;gap:8px;margin-bottom:5px}
+  .bname{font-size:.84rem;font-weight:560;color:var(--ink)}
+  .proto{
+    font-family:var(--mono);font-size:.56rem;letter-spacing:.1em;
+    padding:1px 5px;border:1px solid var(--rule-2);color:var(--ink-3);border-radius:2px;
+  }
+  .proto.ffg{border-color:#dccbb6;color:var(--accent-2)}
+  .dd{
+    margin-left:auto;font-family:var(--mono);font-size:.66rem;font-variant-numeric:tabular-nums;
+    letter-spacing:.02em;color:var(--ink-3);white-space:nowrap;
+  }
+  .dd.bad{color:var(--accent-2);font-weight:600}
+  .bt{display:grid;grid-template-columns:34px 1fr 44px;align-items:center;gap:8px;margin-top:3px}
+  .bl{font-family:var(--mono);font-size:.58rem;letter-spacing:.06em;color:var(--ink-3)}
+  .track{
+    position:relative;height:9px;background:#f1ece3;
+    background-image:linear-gradient(90deg,var(--rule) 1px,transparent 1px);
+    background-size:25% 100%;
+  }
+  .track i{position:absolute;left:0;top:0;bottom:0;display:block;transform-origin:left center}
+  .track i.bf{background:var(--rule-2)}
+  .track i.q{background:var(--accent)}
+  .track i.mark{width:1px;background:var(--ink-3);top:-3px;bottom:-3px;z-index:2}
+  .bv{font-family:var(--mono);font-size:.65rem;font-variant-numeric:tabular-nums;text-align:right;color:var(--ink-2)}
+  .bv.qv{color:var(--ink);font-weight:600}
+  @media (prefers-reduced-motion: no-preference){
+    .track i{animation:grow .7s cubic-bezier(.2,.7,.3,1) both}
+    .bench:nth-of-type(2) .track i{animation-delay:.05s}
+    .bench:nth-of-type(3) .track i{animation-delay:.1s}
+    .bench:nth-of-type(4) .track i{animation-delay:.15s}
+    .bench:nth-of-type(5) .track i{animation-delay:.2s}
+    .bench:nth-of-type(6) .track i{animation-delay:.25s}
+    .bench:nth-of-type(7) .track i{animation-delay:.3s}
+    @keyframes grow{from{transform:scaleX(0)}to{transform:scaleX(1)}}
+  }
+  .fn{
+    margin:13px 0 0;padding-top:9px;border-top:1px dashed var(--rule);
+    font-size:.72rem;line-height:1.5;color:var(--ink-3);
+  }
+
+  /* ---------- method ---------- */
+  .flow{list-style:none;margin:0;padding:0;font-size:.85rem;line-height:1.55;color:var(--ink-2)}
+  .flow li{position:relative;padding:0 0 11px 20px}
+  .flow li:before{
+    content:"";position:absolute;left:3px;top:.48em;width:6px;height:6px;
+    background:var(--card);border:1.5px solid var(--accent);border-radius:50%;
+  }
+  .flow li:after{
+    content:"";position:absolute;left:5.5px;top:1.1em;bottom:-.1em;width:1px;background:var(--rule);
+  }
+  .flow li:last-child{padding-bottom:0}
+  .flow li:last-child:after{display:none}
+  .flow b{color:var(--ink);font-weight:600}
+  .formula{
+    margin:14px 0 0;padding:10px 11px;background:var(--accent-soft);
+    border-left:2px solid var(--accent);
+    font-family:var(--mono);font-size:.72rem;line-height:1.62;color:var(--ink-2);
+    overflow-x:auto;
+  }
+  .formula em{font-style:normal;color:var(--accent-2);font-weight:600}
+  .specs{
+    display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:14px 0 0;
+    padding-top:11px;border-top:1px solid var(--rule);
+  }
+  .specs div{font-family:var(--mono);font-size:.62rem;line-height:1.5;color:var(--ink-3)}
+  .specs b{display:block;font-size:.86rem;font-family:var(--sans);color:var(--ink);font-weight:600;letter-spacing:-.01em}
+
+  /* ---------- small bars (collapse) ---------- */
+  .hbars{margin:2px 0 12px}
+  .hbar{display:grid;grid-template-columns:58px 1fr 46px;align-items:center;gap:7px;margin-bottom:4px}
+  .hbar .lbl{font-family:var(--mono);font-size:.58rem;letter-spacing:.05em;color:var(--ink-3)}
+  .hbar .tk{position:relative;height:8px;background:#f1ece3}
+  .hbar .tk i{position:absolute;left:0;top:0;bottom:0;background:var(--rule-2)}
+  .hbar .tk i.a{background:var(--accent)}
+  .hbar .n{font-family:var(--mono);font-size:.63rem;text-align:right;color:var(--ink-2);font-variant-numeric:tabular-nums}
+  .hbar.key .n{color:var(--accent-2);font-weight:600}
+  .pair{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:0 0 12px}
+  .pair div{border:1px solid var(--rule);padding:9px 10px;background:#fdfcf9}
+  .pair span{display:block;font-family:var(--mono);font-size:.58rem;letter-spacing:.07em;text-transform:uppercase;color:var(--ink-3);margin-bottom:3px}
+  .pair b{font-size:1.02rem;font-weight:650;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+  .pair .neg{color:var(--accent-2)}
+  ul.tight{margin:0;padding-left:1.05em;font-size:.85rem;line-height:1.58;color:var(--ink-2)}
+  ul.tight li{margin-bottom:6px}
+  ul.tight li:last-child{margin-bottom:0}
+  ul.tight b{color:var(--ink);font-weight:600}
+  .mono{font-family:var(--mono);font-variant-numeric:tabular-nums;font-size:.94em}
+
+  /* ---------- tables ---------- */
+  .tw{overflow-x:auto;margin:0 0 10px}
+  table{width:100%;border-collapse:collapse;font-size:.79rem}
+  thead th{
+    text-align:left;font-family:var(--mono);font-size:.58rem;letter-spacing:.09em;
+    text-transform:uppercase;color:var(--ink-3);font-weight:500;
+    padding:0 8px 6px;border-bottom:1px solid var(--rule-2);white-space:nowrap;
+  }
+  tbody td{padding:7px 8px;border-bottom:1px solid var(--rule);vertical-align:top;color:var(--ink-2)}
+  tbody tr:last-child td{border-bottom:0}
+  tbody td:first-child{color:var(--ink)}
+  td.num{font-family:var(--mono);font-variant-numeric:tabular-nums;white-space:nowrap;font-size:.74rem}
+  td.up{color:var(--accent-2);font-weight:600}
+  .sm{font-size:.68rem;color:var(--ink-3);line-height:1.45}
+
+  /* ---------- noise ruler ---------- */
+  .ruler{margin:6px 0 14px}
+  .ruler .axis{position:relative;height:34px;margin:0 0 4px}
+  .ruler .axis .band{
+    position:absolute;left:50%;top:9px;height:8px;transform:translateX(-50%);
+    background:var(--accent-soft);border-left:1px solid #d9c3ac;border-right:1px solid #d9c3ac;
+  }
+  .ruler .axis .zero{position:absolute;left:50%;top:4px;bottom:2px;width:1px;background:var(--accent)}
+  .ruler .dot{
+    position:absolute;top:9.5px;width:7px;height:7px;margin-left:-3.5px;border-radius:50%;
+    background:var(--accent-2);border:1px solid var(--card);z-index:2;
+  }
+  .ruler .lbl{display:flex;justify-content:space-between;font-family:var(--mono);font-size:.6rem;color:var(--ink-3)}
+  .stat2{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:0 0 12px}
+  .stat2 div{border-left:2px solid var(--accent);padding:2px 0 2px 9px}
+  .stat2 b{display:block;font-size:1.2rem;font-weight:650;letter-spacing:-.02em;line-height:1.1}
+  .stat2 span{font-family:var(--mono);font-size:.59rem;letter-spacing:.05em;color:var(--ink-3)}
+
+  /* ---------- duo panels ---------- */
+  .duo{display:grid;grid-template-columns:1fr 1fr;gap:0;padding:0;overflow:hidden}
+  @media (max-width:720px){.duo{grid-template-columns:1fr}}
+  .duo>div{padding:clamp(15px,1.7vw,21px)}
+  .duo>div+div{border-left:1px solid var(--rule)}
+  @media (max-width:720px){.duo>div+div{border-left:0;border-top:1px solid var(--rule)}}
+  .duo h2.ct{font-size:.96rem}
+  .panel-tag{
+    font-family:var(--mono);font-size:.58rem;letter-spacing:.14em;text-transform:uppercase;
+    color:var(--ink-3);margin:0 0 8px;
+  }
+  .neg-panel{background:#fdfbf7}
+  .neg-panel .panel-tag{color:var(--accent-2)}
+
+  /* ---------- questions ---------- */
+  .qs{counter-reset:q;list-style:none;margin:0;padding:0;font-size:.84rem;line-height:1.55;color:var(--ink-2)}
+  .qs li{counter-increment:q;position:relative;padding:0 0 11px 26px}
+  .qs li:before{
+    content:counter(q,decimal-leading-zero);position:absolute;left:0;top:.06em;
+    font-family:var(--mono);font-size:.6rem;color:var(--accent-2);letter-spacing:.03em;
+  }
+  .qs li:last-child{padding-bottom:0}
+  .qs b{color:var(--ink);font-weight:600}
+
+  /* ---------- footer ---------- */
+  .foot{
+    display:flex;justify-content:space-between;align-items:baseline;gap:14px;flex-wrap:wrap;
+    margin-top:14px;padding-top:13px;border-top:1px solid var(--rule);
+    font-family:var(--mono);font-size:.72rem;letter-spacing:.02em;color:var(--ink-3);
+  }
+  .foot a{text-decoration:none;border-bottom:1px solid var(--rule-2);padding-bottom:1px;color:var(--ink-2)}
+  .foot a:hover{color:var(--accent-2);border-bottom-color:var(--accent)}
+  .markline{margin:0 0 12px;font-family:var(--mono);font-size:.66rem;letter-spacing:.05em;color:var(--ink-3)}
+</style>
+</head>
+<body>
+
+<header class="topbar" id="topbar">
+  <a class="back" href="./index.html">↩ Today&rsquo;s digest</a>
+  <nav class="rail" aria-label="Sections">
+    <a href="#protocols">Two protocols</a>
+    <a href="#collapse">1.7B</a>
+    <a href="#attack">Attack</a>
+    <a href="#verdict">Verdict</a>
+  </nav>
+</header>
+
+<main class="wrap">
+
+  <section class="hero">
+    <p class="eyebrow">Post-training weight quantization &middot; <b>Qwen3-4B / Qwen3-1.7B</b></p>
+    <h1 class="claim">
+      Under INT4, Qwen3-4B&rsquo;s deception climbs <span class="hl">11 points</span> while its benchmark scores barely move.
+      <span class="cont">Quantization does not scale safety down evenly. Capability and safeguards decay on different curves — and multiple-choice evaluation only sees one of them.</span>
+    </h1>
+    <p class="papertitle"><a href="https://arxiv.org/abs/2611.27424">Jagged Robustness: Uneven Safety Transfer and Emerging Vulnerabilities under LLM Quantization</a></p>
+    <p class="byline">Ramneek Agnihotri &middot; Yingte Xu &middot; Hans Vath<span class="sep">/</span>Ruhr University Bochum &middot; MPI for Security and Privacy<span class="sep">/</span>16 Nov 2026</p>
+    <ul class="chips">
+      <li>Quantization</li>
+      <li>Safety alignment</li>
+      <li>Adversarial suffix</li>
+      <li>LLM-as-judge</li>
+      <li>Qwen3</li>
+    </ul>
+  </section>
+
+  <section class="assets" aria-label="Key assets">
+
+    <article class="card metric">
+      <p class="klabel">Key metric</p>
+      <span class="big">+11.00<span class="unit">pts</span></span>
+      <p class="mctx">DeceptionBench deception rate, Qwen3-4B, INT4 vs BF16 — <b>42.67% → 53.67%</b>, free generation, one judge, N=300.</p>
+      <p class="mfoot">meanwhile &nbsp;InFoBench &minus;1.00 &nbsp;&middot;&nbsp; TruthfulQA +0.39</p>
+    </article>
+
+    <article class="card why">
+      <p class="klabel">Why it matters</p>
+      <p>If you ship a quantized model, MMLU tolerance is not a safety audit. Free-generation checks catch regressions the multiple-choice harness structurally cannot see.</p>
+      <p class="zhm zh">量化后验收别只看 MMLU 掉几分：INT4 下欺骗率反升 11 点，而指令遵循几乎没动。</p>
+    </article>
+
+    <article class="card edge">
+      <p class="klabel">Critical edge</p>
+      <p>The abstract&rsquo;s jailbreak claim is a <b>+2.11 pt</b> held-out shift at N=426 — inside noise, and driven mostly by BF16 refusing more, not INT4 complying more.</p>
+      <p class="src">the authors concede this in their own attack table</p>
+    </article>
+
+  </section>
+
+  <div class="grid">
+
+    <!-- CHART -->
+    <section class="card s7" id="protocols">
+      <h2 class="ct">One checkpoint, two protocols, opposite stories</h2>
+      <p class="dek">Qwen3-4B, BF16 vs weight-only INT4. Two evaluation formats, two prompt budgets, one checkpoint.</p>
+      <div class="legend">
+        <span><i class="sw"></i>BF16</span>
+        <span><i class="sw q"></i>INT4</span>
+        <span style="margin-left:auto">0–100% &middot; tick = BF16 value</span>
+      </div>
+
+      <div class="bench">
+        <div class="bhead"><span class="bname">DeceptionBench</span><span class="proto ffg">FFG</span><span class="dd bad">+11.00 worse</span></div>
+        <div class="bt"><span class="bl">BF16</span><div class="track"><i class="bf" style="width:42.67%"></i></div><span class="bv">42.67</span></div>
+        <div class="bt"><span class="bl">INT4</span><div class="track"><i class="q" style="width:53.67%"></i><i class="mark" style="left:42.67%"></i></div><span class="bv qv">53.67</span></div>
+      </div>
+
+      <div class="bench">
+        <div class="bhead"><span class="bname">SORRYBench</span><span class="proto ffg">FFG</span><span class="dd bad">+4.33 worse</span></div>
+        <div class="bt"><span class="bl">BF16</span><div class="track"><i class="bf" style="width:14.67%"></i></div><span class="bv">14.67</span></div>
+        <div class="bt"><span class="bl">INT4</span><div class="track"><i class="q" style="width:19%"></i><i class="mark" style="left:14.67%"></i></div><span class="bv qv">19.00</span></div>
+      </div>
+
+      <div class="bench">
+        <div class="bhead"><span class="bname">WildChat-NonToxic</span><span class="proto ffg">FFG</span><span class="dd bad">&minus;8.33 worse</span></div>
+        <div class="bt"><span class="bl">BF16</span><div class="track"><i class="bf" style="width:66%"></i></div><span class="bv">66.00</span></div>
+        <div class="bt"><span class="bl">INT4</span><div class="track"><i class="q" style="width:57.67%"></i><i class="mark" style="left:66%"></i></div><span class="bv qv">57.67</span></div>
+      </div>
+
+      <div class="bench">
+        <div class="bhead"><span class="bname">InFoBench</span><span class="proto ffg">FFG</span><span class="dd">&minus;1.00 flat</span></div>
+        <div class="bt"><span class="bl">BF16</span><div class="track"><i class="bf" style="width:83.33%"></i></div><span class="bv">83.33</span></div>
+        <div class="bt"><span class="bl">INT4</span><div class="track"><i class="q" style="width:82.33%"></i><i class="mark" style="left:83.33%"></i></div><span class="bv qv">82.33</span></div>
+      </div>
+
+      <div class="bench">
+        <div class="bhead"><span class="bname">MMLU</span><span class="proto">LLR</span><span class="dd">&minus;4.39 inside noise</span></div>
+        <div class="bt"><span class="bl">BF16</span><div class="track"><i class="bf" style="width:71.64%"></i></div><span class="bv">71.64</span></div>
+        <div class="bt"><span class="bl">INT4</span><div class="track"><i class="q" style="width:67.25%"></i><i class="mark" style="left:71.64%"></i></div><span class="bv qv">67.25</span></div>
+      </div>
+
+      <div class="bench">
+        <div class="bhead"><span class="bname">TruthfulQA</span><span class="proto">LLR</span><span class="dd">+0.39 flat</span></div>
+        <div class="bt"><span class="bl">BF16</span><div class="track"><i class="bf" style="width:51.47%"></i></div><span class="bv">51.47</span></div>
+        <div class="bt"><span class="bl">INT4</span><div class="track"><i class="q" style="width:51.86%"></i><i class="mark" style="left:51.47%"></i></div><span class="bv qv">51.86</span></div>
+      </div>
+
+      <p class="fn">Table 1 (zero-shot, LLR) and Table 2 (5-shot, free generation), N=300 each — different prompt budgets, same checkpoint. In the same INT4 pass instruction-following loses 1.00 pt while deception gains 11.00: one curve moved, the other did not.</p>
+    </section>
+
+    <!-- METHOD -->
+    <section class="card s5">
+      <h2 class="ct">How the audit was run</h2>
+      <p class="dek">Two models, four precisions, ten benchmarks, one A100.</p>
+      <ol class="flow">
+        <li><b>Precisions:</b> BF16 baseline, INT8, AWQ, and weight-only INT4 via Optimum-Quanto — post-training weights only, the cheapest deployment setting.</li>
+        <li><b>LLR harness:</b> <span class="mono">lm-evaluation-harness</span> on GPQA, MMLU, ARC, BBQ, TruthfulQA, ETHICS; 4B zero-shot N=300, 1.7B 5-shot N=1000.</li>
+        <li><b>Free generation:</b> InFoBench, WildChat-NonToxic, DeceptionBench, SORRYBench — judged by DeepSeek-V4-Flash with a shared SORRYBench-style system prompt.</li>
+        <li><b>Coherence:</b> deterministic 3-gram repetition ratio R = (N<sub>total</sub>−N<sub>unique</sub>)/N<sub>total</sub>; R&nbsp;&gt;&nbsp;30% counts as incoherent.</li>
+        <li><b>Attack:</b> GCG suffix, 20 tokens, 500 steps, 24 train / 426 held-out SORRYBench prompts.</li>
+      </ol>
+      <div class="formula">
+        L(s) = &Sigma;<sub>q</sub> [ &#8467;&#771;<sub>q</sub>(s) &minus; &alpha; ]<sup>+</sup> + &lambda; [ &beta; &minus; &#8467;<sub>q</sub>(s) ]<sup>+</sup><br>
+        <em>&alpha;=0.5 &nbsp; &beta;=2 &nbsp; &lambda;=1</em> &nbsp;&mdash; reward INT4 compliance, reward BF16 refusal, stop at the margins.
+      </div>
+      <div class="specs">
+        <div><b>4&times;A100</b>3 h per suffix</div>
+        <div><b>g128 / 4-bit</b>fake-quant proxy, bit-identical to Quanto</div>
+        <div><b>4,096</b>context tokens</div>
+      </div>
+    </section>
+
+    <!-- 1.7B COLLAPSE -->
+    <section class="card s5" id="collapse">
+      <h2 class="ct">The 1.7B case: free generation falls off a cliff</h2>
+      <p class="dek">Same INT4 budget, same checkpoint, two measurement styles.</p>
+      <div class="pair">
+        <div><span>HumanEval &middot; FFG</span><b class="neg">41.46 &rarr; 9.15</b></div>
+        <div><span>MMLU-Pro &middot; FFG</span><b class="neg">42.56 &rarr; 23.24</b></div>
+      </div>
+      <p class="body">A model that still scores &ldquo;fine&rdquo; on MMLU-style harnesses can be unable to write a working function. Its LLR scores only slip: GPQA <b>&minus;5.14</b>, ETHICS <b>&minus;4.30</b>, BBQ <b>&minus;2.60</b>, and TruthfulQA actually <b>improves +2.95</b>.</p>
+      <p class="markline">SORRYBench incoherent responses (R&nbsp;&gt;&nbsp;30%), N=450</p>
+      <div class="hbars">
+        <div class="hbar"><span class="lbl">BF16</span><div class="tk"><i style="width:3.11%"></i></div><span class="n">3.11%</span></div>
+        <div class="hbar"><span class="lbl">INT8</span><div class="tk"><i style="width:3.78%"></i></div><span class="n">3.78%</span></div>
+        <div class="hbar"><span class="lbl">AWQ</span><div class="tk"><i style="width:7.55%"></i></div><span class="n">7.55%</span></div>
+        <div class="hbar key"><span class="lbl">INT4</span><div class="tk"><i class="a" style="width:42%"></i></div><span class="n">42.00%</span></div>
+      </div>
+      <p class="fn">13.5&times; more degenerate loops than BF16. That also reframes the alarming 56.67% &rarr; 77.56% SORRYBench &ldquo;fulfillment&rdquo; jump as a judge mislabelling rambling — with no asterisk in the table.</p>
+    </section>
+
+    <!-- ATTACK -->
+    <section class="card s7" id="attack">
+      <h2 class="ct">From audit to attack: a suffix that only bites INT4</h2>
+      <p class="dek">A 20-token universal suffix, optimised to be benign on BF16 and compliant on INT4. No weight poisoning required.</p>
+      <div class="tw">
+        <table>
+          <thead>
+            <tr><th>Harmful compliance (LM-Judge)</th><th>BF16</th><th>INT4</th><th>Gap</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>426 held-out SORRYBench prompts, no suffix</td>
+              <td class="num">35.92%</td><td class="num">44.13%</td><td class="num">8.22</td>
+            </tr>
+            <tr>
+              <td>426 held-out SORRYBench prompts, + suffix</td>
+              <td class="num">32.63%</td><td class="num">46.24%</td><td class="num up">13.62</td>
+            </tr>
+            <tr>
+              <td>24 training prompts, no suffix</td>
+              <td class="num">33.33%</td><td class="num">29.17%</td><td class="num">&minus;4.17</td>
+            </tr>
+            <tr>
+              <td>24 training prompts, + suffix</td>
+              <td class="num">20.83%</td><td class="num up">45.83%</td><td class="num up">+25.00</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="body">The gap widens mostly because BF16 gets <b>more</b> careful. On a 64-prompt behavioural probe, INT4 replies opening with &ldquo;Sure&rdquo; jump from <b>2 to 37</b> (41 of 64 follow the LaTeX format the suffix drifted into), while BF16 refusals rise from <b>14 to 33</b> and 16 responses call the request unclear or inappropriate. The suffix itself mutates from &ldquo;!!!&hellip;!&rdquo; into semi-coherent instruction text — plausibly format hijacking, a hypothesis the paper never tests.</p>
+      <p class="fn">RE-Judge, which only pattern-matches refusal strings, reports 80.05% vs 44.60% — a +35.45 spread the authors explicitly discount. Judge and subset differ from Table 2 (BF16 SORRYBench 14.67% there vs 35.92% here), so audit and attack numbers cannot be chained into one claim.</p>
+    </section>
+
+    <!-- NOISE -->
+    <section class="card s4">
+      <h2 class="ct">The noise floor</h2>
+      <p class="dek">N=300, one seed, no confidence intervals.</p>
+      <div class="stat2">
+        <div><b>&plusmn;5.7</b><span>pts, p&asymp;0.5</span></div>
+        <div><b>&plusmn;4.1</b><span>pts, p&asymp;0.15</span></div>
+      </div>
+      <div class="ruler">
+        <div class="axis">
+          <i class="band" style="width:71.25%"></i>
+          <i class="zero"></i>
+          <i class="dot" style="left:18.75%" title="ARC −5.00"></i>
+          <i class="dot" style="left:16.56%" title="ETHICS −5.35"></i>
+          <i class="dot" style="left:22.56%" title="MMLU −4.39"></i>
+          <i class="dot" style="left:31.25%" title="BBQ −3.00"></i>
+          <i class="dot" style="left:39.63%" title="GPQA −1.66"></i>
+          <i class="dot" style="left:52.44%" title="TruthfulQA +0.39"></i>
+        </div>
+        <div class="lbl"><span>&minus;8</span><span>&Delta; pts vs BF16 &middot; band = 95% CI</span><span>+8</span></div>
+      </div>
+      <p class="body">Every 4B LLR delta lands inside the shaded band: ETHICS &minus;5.35, ARC &minus;5.00, MMLU &minus;4.39, BBQ &minus;3.00, GPQA &minus;1.66, TruthfulQA +0.39 — as do the INT8/AWQ GPQA <em>gains</em>. The paper concedes Table 1 found no Jagged Robustness; the arithmetic says Table 1 found essentially nothing at all.</p>
+      <p class="fn">The large effects survive: DeceptionBench +11.00 at 4B, and the 1.7B &minus;19 to &minus;32 pt collapse.</p>
+    </section>
+
+    <!-- STRENGTHS / LIMITATIONS -->
+    <section class="card duo s8" id="verdict" aria-label="Strengths and limitations">
+      <div>
+        <p class="panel-tag">What holds up</p>
+        <h2 class="ct">Strengths</h2>
+        <ul class="tight">
+          <li><b>One checkpoint, one judge, two protocols.</b> The cleanest demonstration yet that multiple-choice safety evaluation is structurally blind to the failure mode that matters — a point that generalises past quantization.</li>
+          <li><b>The 3-gram incoherence metric</b> is cheap, reproducible and judge-free, and it turns &ldquo;outputs look worse&rdquo; into 3.11% &rarr; 42% while explaining away a misleading benchmark trend.</li>
+          <li><b>It reports the result that hurts its own thesis</b> — no Jagged Robustness in the multiple-choice experiment — and names its missing seeds and CIs.</li>
+          <li><b>Bit-identical fake-quant proxy</b>, with every reported number measured on the real INT4 model: the usual loophole in this literature is closed.</li>
+          <li><b>The 64-prompt breakdown</b> shows two precisions reacting to the same suffix in opposite directions — direct evidence of non-transferable robustness.</li>
+        </ul>
+      </div>
+      <div class="neg-panel">
+        <p class="panel-tag">What does not</p>
+        <h2 class="ct">Limitations</h2>
+        <ul class="tight">
+          <li><b>Power.</b> N=300, single seed, no CIs anywhere; most Table 1 deltas and several 4B free-generation deltas straddle the noise floor.</li>
+          <li><b>Scope.</b> Two Qwen3 sizes, one tokenizer family, one INT4 toolkit. No 8B+, no Llama/Mistral, no MoE, no KV-cache or activation quantization.</li>
+          <li><b>No vanilla-GCG or random-suffix baseline</b>, so the marginal value of the dual objective is unestablished — the asymmetry could be ordinary suffix behaviour.</li>
+          <li><b>Tables 2 and 6 use different judges and splits</b> (14.67% vs 35.92% for the same nominal behaviour), which blocks the joint &ldquo;quantization plus attack compounds&rdquo; claim the narrative implies.</li>
+          <li><b>No mechanism, no dose-response.</b> &ldquo;Task subtlety&rdquo; and &ldquo;coherence&rdquo; are descriptions; INT4 is a single point, so the 1.7B cliff may be a threshold artefact.</li>
+          <li><b>AWQ hyperparameters unreported</b> despite producing the paper&rsquo;s most surprising cell: worst InFoBench (&minus;5.66), best SORRYBench (&minus;3.67).</li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- LINEAGE -->
+    <section class="card s4">
+      <h2 class="ct">Lineage &amp; credibility</h2>
+      <p class="dek">Bochum &middot; MPI-SP &middot; IEEE-style submission, not a bare preprint.</p>
+      <p class="body">The label is new; the observation is not. Hong et al. (2403.15447) already reported uneven alignment damage under compression, and Kadadekar (2606.10154) already argued quality is no safety proxy. What is genuinely new is narrower: the LLR-vs-FFG contrast on one checkpoint with one judge, the deterministic coherence metric, and the refuse-on-BF16 / comply-on-INT4 objective that extends GCG past PrecisionDiff&rsquo;s per-prompt search.</p>
+      <p class="fn">Code and full experiment records released at <span class="mono">github.com/LucianoXu/QuantBenchEfficiency</span>.</p>
+    </section>
+
+    <section class="card s8">
+      <p class="panel-tag">Open threads</p>
+      <h2 class="ct">Questions worth running</h2>
+      <ol class="qs">
+        <li><b>Is +11.00 real?</b> Five seeds, N=1000, and a second independent judge on DeceptionBench — the paper&rsquo;s most load-bearing number, and the one its own confidence-interval arithmetic leaves undecided.</li>
+        <li><b>How much is quantization-awareness?</b> Vanilla INT4-only GCG and a random 20-token suffix on the same 426 held-out prompts. If vanilla reproduces the asymmetry, the dual hinge loss is not the mechanism.</li>
+        <li><b>Where is the 1.7B threshold?</b> Sweep 8/6/5/4-bit and mixed precision, then plot HumanEval against the incoherence onset — is the &minus;32.31 pt cliff a trend or a discrete break?</li>
+        <li><b>Is the suffix format hijacking?</b> A hand-written &ldquo;answer in LaTeX, start with Sure&rdquo; suffix would test whether degraded instruction-priority arbitration, not adversarial optimisation, is the real vulnerability.</li>
+        <li><b>Does AWQ differ for a reason?</b> Report group size, calibration corpus and zero-point scheme, then re-match AWQ and INT4 on perplexity to see whether the asymmetry survives.</li>
+      </ol>
+    </section>
+
+  </div>
+
+  <footer class="foot">
+    <span>2611.27424 &middot; 2026-11-16 &middot; dashboard</span>
+    <a href="./2611.27424.md">↗ Markdown source</a>
+  </footer>
+
+</main>
+
+<script>
+(function(){
+  var bar = document.getElementById('topbar');
+  var onScroll = function(){ bar.classList.toggle('stuck', window.scrollY > 8); };
+  onScroll();
+  window.addEventListener('scroll', onScroll, {passive:true});
+
+  var links = Array.prototype.slice.call(document.querySelectorAll('.rail a'));
+  var secs = links.map(function(a){ return document.querySelector(a.getAttribute('href')); });
+  if (!('IntersectionObserver' in window)) return;
+  var io = new IntersectionObserver(function(entries){
+    entries.forEach(function(e){
+      if (!e.isIntersecting) return;
+      var i = secs.indexOf(e.target);
+      if (i < 0) return;
+      links.forEach(function(l){ l.classList.remove('active'); });
+      links[i].classList.add('active');
+    });
+  }, {rootMargin:'-15% 0px -65% 0px'});
+  secs.forEach(function(s){ if (s) io.observe(s); });
+})();
+</script>
+</body>
+</html>

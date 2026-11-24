@@ -1,0 +1,700 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>More Bits Won’t Fix It — an ill-conditioned backward pass in Gemma-4</title>
+<meta name="description" content="Dashboard for arXiv 2611.27243: bf16 and fp32 LoRA gradients disagree almost completely in Gemma-4's lower layers; detaching image-token MLP outputs in layers 19–21 fixes training without adding precision.">
+<script>document.documentElement.className += ' js';</script>
+<style>
+  :root{
+    --paper:#f5f3ee;
+    --card:#fffefb;
+    --ink:#15181a;
+    --ink-2:#3a4044;
+    --muted:#737a7d;
+    --line:#dedad1;
+    --line-soft:#eae6dd;
+    --accent:#0f6a6c;
+    --accent-wash:#e7f1f0;
+    --accent-ink:#0a4d4f;
+    --dark:#101a1b;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI","Helvetica Neue","PingFang SC","Hiragino Sans GB","Microsoft YaHei",Arial,sans-serif;
+    --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+    --w:min(95vw,1100px);
+  }
+  *{box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%}
+  body{
+    margin:0;background:var(--paper);color:var(--ink);
+    font-family:var(--sans);font-size:16px;line-height:1.55;
+    font-feature-settings:"kern" 1;
+  }
+  a{color:inherit}
+  ::selection{background:#cfe4e3}
+
+  /* ---------- fixed nav ---------- */
+  .topnav{
+    position:fixed;top:14px;left:14px;z-index:60;
+    display:inline-flex;align-items:center;gap:6px;
+    font-family:var(--mono);font-size:.7rem;letter-spacing:.02em;
+    color:var(--ink-2);text-decoration:none;
+    background:var(--card);border:1px solid var(--line);
+    padding:6px 10px;border-radius:3px;
+  }
+  .topnav:hover{border-color:var(--ink);color:var(--accent-ink)}
+
+  .wrap{width:var(--w);margin:0 auto;padding:0 0 40px}
+
+  /* ---------- hero ---------- */
+  .hero{padding:80px 0 0}
+  .kicker{
+    font-family:var(--mono);font-size:.67rem;letter-spacing:.15em;text-transform:uppercase;
+    color:var(--accent);display:flex;flex-wrap:wrap;gap:.55em;align-items:baseline;
+  }
+  .kicker .sep{color:var(--line)}
+  h1.finding{
+    margin:.36em 0 .34em;max-width:24ch;
+    font-size:clamp(1.85rem,4.15vw,3.55rem);line-height:1.04;
+    letter-spacing:-.031em;font-weight:800;
+  }
+  h1.finding .neg{
+    color:var(--accent);
+    background:linear-gradient(transparent 62%, var(--accent-wash) 62%);
+  }
+  .finding-cn{
+    margin:0 0 1.35em;max-width:60ch;color:var(--ink-2);
+    font-size:clamp(.9rem,1.45vw,1rem);line-height:1.85;
+  }
+  .paper-title{
+    margin:0 0 .3em;font-size:.9rem;font-weight:500;color:var(--ink-2);max-width:74ch;
+    line-height:1.5;
+  }
+  .paper-title a{text-decoration:none;border-bottom:1px solid var(--line);padding-bottom:1px}
+  .paper-title a:hover{border-color:var(--accent);color:var(--accent-ink)}
+  .byline{
+    font-family:var(--mono);font-size:.68rem;color:var(--muted);
+    display:flex;flex-wrap:wrap;gap:.55em;align-items:baseline;
+  }
+  .byline .dot{color:var(--line)}
+  .chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:.85em}
+  .chip{
+    font-family:var(--mono);font-size:.62rem;letter-spacing:.03em;
+    color:var(--ink-2);background:transparent;border:1px solid var(--line);
+    padding:2px 7px;border-radius:2px;
+  }
+  .chip.on{border-color:#b9d6d5;background:var(--accent-wash);color:var(--accent-ink)}
+
+  /* ---------- asset row ---------- */
+  .assets{display:grid;grid-template-columns:1.08fr 1fr 1.06fr;gap:12px;margin-top:24px}
+  .card{
+    background:var(--card);border:1px solid var(--line);border-radius:3px;
+    padding:18px 20px;position:relative;
+  }
+  .label{
+    font-family:var(--mono);font-size:.61rem;letter-spacing:.14em;text-transform:uppercase;
+    color:var(--muted);display:flex;justify-content:space-between;gap:8px;margin-bottom:.6em;
+  }
+  .label .accent{color:var(--accent)}
+
+  .metric .big{
+    font-family:var(--sans);font-size:clamp(2.5rem,5vw,3.9rem);line-height:.9;
+    font-weight:800;letter-spacing:-.05em;font-variant-numeric:tabular-nums;
+    display:flex;align-items:baseline;gap:.28em;flex-wrap:wrap;
+  }
+  .metric .big .vs{
+    font-family:var(--mono);font-size:.24em;font-weight:500;letter-spacing:0;
+    color:var(--muted);
+  }
+  .metric .big .vs b{color:var(--ink);font-weight:700}
+  .metric .ctx{font-size:.78rem;color:var(--ink-2);margin-top:.75em;line-height:1.55}
+  .metric .ctx b{font-weight:650;color:var(--ink)}
+  .metric .foot{
+    font-family:var(--mono);font-size:.61rem;color:var(--muted);margin-top:.8em;
+    border-top:1px solid var(--line-soft);padding-top:.6em;line-height:1.5;
+  }
+
+  .why p{margin:0;font-size:.84rem;line-height:1.65;color:var(--ink-2)}
+  .why p b{font-weight:650;color:var(--ink)}
+  .why .cn{
+    margin-top:.8em;padding-top:.7em;border-top:1px solid var(--line-soft);
+    font-size:.74rem;line-height:1.8;color:var(--muted);
+  }
+
+  .edge{background:var(--dark);border-color:var(--dark);color:#f2f1ec}
+  .edge .label{color:#9aa5a4}
+  .edge .label .accent{color:#7fc4c2}
+  .edge p{margin:0;font-size:.83rem;line-height:1.65;color:#e7e9e6}
+  .edge p b{color:#fff;font-weight:650}
+  .edge .tag{
+    display:inline-block;margin-top:.9em;font-family:var(--mono);font-size:.59rem;
+    letter-spacing:.1em;text-transform:uppercase;color:#7fc4c2;
+  }
+
+  /* ---------- body grid ---------- */
+  .body{display:grid;grid-template-columns:repeat(12,1fr);gap:12px;margin-top:12px}
+  .c5{grid-column:span 5}
+  .c6{grid-column:span 6}
+  .c7{grid-column:span 7}
+  .c12{grid-column:span 12}
+
+  .card-head{
+    display:flex;flex-wrap:wrap;align-items:baseline;gap:.4em .75em;
+    border-bottom:1px solid var(--line-soft);padding-bottom:.55em;margin-bottom:.9em;
+  }
+  .card-head h2{margin:0;font-size:.95rem;font-weight:700;letter-spacing:-.01em}
+  .card-head .cn{font-size:.73rem;color:var(--muted);font-weight:400}
+  .card-head .meta{
+    margin-left:auto;font-family:var(--mono);font-size:.59rem;color:var(--muted);
+    letter-spacing:.02em;
+  }
+  .note{font-size:.71rem;color:var(--muted);line-height:1.55;margin:.95em 0 0}
+  .note b{color:var(--ink-2);font-weight:600}
+
+  /* ---------- protocol ---------- */
+  .proto{counter-reset:step;margin:0;padding:0;list-style:none}
+  .proto li{
+    position:relative;padding-left:31px;margin-bottom:.78em;
+    font-size:.775rem;line-height:1.6;color:var(--ink-2);
+  }
+  .proto li:last-child{margin-bottom:0}
+  .proto li::before{
+    counter-increment:step;content:counter(step,decimal-leading-zero);
+    position:absolute;left:0;top:.05em;
+    font-family:var(--mono);font-size:.6rem;font-weight:600;
+    color:var(--accent);border-left:2px solid var(--accent);padding-left:5px;line-height:1.5;
+  }
+  .proto b{color:var(--ink);font-weight:650}
+  .spec{display:flex;flex-wrap:wrap;gap:5px;margin-top:1.1em;padding-top:.85em;border-top:1px solid var(--line-soft)}
+  .spec span{
+    font-family:var(--mono);font-size:.6rem;color:var(--ink-2);
+    background:#fbf8f2;border:1px solid var(--line);border-radius:2px;padding:2px 6px;
+  }
+
+  /* ---------- ladder ---------- */
+  .ladder{margin-top:.15em}
+  .grp{
+    font-family:var(--mono);font-size:.57rem;letter-spacing:.12em;text-transform:uppercase;
+    color:var(--muted);margin:.85em 0 .4em;
+  }
+  .grp:first-child{margin-top:0}
+  .lrow{display:grid;grid-template-columns:1fr 46px;gap:8px;align-items:center;padding:3px 0}
+  .lrow .nm{font-size:.71rem;color:var(--ink-2);line-height:1.35}
+  .lrow .nm em{font-style:normal;font-family:var(--mono);font-size:.62rem;color:var(--muted)}
+  .lbar{
+    grid-column:1 / -1;height:7px;background:#f1ece3;border-radius:1px;overflow:hidden;
+    margin-top:-1px;
+  }
+  .lbar i{display:block;height:100%;background:#c8cfcc;border-radius:1px}
+  .lbar i.hot{background:var(--accent)}
+  .lval{
+    font-family:var(--mono);font-size:.67rem;font-variant-numeric:tabular-nums;
+    text-align:right;color:var(--ink-2);grid-row:1;grid-column:2;
+  }
+  .lval.hot{color:var(--accent);font-weight:700}
+  .gain{
+    margin-top:.9em;padding-top:.75em;border-top:1px solid var(--line-soft);
+    font-size:.71rem;color:var(--ink-2);line-height:1.55;
+  }
+  .gain b{font-family:var(--mono);font-size:.7rem;font-weight:600;color:var(--ink)}
+  .gain .arrow{color:var(--accent);font-weight:700}
+
+  /* ---------- budget ---------- */
+  .budget-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:.1em 0 1.3em}
+  .bud{border-left:1px solid var(--line);padding-left:11px}
+  .bud b{
+    display:block;font-size:1.45rem;font-weight:800;letter-spacing:-.03em;
+    font-variant-numeric:tabular-nums;line-height:1.1;color:var(--ink);
+  }
+  .bud b.bad{color:var(--accent)}
+  .bud small{display:block;font-family:var(--mono);font-size:.58rem;color:var(--muted);margin-top:.3em;line-height:1.45}
+
+  .ruler{position:relative;height:122px;margin:0 0 .2em}
+  .ruler .bar{
+    position:absolute;left:0;right:0;top:44px;height:18px;
+    background:#f1ece3;border:1px solid var(--line-soft);border-radius:1px;overflow:hidden;
+  }
+  .ruler .z{position:absolute;top:0;bottom:0}
+  .ruler .z.ok{left:0;width:46.5%;background:#eef0ec}
+  .ruler .z.dead{left:46.5%;right:0;background:repeating-linear-gradient(135deg,#e8ded6 0 4px,#f4efe8 4px 8px)}
+  .ruler .cliff{
+    position:absolute;top:16px;left:46.5%;height:56px;border-left:2px dashed var(--accent);
+  }
+  .ruler .cliff span{
+    position:absolute;top:-17px;left:5px;white-space:nowrap;
+    font-family:var(--mono);font-size:.58rem;color:var(--accent-ink);letter-spacing:.02em;
+  }
+  .ruler .band{
+    position:absolute;top:25px;height:56px;background:rgba(15,106,108,.16);
+    border-left:2px solid var(--accent);border-right:2px solid var(--accent);
+  }
+  .ruler .band span{
+    position:absolute;top:-19px;left:50%;transform:translateX(-50%);white-space:nowrap;
+    font-family:var(--mono);font-size:.58rem;font-weight:600;color:var(--accent-ink);
+  }
+  .ruler .t{
+    position:absolute;top:70px;transform:translateX(-50%);
+    font-family:var(--mono);font-size:.56rem;color:var(--muted);text-align:center;line-height:1.4;
+  }
+  .ruler .t b{display:block;color:var(--ink-2);font-weight:600}
+  .ruler .t i{display:block;font-style:normal;color:var(--muted)}
+  .ruler .t.first{transform:none}
+  .ruler .t.last{transform:translateX(-100%)}
+
+  /* ---------- tables ---------- */
+  .tbl-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
+  table{width:100%;border-collapse:collapse;font-size:.755rem}
+  caption{caption-side:bottom;text-align:left;font-size:.65rem;color:var(--muted);padding-top:.7em;line-height:1.55}
+  th{
+    text-align:left;font-family:var(--mono);font-size:.58rem;letter-spacing:.07em;text-transform:uppercase;
+    color:var(--muted);font-weight:500;padding:0 0 .5em;border-bottom:1px solid var(--line);
+    white-space:nowrap;
+  }
+  td{
+    padding:.46em 0;border-bottom:1px solid var(--line-soft);
+    font-variant-numeric:tabular-nums;color:var(--ink-2);
+  }
+  tr:last-child td{border-bottom:0}
+  td.num,th.num{text-align:right;padding-left:10px}
+  td.method{color:var(--ink);font-weight:650;white-space:nowrap}
+  td.method small{display:block;font-family:var(--mono);font-weight:400;font-size:.56rem;color:var(--muted);letter-spacing:.02em}
+  td.pos{color:var(--accent);font-weight:700}
+  td.dim{color:var(--muted)}
+  tr.hl td{background:var(--accent-wash)}
+  tr.hl td.method{color:var(--accent-ink)}
+
+  /* ---------- token share ---------- */
+  .share{margin:.3em 0 0}
+  .share .row{margin-bottom:1em}
+  .share .cap{
+    display:flex;justify-content:space-between;align-items:baseline;
+    font-family:var(--mono);font-size:.58rem;letter-spacing:.08em;text-transform:uppercase;
+    color:var(--muted);margin-bottom:.4em;
+  }
+  .share .cap b{font-family:var(--sans);font-size:.72rem;letter-spacing:0;text-transform:none;color:var(--ink)}
+  .track{display:flex;height:17px;border-radius:1px;overflow:hidden;background:#f1ece3}
+  .track span{display:block;height:100%}
+  .track .s1{background:var(--accent)}
+  .track .s2{background:#8fb9b8}
+  .track .s3{background:#e5e9e6}
+  .track .s4{background:#d7dcda}
+  .share .leg{
+    font-family:var(--mono);font-size:.57rem;color:var(--muted);margin-top:.35em;
+    display:flex;flex-wrap:wrap;gap:.9em;
+  }
+  .share .leg i{display:inline-block;width:8px;height:8px;margin-right:4px;vertical-align:-1px;border-radius:1px}
+
+  /* ---------- relevance strip ---------- */
+  .strip{
+    background:var(--accent-wash);border-color:#c6dedc;
+    display:grid;grid-template-columns:118px 1fr;gap:18px;align-items:start;
+  }
+  .strip h2{margin:0;font-size:.62rem;font-family:var(--mono);letter-spacing:.13em;text-transform:uppercase;color:var(--accent-ink)}
+  .strip p{margin:0 0 .45em;font-size:.79rem;line-height:1.85;color:var(--ink-2)}
+  .strip p:last-child{margin:0;font-size:.74rem;color:#4b5c5c;line-height:1.6}
+
+  /* ---------- strengths / limits ---------- */
+  .panel h3{
+    font-size:.6rem;font-family:var(--mono);letter-spacing:.13em;text-transform:uppercase;
+    margin:0 0 .7em;color:var(--muted);
+  }
+  .panel ul{list-style:none;margin:0;padding:0}
+  .panel li{
+    position:relative;padding-left:15px;margin-bottom:.62em;
+    font-size:.75rem;line-height:1.58;color:var(--ink-2);
+  }
+  .panel li:last-child{margin-bottom:0}
+  .panel li::before{position:absolute;left:0;top:0;font-family:var(--mono);font-size:.8rem;line-height:1.45}
+  .strengths li::before{content:"+";color:var(--accent)}
+  .limits li::before{content:"−";color:var(--ink)}
+  .panel b{color:var(--ink);font-weight:650}
+  .panel.limits{background:#fbf9f4}
+  .ledger{display:flex;flex-wrap:wrap;gap:4px;margin:0 0 .9em}
+  .ledger span{
+    font-family:var(--mono);font-size:.56rem;color:var(--muted);
+    border:1px solid var(--line);border-radius:2px;padding:1px 5px;
+  }
+
+  /* ---------- questions ---------- */
+  .qgrid{display:grid;grid-template-columns:1fr 1fr;gap:0 28px}
+  .q{display:grid;grid-template-columns:20px 1fr;gap:8px;padding:.58em 0;border-bottom:1px solid var(--line-soft)}
+  .q .qn{font-family:var(--mono);font-size:.6rem;color:var(--accent);padding-top:.16em}
+  .q p{margin:0;font-size:.73rem;line-height:1.58;color:var(--ink-2)}
+  .q p b{color:var(--ink);font-weight:650}
+
+  /* ---------- footer ---------- */
+  footer{
+    margin-top:22px;padding-top:14px;border-top:1px solid var(--line);
+    display:flex;flex-wrap:wrap;gap:10px 20px;align-items:baseline;
+    font-family:var(--mono);font-size:.65rem;color:var(--muted);
+  }
+  footer a{text-decoration:none;border-bottom:1px solid var(--line);padding-bottom:1px}
+  footer a:hover{color:var(--accent-ink);border-color:var(--accent)}
+  footer .right{margin-left:auto}
+
+  /* ---------- responsive ---------- */
+  @media (max-width:980px){
+    .assets{grid-template-columns:1fr 1fr}
+    .assets .metric{grid-column:span 2}
+    .c5,.c6,.c7{grid-column:span 12}
+    th{white-space:normal}
+    table{font-size:.72rem}
+  }
+  @media (max-width:720px){
+    .hero{padding-top:74px}
+    h1.finding{max-width:none}
+    .assets{grid-template-columns:1fr}
+    .assets .metric{grid-column:auto}
+    .body{grid-template-columns:1fr}
+    .c5,.c6,.c7,.c12{grid-column:span 1}
+    .qgrid{grid-template-columns:1fr}
+    .card{padding:16px}
+    .card-head .meta{margin-left:0;width:100%}
+    .budget-grid{grid-template-columns:1fr 1fr;gap:14px 10px}
+    .bud b{font-size:1.2rem}
+    .strip{grid-template-columns:1fr;gap:8px}
+    .ruler .t.minor{display:none}
+    .lrow{grid-template-columns:1fr 40px}
+  }
+  @media (prefers-reduced-motion:no-preference){
+    .js .rise{opacity:0;transform:translateY(7px)}
+    .js.ready .rise{opacity:1;transform:none;transition:opacity .42s ease,transform .42s ease}
+    .js.ready .d1{transition-delay:.04s}.js.ready .d2{transition-delay:.1s}.js.ready .d3{transition-delay:.16s}
+    .js.ready .d4{transition-delay:.22s}.js.ready .d5{transition-delay:.28s}.js.ready .d6{transition-delay:.34s}
+  }
+  @media print{
+    .topnav{display:none}
+    body{background:#fff}
+    .card{break-inside:avoid}
+  }
+</style>
+</head>
+<body>
+<a class="topnav" href="./index.html">↩ Today's digest</a>
+
+<div class="wrap">
+
+  <header class="hero">
+    <div class="kicker">
+      <span>mixed precision</span><span class="sep">·</span>
+      <span>gradient conditioning</span><span class="sep">·</span>
+      <span>arXiv 2611.27243</span><span class="sep">·</span>
+      <span>single-author case study</span>
+    </div>
+
+    <h1 class="finding">bf16 and fp32 lower-layer gradients in Gemma-4 are nearly orthogonal — the <span class="neg">backward path</span>, not the bit width, is broken.</h1>
+
+    <p class="finding-cn">在 Gemma-4 的长上下文 LoRA 微调里，模型下三分之一的 bf16 与 fp32 首步梯度几乎不相关（最低两块中位余弦 0.02 / 0.01），而上层稳定在 ≥0.98。逐元素噪声实验证明 fp32 本身是可信参考，只是 bf16 的前向状态误差已经把这条反向通路击穿了 30–130 倍；把第 19–21 层图像 token 的 MLP 输出在反向中断开（前向完全不变），验证 NLL 从 0.336±0.019 降到 0.296±0.003，in-box 从 75% 升到 88%。</p>
+
+    <p class="paper-title"><a href="https://arxiv.org/abs/2611.27243">More Bits Won’t Fix It: Diagnosing and Treating an Ill-Conditioned Backward Pass (A Case Study on Gemma-4)</a></p>
+    <div class="byline">
+      <span>Jeong Hyun Lee, MD</span><span class="dot">·</span>
+      <span>Samsung Medical Center / Sungkyunkwan Univ.</span><span class="dot">·</span>
+      <span>2026-11-16</span>
+    </div>
+    <div class="chips">
+      <span class="chip on">LoRA r=16 · α=32</span>
+      <span class="chip">Gemma-4 12B / 31B</span>
+      <span class="chip">CT lesion grounding</span>
+      <span class="chip">2,400–3,600-token prompts</span>
+      <span class="chip">activation patching</span>
+      <span class="chip">negative result on fp32</span>
+    </div>
+  </header>
+
+  <!-- ================= ASSET ROW ================= -->
+  <section class="assets" aria-label="Extracted highlights">
+
+    <div class="card metric rise d1">
+      <div class="label"><span>Key metric</span><span class="accent">first step</span></div>
+      <div class="big">0.02<span class="vs">vs <b>≥0.98</b></span></div>
+      <p class="ctx">Median bf16↔fp32 cosine of the LoRA <b>∂L/∂B</b> gradient: <b>0.02 and 0.01</b> in the two lowest layer blocks, but <b>≥0.98</b> in blocks 4–6 of Gemma-4-12B.</p>
+      <p class="foot">Same prompt, same weights, same math — only arithmetic precision differs. Upper layers agree; the bottom third is computing another direction entirely.</p>
+    </div>
+
+    <div class="card why rise d2">
+      <div class="label"><span>Why this matters</span><span>今天为什么值得看</span></div>
+      <p>Anyone fine-tuning long-context VLMs in bf16 may be training on near-noise gradients in the lower third — and the fix is a six-line hook.</p>
+      <p class="cn">如果这个现象复现，那么“训练不稳定就上 fp32”这条默认反应是错的——该查的是反向图的条件数，不是位宽。</p>
+    </div>
+
+    <div class="card edge rise d3">
+      <div class="label"><span>Critical edge</span><span class="accent">！</span></div>
+      <p>The detached gradient is <b>biased</b> — cosine 0.01–0.35 with the standard fp32 gradient. It trains better; it does not estimate the gradient better.</p>
+      <span class="tag">read the claim, not the title</span>
+    </div>
+
+  </section>
+
+  <!-- ================= BODY ================= -->
+  <div class="body">
+
+    <!-- protocol -->
+    <section class="card c7 rise d1">
+      <div class="card-head">
+        <h2>Methodology</h2><span class="cn">方法</span>
+        <span class="meta">diagnose → localize → patch</span>
+      </div>
+
+      <ol class="proto">
+        <li><b>Compare first-step gradients.</b> LoRA’s B matrix starts at zero, so only ∂L/∂B is non-zero at step 1. Cosine is computed in float64 over every B matrix of a layer block, on CT lesion-grounding prompts of 2,400–3,600 tokens (2,100–3,200 of them image tokens, 2–3 slices).</li>
+        <li><b>Rule out the boring explanations.</b> Repeated fp32 runs agree at ≥0.9989, repeated bf16 at ≥0.9989, and an fp32 backward pass over bf16 forward states reproduces the bf16 gradient at ≥0.996 — so the disagreement lives in the <em>forward states</em>, not in backward rounding.</li>
+        <li><b>Measure the tolerance budget.</b> Inject element-wise relative noise (h + σ·h·ε) into the fp32 forward and find the σ at which the gradient stops agreeing. Controls swap CT images for natural photos, or drop them and pad text to ~2,260 tokens.</li>
+        <li><b>Localize by substitution.</b> Feed bf16 states into selected layers (<em>h = stored + (h − h.detach())</em>), then ablate three detach points — MLP output, gate activation, up-projection — at image-token positions in layers 19–21.</li>
+        <li><b>Train it.</b> Gemma-4-12B SFT, 300 steps, batch 8, AdamW, lr 1e-4, global-norm clip 1.0, 65.6M trainable parameters; four arms × four LoRA-init seeds under one data order, plus a single fp32 run.</li>
+      </ol>
+
+      <div class="spec">
+        <span>12B: 48 layers</span><span>31B: 60 layers</span><span>E4B: 42</span><span>Qwen3.8-27B: 64</span>
+        <span>1× RTX PRO 6000 96 GB</span><span>≤1,120 tok / image</span><span>80 val lesions fixed per run</span>
+      </div>
+    </section>
+
+    <!-- ladder -->
+    <section class="card c5 rise d2">
+      <div class="card-head">
+        <h2>Localization</h2><span class="cn">定位</span>
+        <span class="meta">first-step agreement</span>
+      </div>
+
+      <div class="grp">Substitute bf16 states into</div>
+      <div class="ladder">
+        <div class="lrow">
+          <div class="nm">all-fp32 reference</div><div class="lval">1.00</div>
+          <div class="lbar"><i style="width:100%"></i></div>
+        </div>
+        <div class="lrow">
+          <div class="nm">layers 15–18 <em>— barely matters</em></div><div class="lval">0.93</div>
+          <div class="lbar"><i style="width:93%"></i></div>
+        </div>
+        <div class="lrow">
+          <div class="nm">layers 19–21 <em>— full collapse</em></div><div class="lval hot">0.07</div>
+          <div class="lbar"><i class="hot" style="width:7%"></i></div>
+        </div>
+      </div>
+
+      <div class="grp">Detach, image tokens only</div>
+      <div class="ladder">
+        <div class="lrow">
+          <div class="nm">gate activation</div><div class="lval">0.86</div>
+          <div class="lbar"><i style="width:86%"></i></div>
+        </div>
+        <div class="lrow">
+          <div class="nm">up-projection <em>— no help</em></div><div class="lval">0.27</div>
+          <div class="lbar"><i style="width:27%"></i></div>
+        </div>
+        <div class="lrow">
+          <div class="nm">MLP output <em>— the fix</em></div><div class="lval hot">0.94</div>
+          <div class="lbar"><i class="hot" style="width:94%"></i></div>
+        </div>
+      </div>
+
+      <p class="gain">Backward gain from layer 21 to 11: <b>21 [11, 206]</b> <span class="arrow">→</span> <b>6.8 [4.8, 8.9]</b><br>Agreement at layer outputs holds to L21 (0.96), then 0.6 at L19 and 0.2 at L17.</p>
+    </section>
+
+    <!-- budget -->
+    <section class="card c12 rise d2">
+      <div class="card-head">
+        <h2>The gradient’s tolerance budget</h2><span class="cn">容差预算</span>
+        <span class="meta">how much noise fp32 can absorb before it stops being a reference</span>
+      </div>
+
+      <div class="budget-grid">
+        <div class="bud"><b>25 / 25</b><small>σ ≤ 10⁻⁶ — every run keeps cosine ≥ 0.99</small></div>
+        <div class="bud"><b>8 / 10</b><small>σ = 10⁻⁵ — two runs fall below 0.9</small></div>
+        <div class="bud"><b class="bad">3 / 10</b><small>σ = 10⁻⁴ — only three stay above 0.9</small></div>
+        <div class="bud"><b class="bad">1 / 10</b><small>σ = 10⁻³ — half turn negative</small></div>
+      </div>
+
+      <div class="ruler" role="img" aria-label="Log-scale diagram from 1e-6 to 2e-2 relative perturbation. The fp32 gradient survives up to roughly 1e-4 and is destroyed beyond it. The measured bf16 forward-state error, 0.3 to 1.3 percent per token, sits 30 to 130 times further right.">
+        <div class="bar">
+          <div class="z ok"></div>
+          <div class="z dead"></div>
+        </div>
+        <div class="cliff"><span>gradient breaks ≈ 10⁻⁴</span></div>
+        <div class="band" style="left:80.9%;width:14.8%"><span>bf16 lives here</span></div>
+        <div class="t first" style="left:0%"><b>10⁻⁶</b><i>reference holds</i></div>
+        <div class="t minor" style="left:23.3%"><b>10⁻⁵</b><i>fraying</i></div>
+        <div class="t" style="left:46.5%"><b>10⁻⁴</b><i>unusable</i></div>
+        <div class="t minor" style="left:69.8%"><b>10⁻³</b><i>noise</i></div>
+        <div class="t last" style="left:93%"><b>10⁻²</b><i>1% per token</i></div>
+      </div>
+
+      <p class="note"><b>Read right to left:</b> the fp32 gradient tolerates about 10⁻⁴ of relative element-wise noise. bf16 forward states differ from fp32 by <b>0.3–1.3% per token</b> — <b>30–130× past that cliff</b>. The upper-layer agreement (≥0.98) is therefore not evidence that bf16 is safe — it is evidence that the damage is localized, and that a global precision upgrade is the wrong instrument for it.</p>
+    </section>
+
+    <!-- training table -->
+    <section class="card c7 rise d3">
+      <div class="card-head">
+        <h2>Training, four seeds per arm</h2><span class="cn">训练结果</span>
+        <span class="meta">300 steps · one data order</span>
+      </div>
+
+      <div class="tbl-wrap">
+        <table>
+          <caption>Mean ± sd over 4 LoRA-init seeds; every Detach run beats every other run on all three metrics. fp32 row is a single seed at ~49 GB versus 25 GB — a dash means the source does not report it.</caption>
+          <thead>
+            <tr>
+              <th>Arm</th>
+              <th class="num">Val NLL ↓</th>
+              <th class="num">Center err ↓</th>
+              <th class="num">In-box ↑</th>
+              <th class="num">Steps clipped</th>
+              <th class="num">Max ‖g‖</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td class="method">Standard<small>bf16</small></td>
+              <td class="num">0.336 ± 0.019</td>
+              <td class="num">16.3 ± 2.1</td>
+              <td class="num">75% ± 10</td>
+              <td class="num">99.7%</td>
+              <td class="num">23,307</td>
+            </tr>
+            <tr class="hl">
+              <td class="method">Detach<small>L19–21 · MLP out · image tok</small></td>
+              <td class="num pos">0.296 ± 0.003</td>
+              <td class="num pos">10.8 ± 0.5</td>
+              <td class="num pos">88% ± 2</td>
+              <td class="num pos">18%</td>
+              <td class="num pos">125</td>
+            </tr>
+            <tr>
+              <td class="method">Frozen<small>no LoRA below L19</small></td>
+              <td class="num">0.334 ± 0.003</td>
+              <td class="num">16.0 ± 0.4</td>
+              <td class="num">74% ± 4</td>
+              <td class="num dim">—</td>
+              <td class="num dim">—</td>
+            </tr>
+            <tr>
+              <td class="method">Detach + Frozen</td>
+              <td class="num">0.336 ± 0.002</td>
+              <td class="num">17.0 ± 0.5</td>
+              <td class="num">71% ± 3</td>
+              <td class="num dim">—</td>
+              <td class="num dim">—</td>
+            </tr>
+            <tr>
+              <td class="method">fp32 Standard<small>1 seed</small></td>
+              <td class="num">0.332</td>
+              <td class="num dim">—</td>
+              <td class="num">81%</td>
+              <td class="num">spiky</td>
+              <td class="num">39,862</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p class="note"><b>Three things this table says at once:</b> the patch is free (forward values bit-identical, step time unchanged); the gain is real across seeds (Detach NLL 0.291–0.298 vs Standard 0.320–0.364, no overlap); and removing the lower-layer updates entirely (Frozen) is as good as Standard — which is either “these layers learn nothing useful in bf16” or “300 steps were too few for them to matter.”</p>
+    </section>
+
+    <!-- mechanism -->
+    <section class="card c5 rise d4">
+      <div class="card-head">
+        <h2>One patch owns the gradient</h2><span class="cn">主 token 病理</span>
+      </div>
+
+      <div class="share">
+        <div class="row">
+          <div class="cap"><span>Layer 11 · squared gradient norm</span><b>before</b></div>
+          <div class="track">
+            <span class="s1" style="width:54%"></span>
+            <span class="s2" style="width:37%"></span>
+            <span class="s3" style="width:9%"></span>
+          </div>
+          <div class="leg"><span><i class="s1"></i>one dark border patch 54%</span><span><i class="s2"></i>next 9 tokens 37%</span><span><i class="s3"></i>rest 9%</span></div>
+        </div>
+        <div class="row">
+          <div class="cap"><span>Same prompt</span><b>after detach</b></div>
+          <div class="track">
+            <span class="s1" style="width:8%"></span>
+            <span class="s4" style="width:92%"></span>
+          </div>
+          <div class="leg"><span><i class="s1"></i>largest share 8% (a text token)</span><span><i class="s4"></i>rest 92%</span></div>
+        </div>
+      </div>
+
+      <p class="note">The dominant patch is not the lesion — it is a dark, low-contrast patch on the image border. Two other prompts concentrate on blank patches with <b>105</b> and <b>212</b> identical copies.</p>
+      <p class="note"><b>And the path is forward-dispensable:</b> zeroing these image-token MLP outputs in the base model moves validation NLL only <b>0.653 → 0.697</b>, versus <b>1.331</b> for zeroing text tokens in the same layers and <b>1.274</b> for image tokens in layers 4–6.</p>
+    </section>
+
+    <!-- relevance strip -->
+    <section class="card strip c12 rise d4">
+      <h2>Relevance / 相关性</h2>
+      <div>
+        <p>这篇工作直接对应大模型微调中的数值稳定性与训练效率问题：先测 fp32 梯度的扰动容忍度、再比较 bf16 前向状态误差的诊断流程，以及“反向断路径优于加精度”的结论，对做 LoRA / SFT 与多模态长上下文训练的人有可操作的参考价值；同时也是一份关于如何诚实报告小样本训练实验的范例。</p>
+        <p>If the effect replicates, the recipe is portable: measure the noise budget of the reference gradient, compare it with your low-precision state error, and only then decide whether to pay for bits.</p>
+      </div>
+    </section>
+
+    <!-- strengths / limitations -->
+    <section class="card panel strengths c6 rise d5">
+      <h3>Strengths / 站得住的部分</h3>
+      <ul>
+        <li><b>The diagnostic is the contribution.</b> Measure the fp32 gradient’s tolerance, compare it to the bf16 state discrepancy, then decide — this is reusable on any stack tomorrow.</li>
+        <li><b>Every link has its own probe.</b> Noise injection (tolerance) → state substitution (which layers) → detach variants (which component) → token shares (which positions) → forward ablation (does the path matter).</li>
+        <li><b>Controls that kill the easy explanation.</b> fp32 backward on bf16 states ≥0.996; repeated runs ≥0.9989; two competing noise models printed side by side, including the one that contradicts the story.</li>
+        <li><b>Honest about the shape of its own evidence.</b> Per-seed tables, post-hoc statistics labelled post hoc, biased-gradient admission, and the Frozen counter-explanation stated instead of buried.</li>
+      </ul>
+    </section>
+
+    <section class="card panel limits c6 rise d5">
+      <h3>Limitations / 站不住的部分</h3>
+      <div class="ledger">
+        <span>4 seeds / arm</span><span>1 data order</span><span>1 fp32 seed</span>
+        <span>80 val lesions</span><span>5 image prompts</span><span>private CT</span>
+      </div>
+      <ul>
+        <li><b>The statistics are thin by construction.</b> p = 1/16 is the floor for four pairs — it can only say “all four moved the same way” — and it was added after three seeds were seen. The complete rank separation carries the argument, not the p-value.</li>
+        <li><b>“Better conditioning” is not separated from “less clipping.”</b> Clipping fires on 99.7% of Standard steps, and there is no per-layer-clipping arm — the one baseline the paper itself names as the obvious alternative.</li>
+        <li><b>No sweep over the fix.</b> Layers 19–21 / MLP output / image tokens was frozen from five first-step prompts, then trained in that single form; the gate-only detach (0.86) was never trained.</li>
+        <li><b>The cross-model contrast is confounded.</b> 31B and Qwen run in 4-bit NF4 (31B “does not fit in fp32 on our GPU”), so “Qwen is spared” is measured in a different numerical regime.</li>
+        <li><b>Evaluation hygiene.</b> Patient-level train/validation overlap was never checked, and center error is unscaled voxel-index distance — not physically meaningful across scanners.</li>
+      </ul>
+    </section>
+
+    <!-- questions -->
+    <section class="card c12 rise d6">
+      <div class="card-head">
+        <h2>Questions for further exploration</h2><span class="cn">待解问题</span>
+        <span class="meta">6 open threads</span>
+      </div>
+      <div class="qgrid">
+        <div class="q"><span class="qn">Q1</span><p>Does the L19–21 MLP amplification survive in <b>other Gemma-4 sizes</b> once the 4-bit NF4 confound is removed — e.g. 31B sharded across GPUs in bf16 or fp32?</p></div>
+        <div class="q"><span class="qn">Q2</span><p>Would <b>per-layer gradient clipping</b>, or freezing only image-token MLP LoRA, reproduce the Detach gain — i.e. how much is conditioning versus norm control?</p></div>
+        <div class="q"><span class="qn">Q3</span><p>Why is <b>Qwen3.8-27B spared</b>? Attention-sink structure, MLP gating family, or how image patches are injected?</p></div>
+        <div class="q"><span class="qn">Q4</span><p>Can the dominant-token pathology be <b>predicted from activation norms</b>, and would soft token reweighting match a hard detach while staying unbiased?</p></div>
+        <div class="q"><span class="qn">Q5</span><p>Does the fix transfer to <b>long-text-only</b> fine-tuning, where the depth profile already differs and agreement is poor at L21 for two of five prompts?</p></div>
+        <div class="q"><span class="qn">Q6</span><p>Beyond 300 steps and more than one data order — does Detach’s advantage <b>persist, shrink, or reverse</b> once lower layers have adapted?</p></div>
+      </div>
+    </section>
+
+  </div>
+
+  <footer>
+    <span>arXiv 2611.27243 · 2026-11-16</span>
+    <span>bf16 vs fp32 · Gemma-4 · LoRA</span>
+    <a class="right" href="https://arxiv.org/abs/2611.27243">↗ arXiv abstract</a>
+    <a href="./2611.27243.md">↗ Markdown source</a>
+    <a href="./index.html">↩ Today’s digest</a>
+  </footer>
+
+</div>
+
+<script>
+(function(){
+  var bump = function(){ document.documentElement.classList.add('ready'); };
+  if (document.readyState === 'complete' || document.readyState === 'interactive') {
+    requestAnimationFrame(bump);
+  } else {
+    document.addEventListener('DOMContentLoaded', function(){ requestAnimationFrame(bump); });
+  }
+  window.addEventListener('load', bump);
+  setTimeout(bump, 1200);
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,514 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>2611.20419 — Pruning, Not Quantization, Breaks the Reasoner</title>
+<meta name="description" content="Byte-identical kept experts pin verbatim reasoning loops on expert pruning (44/120 vs 0/120), not 2-bit quantization; a free retry policy beats a trained repair.">
+<meta name="theme-color" content="#fbf9f4">
+<style>
+*,*::before,*::after{box-sizing:border-box}
+:root{
+  --paper:#fbf9f4;
+  --surface:#fffdf8;
+  --ink:#181613;
+  --muted:#6c6459;
+  --faint:#948a7c;
+  --line:#e7ded0;
+  --line-2:#d6cab7;
+  --accent:#17587c;
+  --accent-weak:#eaf1f6;
+  --accent-line:#c3d8e3;
+  --dark:#201d18;
+  --cream:#f5f0e6;
+  --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  --radius:12px;
+}
+html{font-size:16px;-webkit-text-size-adjust:100%;-webkit-font-smoothing:antialiased}
+body{
+  margin:0;background:var(--paper);color:var(--ink);
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Helvetica Neue","PingFang SC","Hiragino Sans GB","Microsoft YaHei",Arial,sans-serif;
+  line-height:1.6;
+}
+a{color:var(--accent)}
+.wrap{max-width:min(95vw,1100px);margin:0 auto;padding:0 22px 52px}
+
+/* ---------- fixed nav ---------- */
+.nav{
+  position:fixed;top:13px;left:15px;z-index:30;
+  display:inline-flex;align-items:center;gap:6px;
+  background:var(--surface);border:1px solid var(--line);
+  border-radius:999px;padding:6px 12px;
+  font-size:.77rem;font-weight:600;color:var(--accent);text-decoration:none;
+  box-shadow:0 1px 2px rgba(24,22,19,.05);
+}
+.nav:hover{border-color:var(--accent-line);background:var(--accent-weak)}
+
+/* ---------- hero ---------- */
+.hero{padding:76px 0 22px;border-bottom:1px solid var(--line-2)}
+.kicker{
+  display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin:0;
+  font-family:var(--mono);font-size:.68rem;letter-spacing:.07em;
+  text-transform:uppercase;color:var(--muted);
+}
+.kicker .dot{width:6px;height:6px;border-radius:50%;background:var(--accent);flex:none}
+.finding{
+  margin:16px 0 0;max-width:29ch;
+  font-size:clamp(1.95rem,4.5vw,3.4rem);
+  line-height:1.07;letter-spacing:-.032em;font-weight:700;
+  text-wrap:balance;
+}
+.finding .hl{color:var(--accent)}
+.deck{
+  margin:16px 0 0;max-width:60ch;font-size:.94rem;line-height:1.55;color:var(--muted);
+}
+.paper-title{
+  margin:20px 0 0;max-width:70ch;font-size:.97rem;font-weight:600;line-height:1.4;
+}
+.paper-title a{color:var(--ink);text-decoration:none;border-bottom:1px solid var(--line-2)}
+.paper-title a:hover{color:var(--accent);border-color:currentColor}
+.authors{margin:8px 0 0;font-size:.85rem;color:var(--muted)}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin:12px 0 0;padding:0;list-style:none}
+.chip{
+  font-size:.68rem;letter-spacing:.02em;color:var(--muted);background:var(--surface);
+  border:1px solid var(--line);border-radius:999px;padding:3px 9px;
+}
+.zh{
+  margin:16px 0 0;padding:2px 0 2px 12px;border-left:2px solid var(--accent-line);
+  max-width:86ch;font-size:.83rem;line-height:1.85;color:var(--muted);
+}
+
+/* ---------- asset row ---------- */
+.assets{
+  display:grid;grid-template-columns:repeat(12,1fr);gap:14px;
+  margin-top:18px;
+}
+.card{
+  background:var(--surface);border:1px solid var(--line);
+  border-radius:var(--radius);padding:18px 20px;
+}
+.card-label{
+  margin:0 0 10px;font-family:var(--mono);font-size:.64rem;letter-spacing:.11em;
+  text-transform:uppercase;color:var(--faint);
+}
+.metric{grid-column:span 4;display:flex;flex-direction:column}
+.metric .fig{
+  display:flex;align-items:baseline;gap:.28em;flex-wrap:wrap;
+  font-weight:700;letter-spacing:-.04em;line-height:.95;
+  font-variant-numeric:tabular-nums;
+}
+.metric .big{font-size:clamp(3rem,6.4vw,4.15rem);color:var(--accent)}
+.metric .vs{font-size:1.05rem;font-weight:600;color:var(--faint);letter-spacing:0}
+.metric .zero{font-size:clamp(3rem,6.4vw,4.15rem);color:var(--ink)}
+.metric .cap{margin:12px 0 0;font-size:.83rem;line-height:1.5;color:var(--muted)}
+.metric .cap b{color:var(--ink);font-weight:600}
+.retention{margin-top:auto;padding-top:14px}
+.retention .bar{display:flex;height:9px;border-radius:3px;overflow:hidden;border:1px solid var(--line)}
+.retention .kept{width:25%;background:var(--accent)}
+.retention .cut{width:75%;background:repeating-linear-gradient(135deg,var(--line) 0 3px,transparent 3px 7px)}
+.retention .legend{
+  display:flex;justify-content:space-between;gap:8px;margin-top:6px;
+  font-family:var(--mono);font-size:.63rem;letter-spacing:.03em;color:var(--faint);
+}
+.why{grid-column:span 4}
+.why p{margin:0;font-size:.94rem;line-height:1.55}
+.edge{
+  grid-column:span 4;background:var(--dark);border-color:var(--dark);color:var(--cream);
+  display:flex;flex-direction:column;
+}
+.edge .card-label{color:#a89e8d}
+.edge p{margin:0;font-size:.92rem;line-height:1.55;color:#efe9dc}
+.edge .src{
+  margin-top:auto;padding-top:12px;font-family:var(--mono);font-size:.62rem;
+  letter-spacing:.05em;text-transform:uppercase;color:#8e8575;
+}
+
+/* ---------- ladder ---------- */
+.ladder{grid-column:span 12;padding:20px 22px}
+.rungs{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+.rung-group{min-width:0}
+.group-head{
+  display:flex;align-items:baseline;justify-content:space-between;gap:10px;
+  padding-bottom:8px;border-bottom:1px dashed var(--line-2);
+}
+.group-head span:first-child{
+  font-family:var(--mono);font-size:.64rem;letter-spacing:.08em;
+  text-transform:uppercase;color:var(--muted);
+}
+.group-head span:last-child{font-size:.7rem;color:var(--faint)}
+.steps{display:flex;align-items:flex-end;gap:10px;margin-top:12px;flex-wrap:wrap}
+.step{flex:1 1 0;min-width:66px}
+.step .n{
+  display:block;font-size:clamp(1.55rem,3.2vw,2.15rem);font-weight:700;
+  letter-spacing:-.03em;line-height:1;font-variant-numeric:tabular-nums;
+}
+.step.win .n{color:var(--accent)}
+.step .d{display:block;margin-top:6px;font-size:.72rem;line-height:1.3;color:var(--muted)}
+.step .delta{
+  display:inline-block;margin-top:5px;font-family:var(--mono);font-size:.62rem;
+  letter-spacing:.02em;color:var(--accent);background:var(--accent-weak);
+  border:1px solid var(--accent-line);border-radius:4px;padding:1px 5px;
+}
+.step .delta.flat{color:var(--faint);background:transparent;border-color:var(--line)}
+.ladder .foot-note{
+  margin:14px 0 0;padding-top:12px;border-top:1px solid var(--line);
+  font-size:.79rem;line-height:1.5;color:var(--muted);
+}
+.ladder .foot-note b{color:var(--ink);font-weight:600}
+
+/* ---------- body grid ---------- */
+.body{display:grid;grid-template-columns:repeat(12,1fr);gap:14px;margin-top:14px}
+.method{grid-column:span 7}
+.control{grid-column:span 5}
+.results{grid-column:span 12}
+.sw{grid-column:span 6}
+.questions{grid-column:span 12}
+
+.card h2{
+  margin:0 0 12px;font-size:.98rem;font-weight:700;letter-spacing:-.01em;
+  display:flex;align-items:center;gap:8px;
+}
+.card h2::before{content:"";width:14px;height:2px;background:var(--accent);flex:none}
+
+ul.tight{margin:0;padding-left:0;list-style:none}
+ul.tight>li{position:relative;padding-left:15px;margin-bottom:9px;font-size:.855rem;line-height:1.55}
+ul.tight>li:last-child{margin-bottom:0}
+ul.tight>li::before{
+  content:"";position:absolute;left:0;top:.58em;width:5px;height:5px;
+  border-radius:1px;background:var(--line-2);
+}
+ul.tight b{font-weight:650}
+.lede-key{font-family:var(--mono);font-size:.72rem;letter-spacing:.02em;color:var(--accent);font-weight:600}
+
+.control .keep{
+  display:grid;grid-template-columns:auto 1fr;gap:6px 12px;align-items:baseline;
+  margin:0 0 14px;font-size:.84rem;
+}
+.control .keep dt{color:var(--faint);font-family:var(--mono);font-size:.65rem;letter-spacing:.05em;text-transform:uppercase}
+.control .keep dd{margin:0;line-height:1.45}
+.control .claim{
+  margin:0;padding:12px 14px;border-left:2px solid var(--accent);
+  background:var(--accent-weak);font-size:.84rem;line-height:1.5;color:var(--ink);
+}
+.control .claim b{font-weight:650}
+
+/* ---------- tables ---------- */
+.tgrid{display:grid;grid-template-columns:1fr 1fr;gap:22px 28px}
+.tset{min-width:0}
+.tset h3{
+  margin:0 0 8px;font-family:var(--mono);font-size:.65rem;letter-spacing:.08em;
+  text-transform:uppercase;color:var(--muted);font-weight:600;
+}
+table{width:100%;border-collapse:collapse;font-size:.82rem;font-variant-numeric:tabular-nums}
+caption{caption-side:bottom;text-align:left;padding-top:7px;font-size:.72rem;color:var(--faint);line-height:1.4}
+th,td{padding:7px 6px;border-bottom:1px solid var(--line);text-align:left}
+thead th{
+  font-family:var(--mono);font-size:.62rem;letter-spacing:.06em;text-transform:uppercase;
+  color:var(--faint);font-weight:600;border-bottom:1px solid var(--line-2);white-space:nowrap;
+}
+tbody tr:last-child td{border-bottom:none}
+td.num,th.num{text-align:right;white-space:nowrap}
+tr.mark td{background:var(--accent-weak)}
+tr.mark td:first-child{box-shadow:inset 2px 0 0 var(--accent)}
+.up{color:var(--accent);font-weight:650}
+.down{color:#8c3f2c;font-weight:650}
+.flatv{color:var(--muted)}
+
+/* ---------- strengths / limitations ---------- */
+.sw.lim h2::before{background:#8c3f2c}
+.sw.lim .card-label{color:#8c3f2c}
+
+/* ---------- questions ---------- */
+.questions ol{
+  margin:0;padding:0;list-style:none;
+  display:grid;grid-template-columns:1fr 1fr;gap:8px 26px;
+  counter-reset:q;
+}
+.questions li{
+  counter-increment:q;position:relative;padding-left:22px;
+  font-size:.82rem;line-height:1.5;color:var(--ink);
+}
+.questions li::before{
+  content:counter(q,decimal-leading-zero);position:absolute;left:0;top:.05em;
+  font-family:var(--mono);font-size:.66rem;letter-spacing:.04em;color:var(--accent);
+}
+
+/* ---------- footer ---------- */
+.foot{
+  display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;
+  gap:10px;margin-top:26px;padding-top:16px;border-top:1px solid var(--line-2);
+  font-size:.77rem;color:var(--faint);
+}
+.foot a{
+  display:inline-flex;align-items:center;gap:6px;color:var(--accent);
+  text-decoration:none;font-weight:600;
+}
+.foot a:hover{text-decoration:underline}
+.foot .note{font-family:var(--mono);font-size:.66rem;letter-spacing:.03em}
+
+/* ---------- responsive ---------- */
+@media (max-width:900px){
+  .metric,.why,.edge{grid-column:span 12}
+  .metric .fig{gap:.35em}
+  .retention{margin-top:16px;padding-top:0}
+  .edge .src{margin-top:14px;padding-top:0}
+  .method,.control{grid-column:span 12}
+  .rungs{grid-template-columns:1fr}
+}
+@media (max-width:720px){
+  .wrap{padding:0 16px 44px}
+  .hero{padding-top:70px}
+  .finding{max-width:24ch}
+  .tgrid{grid-template-columns:1fr}
+  .sw{grid-column:span 12}
+  .questions ol{grid-template-columns:1fr}
+  .foot{flex-direction:column;align-items:flex-start}
+  .nav{top:10px;left:10px}
+}
+@media (prefers-reduced-motion:no-preference){
+  .nav{transition:background .15s,border-color .15s}
+}
+</style>
+</head>
+<body>
+
+<a class="nav" href="./index.html">↩ Today's digest</a>
+
+<main class="wrap">
+
+  <header class="hero">
+    <p class="kicker"><span class="dot"></span> arXiv 2611.20419 · 2026-11-16 · empirical systems</p>
+
+    <h1 class="finding">Pruning, <span class="hl">not 2-bit quantization</span>, sends a reasoning MoE into verbatim loops.</h1>
+
+    <p class="deck">The kept experts are byte-identical to the unpruned 2-bit file, so the 192 experts deleted from every layer are the only variable — and they are what loops.</p>
+
+    <p class="paper-title">
+      <a href="https://arxiv.org/abs/2611.20419">Reasoning Again with a Quarter of the Experts: Retry First, Then Train</a>
+    </p>
+    <p class="authors">Anik Jha · Independent Researcher</p>
+
+    <ul class="chips">
+      <li class="chip">MoE expert pruning</li>
+      <li class="chip">reasoning-loop failure</li>
+      <li class="chip">decoding-time recovery</li>
+      <li class="chip">low-rank expert correction</li>
+      <li class="chip">pre-registered comparison</li>
+    </ul>
+
+    <p class="zh">把 122B 推理 MoE 按 REAP 剪到每层 64 个专家（25%）、2-bit 下 11.62 GiB 之后，模型会在 LiveCodeBench 上逐字复读到 token 上限；同量化的未剪枝文件却一次都不复读。作者先给出"采样惩罚 + 检测到复读就停止重抽"这一完全不动权重的强基线，再叠加低秩修正与恢复专家，130 道预注册新题上 116/130 对 104/130，但代价是 1.7 倍时延，且增益主要来自"答错"而非"复读"。</p>
+  </header>
+
+  <!-- ============ ASSET ROW ============ -->
+  <section class="assets" aria-label="Extracted key assets">
+
+    <article class="card metric">
+      <p class="card-label">Loops at the token cap · 120 dev problems, 16K</p>
+      <div class="fig">
+        <span class="big">44</span>
+        <span class="vs">vs</span>
+        <span class="zero">0</span>
+      </div>
+      <p class="cap">Pruned 25% model loops to the limit on 44 problems; the <b>byte-identical unpruned 2-bit</b> file loops on none. Solved: 71 vs 107.</p>
+      <div class="retention">
+        <div class="bar"><span class="kept"></span><span class="cut"></span></div>
+        <div class="legend"><span>64 experts kept / layer</span><span>192 removed</span></div>
+      </div>
+    </article>
+
+    <article class="card why">
+      <p class="card-label">Why this matters</p>
+      <p>Aggressive compression buys a cheap model and an expensive failure mode. This paper prices both: decoding fixes recover more than weight surgery, and the ledger includes the wall clock.</p>
+    </article>
+
+    <article class="card edge">
+      <p class="card-label">Critical edge</p>
+      <p>Method B bundles two changes, and the crucial control is missing: an untrained 66-expert model was never run on code, so the +9.2 pp cannot be assigned to the trained corrections rather than 0.26 GiB of restored capacity.</p>
+      <p class="src">from Critical Assessment</p>
+    </article>
+
+    <!-- ladder -->
+    <article class="card ladder">
+      <p class="card-label">The recovery ladder · solved problems</p>
+      <div class="rungs">
+        <div class="rung-group">
+          <div class="group-head"><span>Development</span><span>120 problems · 16K cap</span></div>
+          <div class="steps">
+            <div class="step">
+              <span class="n">71</span>
+              <span class="d">pruned C, plain sampling</span>
+            </div>
+            <div class="step">
+              <span class="n">86</span>
+              <span class="d">+ presence penalty S</span>
+              <span class="delta">+15</span>
+            </div>
+          </div>
+        </div>
+        <div class="rung-group">
+          <div class="group-head"><span>Fresh, never touched</span><span>130 problems · ≤3 draws</span></div>
+          <div class="steps">
+            <div class="step">
+              <span class="n">89</span>
+              <span class="d">S alone</span>
+            </div>
+            <div class="step">
+              <span class="n">104</span>
+              <span class="d">+ stop &amp; redraw</span>
+              <span class="delta">+11.5 pp</span>
+            </div>
+            <div class="step win">
+              <span class="n">116</span>
+              <span class="d">+ trained experts (B)</span>
+              <span class="delta">+9.2 pp</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <p class="foot-note">Redrawing alone is worth <b>11.5 pp</b> on the fresh panel — more than the <b>9.2 pp</b> the trained method adds on top of it. Any weight-repair claim has to clear this baseline, not the unpenalised one.</p>
+    </article>
+  </section>
+
+  <!-- ============ BODY ============ -->
+  <section class="body">
+
+    <article class="card method">
+      <h2>How it was built</h2>
+      <ul class="tight">
+        <li><b>Model.</b> Ornith-1.5-122B: 48 layers, 256 routed experts of width 1024, top-8 routing plus one shared expert. REAP scores experts on the authors' calibration data; the top 64 per layer survive. Kept slices and router rows are copied byte-for-byte out of the public 2-bit file (UD-IQ2_XXS), so <span class="lede-key">no kept weight is requantized</span> — 11.62 GiB.</li>
+        <li><b>Decoding fix S.</b> A presence penalty of 1.5 over a 20,480-token window. The window has to be that long because observed loop periods run to thousands of characters, far past the server's 64-token default.</li>
+        <li><b>Stop and redraw.</b> A text-only tail detector (period P ≤ 6000 chars; compares the last max(5P, 200) chars every 256 chars) kills a reply and resamples with a new seed, at most three draws.</li>
+        <li><b>Method A.</b> Every kept expert's gate/up/down matrix becomes <span class="lede-key">W + B<sub>W</sub>A<sub>W</sub></span>, rank 8, zero-initialised so fitting starts exactly at C. Layers are fitted in order to reproduce the 4-bit teacher's routed-expert outputs on the pruned model's own activations; router, attention, shared expert and embeddings stay frozen.</li>
+        <li><b>Method B.</b> A plus the next two experts in each layer's REAP order, restored with their router rows (66 per layer, retention 25 → 25.8%). They train in full precision through a straight-through estimator to their deployed quantized values; file grows to 11.88 GiB plus a 1.16 GiB adapter.</li>
+        <li><b>Fit data.</b> 1,018 calibration documents at 2,048 tokens, plus C's own 124 long replies from the old test half at 12,288 tokens — the fit sees the hidden states the model occupies when it reasons at length. Development problems and fresh panels are never used.</li>
+        <li><b>Statistics.</b> Paired by problem, 95% bootstrap over 10,000 resamples, exact McNemar on discordant pairs. Every stage ran from a frozen file listing arms, seeds, problems and SHA-256 hashes; the driver refuses to start on hash mismatch.</li>
+      </ul>
+    </article>
+
+    <article class="card control">
+      <h2>Why 44 versus 0 is causal</h2>
+      <dl class="keep">
+        <dt>Control</dt>
+        <dd>Both arms serve the same 2-bit expert bytes; C simply lacks 192 of the 256 per layer.</dd>
+        <dt>Confound</dt>
+        <dd>None from quantization: going 4-bit → 2-bit without pruning adds zero loops (110 vs 107 solved, both 0 loops).</dd>
+        <dt>Scale</dt>
+        <dd>Loop-at-limit share shifts +36.7 pp [+28.3, +45.8] with pruning; solved problems drop 30.0 pp [+21.7, +38.3].</dd>
+        <dt>Ceiling</dt>
+        <dd>No limit-hitting reply was ever a success — 0 of 45 at 32K on the old test half.</dd>
+      </dl>
+      <p class="claim">A <b>matched-quantization control</b> is exactly what earlier loop papers lacked. The 2-bit unpruned model solving 107 of 120 also confines the "2-bit reasoners loop" story to smaller dense models.</p>
+    </article>
+
+    <article class="card results">
+      <h2>Results</h2>
+      <div class="tgrid">
+
+        <section class="tset">
+          <h3>Attribution · 120 dev problems, 16K cap</h3>
+          <table>
+            <thead>
+              <tr><th>Model</th><th class="num">Experts</th><th class="num">Solved</th><th class="num">Loops at cap</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>Unpruned, 4-bit</td><td class="num">256</td><td class="num">110</td><td class="num">0</td></tr>
+              <tr><td>Unpruned, 2-bit</td><td class="num">256</td><td class="num">107</td><td class="num">0</td></tr>
+              <tr class="mark"><td><b>C: pruned, 2-bit</b></td><td class="num">64</td><td class="num">71</td><td class="num"><b>44</b></td></tr>
+            </tbody>
+            <caption>Kept expert bytes are identical across rows 2 and 3.</caption>
+          </table>
+        </section>
+
+        <section class="tset">
+          <h3>Pre-registered final · 130 fresh problems</h3>
+          <table>
+            <thead>
+              <tr><th>Arm</th><th class="num">Solved</th><th class="num">Rate</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>S + retry (baseline)</td><td class="num">104</td><td class="num">80.0%</td></tr>
+              <tr class="mark"><td><b>B + S + retry</b></td><td class="num"><b>116</b></td><td class="num"><b>89.2%</b></td></tr>
+              <tr><td>Difference</td><td class="num up">+12</td><td class="num up">+9.2 pp</td></tr>
+            </tbody>
+            <caption>95% CI [+3.1, +15.4]; 15 problems gained, 3 lost; exact McNemar p = 0.007. Each 64-problem confirmation seed alone was inconclusive (+4.7 and +7.8 pp, both CIs touching zero); only the pooled +6.2 pp cleared the gate.</caption>
+          </table>
+        </section>
+
+        <section class="tset">
+          <h3>Regression guards</h3>
+          <table>
+            <thead>
+              <tr><th>Benchmark</th><th class="num">Baseline</th><th class="num">B</th><th class="num">Δ (95% CI)</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>HumanEval+</td><td class="num">144/164</td><td class="num">145/164</td><td class="num flatv">+0.6 [−4.3, +5.5]</td></tr>
+              <tr><td>MBPP+</td><td class="num">276/378</td><td class="num">269/378</td><td class="num down">−1.9 [−5.6, +1.6]</td></tr>
+            </tbody>
+            <caption>Pre-set tolerance 2 pp: MBPP+ passes by 0.1 pp — one more lost problem fails adoption. 20 gained, 27 lost.</caption>
+          </table>
+        </section>
+
+        <section class="tset">
+          <h3>Where the eight-problem gain lands</h3>
+          <table>
+            <thead>
+              <tr><th>Failure kind</th><th class="num">S + retry</th><th class="num">B</th></tr>
+            </thead>
+            <tbody>
+              <tr class="mark"><td><b>Finished, wrong answer</b></td><td class="num">16</td><td class="num"><b>8</b></td></tr>
+              <tr><td>Still looping</td><td class="num">9</td><td class="num">4</td></tr>
+              <tr><td>Hit the token cap</td><td class="num">1</td><td class="num">2</td></tr>
+            </tbody>
+            <caption>Medium problems 44 → 54 of 67; easy problems 60 → 62 of 63. The repair mostly removes wrong answers, not loops.</caption>
+          </table>
+        </section>
+
+      </div>
+    </article>
+
+    <article class="card sw">
+      <h2>Strengths</h2>
+      <ul class="tight">
+        <li>A clean causal control: byte-identical kept experts separate pruning from quantization and give an unambiguous 44-versus-0 attribution.</li>
+        <li>Takes the free baseline seriously and reports, unprompted, that redrawing beats its own method's margin.</li>
+        <li>Pre-registration done properly — hashed artifacts, dated amendments, a driver that refuses to run on mismatch, an explicit "inconclusive" branch.</li>
+        <li>Refuses to claim the low-rank form beats the dense update it adapts, and refuses to attribute B's gain to a mechanism it did not measure.</li>
+        <li>Publishes the failure decomposition and layer-wise reconstruction numbers that undercut its own framing — median reconstruction error improves only 21.8% (A) and 22.8% (B).</li>
+        <li>Artifact-level detail others omit: the 20,480-token penalty window, the exact loop detector, straight-through-to-quantized training, deployment parity checks.</li>
+      </ul>
+    </article>
+
+    <article class="card sw lim">
+      <h2>Limitations</h2>
+      <ul class="tight">
+        <li>One model, one ratio (25%), one quantization, one benchmark family, one recipe per method — no rank, data or learning-rate search.</li>
+        <li>B bundles low-rank corrections with two restored experts per layer; A ran only on development problems and no untrained 66-expert control was ever run on code, so the gain is unattributed.</li>
+        <li>No comparison with dense EWU (the method A adapts), activation steering, router distillation or expert-wise distillation — six recovery families are cited, none are run.</li>
+        <li>Arms compared at equal draws, not equal cost: 4.63 h vs 2.73 h wall time (1.7×), with no decomposition of the slowdown.</li>
+        <li>Sampling at 32 slots does not pin a reply to its seed; confirmation-seed variance is comparable to the effect size.</li>
+        <li>Fresh problems predate the model, so shared pretraining exposure may compress the difference. Artifacts are promised for a later version and are not available now.</li>
+      </ul>
+    </article>
+
+    <article class="card questions">
+      <h2>Questions for further exploration</h2>
+      <ol>
+        <li>What does an untrained 66-expert model score on the same 130 fresh problems?</li>
+        <li>Would dense EWU at 25% retention match B, and does the load-time low-rank form cost accuracy?</li>
+        <li>How much of B's gain depends on C's own long replies from the old test half in the fitting set?</li>
+        <li>Why do gains land on finished-wrong medium problems when reconstruction improves only ~22%?</li>
+        <li>Does the loop detector's threshold (P ≤ 6000 chars) transfer to a different pruning morphology?</li>
+        <li>Where do the 1.7× wall-time hours go — expert FLOPs, adapter overhead, or longer surviving replies?</li>
+      </ol>
+    </article>
+
+  </section>
+
+  <footer class="foot">
+    <a href="./2611.20419.md">↗ Markdown source</a>
+    <span class="note">not browser-verified · built from source markdown</span>
+  </footer>
+
+</main>
+</body>
+</html>
